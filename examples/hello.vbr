@@ -1,0 +1,22 @@
+' VBR vertical-slice demo — everything here is in the first milestone
+Function Main()
+    Dim count As Long = 3
+    Dim total As Long = 0
+
+    For i = 1 To count
+        total = total + i
+    Next i
+
+    Dim ratio As Double = 2.5
+
+    Debug.Print "Sum 1.." & count & " = " & total
+    Debug.Print "ratio is " & ratio
+
+    If total > 5 Then
+        Debug.Print "big"
+    ElseIf total = 5 Then
+        Debug.Print "exactly five"
+    Else
+        Debug.Print "small"
+    End If
+End Function
