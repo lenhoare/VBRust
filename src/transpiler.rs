@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
+use crate::resolver::{self, FnTable};
 
 pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     // Fire the one-time teaching notes for builtins before generating code,
@@ -16,6 +17,8 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     for func in &program.functions {
         note_builtins(&func.body, diags);
     }
+
+    let fns = resolver::build_fn_table(program);
 
     let mut out = String::new();
     for comment in &program.leading_comments {
@@ -28,12 +31,12 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
         if idx > 0 {
             out.push('\n');
         }
-        emit_function(func, diags, &mut out);
+        emit_function(func, &fns, diags, &mut out);
     }
     out
 }
 
-fn emit_function(func: &Function, diags: &mut Diagnostics, out: &mut String) {
+fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &mut String) {
     let name = rust_fn_name(&func.name, func.line, diags);
     let params: Vec<String> = func.params.iter().map(render_param).collect();
     let ret = match func.ret {
@@ -46,11 +49,24 @@ fn emit_function(func: &Function, diags: &mut Diagnostics, out: &mut String) {
     let mut body = func.body.clone();
     convert_returns(&mut body, &name);
 
-    // Which locals get reassigned? Those need `let mut`.
+    // The ByRef parameters of *this* function — their uses get dereferenced.
+    let byref: HashSet<String> = func
+        .params
+        .iter()
+        .filter(|p| p.mode == ParamMode::ByRef)
+        .map(|p| to_snake(&p.name))
+        .collect();
+
+    // Resolver rewrites the body (&mut at call sites, *deref of ByRef params)
+    // and tells us which locals were lent mutably.
+    let passed_by_ref = resolver::resolve_body(&mut body, &byref, fns);
+
+    // Which locals need `let mut`: those reassigned, plus those lent mutably.
     let mut mutated = HashSet::new();
     collect_mutated(&body, &mut mutated);
+    mutated.extend(passed_by_ref);
 
-    emit_fn_body(&body, &mutated, func.ret, diags, out);
+    emit_fn_body(&body, &mutated, &byref, func.ret, diags, out);
     out.push_str("}\n");
 }
 
@@ -70,6 +86,7 @@ fn render_param(p: &Param) -> String {
 fn emit_fn_body(
     stmts: &[Stmt],
     mutated: &HashSet<String>,
+    byref: &HashSet<String>,
     ret: Option<Type>,
     diags: &mut Diagnostics,
     out: &mut String,
@@ -80,18 +97,18 @@ fn emit_fn_body(
     if let Some(l) = last_real {
         if let Stmt::Return(Some(e)) = &stmts[l] {
             for stmt in &stmts[..l] {
-                emit_stmt(stmt, mutated, 1, diags, out);
+                emit_stmt(stmt, mutated, byref, 1, diags, out);
             }
             // Any trailing comments are emitted just above the returned value.
             for stmt in &stmts[l + 1..] {
-                emit_stmt(stmt, mutated, 1, diags, out);
+                emit_stmt(stmt, mutated, byref, 1, diags, out);
             }
             out.push_str(&format!("    {}\n", render_expr(e, ret)));
             return;
         }
     }
     for stmt in stmts {
-        emit_stmt(stmt, mutated, 1, diags, out);
+        emit_stmt(stmt, mutated, byref, 1, diags, out);
     }
 }
 
@@ -133,18 +150,20 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
 fn emit_block(
     stmts: &[Stmt],
     mutated: &HashSet<String>,
+    byref: &HashSet<String>,
     indent: usize,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
     for stmt in stmts {
-        emit_stmt(stmt, mutated, indent, diags, out);
+        emit_stmt(stmt, mutated, byref, indent, diags, out);
     }
 }
 
 fn emit_stmt(
     stmt: &Stmt,
     mutated: &HashSet<String>,
+    byref: &HashSet<String>,
     indent: usize,
     diags: &mut Diagnostics,
     out: &mut String,
@@ -199,7 +218,16 @@ fn emit_stmt(
         }
         Stmt::Assign { name, value } => {
             let var = to_snake(name);
-            out.push_str(&format!("{}{} = {};\n", pad, var, render_expr(value, None)));
+            // Assigning through a ByRef parameter writes to the pointee: `*p = …`.
+            let target = if byref.contains(&var) {
+                format!("*{}", var)
+            } else {
+                var
+            };
+            out.push_str(&format!("{}{} = {};\n", pad, target, render_expr(value, None)));
+        }
+        Stmt::Expr(e) => {
+            out.push_str(&format!("{}{};\n", pad, render_expr(e, None)));
         }
         Stmt::Return(Some(e)) => {
             out.push_str(&format!("{}return {};\n", pad, render_expr(e, None)));
@@ -217,11 +245,11 @@ fn emit_stmt(
             for (i, (cond, body)) in branches.iter().enumerate() {
                 let head = if i == 0 { "if" } else { "} else if" };
                 out.push_str(&format!("{}{} {} {{\n", pad, head, render_expr(cond, None)));
-                emit_block(body, mutated, indent + 1, diags, out);
+                emit_block(body, mutated, byref, indent + 1, diags, out);
             }
             if let Some(body) = else_body {
                 out.push_str(&format!("{}}} else {{\n", pad));
-                emit_block(body, mutated, indent + 1, diags, out);
+                emit_block(body, mutated, byref, indent + 1, diags, out);
             }
             out.push_str(&format!("{}}}\n", pad));
         }
@@ -235,7 +263,7 @@ fn emit_stmt(
             let loop_var = to_snake(var);
             let range = render_range(from, to, step.as_ref(), diags);
             out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
-            emit_block(body, mutated, indent + 1, diags, out);
+            emit_block(body, mutated, byref, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
         }
         Stmt::Select {
@@ -249,13 +277,13 @@ fn emit_stmt(
             for arm in arms {
                 let pats: Vec<String> = arm.patterns.iter().map(render_pattern).collect();
                 out.push_str(&format!("{}{} => {{\n", arm_pad, pats.join(" | ")));
-                emit_block(&arm.body, mutated, indent + 2, diags, out);
+                emit_block(&arm.body, mutated, byref, indent + 2, diags, out);
                 out.push_str(&format!("{}}}\n", arm_pad));
             }
             // `Case Else` is the `_` catch-all (its absence is a hard error upstream).
             if let Some(body) = else_body {
                 out.push_str(&format!("{}_ => {{\n", arm_pad));
-                emit_block(body, mutated, indent + 2, diags, out);
+                emit_block(body, mutated, byref, indent + 2, diags, out);
                 out.push_str(&format!("{}}}\n", arm_pad));
             }
             out.push_str(&format!("{}}}\n", pad));
@@ -334,7 +362,9 @@ fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
         match stmt {
             Stmt::Dim { init: Some(e), .. } => note_builtins_expr(e, diags),
             Stmt::Set { value, .. } | Stmt::Assign { value, .. } => note_builtins_expr(value, diags),
-            Stmt::Return(Some(e)) | Stmt::Print(e) => note_builtins_expr(e, diags),
+            Stmt::Return(Some(e)) | Stmt::Print(e) | Stmt::Expr(e) => {
+                note_builtins_expr(e, diags)
+            }
             Stmt::If {
                 branches,
                 else_body,
@@ -565,6 +595,8 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 format!("{}({})", to_snake(name), rendered.join(", "))
             }
         }
+        Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 6, false)),
+        Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 6, false)),
     }
 }
 
@@ -616,7 +648,8 @@ fn math0(recv: &Expr, method: &str) -> String {
 
 fn render_recv(e: &Expr) -> String {
     let s = render_prec(e, None, 6, false);
-    if s.starts_with('-') {
+    // Parenthesise a leading unary so `(-5.0).abs()` / `(*p).foo()` parse right.
+    if s.starts_with('-') || s.starts_with('*') {
         format!("({})", s)
     } else {
         s
@@ -764,7 +797,7 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
 }
 
 /// Convert PascalCase / camelCase to snake_case. Already-snake names pass through.
-fn to_snake(name: &str) -> String {
+pub(crate) fn to_snake(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
     let mut out = String::new();
     for (i, &c) in chars.iter().enumerate() {

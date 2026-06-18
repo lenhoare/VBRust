@@ -1,1 +1,1 @@
-/home/len/dev/VBRust/target/debug/libvbr.rlib: /home/len/dev/VBRust/src/ast.rs /home/len/dev/VBRust/src/diagnostics.rs /home/len/dev/VBRust/src/lexer.rs /home/len/dev/VBRust/src/lib.rs /home/len/dev/VBRust/src/parser.rs /home/len/dev/VBRust/src/transpiler.rs
+/home/len/dev/VBRust/target/debug/libvbr.rlib: /home/len/dev/VBRust/src/ast.rs /home/len/dev/VBRust/src/diagnostics.rs /home/len/dev/VBRust/src/lexer.rs /home/len/dev/VBRust/src/lib.rs /home/len/dev/VBRust/src/parser.rs /home/len/dev/VBRust/src/resolver.rs /home/len/dev/VBRust/src/transpiler.rs

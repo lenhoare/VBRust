@@ -23,6 +23,7 @@ const HAPPY: &[&str] = &[
     "select",
     "string_funcs",
     "maths",
+    "byref",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

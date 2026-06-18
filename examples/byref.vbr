@@ -1,0 +1,12 @@
+' ByRef parameters — the resolver inserts &mut at the call site and
+' dereferences the parameter inside the function.
+Function Main()
+    Dim total As Long = 0
+    AddTo(total, 5)
+    AddTo(total, 10)
+    Debug.Print "total = " & total
+End Function
+
+Function AddTo(ByRef target As Long, ByVal amount As Long)
+    target = target + amount
+End Function

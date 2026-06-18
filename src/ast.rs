@@ -110,6 +110,9 @@ pub enum Stmt {
     },
     /// `Return value` or `FunctionName = value` — both become a Rust return.
     Return(Option<Expr>),
+    /// A bare expression used as a statement — chiefly a call for its effect,
+    /// e.g. `AddTo(total, 5)`.
+    Expr(Expr),
     Print(Expr),
     If {
         branches: Vec<(Expr, Vec<Stmt>)>,
@@ -168,6 +171,10 @@ pub enum Expr {
         name: String,
         args: Vec<Expr>,
     },
+    /// `*inner` — inserted by the resolver for uses of a `ByRef` parameter.
+    Deref(Box<Expr>),
+    /// `&mut inner` — inserted by the resolver for `ByRef` call arguments.
+    MutRef(Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

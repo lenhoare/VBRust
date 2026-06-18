@@ -379,11 +379,19 @@ impl<'a> Parser<'a> {
             return Some(Stmt::Print(value));
         }
 
-        // Assignment: name = expr
-        self.advance(); // name
-        self.expect(&Tok::Eq, "for assignment")?;
-        let value = self.parse_expr()?;
-        Some(Stmt::Assign { name, value })
+        // Assignment (`name = expr`) vs. an expression statement (e.g. a call).
+        // Peek the token after the name to decide.
+        let next_is_eq = matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq));
+        if next_is_eq {
+            self.advance(); // name
+            self.advance(); // =
+            let value = self.parse_expr()?;
+            Some(Stmt::Assign { name, value })
+        } else {
+            // Parse from the current position (still at the name) as an expression.
+            let e = self.parse_expr()?;
+            Some(Stmt::Expr(e))
+        }
     }
 
     fn parse_if(&mut self) -> Option<Stmt> {
