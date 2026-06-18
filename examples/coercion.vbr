@@ -1,0 +1,10 @@
+' Rust won't silently convert between number types — VBR inserts `as` for you.
+Function Main()
+    Dim length As Long = Len("hello world")   ' usize -> Long
+    Dim ratio As Double = length              ' Long  -> Double
+    Dim small As Integer = length             ' Long  -> Integer (may narrow)
+
+    Debug.Print "length = " & length
+    Debug.Print "ratio  = " & ratio
+    Debug.Print "small  = " & small
+End Function

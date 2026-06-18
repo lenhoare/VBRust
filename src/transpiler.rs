@@ -57,9 +57,9 @@ fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &
         .map(|p| to_snake(&p.name))
         .collect();
 
-    // Resolver rewrites the body (&mut at call sites, *deref of ByRef params)
-    // and tells us which locals were lent mutably.
-    let passed_by_ref = resolver::resolve_body(&mut body, &byref, fns);
+    // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
+    // `as` casts for numeric coercions) and tells us which locals were lent.
+    let passed_by_ref = resolver::resolve_body(&mut body, &func.params, fns, diags);
 
     // Which locals need `let mut`: those reassigned, plus those lent mutably.
     let mut mutated = HashSet::new();
@@ -597,6 +597,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 6, false)),
         Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 6, false)),
+        Expr::Cast(inner, ty) => {
+            // `x as f64`. Parenthesise the cast if it sits under a tighter op.
+            let inner = render_prec(inner, None, 6, false);
+            let cast = format!("{} as {}", inner, ty.rust());
+            if parent_prec > 0 {
+                format!("({})", cast)
+            } else {
+                cast
+            }
+        }
     }
 }
 

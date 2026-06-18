@@ -24,6 +24,7 @@ const HAPPY: &[&str] = &[
     "string_funcs",
     "maths",
     "byref",
+    "coercion",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

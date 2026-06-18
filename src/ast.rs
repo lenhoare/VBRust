@@ -175,6 +175,9 @@ pub enum Expr {
     Deref(Box<Expr>),
     /// `&mut inner` — inserted by the resolver for `ByRef` call arguments.
     MutRef(Box<Expr>),
+    /// `inner as Type` — inserted by the resolver for numeric coercions VB
+    /// would do silently but Rust requires to be explicit.
+    Cast(Box<Expr>, Type),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
