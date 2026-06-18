@@ -1,0 +1,14 @@
+✘ [line 5] Cannot assign 'original' to 'copy' directly.
+
+  Unlike integers or doubles, String is not a fixed size —
+  it can grow to any length. Rust won't silently copy something
+  of unknown size. You need to be explicit:
+
+  Set copy = original                    ' borrow — copy looks at original, no copy made
+  Set Mut copy = original                ' mutable borrow — copy can modify original
+  Dim copy As String = original.clone()  ' explicit copy — you are asking
+                                ' for a copy knowing it has a cost
+
+  The same rule applies to any type that can grow to an unknown
+  size. Fixed size types like Long, Double and Boolean copy
+  freely because Rust knows exactly how big they are.

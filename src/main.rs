@@ -5,16 +5,8 @@
 //!   vbr input.vbr --run      transpile, compile with rustc, and run the binary
 //!   vbr input.vbr --emit     transpile and print the Rust to stdout
 
-mod ast;
-mod diagnostics;
-mod lexer;
-mod parser;
-mod transpiler;
-
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
-
-use diagnostics::Diagnostics;
 
 struct Args {
     input: PathBuf,
@@ -45,22 +37,18 @@ fn main() {
         }
     };
 
-    let mut diags = Diagnostics::new();
-    let tokens = lexer::lex(&source);
-    let program = parser::parse(tokens, &mut diags);
-    let rust = transpiler::transpile(&program, &mut diags);
+    let result = vbr::compile(&source);
 
-    // Report everything we collected.
-    for d in diags.items() {
-        eprintln!("{}", d.render());
+    for d in &result.diagnostics {
+        eprintln!("{}", d);
     }
-    if diags.has_errors() {
+    if result.has_errors {
         eprintln!("\nTranspilation failed — no Rust was written.");
         exit(1);
     }
 
     if args.emit {
-        print!("{}", rust);
+        print!("{}", result.rust);
     }
 
     let out_path = args
@@ -68,7 +56,7 @@ fn main() {
         .clone()
         .unwrap_or_else(|| args.input.with_extension("rs"));
 
-    if let Err(e) = std::fs::write(&out_path, &rust) {
+    if let Err(e) = std::fs::write(&out_path, &result.rust) {
         eprintln!("✘ Could not write {}: {}", out_path.display(), e);
         exit(1);
     }

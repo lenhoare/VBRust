@@ -1,0 +1,1 @@
+✘ [line 2] `Sub` is not part of VBR. In Rust every routine is a function; a Function with no `As` return type simply returns nothing. Replace `Sub Foo()` with `Function Foo()`.
