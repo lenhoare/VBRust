@@ -85,6 +85,8 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    /// `Some(struct)` for a method `Function Struct.Name()`, else a free function.
+    pub receiver: Option<String>,
     pub params: Vec<Param>,
     pub ret: Option<RetType>,
     pub body: Vec<Stmt>,

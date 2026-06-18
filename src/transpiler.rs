@@ -19,6 +19,7 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     }
 
     let fns = resolver::build_fn_table(program);
+    let methods = resolver::build_method_table(program);
 
     let mut out = String::new();
     for comment in &program.leading_comments {
@@ -31,17 +32,70 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     if program.functions.iter().any(|f| body_uses_hashmap(&f.body)) {
         out.push_str("use std::collections::HashMap;\n\n");
     }
-    for s in &program.structs {
-        emit_struct(s, diags, &mut out);
-        out.push('\n');
-    }
-    for (idx, func) in program.functions.iter().enumerate() {
-        if idx > 0 {
+
+    // Top-level items, separated by a single blank line: structs, then impl
+    // blocks (methods grouped by receiver), then free functions.
+    let mut first_item = true;
+    let mut sep = |out: &mut String| {
+        if !first_item {
             out.push('\n');
         }
-        emit_function(func, &fns, diags, &mut out);
+        first_item = false;
+    };
+
+    for s in &program.structs {
+        sep(&mut out);
+        emit_struct(s, diags, &mut out);
+    }
+
+    // Receivers in first-seen order.
+    let mut receivers: Vec<&String> = Vec::new();
+    for f in &program.functions {
+        if let Some(r) = &f.receiver {
+            if !receivers.contains(&r) {
+                receivers.push(r);
+            }
+        }
+    }
+    for recv in receivers {
+        sep(&mut out);
+        emit_impl(recv, program, &fns, &methods, diags, &mut out);
+    }
+
+    for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
+        sep(&mut out);
+        emit_fn(func, &fns, &methods, diags, &mut out, 0, None);
     }
     out
+}
+
+fn emit_impl(
+    recv: &str,
+    program: &Program,
+    fns: &FnTable,
+    methods: &resolver::MethodTable,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    out.push_str(&format!("impl {} {{\n", recv));
+    let mut first = true;
+    for f in program
+        .functions
+        .iter()
+        .filter(|f| f.receiver.as_deref() == Some(recv))
+    {
+        if !first {
+            out.push('\n');
+        }
+        first = false;
+        let mutates = methods
+            .get(&(recv.to_string(), to_snake(&f.name)))
+            .copied()
+            .unwrap_or(false);
+        let self_param = if mutates { "&mut self" } else { "&self" };
+        emit_fn(f, fns, methods, diags, out, 1, Some(self_param));
+    }
+    out.push_str("}\n");
 }
 
 fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
@@ -87,9 +141,24 @@ fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
     })
 }
 
-fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &mut String) {
+fn emit_fn(
+    func: &Function,
+    fns: &FnTable,
+    methods: &resolver::MethodTable,
+    diags: &mut Diagnostics,
+    out: &mut String,
+    base_indent: usize,
+    self_param: Option<&str>,
+) {
+    let pad = "    ".repeat(base_indent);
     let name = rust_fn_name(&func.name, func.line, diags);
-    let params: Vec<String> = func.params.iter().map(render_param).collect();
+
+    let mut params: Vec<String> = Vec::new();
+    if let Some(sp) = self_param {
+        params.push(sp.to_string());
+    }
+    params.extend(func.params.iter().map(render_param));
+
     let ret = match func.ret {
         Some(RetType::Plain(t)) => format!(" -> {}", t.rust()),
         Some(RetType::Result(t)) => format!(" -> Result<{}, String>", t.rust()),
@@ -102,7 +171,7 @@ fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &
         Some(RetType::Plain(t)) => Some(t),
         _ => None,
     };
-    out.push_str(&format!("fn {}({}){} {{\n", name, params.join(", "), ret));
+    out.push_str(&format!("{}fn {}({}){} {{\n", pad, name, params.join(", "), ret));
 
     // `FunctionName = value` is really a return — rewrite it before emitting.
     let mut body = func.body.clone();
@@ -118,15 +187,15 @@ fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &
 
     // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
     // `as` casts for numeric coercions) and tells us which locals were lent.
-    let passed_by_ref = resolver::resolve_body(&mut body, &func.params, fns, diags);
+    let passed_by_ref = resolver::resolve_body(&mut body, &func.params, fns, methods, diags);
 
     // Which locals need `let mut`: those reassigned, plus those lent mutably.
     let mut mutated = HashSet::new();
     collect_mutated(&body, &mut mutated);
     mutated.extend(passed_by_ref);
 
-    emit_fn_body(&body, &mutated, &byref, tail_expected, diags, out);
-    out.push_str("}\n");
+    emit_fn_body(&body, &mutated, &byref, tail_expected, diags, out, base_indent + 1);
+    out.push_str(&format!("{}}}\n", pad));
 }
 
 fn render_param(p: &Param) -> String {
@@ -149,25 +218,27 @@ fn emit_fn_body(
     ret: Option<Type>,
     diags: &mut Diagnostics,
     out: &mut String,
+    indent: usize,
 ) {
+    let pad = "    ".repeat(indent);
     // The tail expression is the last *non-comment* statement, so a trailing
     // inline comment doesn't rob a `Return` of its idiomatic tail form.
     let last_real = stmts.iter().rposition(|s| !matches!(s, Stmt::Comment(_)));
     if let Some(l) = last_real {
         if let Stmt::Return(Some(e)) = &stmts[l] {
             for stmt in &stmts[..l] {
-                emit_stmt(stmt, mutated, byref, 1, diags, out);
+                emit_stmt(stmt, mutated, byref, indent, diags, out);
             }
             // Any trailing comments are emitted just above the returned value.
             for stmt in &stmts[l + 1..] {
-                emit_stmt(stmt, mutated, byref, 1, diags, out);
+                emit_stmt(stmt, mutated, byref, indent, diags, out);
             }
-            out.push_str(&format!("    {}\n", render_expr(e, ret)));
+            out.push_str(&format!("{}{}\n", pad, render_expr(e, ret)));
             return;
         }
     }
     for stmt in stmts {
-        emit_stmt(stmt, mutated, byref, 1, diags, out);
+        emit_stmt(stmt, mutated, byref, indent, diags, out);
     }
 }
 
@@ -762,6 +833,8 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Str(s) => format!("\"{}\"", escape(s)),
         // `None` is the Option constructor, not a variable — keep it as-is.
         Expr::Ident(name) if name == "None" => "None".to_string(),
+        // `Me` is the method receiver.
+        Expr::Ident(name) if name == "Me" => "self".to_string(),
         Expr::Ident(name) => to_snake(name),
         Expr::Binary { op, lhs, rhs } if *op == BinOp::Concat => {
             // `&` concatenation always becomes format!, sidestepping ownership.

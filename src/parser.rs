@@ -195,7 +195,13 @@ impl<'a> Parser<'a> {
     fn parse_function(&mut self) -> Option<Function> {
         let line = self.line();
         self.expect(&Tok::Function, "to start a function")?;
-        let name = self.expect_ident("for the function")?;
+        let first = self.expect_ident("for the function")?;
+        // `Function Struct.Method()` is a method; otherwise a free function.
+        let (receiver, name) = if self.eat(&Tok::Dot) {
+            (Some(first), self.expect_ident("for the method name")?)
+        } else {
+            (None, first)
+        };
         self.expect(&Tok::LParen, "after the function name")?;
 
         let mut params = Vec::new();
@@ -225,6 +231,7 @@ impl<'a> Parser<'a> {
 
         Some(Function {
             name,
+            receiver,
             params,
             ret,
             body,

@@ -31,6 +31,7 @@ const HAPPY: &[&str] = &[
     "hashmap",
     "doloop",
     "structs",
+    "methods",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

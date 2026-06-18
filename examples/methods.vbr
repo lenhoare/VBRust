@@ -1,0 +1,21 @@
+' Struct methods — impl, Me/self, and &self vs &mut self
+Type Person
+    Public Name As String
+    Public Age As Long
+End Type
+
+Function Person.Greet() As String
+    Return "Hi, I'm " & Me.Name & " (" & Me.Age & ")"
+End Function
+
+Function Person.HaveBirthday()
+    Me.Age = Me.Age + 1
+End Function
+
+Function Main()
+    Dim alice As Person = Person { name: "Alice", age: 30 }
+    Debug.Print alice.Greet()
+
+    alice.HaveBirthday()
+    Debug.Print alice.Greet()
+End Function

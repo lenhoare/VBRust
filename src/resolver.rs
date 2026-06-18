@@ -26,6 +26,48 @@ pub struct FnSig {
 
 pub type FnTable = HashMap<String, FnSig>;
 
+/// `(struct name, method snake name)` → does it take `&mut self`?
+pub type MethodTable = HashMap<(String, String), bool>;
+
+/// Map each method to whether it mutates `self` (assigns to a `Me` field).
+pub fn build_method_table(program: &Program) -> MethodTable {
+    program
+        .functions
+        .iter()
+        .filter_map(|f| {
+            f.receiver
+                .as_ref()
+                .map(|recv| ((recv.clone(), snake(&f.name)), method_mutates_self(&f.body)))
+        })
+        .collect()
+}
+
+/// Does this method body assign to a `Me` field (so it needs `&mut self`)?
+pub fn method_mutates_self(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Assign { target, .. } => is_me_field(target),
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| method_mutates_self(b))
+                || else_body.as_ref().map_or(false, |b| method_mutates_self(b))
+        }
+        Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::DoLoop { body, .. } => method_mutates_self(body),
+        Stmt::Select { arms, else_body, .. } => {
+            arms.iter().any(|a| method_mutates_self(&a.body))
+                || else_body.as_ref().map_or(false, |b| method_mutates_self(b))
+        }
+        _ => false,
+    })
+}
+
+fn is_me_field(e: &Expr) -> bool {
+    match e {
+        Expr::Field(inner, _) => matches!(&**inner, Expr::Ident(n) if n == "Me") || is_me_field(inner),
+        _ => false,
+    }
+}
+
 /// Map every user function (by its Rust snake_case name) to its signature.
 pub fn build_fn_table(program: &Program) -> FnTable {
     program
@@ -105,6 +147,7 @@ pub fn resolve_body(
     stmts: &mut [Stmt],
     params: &[Param],
     fns: &FnTable,
+    methods: &MethodTable,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
     let byref: HashSet<String> = params
@@ -118,12 +161,15 @@ pub fn resolve_body(
     let mut vars: HashMap<String, Type> =
         params.iter().map(|p| (snake(&p.name), p.ty)).collect();
 
+    let mut struct_vars = HashMap::new();
     let mut passed = HashSet::new();
     let mut ctx = Ctx {
         deref: byref,
         fns,
+        methods,
         diags,
         vars: &mut vars,
+        struct_vars: &mut struct_vars,
         passed: &mut passed,
     };
     resolve_stmts(stmts, &mut ctx);
@@ -135,8 +181,11 @@ struct Ctx<'a> {
     /// plus the (scoped) variables of an enclosing `For Each`.
     deref: HashSet<String>,
     fns: &'a FnTable,
+    methods: &'a MethodTable,
     diags: &'a mut Diagnostics,
     vars: &'a mut HashMap<String, Type>,
+    /// Variable name → struct type, for receiver-mutation detection.
+    struct_vars: &'a mut HashMap<String, String>,
     passed: &'a mut HashSet<String>,
 }
 
@@ -151,6 +200,11 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         maybe_cast(e, *t, ctx);
                     }
                     ctx.vars.insert(snake(name), *t);
+                } else if let DeclType::Named(struct_name) = ty {
+                    if let Some(e) = init {
+                        resolve_expr(e, ctx);
+                    }
+                    ctx.struct_vars.insert(snake(name), struct_name.clone());
                 } else if let Some(e) = init {
                     resolve_expr(e, ctx);
                 }
@@ -280,10 +334,23 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             resolve_expr(lhs, ctx);
             resolve_expr(rhs, ctx);
         }
-        Expr::MethodCall { recv, args, .. } => {
+        Expr::MethodCall { recv, method, args } => {
+            // Calling a `&mut self` method on a variable means it must be `mut`.
+            let recv_var = match &**recv {
+                Expr::Ident(v) => Some(snake(v)),
+                _ => None,
+            };
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
+            }
+            if let Some(v) = recv_var {
+                if let Some(struct_name) = ctx.struct_vars.get(&v) {
+                    let key = (struct_name.clone(), snake(method));
+                    if ctx.methods.get(&key) == Some(&true) {
+                        ctx.passed.insert(v);
+                    }
+                }
             }
         }
         Expr::Call { name, args } => {
