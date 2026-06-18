@@ -152,10 +152,11 @@ impl<'a> Parser<'a> {
             Tok::TyInteger => Type::Integer,
             Tok::TyDouble => Type::Double,
             Tok::TyBoolean => Type::Boolean,
+            Tok::TyString => Type::Text,
             other => {
                 self.diags.error(
                     self.line(),
-                    format!("Expected a type (Long, Integer, Double, Boolean), found {:?}.", other),
+                    format!("Expected a type (Long, Integer, Double, Boolean, String), found {:?}.", other),
                 );
                 return None;
             }
@@ -165,6 +166,8 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse statements until a block-terminating keyword (handled by caller).
+    /// Each statement ends at a line boundary; a trailing inline comment is
+    /// kept as its own `//` line in the output.
     fn parse_block(&mut self) -> Option<Vec<Stmt>> {
         let mut stmts = Vec::new();
         loop {
@@ -174,6 +177,19 @@ impl<'a> Parser<'a> {
             }
             let s = self.parse_stmt()?;
             stmts.push(s);
+
+            if let Tok::Comment(text) = self.peek().clone() {
+                self.advance();
+                stmts.push(Stmt::Comment(text));
+            }
+
+            if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !self.at_block_end() {
+                self.diags.error(
+                    self.line(),
+                    format!("Expected end of line after statement, found {:?}.", self.peek()),
+                );
+                return None;
+            }
         }
         Some(stmts)
     }
@@ -185,27 +201,24 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Parse a single statement. Line termination is handled by `parse_block`.
     fn parse_stmt(&mut self) -> Option<Stmt> {
-        let stmt = match self.peek().clone() {
+        match self.peek().clone() {
             Tok::Comment(text) => {
                 self.advance();
-                Stmt::Comment(text)
+                Some(Stmt::Comment(text))
             }
-            Tok::Dim => self.parse_dim()?,
-            Tok::If => return self.parse_if(),
-            Tok::For => return self.parse_for(),
-            Tok::Ident(name) => self.parse_ident_stmt(name)?,
+            Tok::Dim => self.parse_dim(),
+            Tok::Set => self.parse_set(),
+            Tok::If => self.parse_if(),
+            Tok::For => self.parse_for(),
+            Tok::Ident(name) => self.parse_ident_stmt(name),
             other => {
                 self.diags
                     .error(self.line(), format!("Unexpected {:?} at start of statement.", other));
-                return None;
+                None
             }
-        };
-        // Statements end at end of line.
-        if !matches!(self.peek(), Tok::Eof) {
-            self.expect(&Tok::Newline, "at end of statement")?;
         }
-        Some(stmt)
     }
 
     fn parse_dim(&mut self) -> Option<Stmt> {
@@ -224,6 +237,19 @@ impl<'a> Parser<'a> {
             ty,
             init,
             line,
+        })
+    }
+
+    fn parse_set(&mut self) -> Option<Stmt> {
+        self.expect(&Tok::Set, "")?;
+        let mutable = self.eat(&Tok::Mut);
+        let name = self.expect_ident("after `Set`")?;
+        self.expect(&Tok::Eq, "in a `Set` borrow")?;
+        let value = self.parse_expr()?;
+        Some(Stmt::Set {
+            name,
+            mutable,
+            value,
         })
     }
 
@@ -399,6 +425,32 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {
+        let mut e = self.parse_atom()?;
+        // Postfix method calls: `expr.method(args)`, chainable.
+        while matches!(self.peek(), Tok::Dot) {
+            self.advance();
+            let method = self.expect_ident("after `.`")?;
+            self.expect(&Tok::LParen, "after the method name")?;
+            let mut args = Vec::new();
+            if !matches!(self.peek(), Tok::RParen) {
+                loop {
+                    args.push(self.parse_expr()?);
+                    if !self.eat(&Tok::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect(&Tok::RParen, "to close the method arguments")?;
+            e = Expr::MethodCall {
+                recv: Box::new(e),
+                method,
+                args,
+            };
+        }
+        Some(e)
+    }
+
+    fn parse_atom(&mut self) -> Option<Expr> {
         match self.peek().clone() {
             Tok::Int(n) => {
                 self.advance();

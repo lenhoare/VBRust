@@ -1,0 +1,12 @@
+' String and ownership demo
+Function Main()
+    Dim greeting As String = "Hello"          ' a literal is a fixed-size &str
+    Set view = greeting                        ' borrow — no copy is made
+
+    Dim combined As String = greeting & ", World"   ' concat makes an owned String
+    Dim copy As String = combined.clone()            ' explicit owned copy
+
+    Debug.Print view
+    Debug.Print combined
+    Debug.Print copy
+End Function

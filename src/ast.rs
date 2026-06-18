@@ -11,17 +11,25 @@ pub enum Type {
     Integer, // i16
     Double,  // f64
     Boolean, // bool
+    Text,    // String — unknown size, ownership rules apply
 }
 
 impl Type {
-    /// The Rust type this maps to.
+    /// The Rust type this maps to (the owned form for `Text`).
     pub fn rust(self) -> &'static str {
         match self {
             Type::Long => "i32",
             Type::Integer => "i16",
             Type::Double => "f64",
             Type::Boolean => "bool",
+            Type::Text => "String",
         }
+    }
+
+    /// Fixed-size types copy freely; unknown-size types need explicit
+    /// borrowing or cloning (the rule the `✘` ownership error explains).
+    pub fn is_fixed_size(self) -> bool {
+        !matches!(self, Type::Text)
     }
 }
 
@@ -45,8 +53,13 @@ pub enum Stmt {
         name: String,
         ty: Type,
         init: Option<Expr>,
-        #[allow(dead_code)] // used once Dim emits its own ownership diagnostics
         line: usize,
+    },
+    /// `Set a = b` / `Set Mut a = b` — borrow instead of copy.
+    Set {
+        name: String,
+        mutable: bool,
+        value: Expr,
     },
     Assign {
         name: String,
@@ -78,6 +91,12 @@ pub enum Expr {
         op: BinOp,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
+    },
+    /// A Rust-style method call, e.g. `b.clone()`.
+    MethodCall {
+        recv: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
     },
 }
 

@@ -16,6 +16,8 @@ pub enum Tok {
     Function,
     End,
     Dim,
+    Set,
+    Mut,
     As,
     If,
     Then,
@@ -31,6 +33,7 @@ pub enum Tok {
     TyInteger,
     TyDouble,
     TyBoolean,
+    TyString,
 
     // Operators & punctuation
     Plus,
@@ -188,6 +191,8 @@ fn keyword_or_ident(word: &str) -> Tok {
         "function" => Tok::Function,
         "end" => Tok::End,
         "dim" => Tok::Dim,
+        "set" => Tok::Set,
+        "mut" => Tok::Mut,
         "as" => Tok::As,
         "if" => Tok::If,
         "then" => Tok::Then,
@@ -203,6 +208,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "integer" => Tok::TyInteger,
         "double" => Tok::TyDouble,
         "boolean" => Tok::TyBoolean,
+        "string" => Tok::TyString,
         _ => Tok::Ident(word.to_string()),
     }
 }

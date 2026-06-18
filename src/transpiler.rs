@@ -71,19 +71,44 @@ fn emit_stmt(
             name,
             ty,
             init,
-            line: _,
+            line,
         } => {
             let var = to_snake(name);
-            let kw = if mutated.contains(&var) { "let mut" } else { "let" };
-            match init {
-                Some(e) => {
-                    let value = render_expr(e, Some(*ty));
-                    out.push_str(&format!("{}{} {}: {} = {};\n", pad, kw, var, ty.rust(), value));
-                }
-                None => {
-                    out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, ty.rust()));
+            let is_mut = mutated.contains(&var);
+            if !ty.is_fixed_size() {
+                emit_dim_string(&var, name, is_mut, init.as_ref(), *line, diags, &pad, out);
+            } else {
+                let kw = let_kw(is_mut);
+                match init {
+                    Some(e) => {
+                        let value = render_expr(e, Some(*ty));
+                        out.push_str(&format!("{}{} {}: {} = {};\n", pad, kw, var, ty.rust(), value));
+                    }
+                    None => {
+                        out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, ty.rust()));
+                    }
                 }
             }
+        }
+        Stmt::Set {
+            name,
+            mutable,
+            value,
+        } => {
+            diags.note(
+                "set-borrow",
+                "`Set` borrows instead of copying — the new name points at the same value, \
+                 so no copy is made. `Set Mut` borrows mutably, letting you change the original.",
+            );
+            let var = to_snake(name);
+            let borrow = if *mutable { "&mut " } else { "&" };
+            out.push_str(&format!(
+                "{}let {} = {}{};\n",
+                pad,
+                var,
+                borrow,
+                render_expr(value, None)
+            ));
         }
         Stmt::Assign { name, value } => {
             let var = to_snake(name);
@@ -121,6 +146,92 @@ fn emit_stmt(
             out.push_str(&format!("{}}}\n", pad));
         }
     }
+}
+
+/// Emit a `Dim` of an unknown-size `String`, where ownership rules bite.
+fn emit_dim_string(
+    var: &str,
+    orig_name: &str,
+    is_mut: bool,
+    init: Option<&Expr>,
+    line: usize,
+    diags: &mut Diagnostics,
+    pad: &str,
+    out: &mut String,
+) {
+    match init {
+        None => {
+            out.push_str(&format!("{}{} {}: String;\n", pad, let_kw(is_mut), var));
+        }
+        // A string literal is fixed size, so it can be a borrowed &str —
+        // unless we later mutate it, in which case we need an owned String.
+        Some(Expr::Str(s)) => {
+            if is_mut {
+                out.push_str(&format!(
+                    "{}let mut {}: String = \"{}\".to_string();\n",
+                    pad,
+                    var,
+                    escape(s)
+                ));
+            } else {
+                out.push_str(&format!("{}let {}: &str = \"{}\";\n", pad, var, escape(s)));
+            }
+        }
+        // Assigning one String variable to another would move/copy something of
+        // unknown size. Rust won't do that silently — explain the explicit forms.
+        Some(Expr::Ident(rhs)) => {
+            diags.error(line, unknown_size_message(orig_name, rhs));
+        }
+        // Anything else (concat → format!, `.clone()`, …) is a freshly owned String.
+        Some(other) => {
+            if is_clone(other) {
+                diags.note(
+                    "clone-cost",
+                    "`.clone()` makes a full copy. That's fine when you genuinely need a \
+                     second copy, but it has a real cost — reach for `Set` to borrow when \
+                     you only need to look at the value.",
+                );
+            }
+            out.push_str(&format!(
+                "{}{} {}: String = {};\n",
+                pad,
+                let_kw(is_mut),
+                var,
+                render_expr(other, None)
+            ));
+        }
+    }
+}
+
+fn let_kw(is_mut: bool) -> &'static str {
+    if is_mut {
+        "let mut"
+    } else {
+        "let"
+    }
+}
+
+fn is_clone(e: &Expr) -> bool {
+    matches!(e, Expr::MethodCall { method, .. } if method == "clone")
+}
+
+/// The teaching block from spec_01, with the user's own variable names filled in.
+fn unknown_size_message(target: &str, source: &str) -> String {
+    format!(
+        "Cannot assign '{src}' to '{dst}' directly.\n\n  \
+         Unlike integers or doubles, String is not a fixed size —\n  \
+         it can grow to any length. Rust won't silently copy something\n  \
+         of unknown size. You need to be explicit:\n\n  \
+         Set {dst} = {src}                    ' borrow — {dst} looks at {src}, no copy made\n  \
+         Set Mut {dst} = {src}                ' mutable borrow — {dst} can modify {src}\n  \
+         Dim {dst} As String = {src}.clone()  ' explicit copy — you are asking\n                                ' \
+         for a copy knowing it has a cost\n\n  \
+         The same rule applies to any type that can grow to an unknown\n  \
+         size. Fixed size types like Long, Double and Boolean copy\n  \
+         freely because Rust knows exactly how big they are.",
+        src = source,
+        dst = target
+    )
 }
 
 /// Build the Rust range for a `For` loop, including `Step`.
@@ -200,6 +311,11 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 inner
             }
         }
+        Expr::MethodCall { recv, method, args } => {
+            let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+            // High parent precedence so a binary receiver gets parens: (a + b).abs()
+            format!("{}.{}({})", render_prec(recv, None, 5, false), method, rendered.join(", "))
+        }
     }
 }
 
@@ -252,6 +368,14 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
         match stmt {
             Stmt::Assign { name, .. } => {
                 set.insert(to_snake(name));
+            }
+            // `Set Mut a = b` borrows b mutably, so b's own binding must be `mut`.
+            Stmt::Set {
+                mutable: true,
+                value: Expr::Ident(n),
+                ..
+            } => {
+                set.insert(to_snake(n));
             }
             Stmt::If {
                 branches,

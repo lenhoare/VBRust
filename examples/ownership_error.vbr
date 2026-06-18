@@ -1,0 +1,7 @@
+' This file is MEANT to fail — it shows the teaching error for
+' assigning one String to another without saying how.
+Function Main()
+    Dim original As String = "data"
+    Dim copy As String = original
+    Debug.Print copy
+End Function
