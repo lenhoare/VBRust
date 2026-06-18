@@ -360,22 +360,30 @@ fn emit_stmt(
         } => {
             let var = to_snake(name);
             match ty {
-                // Collections start empty and are always mutable.
+                // Collections are `mut` only if mutated; empty unless given an
+                // initialiser (e.g. an iterator `.collect()`).
                 DeclType::Vec(t) => {
-                    out.push_str(&format!(
-                        "{}let mut {}: Vec<{}> = Vec::new();\n",
-                        pad,
-                        var,
-                        t.rust()
-                    ));
+                    let kw = let_kw(mutated.contains(&var));
+                    let value = init
+                        .as_ref()
+                        .map(|e| render_expr(e, None))
+                        .unwrap_or_else(|| "Vec::new()".to_string());
+                    out.push_str(&format!("{}{} {}: Vec<{}> = {};\n", pad, kw, var, t.rust(), value));
                 }
                 DeclType::Map(k, v) => {
+                    let kw = let_kw(mutated.contains(&var));
+                    let value = init
+                        .as_ref()
+                        .map(|e| render_expr(e, None))
+                        .unwrap_or_else(|| "HashMap::new()".to_string());
                     out.push_str(&format!(
-                        "{}let mut {}: HashMap<{}, {}> = HashMap::new();\n",
+                        "{}{} {}: HashMap<{}, {}> = {};\n",
                         pad,
+                        kw,
                         var,
                         k.rust(),
-                        v.rust()
+                        v.rust(),
+                        value
                     ));
                 }
                 // A struct value (always fully initialised at the Dim).
@@ -742,7 +750,9 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                 note_builtins_expr(a, diags);
             }
         }
-        Expr::Try(inner) | Expr::Field(inner, _) => note_builtins_expr(inner, diags),
+        Expr::Try(inner) | Expr::Field(inner, _) | Expr::Closure { body: inner, .. } => {
+            note_builtins_expr(inner, diags)
+        }
         Expr::StructLit { fields, .. } => {
             for (_, v) in fields {
                 note_builtins_expr(v, diags);
@@ -776,6 +786,52 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             }
             for a in args {
                 note_builtins_expr(a, diags);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_mutating_method(m: &str) -> bool {
+    matches!(
+        m,
+        "push" | "insert" | "remove" | "pop" | "clear" | "sort" | "reverse" | "extend"
+            | "retain" | "resize" | "truncate" | "append" | "dedup"
+    )
+}
+
+/// Mark the receiver variable of any mutating method call (`v.push(…)`).
+fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
+    match e {
+        Expr::MethodCall { recv, method, args } => {
+            if is_mutating_method(&to_snake(method)) {
+                if let Expr::Ident(v) = &**recv {
+                    set.insert(to_snake(v));
+                }
+            }
+            mark_mutating_calls(recv, set);
+            for a in args {
+                mark_mutating_calls(a, set);
+            }
+        }
+        Expr::Call { args, .. } => {
+            for a in args {
+                mark_mutating_calls(a, set);
+            }
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            mark_mutating_calls(lhs, set);
+            mark_mutating_calls(rhs, set);
+        }
+        Expr::Field(inner, _)
+        | Expr::Try(inner)
+        | Expr::Cast(inner, _)
+        | Expr::Deref(inner)
+        | Expr::MutRef(inner)
+        | Expr::Closure { body: inner, .. } => mark_mutating_calls(inner, set),
+        Expr::StructLit { fields, .. } => {
+            for (_, v) in fields {
+                mark_mutating_calls(v, set);
             }
         }
         _ => {}
@@ -917,6 +973,9 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         Expr::MethodCall { recv, method, args } => {
             let m = to_snake(method);
+            if is_iter_method(&m) {
+                return render_iter_method(recv, &m, args);
+            }
             let rendered: Vec<String> = args
                 .iter()
                 .enumerate()
@@ -939,6 +998,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 rendered.join(", ")
             )
         }
+        Expr::Closure { params, body } => render_closure(params, body, false),
         Expr::Call { name, args } => {
             if let Some(s) = lower_constructor(name, args) {
                 // Ok/Err/Some result/option constructors.
@@ -989,6 +1049,46 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
     }
+}
+
+fn is_iter_method(m: &str) -> bool {
+    matches!(
+        m,
+        "filter" | "map" | "any" | "all" | "count" | "sum" | "collect"
+    )
+}
+
+fn recv_is_iter(e: &Expr) -> bool {
+    matches!(e, Expr::MethodCall { method, .. } if is_iter_method(&to_snake(method)))
+}
+
+/// Render an iterator-adapter call. The chain starts with `.iter().copied()`
+/// (so the items are owned values — works for Copy element types), and a
+/// `filter` closure derefs its `&` parameter.
+fn render_iter_method(recv: &Expr, method: &str, args: &[Expr]) -> String {
+    let base = if recv_is_iter(recv) {
+        render_prec(recv, None, 5, false)
+    } else {
+        format!("{}.iter().copied()", render_prec(recv, None, 5, false))
+    };
+    let rendered: Vec<String> = args
+        .iter()
+        .map(|a| match a {
+            // `filter`'s closure receives `&item`; deref the parameter to a value.
+            Expr::Closure { params, body } => render_closure(params, body, method == "filter"),
+            other => render_expr(other, None),
+        })
+        .collect();
+    format!("{}.{}({})", base, method, rendered.join(", "))
+}
+
+fn render_closure(params: &[String], body: &Expr, deref_params: bool) -> String {
+    let prefix = if deref_params { "&" } else { "" };
+    let ps: Vec<String> = params
+        .iter()
+        .map(|p| format!("{}{}", prefix, to_snake(p)))
+        .collect();
+    format!("|{}| {}", ps.join(", "), render_expr(body, None))
 }
 
 /// Lower the Result/Option constructors. `Err` wraps its message in `.to_string()`.
@@ -1147,6 +1247,8 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                     set.insert(root);
                 }
             }
+            // `nums.push(...)` etc. mutate the receiver collection.
+            Stmt::Expr(e) => mark_mutating_calls(e, set),
             // `Set Mut a = b` borrows b mutably, so b's own binding must be `mut`.
             Stmt::Set {
                 mutable: true,

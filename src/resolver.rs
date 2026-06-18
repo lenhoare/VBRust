@@ -387,7 +387,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) | Expr::Try(inner)
-        | Expr::Field(inner, _) => resolve_expr(inner, ctx),
+        | Expr::Field(inner, _) | Expr::Closure { body: inner, .. } => resolve_expr(inner, ctx),
         Expr::StructLit { fields, .. } => {
             for (_, v) in fields.iter_mut() {
                 resolve_expr(v, ctx);
@@ -411,8 +411,10 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
         Expr::Try(_) => RType::Unknown,
         Expr::MutRef(_) => RType::Unknown,
-        // Struct values, field types, and const refs aren't tracked numerically.
-        Expr::StructLit { .. } | Expr::Field(..) | Expr::ConstRef(_) => RType::Unknown,
+        // Struct values, field types, const refs, closures aren't tracked numerically.
+        Expr::StructLit { .. } | Expr::Field(..) | Expr::ConstRef(_) | Expr::Closure { .. } => {
+            RType::Unknown
+        }
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
             BinOp::Pow => RType::F64,

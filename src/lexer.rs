@@ -77,6 +77,7 @@ pub enum Tok {
     Dot,
     Colon,    // :
     Question, // ?
+    Pipe,     // |
 
     Type,
     Public,
@@ -151,6 +152,7 @@ pub fn lex(src: &str) -> Vec<Token> {
             '.' => push(&mut tokens, Tok::Dot, line, &mut i),
             ':' => push(&mut tokens, Tok::Colon, line, &mut i),
             '?' => push(&mut tokens, Tok::Question, line, &mut i),
+            '|' => push(&mut tokens, Tok::Pipe, line, &mut i),
             '<' => {
                 if chars.get(i + 1) == Some(&'>') {
                     tokens.push(Token { tok: Tok::Ne, line });

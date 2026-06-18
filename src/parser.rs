@@ -546,7 +546,14 @@ impl<'a> Parser<'a> {
                     return None;
                 }
             }
-            DeclType::Vec(_) | DeclType::Map(..) => None,
+            // A collection may take an initialiser (e.g. an iterator `.collect()`).
+            DeclType::Vec(_) | DeclType::Map(..) => {
+                if self.eat(&Tok::Eq) {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                }
+            }
         };
         Some(Stmt::Dim {
             name,
@@ -981,6 +988,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_atom(&mut self) -> Option<Expr> {
+        // A closure: `|x| body` (or `|| body`).
+        if matches!(self.peek(), Tok::Pipe) {
+            self.advance();
+            let mut params = Vec::new();
+            if !matches!(self.peek(), Tok::Pipe) {
+                loop {
+                    params.push(self.expect_ident("for the closure parameter")?);
+                    if !self.eat(&Tok::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect(&Tok::Pipe, "to close the closure parameters")?;
+            let body = self.parse_expr()?;
+            return Some(Expr::Closure {
+                params,
+                body: Box::new(body),
+            });
+        }
         match self.peek().clone() {
             Tok::Int(n) => {
                 self.advance();

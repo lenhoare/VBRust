@@ -260,6 +260,11 @@ pub enum Expr {
     Field(Box<Expr>, String),
     /// A reference to a module constant, rendered verbatim (SCREAMING_SNAKE_CASE).
     ConstRef(String),
+    /// `|x| body` — a closure, chiefly for iterator adapters.
+    Closure {
+        params: Vec<String>,
+        body: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
