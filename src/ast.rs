@@ -64,8 +64,18 @@ impl Type {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub leading_comments: Vec<String>,
+    pub constants: Vec<ConstDef>,
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstDef {
+    pub name: String,
+    pub public: bool,
+    pub ty: Type,
+    pub value: Expr,
+    pub line: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -248,6 +258,8 @@ pub enum Expr {
     },
     /// `expr.field` — field access (no parentheses).
     Field(Box<Expr>, String),
+    /// A reference to a module constant, rendered verbatim (SCREAMING_SNAKE_CASE).
+    ConstRef(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

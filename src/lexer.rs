@@ -81,6 +81,7 @@ pub enum Tok {
     Type,
     Public,
     Private,
+    Const,
 
     On, // start of `On Error ...`
 
@@ -234,6 +235,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "type" => Tok::Type,
         "public" => Tok::Public,
         "private" => Tok::Private,
+        "const" => Tok::Const,
         "end" => Tok::End,
         "dim" => Tok::Dim,
         "set" => Tok::Set,

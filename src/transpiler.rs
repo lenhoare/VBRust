@@ -5,7 +5,7 @@
 //!    (Rust requires it; VB never made you think about it);
 //!  * identifier renaming to snake_case, consistently at declaration and use.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
@@ -20,6 +20,7 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
 
     let fns = resolver::build_fn_table(program);
     let methods = resolver::build_method_table(program);
+    let consts = resolver::build_const_map(program);
 
     let mut out = String::new();
     for comment in &program.leading_comments {
@@ -43,6 +44,13 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
         first_item = false;
     };
 
+    if !program.constants.is_empty() {
+        sep(&mut out);
+        for c in &program.constants {
+            emit_const(c, &mut out, diags);
+        }
+    }
+
     for s in &program.structs {
         sep(&mut out);
         emit_struct(s, diags, &mut out);
@@ -59,14 +67,47 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     }
     for recv in receivers {
         sep(&mut out);
-        emit_impl(recv, program, &fns, &methods, diags, &mut out);
+        emit_impl(recv, program, &fns, &methods, &consts, diags, &mut out);
     }
 
     for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
         sep(&mut out);
-        emit_fn(func, &fns, &methods, diags, &mut out, 0, None);
+        emit_fn(func, &fns, &methods, &consts, diags, &mut out, 0, None);
     }
     out
+}
+
+fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics) {
+    let name = to_screaming(&c.name);
+    if name != c.name {
+        diags.warn(
+            c.line,
+            format!(
+                "Constant '{}' renamed to '{}' — Rust uses SCREAMING_SNAKE_CASE for constants.",
+                c.name, name
+            ),
+        );
+    }
+    if c.name.eq_ignore_ascii_case("pi") {
+        diags.warn(
+            c.line,
+            "Rust already provides PI — prefer `std::f64::consts::PI` over your own constant.",
+        );
+    }
+    let vis = if c.public { "pub " } else { "" };
+    // A const String must be a &str (no owned String in const position).
+    let ty = if c.ty == Type::Text {
+        "&str".to_string()
+    } else {
+        c.ty.rust().to_string()
+    };
+    out.push_str(&format!(
+        "{}const {}: {} = {};\n",
+        vis,
+        name,
+        ty,
+        render_expr(&c.value, Some(c.ty))
+    ));
 }
 
 fn emit_impl(
@@ -74,6 +115,7 @@ fn emit_impl(
     program: &Program,
     fns: &FnTable,
     methods: &resolver::MethodTable,
+    consts: &HashMap<String, String>,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
@@ -93,7 +135,7 @@ fn emit_impl(
             .copied()
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
-        emit_fn(f, fns, methods, diags, out, 1, Some(self_param));
+        emit_fn(f, fns, methods, consts, diags, out, 1, Some(self_param));
     }
     out.push_str("}\n");
 }
@@ -145,6 +187,7 @@ fn emit_fn(
     func: &Function,
     fns: &FnTable,
     methods: &resolver::MethodTable,
+    consts: &HashMap<String, String>,
     diags: &mut Diagnostics,
     out: &mut String,
     base_indent: usize,
@@ -187,7 +230,8 @@ fn emit_fn(
 
     // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
     // `as` casts for numeric coercions) and tells us which locals were lent.
-    let passed_by_ref = resolver::resolve_body(&mut body, &func.params, fns, methods, diags);
+    let passed_by_ref =
+        resolver::resolve_body(&mut body, &func.params, fns, methods, consts, diags);
 
     // Which locals need `let mut`: those reassigned, plus those lent mutably.
     let mut mutated = HashSet::new();
@@ -912,6 +956,8 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Field(inner, field) => {
             format!("{}.{}", render_prec(inner, None, 6, false), to_snake(field))
         }
+        // Already the verbatim SCREAMING_SNAKE name from the resolver.
+        Expr::ConstRef(name) => name.clone(),
         Expr::StructLit { name, fields } => {
             let parts: Vec<String> = fields
                 .iter()
@@ -1153,6 +1199,11 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
         );
     }
     snake
+}
+
+/// SCREAMING_SNAKE_CASE for constants.
+pub(crate) fn to_screaming(name: &str) -> String {
+    to_snake(name).to_uppercase()
 }
 
 /// Convert PascalCase / camelCase to snake_case. Already-snake names pass through.

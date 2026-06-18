@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::transpiler::to_snake as snake;
+use crate::transpiler::to_screaming;
 
 /// One user function's signature — enough to fix up its call sites.
 pub struct FnSig {
@@ -28,6 +29,15 @@ pub type FnTable = HashMap<String, FnSig>;
 
 /// `(struct name, method snake name)` → does it take `&mut self`?
 pub type MethodTable = HashMap<(String, String), bool>;
+
+/// Module-constant original name → its SCREAMING_SNAKE_CASE Rust name.
+pub fn build_const_map(program: &Program) -> HashMap<String, String> {
+    program
+        .constants
+        .iter()
+        .map(|c| (c.name.clone(), to_screaming(&c.name)))
+        .collect()
+}
 
 /// Map each method to whether it mutates `self` (assigns to a `Me` field).
 pub fn build_method_table(program: &Program) -> MethodTable {
@@ -148,6 +158,7 @@ pub fn resolve_body(
     params: &[Param],
     fns: &FnTable,
     methods: &MethodTable,
+    consts: &HashMap<String, String>,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
     let byref: HashSet<String> = params
@@ -167,6 +178,7 @@ pub fn resolve_body(
         deref: byref,
         fns,
         methods,
+        consts,
         diags,
         vars: &mut vars,
         struct_vars: &mut struct_vars,
@@ -182,6 +194,7 @@ struct Ctx<'a> {
     deref: HashSet<String>,
     fns: &'a FnTable,
     methods: &'a MethodTable,
+    consts: &'a HashMap<String, String>,
     diags: &'a mut Diagnostics,
     vars: &'a mut HashMap<String, Type>,
     /// Variable name → struct type, for receiver-mutation detection.
@@ -329,7 +342,11 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         Expr::Ident(name) if ctx.deref.contains(&snake(name)) => {
             *e = Expr::Deref(Box::new(Expr::Ident(name.clone())));
         }
-        Expr::Ident(_) => {}
+        // A reference to a module constant → its SCREAMING_SNAKE name, verbatim.
+        Expr::Ident(name) if ctx.consts.contains_key(name) => {
+            *e = Expr::ConstRef(ctx.consts[name].clone());
+        }
+        Expr::Ident(_) | Expr::ConstRef(_) => {}
         Expr::Binary { lhs, rhs, .. } => {
             resolve_expr(lhs, ctx);
             resolve_expr(rhs, ctx);
@@ -394,8 +411,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
         Expr::Try(_) => RType::Unknown,
         Expr::MutRef(_) => RType::Unknown,
-        // Struct values and field types aren't tracked numerically.
-        Expr::StructLit { .. } | Expr::Field(..) => RType::Unknown,
+        // Struct values, field types, and const refs aren't tracked numerically.
+        Expr::StructLit { .. } | Expr::Field(..) | Expr::ConstRef(_) => RType::Unknown,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
             BinOp::Pow => RType::F64,

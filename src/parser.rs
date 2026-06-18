@@ -84,6 +84,7 @@ impl<'a> Parser<'a> {
     fn parse_program(&mut self) -> Program {
         let mut functions = Vec::new();
         let mut structs = Vec::new();
+        let mut constants = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -103,19 +104,28 @@ impl<'a> Parser<'a> {
                     Some(s) => structs.push(s),
                     None => break,
                 },
+                Tok::Const => match self.parse_const(false) {
+                    Some(c) => constants.push(c),
+                    None => break,
+                },
                 Tok::Public => {
                     self.advance();
-                    if matches!(self.peek(), Tok::Type) {
-                        match self.parse_struct(true) {
+                    match self.peek() {
+                        Tok::Type => match self.parse_struct(true) {
                             Some(s) => structs.push(s),
                             None => break,
+                        },
+                        Tok::Const => match self.parse_const(true) {
+                            Some(c) => constants.push(c),
+                            None => break,
+                        },
+                        _ => {
+                            self.diags.error(
+                                self.line(),
+                                "Only `Public Type` and `Public Const` are supported at the top level so far.",
+                            );
+                            break;
                         }
-                    } else {
-                        self.diags.error(
-                            self.line(),
-                            "Only `Public Type` is supported at the top level so far.",
-                        );
-                        break;
                     }
                 }
                 Tok::Sub => {
@@ -142,9 +152,27 @@ impl<'a> Parser<'a> {
         }
         Program {
             leading_comments: top_comments,
+            constants,
             structs,
             functions,
         }
+    }
+
+    fn parse_const(&mut self, public: bool) -> Option<ConstDef> {
+        let line = self.line();
+        self.expect(&Tok::Const, "")?;
+        let name = self.expect_ident("for the constant")?;
+        self.expect(&Tok::As, "after the constant name")?;
+        let ty = self.parse_type()?;
+        self.expect(&Tok::Eq, "in the constant definition")?;
+        let value = self.parse_expr()?;
+        Some(ConstDef {
+            name,
+            public,
+            ty,
+            value,
+            line,
+        })
     }
 
     fn parse_struct(&mut self, public: bool) -> Option<StructDef> {
@@ -417,6 +445,13 @@ impl<'a> Parser<'a> {
             Tok::If => self.parse_if(),
             Tok::Select => self.parse_select(),
             Tok::For => self.parse_for(),
+            Tok::Const => {
+                self.diags.error(
+                    self.line(),
+                    "Declare constants at the top of the file (module level), not inside a function.",
+                );
+                None
+            }
             Tok::Do => self.parse_do(),
             Tok::Continue => {
                 self.advance();

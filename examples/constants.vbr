@@ -1,0 +1,13 @@
+' Constants — module level, SCREAMING_SNAKE_CASE
+Const MAX_RETRIES As Long = 3
+Const GREETING As String = "Hello"
+Public Const VERSION As Double = 1.5
+
+Function Main()
+    Dim i As Long = 0
+    Do While i < MAX_RETRIES
+        Debug.Print GREETING & ", attempt " & (i + 1)
+        i = i + 1
+    Loop
+    Debug.Print "version " & VERSION
+End Function
