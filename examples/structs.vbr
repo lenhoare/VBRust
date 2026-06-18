@@ -1,0 +1,13 @@
+' Structs — Type/End Type, construction, and field access
+Type Person
+    Public Name As String
+    Public Age As Long
+End Type
+
+Function Main()
+    Dim alice As Person = Person { name: "Alice", age: 30 }
+    Debug.Print alice.Name & " is " & alice.Age
+
+    alice.Age = alice.Age + 1
+    Debug.Print "after a birthday, " & alice.Name & " is " & alice.Age
+End Function

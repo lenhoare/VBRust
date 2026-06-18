@@ -83,6 +83,7 @@ impl<'a> Parser<'a> {
 
     fn parse_program(&mut self) -> Program {
         let mut functions = Vec::new();
+        let mut structs = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -98,6 +99,25 @@ impl<'a> Parser<'a> {
                     Some(f) => functions.push(f),
                     None => break, // error already recorded
                 },
+                Tok::Type => match self.parse_struct(false) {
+                    Some(s) => structs.push(s),
+                    None => break,
+                },
+                Tok::Public => {
+                    self.advance();
+                    if matches!(self.peek(), Tok::Type) {
+                        match self.parse_struct(true) {
+                            Some(s) => structs.push(s),
+                            None => break,
+                        }
+                    } else {
+                        self.diags.error(
+                            self.line(),
+                            "Only `Public Type` is supported at the top level so far.",
+                        );
+                        break;
+                    }
+                }
                 Tok::Sub => {
                     self.diags.error(
                         self.line(),
@@ -122,8 +142,54 @@ impl<'a> Parser<'a> {
         }
         Program {
             leading_comments: top_comments,
+            structs,
             functions,
         }
+    }
+
+    fn parse_struct(&mut self, public: bool) -> Option<StructDef> {
+        self.expect(&Tok::Type, "to start a struct")?;
+        let name = self.expect_ident("for the struct")?;
+        self.expect(&Tok::Newline, "after the struct name")?;
+
+        let mut fields = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End) {
+                break;
+            }
+            // [Public | Private] Name As Type
+            let field_public = if self.eat(&Tok::Public) {
+                true
+            } else {
+                self.eat(&Tok::Private);
+                false
+            };
+            let fname = self.expect_ident("for the field")?;
+            self.expect(&Tok::As, "after the field name")?;
+            let ty = self.parse_decl_type(false)?;
+            fields.push(Field {
+                name: fname,
+                public: field_public,
+                ty,
+            });
+            if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !matches!(self.peek(), Tok::End) {
+                self.diags.error(
+                    self.line(),
+                    format!("Expected end of line after the field, found {:?}.", self.peek()),
+                );
+                return None;
+            }
+        }
+
+        self.expect(&Tok::End, "to close the struct")?;
+        self.expect(&Tok::Type, "after `End`")?;
+        self.eat(&Tok::Newline);
+        Some(StructDef {
+            name,
+            public,
+            fields,
+        })
     }
 
     fn parse_function(&mut self) -> Option<Function> {
@@ -415,11 +481,30 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::As, "after the variable name")?;
         let ty = self.parse_decl_type(empty_parens)?;
 
-        // Only a plain scalar may carry an initialiser; collections start empty.
-        let init = if matches!(ty, DeclType::Plain(_)) && self.eat(&Tok::Eq) {
-            Some(self.parse_expr()?)
-        } else {
-            None
+        // Plain scalars may carry an initialiser; a struct must be fully built at
+        // creation; collections start empty.
+        let init = match &ty {
+            DeclType::Plain(_) => {
+                if self.eat(&Tok::Eq) {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                }
+            }
+            DeclType::Named(_) => {
+                if self.eat(&Tok::Eq) {
+                    Some(self.parse_expr()?)
+                } else {
+                    self.diags.error(
+                        line,
+                        "A struct must be fully initialised at creation — \
+                         `Dim p As Person = Person { name: \"...\", age: ... }`. \
+                         You cannot declare it empty and fill fields in later.",
+                    );
+                    return None;
+                }
+            }
+            DeclType::Vec(_) | DeclType::Map(..) => None,
         };
         Some(Stmt::Dim {
             name,
@@ -456,6 +541,10 @@ impl<'a> Parser<'a> {
             }
         } else if empty_parens {
             Some(DeclType::Vec(self.parse_type()?))
+        } else if let Tok::Ident(name) = self.peek().clone() {
+            // A non-keyword type name is a user struct.
+            self.advance();
+            Some(DeclType::Named(name))
         } else {
             Some(DeclType::Plain(self.parse_type()?))
         }
@@ -491,18 +580,15 @@ impl<'a> Parser<'a> {
             return Some(Stmt::Print(value));
         }
 
-        // Assignment (`name = expr`) vs. an expression statement (e.g. a call).
-        // Peek the token after the name to decide.
-        let next_is_eq = matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq));
-        if next_is_eq {
-            self.advance(); // name
-            self.advance(); // =
+        // Parse a place expression (Ident or `a.field`) or a call. `parse_primary`
+        // stops before binary operators, so a top-level `=` isn't mistaken for the
+        // equality operator.
+        let target = self.parse_primary()?;
+        if self.eat(&Tok::Eq) {
             let value = self.parse_expr()?;
-            Some(Stmt::Assign { name, value })
+            Some(Stmt::Assign { target, value })
         } else {
-            // Parse from the current position (still at the name) as an expression.
-            let e = self.parse_expr()?;
-            Some(Stmt::Expr(e))
+            Some(Stmt::Expr(target))
         }
     }
 
@@ -818,23 +904,29 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Tok::Dot => {
                     self.advance();
-                    let method = self.expect_ident("after `.`")?;
-                    self.expect(&Tok::LParen, "after the method name")?;
-                    let mut args = Vec::new();
-                    if !matches!(self.peek(), Tok::RParen) {
-                        loop {
-                            args.push(self.parse_expr()?);
-                            if !self.eat(&Tok::Comma) {
-                                break;
+                    let member = self.expect_ident("after `.`")?;
+                    if matches!(self.peek(), Tok::LParen) {
+                        // method call: expr.method(args)
+                        self.advance();
+                        let mut args = Vec::new();
+                        if !matches!(self.peek(), Tok::RParen) {
+                            loop {
+                                args.push(self.parse_expr()?);
+                                if !self.eat(&Tok::Comma) {
+                                    break;
+                                }
                             }
                         }
+                        self.expect(&Tok::RParen, "to close the method arguments")?;
+                        e = Expr::MethodCall {
+                            recv: Box::new(e),
+                            method: member,
+                            args,
+                        };
+                    } else {
+                        // field access: expr.field
+                        e = Expr::Field(Box::new(e), member);
                     }
-                    self.expect(&Tok::RParen, "to close the method arguments")?;
-                    e = Expr::MethodCall {
-                        recv: Box::new(e),
-                        method,
-                        args,
-                    };
                 }
                 Tok::Question => {
                     self.advance();
@@ -870,6 +962,24 @@ impl<'a> Parser<'a> {
             }
             Tok::Ident(name) => {
                 self.advance();
+                // A name followed by `{` is a struct literal.
+                if matches!(self.peek(), Tok::LBrace) {
+                    self.advance();
+                    let mut fields = Vec::new();
+                    if !matches!(self.peek(), Tok::RBrace) {
+                        loop {
+                            let fname = self.expect_ident("for the field")?;
+                            self.expect(&Tok::Colon, "after the field name")?;
+                            let fval = self.parse_expr()?;
+                            fields.push((fname, fval));
+                            if !self.eat(&Tok::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(&Tok::RBrace, "to close the struct literal")?;
+                    return Some(Expr::StructLit { name, fields });
+                }
                 // A name followed by `(` is a function call.
                 if matches!(self.peek(), Tok::LParen) {
                     self.advance();

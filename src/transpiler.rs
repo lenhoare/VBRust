@@ -31,6 +31,10 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     if program.functions.iter().any(|f| body_uses_hashmap(&f.body)) {
         out.push_str("use std::collections::HashMap;\n\n");
     }
+    for s in &program.structs {
+        emit_struct(s, diags, &mut out);
+        out.push('\n');
+    }
     for (idx, func) in program.functions.iter().enumerate() {
         if idx > 0 {
             out.push('\n');
@@ -38,6 +42,32 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
         emit_function(func, &fns, diags, &mut out);
     }
     out
+}
+
+fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
+    let kw = if s.public { "pub struct" } else { "struct" };
+    out.push_str(&format!("{} {} {{\n", kw, s.name));
+    for f in &s.fields {
+        let fname = to_snake(&f.name);
+        if fname != f.name {
+            diags.warn_once_global(
+                "struct-field-snake",
+                "Struct fields use snake_case in Rust — VBR renames PascalCase fields for you.",
+            );
+        }
+        let vis = if f.public { "pub " } else { "" };
+        out.push_str(&format!("    {}{}: {},\n", vis, fname, decltype_rust(&f.ty)));
+    }
+    out.push_str("}\n");
+}
+
+fn decltype_rust(ty: &DeclType) -> String {
+    match ty {
+        DeclType::Plain(t) => t.rust().to_string(),
+        DeclType::Named(n) => n.clone(),
+        DeclType::Vec(t) => format!("Vec<{}>", t.rust()),
+        DeclType::Map(k, v) => format!("HashMap<{}, {}>", k.rust(), v.rust()),
+    }
 }
 
 /// Does any `Dim` in these statements declare a `HashMap`? (Recurses blocks.)
@@ -146,7 +176,10 @@ fn emit_fn_body(
 fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
     for stmt in stmts.iter_mut() {
         match stmt {
-            Stmt::Assign { name, value } if to_snake(name) == fn_name => {
+            Stmt::Assign {
+                target: Expr::Ident(name),
+                value,
+            } if to_snake(name) == fn_name => {
                 *stmt = Stmt::Return(Some(value.clone()));
             }
             Stmt::If {
@@ -230,6 +263,15 @@ fn emit_stmt(
                         v.rust()
                     ));
                 }
+                // A struct value (always fully initialised at the Dim).
+                DeclType::Named(n) => {
+                    let kw = let_kw(mutated.contains(&var));
+                    let value = init
+                        .as_ref()
+                        .map(|e| render_expr(e, None))
+                        .unwrap_or_default();
+                    out.push_str(&format!("{}{} {}: {} = {};\n", pad, kw, var, n, value));
+                }
                 DeclType::Plain(t) => {
                     let is_mut = mutated.contains(&var);
                     if !t.is_fixed_size() {
@@ -272,15 +314,20 @@ fn emit_stmt(
                 render_expr(value, None)
             ));
         }
-        Stmt::Assign { name, value } => {
-            let var = to_snake(name);
-            // Assigning through a ByRef parameter writes to the pointee: `*p = …`.
-            let target = if byref.contains(&var) {
-                format!("*{}", var)
-            } else {
-                var
+        Stmt::Assign { target, value } => {
+            let lhs = match target {
+                // Assigning through a ByRef parameter writes to the pointee: `*p = …`.
+                Expr::Ident(name) => {
+                    let var = to_snake(name);
+                    if byref.contains(&var) {
+                        format!("*{}", var)
+                    } else {
+                        var
+                    }
+                }
+                other => render_expr(other, None),
             };
-            out.push_str(&format!("{}{} = {};\n", pad, target, render_expr(value, None)));
+            out.push_str(&format!("{}{} = {};\n", pad, lhs, render_expr(value, None)));
         }
         Stmt::Expr(e) => {
             out.push_str(&format!("{}{};\n", pad, render_expr(e, None)));
@@ -580,7 +627,12 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                 note_builtins_expr(a, diags);
             }
         }
-        Expr::Try(inner) => note_builtins_expr(inner, diags),
+        Expr::Try(inner) | Expr::Field(inner, _) => note_builtins_expr(inner, diags),
+        Expr::StructLit { fields, .. } => {
+            for (_, v) in fields {
+                note_builtins_expr(v, diags);
+            }
+        }
         Expr::Call { name, args } => {
             match name.to_ascii_lowercase().as_str() {
                 "mid" => diags.warn_once_global(
@@ -612,6 +664,16 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             }
         }
         _ => {}
+    }
+}
+
+/// The root variable of an assignable place, e.g. `alice` in `alice.age`.
+/// `None` when there's no plain local at the root (e.g. a ByRef deref).
+fn lvalue_root(target: &Expr) -> Option<String> {
+    match target {
+        Expr::Ident(name) => Some(to_snake(name)),
+        Expr::Field(inner, _) => lvalue_root(inner),
+        _ => None,
     }
 }
 
@@ -774,6 +836,27 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         Expr::Try(inner) => format!("{}?", render_prec(inner, None, 6, false)),
+        Expr::Field(inner, field) => {
+            format!("{}.{}", render_prec(inner, None, 6, false), to_snake(field))
+        }
+        Expr::StructLit { name, fields } => {
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(fname, fval)| {
+                    // A string-literal field becomes an owned String (fields own).
+                    let value = match fval {
+                        Expr::Str(s) => format!("\"{}\".to_string()", escape(s)),
+                        other => render_expr(other, None),
+                    };
+                    format!("{}: {}", to_snake(fname), value)
+                })
+                .collect();
+            if parts.is_empty() {
+                format!("{} {{}}", name)
+            } else {
+                format!("{} {{ {} }}", name, parts.join(", "))
+            }
+        }
         Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 6, false)),
         Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 6, false)),
         Expr::Cast(inner, ty) => {
@@ -940,8 +1023,10 @@ fn escape(s: &str) -> String {
 fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
     for stmt in stmts {
         match stmt {
-            Stmt::Assign { name, .. } => {
-                set.insert(to_snake(name));
+            Stmt::Assign { target, .. } => {
+                if let Some(root) = lvalue_root(target) {
+                    set.insert(root);
+                }
             }
             // `Set Mut a = b` borrows b mutably, so b's own binding must be `mut`.
             Stmt::Set {

@@ -1,0 +1,10 @@
+' MEANT to fail — a struct must be fully built at creation, not filled in later.
+Type Person
+    Public Name As String
+    Public Age As Long
+End Type
+
+Function Main()
+    Dim p As Person
+    Debug.Print p.Name
+End Function

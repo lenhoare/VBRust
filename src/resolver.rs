@@ -155,9 +155,19 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_expr(e, ctx);
                 }
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { target, value } => {
+                // Coerce based on the target variable's type (plain Ident targets only).
+                let target_ty = match &*target {
+                    Expr::Ident(name) => ctx.vars.get(&snake(name)).copied(),
+                    _ => None,
+                };
+                // A plain Ident target is dereferenced by the emitter (if ByRef);
+                // resolve other targets (e.g. field accesses).
+                if !matches!(&*target, Expr::Ident(_)) {
+                    resolve_expr(target, ctx);
+                }
                 resolve_expr(value, ctx);
-                if let Some(ty) = ctx.vars.get(&snake(name)).copied() {
+                if let Some(ty) = target_ty {
                     maybe_cast(value, ty, ctx);
                 }
             }
@@ -292,8 +302,12 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
             }
         }
-        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) | Expr::Try(inner) => {
-            resolve_expr(inner, ctx)
+        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) | Expr::Try(inner)
+        | Expr::Field(inner, _) => resolve_expr(inner, ctx),
+        Expr::StructLit { fields, .. } => {
+            for (_, v) in fields.iter_mut() {
+                resolve_expr(v, ctx);
+            }
         }
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
     }
@@ -313,6 +327,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
         Expr::Try(_) => RType::Unknown,
         Expr::MutRef(_) => RType::Unknown,
+        // Struct values and field types aren't tracked numerically.
+        Expr::StructLit { .. } | Expr::Field(..) => RType::Unknown,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
             BinOp::Pow => RType::F64,

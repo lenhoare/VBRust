@@ -64,7 +64,22 @@ impl Type {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub leading_comments: Vec<String>,
+    pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructDef {
+    pub name: String,
+    pub public: bool,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Field {
+    pub name: String,
+    pub public: bool,
+    pub ty: DeclType,
 }
 
 #[derive(Debug, Clone)]
@@ -85,10 +100,12 @@ pub enum RetType {
     Option(Type), // -> Option<T>
 }
 
-/// The declared type of a `Dim` — a plain type or a growable collection.
-#[derive(Debug, Clone, Copy)]
+/// The declared type of a `Dim`/field — a plain type, a named struct, or a
+/// growable collection.
+#[derive(Debug, Clone)]
 pub enum DeclType {
     Plain(Type),
+    Named(String), // a user struct, e.g. Person
     Vec(Type),
     Map(Type, Type),
 }
@@ -122,7 +139,7 @@ pub enum Stmt {
         value: Expr,
     },
     Assign {
-        name: String,
+        target: Expr,
         value: Expr,
     },
     /// `Return value` or `FunctionName = value` — both become a Rust return.
@@ -222,6 +239,13 @@ pub enum Expr {
     Cast(Box<Expr>, Type),
     /// `inner?` — propagate the error/None of a Result/Option.
     Try(Box<Expr>),
+    /// `Person { name: ..., age: ... }` — struct construction.
+    StructLit {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
+    /// `expr.field` — field access (no parentheses).
+    Field(Box<Expr>, String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

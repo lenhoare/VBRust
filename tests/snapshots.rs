@@ -30,6 +30,7 @@ const HAPPY: &[&str] = &[
     "vec",
     "hashmap",
     "doloop",
+    "structs",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
@@ -45,6 +46,7 @@ const ERRORS: &[&str] = &[
     "select_no_else",
     "rnd_error",
     "on_error",
+    "struct_no_init",
 ];
 
 fn examples_dir() -> PathBuf {
