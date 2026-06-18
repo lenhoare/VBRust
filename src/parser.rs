@@ -204,16 +204,50 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Option<Type> {
+        let line = self.line();
         let ty = match self.peek() {
-            Tok::TyLong => Type::Long,
             Tok::TyInteger => Type::Integer,
+            Tok::TyLong => Type::Long,
+            Tok::TyLongLong => Type::LongLong,
+            Tok::TySingle => Type::Single,
             Tok::TyDouble => Type::Double,
             Tok::TyBoolean => Type::Boolean,
+            Tok::TyByte => Type::Byte,
+            Tok::TyDate => {
+                self.diags.warn_once(
+                    "date-no-semantics",
+                    line,
+                    "Date becomes a plain i64 — VBR gives it no calendar semantics. \
+                     For real date/time work, reach for the chrono crate via the stdlib later.",
+                );
+                Type::Date
+            }
             Tok::TyString => Type::Text,
+            Tok::TyCurrency => {
+                self.diags.error(
+                    line,
+                    "Currency is not supported — Rust has no built-in fixed-point money type. \
+                     Use Double (f64) for approximate amounts, or store integer minor units \
+                     (cents) in a Long / LongLong.",
+                );
+                return None;
+            }
+            Tok::TyVariant => {
+                self.diags.error(
+                    line,
+                    "Variant is not supported — Rust must know each value's type at compile \
+                     time. Declare the concrete type you actually mean.",
+                );
+                return None;
+            }
             other => {
                 self.diags.error(
-                    self.line(),
-                    format!("Expected a type (Long, Integer, Double, Boolean, String), found {:?}.", other),
+                    line,
+                    format!(
+                        "Expected a type (Integer, Long, LongLong, Single, Double, Boolean, \
+                         Byte, Date, String), found {:?}.",
+                        other
+                    ),
                 );
                 return None;
             }

@@ -1,0 +1,20 @@
+' Every fixed-size type — these all copy freely
+Function Main()
+    Dim small As Integer = 42
+    Dim count As Long = 100000
+    Dim huge As LongLong = 9000000000
+    Dim pi As Single = 3.14
+    Dim ratio As Double = 2.5
+    Dim flag As Boolean = True
+    Dim letter As Byte = 65
+    Dim stamp As Date = 0
+
+    Debug.Print "small  = " & small
+    Debug.Print "count  = " & count
+    Debug.Print "huge   = " & huge
+    Debug.Print "pi     = " & pi
+    Debug.Print "ratio  = " & ratio
+    Debug.Print "flag   = " & flag
+    Debug.Print "letter = " & letter
+    Debug.Print "stamp  = " & stamp
+End Function

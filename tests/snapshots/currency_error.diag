@@ -1,0 +1,1 @@
+✘ [line 3] Currency is not supported — Rust has no built-in fixed-point money type. Use Double (f64) for approximate amounts, or store integer minor units (cents) in a Long / LongLong.

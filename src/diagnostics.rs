@@ -68,6 +68,14 @@ impl Diagnostics {
         });
     }
 
+    /// A warning shown only once per `key` — for caveats that would otherwise
+    /// repeat on every occurrence (e.g. "Date carries no date semantics").
+    pub fn warn_once(&mut self, key: &str, line: usize, message: impl Into<String>) {
+        if self.seen_notes.insert(key.to_string()) {
+            self.warn(line, message);
+        }
+    }
+
     /// A teaching note shown only once per `key`, no matter how often it fires.
     pub fn note(&mut self, key: &str, message: impl Into<String>) {
         if self.seen_notes.insert(key.to_string()) {

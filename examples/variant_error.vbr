@@ -1,0 +1,4 @@
+' MEANT to fail — Rust needs concrete types, not Variant.
+Function Main()
+    Dim anything As Variant = 5
+End Function

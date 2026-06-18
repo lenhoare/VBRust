@@ -1,0 +1,1 @@
+✘ [line 3] Variant is not supported — Rust must know each value's type at compile time. Declare the concrete type you actually mean.

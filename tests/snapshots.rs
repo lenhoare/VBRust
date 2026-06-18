@@ -15,10 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Programs that must transpile cleanly and compile.
-const HAPPY: &[&str] = &["hello", "strings", "functions"];
+const HAPPY: &[&str] = &["hello", "strings", "functions", "types"];
 
 /// Files that are meant to fail, exercising the teaching diagnostics.
-const ERRORS: &[&str] = &["ownership_error", "sub_error"];
+const ERRORS: &[&str] = &["ownership_error", "sub_error", "currency_error", "variant_error"];
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")

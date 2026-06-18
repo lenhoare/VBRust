@@ -353,7 +353,8 @@ fn render_expr(e: &Expr, expected: Option<Type>) -> String {
 fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool) -> String {
     match e {
         Expr::Int(n) => {
-            if expected == Some(Type::Double) {
+            // An integer literal assigned into a float context needs a `.0`.
+            if expected.map_or(false, |t| t.is_float()) {
                 format!("{}.0", n)
             } else {
                 n.to_string()

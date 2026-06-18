@@ -1,0 +1,4 @@
+' MEANT to fail — Rust has no fixed-point Currency type.
+Function Main()
+    Dim price As Currency = 9.99
+End Function

@@ -7,21 +7,29 @@
 /// (note: `Integer` is `i16` here, not `i32` as the stale README says).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
-    Long,    // i32
-    Integer, // i16
-    Double,  // f64
-    Boolean, // bool
-    Text,    // String — unknown size, ownership rules apply
+    Integer,  // i16
+    Long,     // i32
+    LongLong, // i64
+    Single,   // f32
+    Double,   // f64
+    Boolean,  // bool
+    Byte,     // u8
+    Date,     // i64 — no date semantics, just a number
+    Text,     // String — unknown size, ownership rules apply
 }
 
 impl Type {
     /// The Rust type this maps to (the owned form for `Text`).
     pub fn rust(self) -> &'static str {
         match self {
-            Type::Long => "i32",
             Type::Integer => "i16",
+            Type::Long => "i32",
+            Type::LongLong => "i64",
+            Type::Single => "f32",
             Type::Double => "f64",
             Type::Boolean => "bool",
+            Type::Byte => "u8",
+            Type::Date => "i64",
             Type::Text => "String",
         }
     }
@@ -32,13 +40,22 @@ impl Type {
         !matches!(self, Type::Text)
     }
 
+    /// Floating-point types — an integer literal assigned to one needs a `.0`.
+    pub fn is_float(self) -> bool {
+        matches!(self, Type::Single | Type::Double)
+    }
+
     /// The VB-facing name, for diagnostics.
     pub fn vb_name(self) -> &'static str {
         match self {
-            Type::Long => "Long",
             Type::Integer => "Integer",
+            Type::Long => "Long",
+            Type::LongLong => "LongLong",
+            Type::Single => "Single",
             Type::Double => "Double",
             Type::Boolean => "Boolean",
+            Type::Byte => "Byte",
+            Type::Date => "Date",
             Type::Text => "String",
         }
     }
