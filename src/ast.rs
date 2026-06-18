@@ -142,6 +142,15 @@ pub enum Stmt {
         step: Option<Expr>,
         body: Vec<Stmt>,
     },
+    /// `Do … Loop` in its various forms → `while` / `loop`.
+    DoLoop {
+        cond: Option<DoCond>,
+        body: Vec<Stmt>,
+    },
+    /// `Exit Do` / `Exit For` → `break`.
+    Break,
+    /// `Continue` → `continue` (a VBR extension over classic VBA).
+    Continue,
     /// `For Each item In coll` / `For Each k, v In map` → `for … in &coll`.
     ForEach {
         var1: String,
@@ -164,6 +173,15 @@ pub struct SelectArm {
     /// One or more comma-separated patterns, joined with `|` in Rust.
     pub patterns: Vec<CasePattern>,
     pub body: Vec<Stmt>,
+}
+
+/// The condition attached to a `Do` loop, and where it sits.
+#[derive(Debug, Clone)]
+pub enum DoCond {
+    PreWhile(Expr),  // Do While c … Loop      → while c
+    PreUntil(Expr),  // Do Until c … Loop      → while !c
+    PostWhile(Expr), // Do … Loop While c      → loop { …; if !c { break } }
+    PostUntil(Expr), // Do … Loop Until c      → loop { …; if c { break } }
 }
 
 #[derive(Debug, Clone)]

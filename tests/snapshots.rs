@@ -29,6 +29,7 @@ const HAPPY: &[&str] = &[
     "option",
     "vec",
     "hashmap",
+    "doloop",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

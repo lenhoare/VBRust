@@ -311,7 +311,7 @@ impl<'a> Parser<'a> {
     fn at_block_end(&self) -> bool {
         matches!(
             self.peek(),
-            Tok::End | Tok::ElseIf | Tok::Else | Tok::Case | Tok::Next | Tok::Eof
+            Tok::End | Tok::ElseIf | Tok::Else | Tok::Case | Tok::Next | Tok::Loop | Tok::Eof
         )
     }
 
@@ -344,6 +344,31 @@ impl<'a> Parser<'a> {
             Tok::If => self.parse_if(),
             Tok::Select => self.parse_select(),
             Tok::For => self.parse_for(),
+            Tok::Do => self.parse_do(),
+            Tok::Continue => {
+                self.advance();
+                Some(Stmt::Continue)
+            }
+            Tok::Exit => {
+                self.advance();
+                match self.peek() {
+                    Tok::Do | Tok::For => {
+                        self.advance();
+                        Some(Stmt::Break)
+                    }
+                    Tok::Function => {
+                        self.advance();
+                        Some(Stmt::Return(None))
+                    }
+                    other => {
+                        self.diags.error(
+                            self.line(),
+                            format!("`Exit {:?}` is not supported — use `Exit Do`, `Exit For`, or `Exit Function`.", other),
+                        );
+                        None
+                    }
+                }
+            }
             Tok::On => {
                 self.diags.error(
                     self.line(),
@@ -627,6 +652,46 @@ impl<'a> Parser<'a> {
             step,
             body,
         })
+    }
+
+    fn parse_do(&mut self) -> Option<Stmt> {
+        let line = self.line();
+        self.expect(&Tok::Do, "")?;
+
+        // A condition may sit on the `Do` (pre-test) ...
+        let pre = self.parse_loop_cond()?;
+        self.expect(&Tok::Newline, "after the `Do` header")?;
+        let body = self.parse_block()?;
+        self.expect(&Tok::Loop, "to close the `Do` loop")?;
+        // ... or on the `Loop` (post-test).
+        let post = self.parse_loop_cond()?;
+
+        let cond = match (pre, post) {
+            (Some((true, c)), None) => Some(DoCond::PreWhile(c)),
+            (Some((false, c)), None) => Some(DoCond::PreUntil(c)),
+            (None, Some((true, c))) => Some(DoCond::PostWhile(c)),
+            (None, Some((false, c))) => Some(DoCond::PostUntil(c)),
+            (None, None) => None,
+            (Some(_), Some(_)) => {
+                self.diags.error(
+                    line,
+                    "A `Do` loop can have a condition on the `Do` or the `Loop`, not both.",
+                );
+                None
+            }
+        };
+        Some(Stmt::DoLoop { cond, body })
+    }
+
+    /// Parse an optional `While c` / `Until c`; returns (is_while, cond).
+    fn parse_loop_cond(&mut self) -> Option<Option<(bool, Expr)>> {
+        if self.eat(&Tok::While) {
+            Some(Some((true, self.parse_expr()?)))
+        } else if self.eat(&Tok::Until) {
+            Some(Some((false, self.parse_expr()?)))
+        } else {
+            Some(None)
+        }
     }
 
     fn parse_for_each(&mut self) -> Option<Stmt> {

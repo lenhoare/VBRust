@@ -1,0 +1,30 @@
+' Do loops, Exit and Continue
+Function Main()
+    Dim i As Long = 1
+    Do While i <= 3
+        Debug.Print "while " & i
+        i = i + 1
+    Loop
+
+    Dim j As Long = 10
+    Do Until j = 0
+        j = j - 2
+    Loop
+    Debug.Print "j ended at " & j
+
+    Dim n As Long = 0
+    Do
+        n = n + 1
+    Loop While n < 3
+    Debug.Print "n = " & n
+
+    For k = 1 To 6
+        If k = 4 Then
+            Exit For
+        End If
+        If k = 2 Then
+            Continue
+        End If
+        Debug.Print "k = " & k
+    Next k
+End Function

@@ -183,6 +183,19 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 ctx.vars.insert(snake(var), Type::Long);
                 resolve_stmts(body, ctx);
             }
+            Stmt::DoLoop { cond, body } => {
+                if let Some(
+                    DoCond::PreWhile(c)
+                    | DoCond::PreUntil(c)
+                    | DoCond::PostWhile(c)
+                    | DoCond::PostUntil(c),
+                ) = cond
+                {
+                    resolve_expr(c, ctx);
+                }
+                resolve_stmts(body, ctx);
+            }
+            Stmt::Break | Stmt::Continue => {}
             Stmt::ForEach { var1, var2, iter, body } => {
                 resolve_expr(iter, ctx);
                 // Loop variables are references inside the body, so their uses

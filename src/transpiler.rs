@@ -160,7 +160,9 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
                     convert_returns(body, fn_name);
                 }
             }
-            Stmt::For { body, .. } | Stmt::ForEach { body, .. } => convert_returns(body, fn_name),
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                convert_returns(body, fn_name)
+            }
             Stmt::Select {
                 arms, else_body, ..
             } => {
@@ -320,6 +322,39 @@ fn emit_stmt(
             emit_block(body, mutated, byref, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
         }
+        Stmt::DoLoop { cond, body } => {
+            let inner = "    ".repeat(indent + 1);
+            match cond {
+                None => {
+                    out.push_str(&format!("{}loop {{\n", pad));
+                    emit_block(body, mutated, byref, indent + 1, diags, out);
+                }
+                Some(DoCond::PreWhile(c)) => {
+                    out.push_str(&format!("{}while {} {{\n", pad, render_expr(c, None)));
+                    emit_block(body, mutated, byref, indent + 1, diags, out);
+                }
+                Some(DoCond::PreUntil(c)) => {
+                    out.push_str(&format!("{}while !({}) {{\n", pad, render_expr(c, None)));
+                    emit_block(body, mutated, byref, indent + 1, diags, out);
+                }
+                // Post-test loops run the body once before checking.
+                Some(DoCond::PostWhile(c)) => {
+                    out.push_str(&format!("{}loop {{\n", pad));
+                    emit_block(body, mutated, byref, indent + 1, diags, out);
+                    out.push_str(&format!("{}if !({}) {{\n", inner, render_expr(c, None)));
+                    out.push_str(&format!("{}    break;\n{}}}\n", inner, inner));
+                }
+                Some(DoCond::PostUntil(c)) => {
+                    out.push_str(&format!("{}loop {{\n", pad));
+                    emit_block(body, mutated, byref, indent + 1, diags, out);
+                    out.push_str(&format!("{}if {} {{\n", inner, render_expr(c, None)));
+                    out.push_str(&format!("{}    break;\n{}}}\n", inner, inner));
+                }
+            }
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        Stmt::Break => out.push_str(&format!("{}break;\n", pad)),
+        Stmt::Continue => out.push_str(&format!("{}continue;\n", pad)),
         Stmt::ForEach {
             var1,
             var2,
@@ -476,6 +511,18 @@ fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
             }
             Stmt::ForEach { iter, body, .. } => {
                 note_builtins_expr(iter, diags);
+                note_builtins(body, diags);
+            }
+            Stmt::DoLoop { cond, body } => {
+                match cond {
+                    Some(
+                        DoCond::PreWhile(c)
+                        | DoCond::PreUntil(c)
+                        | DoCond::PostWhile(c)
+                        | DoCond::PostUntil(c),
+                    ) => note_builtins_expr(c, diags),
+                    None => {}
+                }
                 note_builtins(body, diags);
             }
             Stmt::Select {
@@ -915,7 +962,9 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                     collect_mutated(body, set);
                 }
             }
-            Stmt::For { body, .. } | Stmt::ForEach { body, .. } => collect_mutated(body, set),
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                collect_mutated(body, set)
+            }
             Stmt::Select {
                 arms, else_body, ..
             } => {
