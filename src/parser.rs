@@ -371,9 +371,27 @@ impl<'a> Parser<'a> {
         let line = self.line();
         self.expect(&Tok::Dim, "")?;
         let name = self.expect_ident("after `Dim`")?;
+
+        // `Dim x()` declares a growable list; `Dim x(N)` (fixed size) isn't supported yet.
+        let mut empty_parens = false;
+        if self.eat(&Tok::LParen) {
+            if self.eat(&Tok::RParen) {
+                empty_parens = true;
+            } else {
+                self.diags.error(
+                    line,
+                    "Fixed-size arrays `Dim x(N)` aren't supported yet — use \
+                     `Dim x As New Vec<...>` (or `Dim x() As ...`) for a growable list.",
+                );
+                return None;
+            }
+        }
+
         self.expect(&Tok::As, "after the variable name")?;
-        let ty = self.parse_type()?;
-        let init = if self.eat(&Tok::Eq) {
+        let ty = self.parse_decl_type(empty_parens)?;
+
+        // Only a plain scalar may carry an initialiser; collections start empty.
+        let init = if matches!(ty, DeclType::Plain(_)) && self.eat(&Tok::Eq) {
             Some(self.parse_expr()?)
         } else {
             None
@@ -384,6 +402,38 @@ impl<'a> Parser<'a> {
             init,
             line,
         })
+    }
+
+    fn parse_decl_type(&mut self, empty_parens: bool) -> Option<DeclType> {
+        if self.eat(&Tok::New) {
+            let kind = self.expect_ident("after `New` (Vec or HashMap)")?;
+            self.expect(&Tok::Lt, "before the element type, e.g. Vec<Long>")?;
+            match kind.as_str() {
+                "Vec" => {
+                    let t = self.parse_type()?;
+                    self.expect(&Tok::Gt, "to close `Vec<...>`")?;
+                    Some(DeclType::Vec(t))
+                }
+                "HashMap" => {
+                    let k = self.parse_type()?;
+                    self.expect(&Tok::Comma, "between the key and value types")?;
+                    let v = self.parse_type()?;
+                    self.expect(&Tok::Gt, "to close `HashMap<...>`")?;
+                    Some(DeclType::Map(k, v))
+                }
+                other => {
+                    self.diags.error(
+                        self.line(),
+                        format!("`New {}` is not a collection — use `New Vec<T>` or `New HashMap<K, V>`.", other),
+                    );
+                    None
+                }
+            }
+        } else if empty_parens {
+            Some(DeclType::Vec(self.parse_type()?))
+        } else {
+            Some(DeclType::Plain(self.parse_type()?))
+        }
     }
 
     fn parse_set(&mut self) -> Option<Stmt> {
@@ -550,6 +600,9 @@ impl<'a> Parser<'a> {
 
     fn parse_for(&mut self) -> Option<Stmt> {
         self.expect(&Tok::For, "")?;
+        if self.eat(&Tok::Each) {
+            return self.parse_for_each();
+        }
         let var = self.expect_ident("for the loop variable")?;
         self.expect(&Tok::Eq, "after the loop variable")?;
         let from = self.parse_expr()?;
@@ -572,6 +625,29 @@ impl<'a> Parser<'a> {
             from,
             to,
             step,
+            body,
+        })
+    }
+
+    fn parse_for_each(&mut self) -> Option<Stmt> {
+        let var1 = self.expect_ident("for the loop item")?;
+        let var2 = if self.eat(&Tok::Comma) {
+            Some(self.expect_ident("for the second loop item")?)
+        } else {
+            None
+        };
+        self.expect(&Tok::In, "after the `For Each` variables")?;
+        let iter = self.parse_expr()?;
+        self.expect(&Tok::Newline, "after the `For Each` header")?;
+        let body = self.parse_block()?;
+        self.expect(&Tok::Next, "to close the `For Each` loop")?;
+        if let Tok::Ident(_) = self.peek() {
+            self.advance();
+        }
+        Some(Stmt::ForEach {
+            var1,
+            var2,
+            iter,
             body,
         })
     }

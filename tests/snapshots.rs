@@ -27,6 +27,8 @@ const HAPPY: &[&str] = &[
     "coercion",
     "result",
     "option",
+    "vec",
+    "hashmap",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

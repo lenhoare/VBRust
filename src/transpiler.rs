@@ -27,6 +27,10 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     if !program.leading_comments.is_empty() {
         out.push('\n');
     }
+    // Pull in HashMap automatically when it's used.
+    if program.functions.iter().any(|f| body_uses_hashmap(&f.body)) {
+        out.push_str("use std::collections::HashMap;\n\n");
+    }
     for (idx, func) in program.functions.iter().enumerate() {
         if idx > 0 {
             out.push('\n');
@@ -34,6 +38,23 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
         emit_function(func, &fns, diags, &mut out);
     }
     out
+}
+
+/// Does any `Dim` in these statements declare a `HashMap`? (Recurses blocks.)
+fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Dim { ty: DeclType::Map(..), .. } => true,
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| body_uses_hashmap(b))
+                || else_body.as_ref().map_or(false, |b| body_uses_hashmap(b))
+        }
+        Stmt::For { body, .. } | Stmt::ForEach { body, .. } => body_uses_hashmap(body),
+        Stmt::Select { arms, else_body, .. } => {
+            arms.iter().any(|a| body_uses_hashmap(&a.body))
+                || else_body.as_ref().map_or(false, |b| body_uses_hashmap(b))
+        }
+        _ => false,
+    })
 }
 
 fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &mut String) {
@@ -139,7 +160,7 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
                     convert_returns(body, fn_name);
                 }
             }
-            Stmt::For { body, .. } => convert_returns(body, fn_name),
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } => convert_returns(body, fn_name),
             Stmt::Select {
                 arms, else_body, ..
             } => {
@@ -188,18 +209,43 @@ fn emit_stmt(
             line,
         } => {
             let var = to_snake(name);
-            let is_mut = mutated.contains(&var);
-            if !ty.is_fixed_size() {
-                emit_dim_string(&var, name, is_mut, init.as_ref(), *line, diags, &pad, out);
-            } else {
-                let kw = let_kw(is_mut);
-                match init {
-                    Some(e) => {
-                        let value = render_expr(e, Some(*ty));
-                        out.push_str(&format!("{}{} {}: {} = {};\n", pad, kw, var, ty.rust(), value));
-                    }
-                    None => {
-                        out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, ty.rust()));
+            match ty {
+                // Collections start empty and are always mutable.
+                DeclType::Vec(t) => {
+                    out.push_str(&format!(
+                        "{}let mut {}: Vec<{}> = Vec::new();\n",
+                        pad,
+                        var,
+                        t.rust()
+                    ));
+                }
+                DeclType::Map(k, v) => {
+                    out.push_str(&format!(
+                        "{}let mut {}: HashMap<{}, {}> = HashMap::new();\n",
+                        pad,
+                        var,
+                        k.rust(),
+                        v.rust()
+                    ));
+                }
+                DeclType::Plain(t) => {
+                    let is_mut = mutated.contains(&var);
+                    if !t.is_fixed_size() {
+                        emit_dim_string(&var, name, is_mut, init.as_ref(), *line, diags, &pad, out);
+                    } else {
+                        let kw = let_kw(is_mut);
+                        match init {
+                            Some(e) => {
+                                let value = render_expr(e, Some(*t));
+                                out.push_str(&format!(
+                                    "{}{} {}: {} = {};\n",
+                                    pad, kw, var, t.rust(), value
+                                ));
+                            }
+                            None => {
+                                out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, t.rust()));
+                            }
+                        }
                     }
                 }
             }
@@ -271,6 +317,26 @@ fn emit_stmt(
             let loop_var = to_snake(var);
             let range = render_range(from, to, step.as_ref(), diags);
             out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
+            emit_block(body, mutated, byref, indent + 1, diags, out);
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        Stmt::ForEach {
+            var1,
+            var2,
+            iter,
+            body,
+        } => {
+            // Iterate by shared reference — no copy, the collection stays usable.
+            let pattern = match var2 {
+                Some(v2) => format!("({}, {})", to_snake(var1), to_snake(v2)),
+                None => to_snake(var1),
+            };
+            out.push_str(&format!(
+                "{}for {} in &{} {{\n",
+                pad,
+                pattern,
+                render_expr(iter, None)
+            ));
             emit_block(body, mutated, byref, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
         }
@@ -408,6 +474,10 @@ fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
                 }
                 note_builtins(body, diags);
             }
+            Stmt::ForEach { iter, body, .. } => {
+                note_builtins_expr(iter, diags);
+                note_builtins(body, diags);
+            }
             Stmt::Select {
                 scrutinee,
                 arms,
@@ -449,6 +519,13 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     ".unwrap() works, but it's training wheels — it crashes the program if the \
                      value is an error or None. Prefer the `?` operator to propagate, or \
                      `Select Case` over Ok/Err (Some/None) to handle both outcomes.",
+                );
+            }
+            if method.eq_ignore_ascii_case("insert") {
+                diags.note(
+                    "hashmap-insert-tostring",
+                    "HashMap keys are owned Strings — VBR adds `.to_string()` to a string-literal \
+                     key for you, so `dict.insert(\"key\", v)` becomes `dict.insert(\"key\".to_string(), v)`.",
                 );
             }
             note_builtins_expr(recv, diags);
@@ -613,13 +690,26 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         Expr::MethodCall { recv, method, args } => {
-            let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+            let m = to_snake(method);
+            let rendered: Vec<String> = args
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    // HashMap insert: a string-literal key becomes an owned String.
+                    if m == "insert" && i == 0 {
+                        if let Expr::Str(s) = a {
+                            return format!("\"{}\".to_string()", escape(s));
+                        }
+                    }
+                    render_expr(a, None)
+                })
+                .collect();
             // High parent precedence so a binary receiver gets parens: (a + b).abs()
             // Method names follow Rust convention (`.Unwrap()` → `.unwrap()`).
             format!(
                 "{}.{}({})",
                 render_prec(recv, None, 5, false),
-                to_snake(method),
+                m,
                 rendered.join(", ")
             )
         }
@@ -825,7 +915,7 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                     collect_mutated(body, set);
                 }
             }
-            Stmt::For { body, .. } => collect_mutated(body, set),
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } => collect_mutated(body, set),
             Stmt::Select {
                 arms, else_body, ..
             } => {

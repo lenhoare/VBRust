@@ -1,0 +1,14 @@
+' HashMap<K, V> — VBA's Scripting.Dictionary, done natively
+Function Main()
+    Dim ages As New HashMap<String, Long>
+    ages.insert("Alice", 30)
+    ages.insert("Bob", 25)
+
+    Debug.Print "Alice is " & ages.get("Alice").Unwrap()
+    Debug.Print "has Bob?   " & ages.contains_key("Bob")
+    Debug.Print "has Carol? " & ages.contains_key("Carol")
+
+    For Each name, age In ages
+        Debug.Print name & " is " & age
+    Next
+End Function

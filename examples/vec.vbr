@@ -1,0 +1,15 @@
+' Vec<T> — a growable list
+Function Main()
+    Dim nums As New Vec<Long>
+    nums.push(10)
+    nums.push(20)
+    nums.push(30)
+
+    Debug.Print "count = " & nums.len()
+
+    Dim total As Long = 0
+    For Each n In nums
+        total = total + n
+    Next n
+    Debug.Print "total = " & total
+End Function

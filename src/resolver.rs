@@ -120,7 +120,7 @@ pub fn resolve_body(
 
     let mut passed = HashSet::new();
     let mut ctx = Ctx {
-        byref: &byref,
+        deref: byref,
         fns,
         diags,
         vars: &mut vars,
@@ -131,7 +131,9 @@ pub fn resolve_body(
 }
 
 struct Ctx<'a> {
-    byref: &'a HashSet<String>,
+    /// Names whose uses are references and must be dereferenced: ByRef params
+    /// plus the (scoped) variables of an enclosing `For Each`.
+    deref: HashSet<String>,
     fns: &'a FnTable,
     diags: &'a mut Diagnostics,
     vars: &'a mut HashMap<String, Type>,
@@ -142,11 +144,16 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
     for stmt in stmts {
         match stmt {
             Stmt::Dim { name, ty, init, .. } => {
-                if let Some(e) = init {
+                // Only plain scalars take part in numeric coercion / inference.
+                if let DeclType::Plain(t) = ty {
+                    if let Some(e) = init {
+                        resolve_expr(e, ctx);
+                        maybe_cast(e, *t, ctx);
+                    }
+                    ctx.vars.insert(snake(name), *t);
+                } else if let Some(e) = init {
                     resolve_expr(e, ctx);
-                    maybe_cast(e, *ty, ctx);
                 }
-                ctx.vars.insert(snake(name), *ty);
             }
             Stmt::Assign { name, value } => {
                 resolve_expr(value, ctx);
@@ -175,6 +182,25 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 // The loop variable is an integer in scope for the body.
                 ctx.vars.insert(snake(var), Type::Long);
                 resolve_stmts(body, ctx);
+            }
+            Stmt::ForEach { var1, var2, iter, body } => {
+                resolve_expr(iter, ctx);
+                // Loop variables are references inside the body, so their uses
+                // get dereferenced — scoped to this loop only.
+                let v1 = snake(var1);
+                let added1 = ctx.deref.insert(v1.clone());
+                let v2 = var2.as_ref().map(|v| {
+                    let s = snake(v);
+                    let added = ctx.deref.insert(s.clone());
+                    (s, added)
+                });
+                resolve_stmts(body, ctx);
+                if added1 {
+                    ctx.deref.remove(&v1);
+                }
+                if let Some((s, true)) = v2 {
+                    ctx.deref.remove(&s);
+                }
             }
             Stmt::Select { scrutinee, arms, else_body, .. } => {
                 resolve_expr(scrutinee, ctx);
@@ -223,7 +249,7 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
 
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
     match e {
-        Expr::Ident(name) if ctx.byref.contains(&snake(name)) => {
+        Expr::Ident(name) if ctx.deref.contains(&snake(name)) => {
             *e = Expr::Deref(Box::new(Expr::Ident(name.clone())));
         }
         Expr::Ident(_) => {}

@@ -85,6 +85,14 @@ pub enum RetType {
     Option(Type), // -> Option<T>
 }
 
+/// The declared type of a `Dim` — a plain type or a growable collection.
+#[derive(Debug, Clone, Copy)]
+pub enum DeclType {
+    Plain(Type),
+    Vec(Type),
+    Map(Type, Type),
+}
+
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
@@ -103,7 +111,7 @@ pub enum ParamMode {
 pub enum Stmt {
     Dim {
         name: String,
-        ty: Type,
+        ty: DeclType,
         init: Option<Expr>,
         line: usize,
     },
@@ -132,6 +140,13 @@ pub enum Stmt {
         from: Expr,
         to: Expr,
         step: Option<Expr>,
+        body: Vec<Stmt>,
+    },
+    /// `For Each item In coll` / `For Each k, v In map` → `for … in &coll`.
+    ForEach {
+        var1: String,
+        var2: Option<String>,
+        iter: Expr,
         body: Vec<Stmt>,
     },
     /// `Select Case <scrutinee>` → `match`. Must have `Case Else` (the `_` arm).
