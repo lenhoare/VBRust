@@ -98,6 +98,15 @@ impl<'a> Parser<'a> {
                     Some(f) => functions.push(f),
                     None => break, // error already recorded
                 },
+                Tok::Sub => {
+                    self.diags.error(
+                        self.line(),
+                        "`Sub` is not part of VBR. In Rust every routine is a function; \
+                         a Function with no `As` return type simply returns nothing. \
+                         Replace `Sub Foo()` with `Function Foo()`.",
+                    );
+                    break;
+                }
                 other => {
                     self.diags.error(
                         self.line(),
@@ -122,7 +131,17 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Function, "to start a function")?;
         let name = self.expect_ident("for the function")?;
         self.expect(&Tok::LParen, "after the function name")?;
-        self.expect(&Tok::RParen, "after `(`")?;
+
+        let mut params = Vec::new();
+        if !matches!(self.peek(), Tok::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen, "to close the parameter list")?;
 
         // Optional return type: `Function Foo() As Long`
         let ret = if self.eat(&Tok::As) {
@@ -140,10 +159,48 @@ impl<'a> Parser<'a> {
 
         Some(Function {
             name,
+            params,
             ret,
             body,
             line,
         })
+    }
+
+    fn parse_param(&mut self) -> Option<Param> {
+        let line = self.line();
+        let explicit_mode = if self.eat(&Tok::ByVal) {
+            Some(ParamMode::ByVal)
+        } else if self.eat(&Tok::ByRef) {
+            Some(ParamMode::ByRef)
+        } else {
+            None
+        };
+        let name = self.expect_ident("for the parameter")?;
+        self.expect(&Tok::As, "after the parameter name")?;
+        let ty = self.parse_type()?;
+
+        let mode = match explicit_mode {
+            Some(m) => m,
+            // Fixed-size primitives default to ByVal; unknown-size types must
+            // be explicit so the caller knows whether it's lending or sharing.
+            None if ty.is_fixed_size() => ParamMode::ByVal,
+            None => {
+                self.diags.error(
+                    line,
+                    format!(
+                        "Parameter '{}' is a {} (unknown size) — say how it is passed: \
+                         `ByVal {} As String` borrows it as `&str` (read only), \
+                         `ByRef {} As String` borrows it as `&mut String` (can change it).",
+                        name,
+                        ty.vb_name(),
+                        name,
+                        name
+                    ),
+                );
+                ParamMode::ByVal
+            }
+        };
+        Some(Param { name, ty, mode })
     }
 
     fn parse_type(&mut self) -> Option<Type> {
@@ -210,6 +267,23 @@ impl<'a> Parser<'a> {
             }
             Tok::Dim => self.parse_dim(),
             Tok::Set => self.parse_set(),
+            Tok::Return => {
+                self.advance();
+                // `Return` may stand alone (no value) or carry an expression.
+                if matches!(self.peek(), Tok::Newline | Tok::Eof | Tok::Comment(_))
+                    || self.at_block_end()
+                {
+                    Some(Stmt::Return(None))
+                } else {
+                    Some(Stmt::Return(Some(self.parse_expr()?)))
+                }
+            }
+            // VB idiom: `Function = value` assigns the return value.
+            Tok::Function => {
+                self.advance();
+                self.expect(&Tok::Eq, "in `Function = value`")?;
+                Some(Stmt::Return(Some(self.parse_expr()?)))
+            }
             Tok::If => self.parse_if(),
             Tok::For => self.parse_for(),
             Tok::Ident(name) => self.parse_ident_stmt(name),
@@ -474,7 +548,23 @@ impl<'a> Parser<'a> {
             }
             Tok::Ident(name) => {
                 self.advance();
-                Some(Expr::Ident(name))
+                // A name followed by `(` is a function call.
+                if matches!(self.peek(), Tok::LParen) {
+                    self.advance();
+                    let mut args = Vec::new();
+                    if !matches!(self.peek(), Tok::RParen) {
+                        loop {
+                            args.push(self.parse_expr()?);
+                            if !self.eat(&Tok::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(&Tok::RParen, "to close the call arguments")?;
+                    Some(Expr::Call { name, args })
+                } else {
+                    Some(Expr::Ident(name))
+                }
             }
             Tok::LParen => {
                 self.advance();

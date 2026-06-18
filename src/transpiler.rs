@@ -29,18 +29,89 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
 
 fn emit_function(func: &Function, diags: &mut Diagnostics, out: &mut String) {
     let name = rust_fn_name(&func.name, func.line, diags);
+    let params: Vec<String> = func.params.iter().map(render_param).collect();
     let ret = match func.ret {
         Some(ty) => format!(" -> {}", ty.rust()),
         None => String::new(),
     };
-    out.push_str(&format!("fn {}(){} {{\n", name, ret));
+    out.push_str(&format!("fn {}({}){} {{\n", name, params.join(", "), ret));
+
+    // `FunctionName = value` is really a return — rewrite it before emitting.
+    let mut body = func.body.clone();
+    convert_returns(&mut body, &name);
 
     // Which locals get reassigned? Those need `let mut`.
     let mut mutated = HashSet::new();
-    collect_mutated(&func.body, &mut mutated);
+    collect_mutated(&body, &mut mutated);
 
-    emit_block(&func.body, &mutated, 1, diags, out);
+    emit_fn_body(&body, &mutated, func.ret, diags, out);
     out.push_str("}\n");
+}
+
+fn render_param(p: &Param) -> String {
+    let ty = match (p.mode, p.ty) {
+        // ByVal String borrows as a read-only &str; other ByVal types pass by value.
+        (ParamMode::ByVal, Type::Text) => "&str".to_string(),
+        (ParamMode::ByVal, t) => t.rust().to_string(),
+        // ByRef always becomes a mutable borrow.
+        (ParamMode::ByRef, t) => format!("&mut {}", t.rust()),
+    };
+    format!("{}: {}", to_snake(&p.name), ty)
+}
+
+/// Emit a function body, rendering a trailing `Return value` as an idiomatic
+/// tail expression (no `return`, no semicolon) the way the spec shows.
+fn emit_fn_body(
+    stmts: &[Stmt],
+    mutated: &HashSet<String>,
+    ret: Option<Type>,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    // The tail expression is the last *non-comment* statement, so a trailing
+    // inline comment doesn't rob a `Return` of its idiomatic tail form.
+    let last_real = stmts.iter().rposition(|s| !matches!(s, Stmt::Comment(_)));
+    if let Some(l) = last_real {
+        if let Stmt::Return(Some(e)) = &stmts[l] {
+            for stmt in &stmts[..l] {
+                emit_stmt(stmt, mutated, 1, diags, out);
+            }
+            // Any trailing comments are emitted just above the returned value.
+            for stmt in &stmts[l + 1..] {
+                emit_stmt(stmt, mutated, 1, diags, out);
+            }
+            out.push_str(&format!("    {}\n", render_expr(e, ret)));
+            return;
+        }
+    }
+    for stmt in stmts {
+        emit_stmt(stmt, mutated, 1, diags, out);
+    }
+}
+
+/// Rewrite `FunctionName = value` (assignment to the function's own name) into
+/// a `Return`, recursing through nested blocks.
+fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
+    for stmt in stmts.iter_mut() {
+        match stmt {
+            Stmt::Assign { name, value } if to_snake(name) == fn_name => {
+                *stmt = Stmt::Return(Some(value.clone()));
+            }
+            Stmt::If {
+                branches,
+                else_body,
+            } => {
+                for (_, body) in branches.iter_mut() {
+                    convert_returns(body, fn_name);
+                }
+                if let Some(body) = else_body {
+                    convert_returns(body, fn_name);
+                }
+            }
+            Stmt::For { body, .. } => convert_returns(body, fn_name),
+            _ => {}
+        }
+    }
 }
 
 fn emit_block(
@@ -113,6 +184,12 @@ fn emit_stmt(
         Stmt::Assign { name, value } => {
             let var = to_snake(name);
             out.push_str(&format!("{}{} = {};\n", pad, var, render_expr(value, None)));
+        }
+        Stmt::Return(Some(e)) => {
+            out.push_str(&format!("{}return {};\n", pad, render_expr(e, None)));
+        }
+        Stmt::Return(None) => {
+            out.push_str(&format!("{}return;\n", pad));
         }
         Stmt::Print(e) => {
             out.push_str(&format!("{}println!(\"{{}}\", {});\n", pad, render_expr(e, None)));
@@ -315,6 +392,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
             // High parent precedence so a binary receiver gets parens: (a + b).abs()
             format!("{}.{}({})", render_prec(recv, None, 5, false), method, rendered.join(", "))
+        }
+        Expr::Call { name, args } => {
+            let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+            format!("{}({})", to_snake(name), rendered.join(", "))
         }
     }
 }

@@ -1,0 +1,24 @@
+' Functions, parameters and returns
+Function Main()
+    Dim a As Long = add(2, 3)
+    Dim s As Long = square(4)
+    Dim f As Long = factorial(5)
+    Debug.Print "2 + 3 = " & a
+    Debug.Print "4 squared = " & s
+    Debug.Print "5! = " & f
+End Function
+
+Function add(ByVal x As Long, ByVal y As Long) As Long
+    Return x + y
+End Function
+
+Function square(ByVal n As Long) As Long
+    square = n * n          ' VB style: assign to the function name
+End Function
+
+Function factorial(ByVal n As Long) As Long
+    If n <= 1 Then
+        Return 1
+    End If
+    Return n * factorial(n - 1)
+End Function

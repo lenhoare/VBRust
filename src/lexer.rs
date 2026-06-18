@@ -14,6 +14,10 @@ pub enum Tok {
 
     // Keywords
     Function,
+    Sub,
+    Return,
+    ByVal,
+    ByRef,
     End,
     Dim,
     Set,
@@ -189,6 +193,10 @@ fn push(tokens: &mut Vec<Token>, tok: Tok, line: usize, i: &mut usize) {
 fn keyword_or_ident(word: &str) -> Tok {
     match word.to_ascii_lowercase().as_str() {
         "function" => Tok::Function,
+        "sub" => Tok::Sub,
+        "return" => Tok::Return,
+        "byval" => Tok::ByVal,
+        "byref" => Tok::ByRef,
         "end" => Tok::End,
         "dim" => Tok::Dim,
         "set" => Tok::Set,

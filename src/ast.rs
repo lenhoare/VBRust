@@ -31,6 +31,17 @@ impl Type {
     pub fn is_fixed_size(self) -> bool {
         !matches!(self, Type::Text)
     }
+
+    /// The VB-facing name, for diagnostics.
+    pub fn vb_name(self) -> &'static str {
+        match self {
+            Type::Long => "Long",
+            Type::Integer => "Integer",
+            Type::Double => "Double",
+            Type::Boolean => "Boolean",
+            Type::Text => "String",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -42,9 +53,24 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    pub params: Vec<Param>,
     pub ret: Option<Type>,
     pub body: Vec<Stmt>,
     pub line: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Param {
+    pub name: String,
+    pub ty: Type,
+    pub mode: ParamMode,
+}
+
+/// How a parameter is passed. `ByVal` copies/borrows-as-`&str`; `ByRef` is `&mut`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamMode {
+    ByVal,
+    ByRef,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +91,8 @@ pub enum Stmt {
         name: String,
         value: Expr,
     },
+    /// `Return value` or `FunctionName = value` — both become a Rust return.
+    Return(Option<Expr>),
     Print(Expr),
     If {
         branches: Vec<(Expr, Vec<Stmt>)>,
@@ -96,6 +124,11 @@ pub enum Expr {
     MethodCall {
         recv: Box<Expr>,
         method: String,
+        args: Vec<Expr>,
+    },
+    /// A function call, e.g. `add(2, 3)`.
+    Call {
+        name: String,
         args: Vec<Expr>,
     },
 }
