@@ -76,6 +76,18 @@ impl Diagnostics {
         }
     }
 
+    /// A line-less warning shown only once per `key` — for general caveats not
+    /// tied to a specific source position (e.g. "Mid is 1-indexed").
+    pub fn warn_once_global(&mut self, key: &str, message: impl Into<String>) {
+        if self.seen_notes.insert(key.to_string()) {
+            self.items.push(Diagnostic {
+                level: Level::Warning,
+                message: message.into(),
+                line: None,
+            });
+        }
+    }
+
     /// A teaching note shown only once per `key`, no matter how often it fires.
     pub fn note(&mut self, key: &str, message: impl Into<String>) {
         if self.seen_notes.insert(key.to_string()) {

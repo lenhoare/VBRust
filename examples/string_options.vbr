@@ -1,0 +1,8 @@
+' Builtins with a teaching twist: Mid adjusts indexing, while InStr and Val
+' return Option / Result. (Handling those Results comes in a later slice, so
+' this file shows the lowering but is not compiled.)
+Function Main()
+    Debug.Print Mid("hello", 2, 3)
+    Dim pos As Long = InStr("hello", "l")
+    Dim num As Double = Val("3.14")
+End Function

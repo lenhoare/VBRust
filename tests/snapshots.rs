@@ -15,7 +15,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Programs that must transpile cleanly and compile.
-const HAPPY: &[&str] = &["hello", "strings", "functions", "types", "select"];
+const HAPPY: &[&str] = &["hello", "strings", "functions", "types", "select", "string_funcs"];
+
+/// Programs whose Rust output and notes we snapshot, but which we don't compile
+/// because they rely on features not built yet (e.g. Option/Result handling).
+const TRANSPILE_ONLY: &[&str] = &["string_options"];
 
 /// Files that are meant to fail, exercising the teaching diagnostics.
 const ERRORS: &[&str] = &[
@@ -61,7 +65,7 @@ fn check_snapshot(name: &str, ext: &str, actual: &str) {
 
 #[test]
 fn happy_paths_match_snapshots() {
-    for name in HAPPY {
+    for name in HAPPY.iter().chain(TRANSPILE_ONLY) {
         let result = vbr::compile(&read_example(name));
         assert!(
             !result.has_errors,
@@ -69,6 +73,14 @@ fn happy_paths_match_snapshots() {
             result.diagnostics
         );
         check_snapshot(name, "rs", &result.rust);
+    }
+}
+
+#[test]
+fn transpile_only_notes_match_snapshots() {
+    for name in TRANSPILE_ONLY {
+        let result = vbr::compile(&read_example(name));
+        check_snapshot(name, "diag", &result.diagnostics.join("\n"));
     }
 }
 

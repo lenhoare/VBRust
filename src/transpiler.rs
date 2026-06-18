@@ -11,6 +11,12 @@ use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 
 pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
+    // Fire the one-time teaching notes for builtins before generating code,
+    // keeping the rendering functions pure.
+    for func in &program.functions {
+        note_builtins(&func.body, diags);
+    }
+
     let mut out = String::new();
     for comment in &program.leading_comments {
         out.push_str(&format!("// {}\n", comment));
@@ -321,6 +327,103 @@ fn emit_dim_string(
     }
 }
 
+/// Walk the body firing the one-time `⚠`/`ℹ` notes for builtins that behave
+/// differently than VB programmers expect (indexing, Option/Result returns).
+fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Dim { init: Some(e), .. } => note_builtins_expr(e, diags),
+            Stmt::Set { value, .. } | Stmt::Assign { value, .. } => note_builtins_expr(value, diags),
+            Stmt::Return(Some(e)) | Stmt::Print(e) => note_builtins_expr(e, diags),
+            Stmt::If {
+                branches,
+                else_body,
+            } => {
+                for (cond, body) in branches {
+                    note_builtins_expr(cond, diags);
+                    note_builtins(body, diags);
+                }
+                if let Some(body) = else_body {
+                    note_builtins(body, diags);
+                }
+            }
+            Stmt::For {
+                from, to, step, body, ..
+            } => {
+                note_builtins_expr(from, diags);
+                note_builtins_expr(to, diags);
+                if let Some(s) = step {
+                    note_builtins_expr(s, diags);
+                }
+                note_builtins(body, diags);
+            }
+            Stmt::Select {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                note_builtins_expr(scrutinee, diags);
+                for arm in arms {
+                    for pat in &arm.patterns {
+                        match pat {
+                            CasePattern::Value(e) => note_builtins_expr(e, diags),
+                            CasePattern::Range(lo, hi) => {
+                                note_builtins_expr(lo, diags);
+                                note_builtins_expr(hi, diags);
+                            }
+                        }
+                    }
+                    note_builtins(&arm.body, diags);
+                }
+                if let Some(body) = else_body {
+                    note_builtins(body, diags);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
+    match e {
+        Expr::Binary { lhs, rhs, .. } => {
+            note_builtins_expr(lhs, diags);
+            note_builtins_expr(rhs, diags);
+        }
+        Expr::MethodCall { recv, args, .. } => {
+            note_builtins_expr(recv, diags);
+            for a in args {
+                note_builtins_expr(a, diags);
+            }
+        }
+        Expr::Call { name, args } => {
+            match name.to_ascii_lowercase().as_str() {
+                "mid" => diags.warn_once_global(
+                    "builtin-mid",
+                    "Mid is 1-indexed in VB but Rust slices are 0-indexed — VBR shifts the \
+                     positions for you, so Mid(s, 2, 3) becomes &s[1..4].",
+                ),
+                "instr" => diags.note(
+                    "builtin-instr",
+                    "InStr becomes Rust's .find(), which returns an Option: Some(pos) when \
+                     found, None when not. You handle both instead of checking for 0.",
+                ),
+                "val" => diags.note(
+                    "builtin-val",
+                    "Val becomes Rust's .parse(), which returns a Result: parsing can fail, \
+                     so you handle the error rather than getting a silent 0.",
+                ),
+                _ => {}
+            }
+            for a in args {
+                note_builtins_expr(a, diags);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn let_kw(is_mut: bool) -> &'static str {
     if is_mut {
         "let mut"
@@ -436,9 +539,57 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             format!("{}.{}({})", render_prec(recv, None, 5, false), method, rendered.join(", "))
         }
         Expr::Call { name, args } => {
-            let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
-            format!("{}({})", to_snake(name), rendered.join(", "))
+            // Known string builtins lower to idiomatic Rust; everything else is
+            // an ordinary call to a user function.
+            if let Some(s) = lower_string_builtin(name, args) {
+                s
+            } else {
+                let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                format!("{}({})", to_snake(name), rendered.join(", "))
+            }
         }
+    }
+}
+
+/// Lower a VB string builtin to Rust, or return `None` if it isn't one (or the
+/// argument count doesn't match — then it's treated as a normal call).
+fn lower_string_builtin(name: &str, args: &[Expr]) -> Option<String> {
+    let r = |i: usize| render_expr(&args[i], None);
+    match (name.to_ascii_lowercase().as_str(), args.len()) {
+        ("len", 1) => Some(format!("{}.len()", r(0))),
+        ("ucase", 1) => Some(format!("{}.to_uppercase()", r(0))),
+        ("lcase", 1) => Some(format!("{}.to_lowercase()", r(0))),
+        ("trim", 1) => Some(format!("{}.trim()", r(0))),
+        ("left", 2) => Some(format!("&{}[..{}]", r(0), r(1))),
+        ("right", 2) => Some(format!("&{0}[{0}.len() - {1}..]", r(0), r(1))),
+        ("replace", 3) => Some(format!("{}.replace({}, {})", r(0), r(1), r(2))),
+        ("str", 1) => Some(format!("{}.to_string()", r(0))),
+        // InStr → .find() (returns Option); Val → .parse() (returns Result).
+        ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
+        ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),
+        // Mid is 1-indexed in VB; Rust slices are 0-indexed, so shift by one.
+        ("mid", 3) => Some(render_mid(&args[0], &args[1], Some(&args[2]))),
+        ("mid", 2) => Some(render_mid(&args[0], &args[1], None)),
+        _ => None,
+    }
+}
+
+/// `Mid(s, start)` / `Mid(s, start, len)` → a 0-indexed `&s[..]` slice. When the
+/// positions are literals we fold the arithmetic so the output stays clean.
+fn render_mid(s: &Expr, start: &Expr, len: Option<&Expr>) -> String {
+    let s = render_expr(s, None);
+    match (start, len) {
+        (Expr::Int(start), Some(Expr::Int(len))) => {
+            let lo = start - 1;
+            format!("&{}[{}..{}]", s, lo, lo + len)
+        }
+        (Expr::Int(start), None) => format!("&{}[{}..]", s, start - 1),
+        (_, Some(len)) => {
+            let start = render_expr(start, None);
+            let len = render_expr(len, None);
+            format!("&{0}[({1} - 1)..({1} - 1 + {2})]", s, start, len)
+        }
+        (_, None) => format!("&{}[({} - 1)..]", s, render_expr(start, None)),
     }
 }
 

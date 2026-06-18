@@ -1,0 +1,14 @@
+' Built-in string functions
+Function Main()
+    Dim s As String = "Hello, World"
+
+    Debug.Print "length:    " & Len(s)
+    Debug.Print "upper:     " & UCase(s)
+    Debug.Print "lower:     " & LCase(s)
+    Debug.Print "left 5:    " & Left(s, 5)
+    Debug.Print "right 5:   " & Right(s, 5)
+    Debug.Print "mid 2,3:   " & Mid(s, 2, 3)
+    Debug.Print "trimmed:   " & Trim("   padded   ")
+    Debug.Print "replaced:  " & Replace(s, "World", "Rust")
+    Debug.Print "str of 42: " & Str(42)
+End Function
