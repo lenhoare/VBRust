@@ -1,0 +1,1 @@
+✘ [line 3] `On Error` is not supported. Rust signals failure through return values, not jumps. Make the function return `As Result<T>`, `Return Err("...")` on failure, and handle it at the call site with the `?` operator or `Select Case` over `Ok`/`Err`.

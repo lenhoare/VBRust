@@ -143,9 +143,9 @@ impl<'a> Parser<'a> {
         }
         self.expect(&Tok::RParen, "to close the parameter list")?;
 
-        // Optional return type: `Function Foo() As Long`
+        // Optional return type: `Function Foo() As Long` / `As Result<Long>` / `As Option<String>`
         let ret = if self.eat(&Tok::As) {
-            Some(self.parse_type()?)
+            Some(self.parse_ret_type()?)
         } else {
             None
         };
@@ -164,6 +164,29 @@ impl<'a> Parser<'a> {
             body,
             line,
         })
+    }
+
+    /// A return type: a plain type, or `Result<T>` / `Option<T>`.
+    fn parse_ret_type(&mut self) -> Option<RetType> {
+        if let Tok::Ident(word) = self.peek().clone() {
+            let wrapper = match word.as_str() {
+                "Result" => Some(true),  // Result
+                "Option" => Some(false), // Option
+                _ => None,
+            };
+            if let Some(is_result) = wrapper {
+                self.advance(); // Result / Option
+                self.expect(&Tok::Lt, "before the type parameter (e.g. Result<Long>)")?;
+                let inner = self.parse_type()?;
+                self.expect(&Tok::Gt, "to close the type parameter")?;
+                return Some(if is_result {
+                    RetType::Result(inner)
+                } else {
+                    RetType::Option(inner)
+                });
+            }
+        }
+        Some(RetType::Plain(self.parse_type()?))
     }
 
     fn parse_param(&mut self) -> Option<Param> {
@@ -321,6 +344,20 @@ impl<'a> Parser<'a> {
             Tok::If => self.parse_if(),
             Tok::Select => self.parse_select(),
             Tok::For => self.parse_for(),
+            Tok::On => {
+                self.diags.error(
+                    self.line(),
+                    "`On Error` is not supported. Rust signals failure through return values, \
+                     not jumps. Make the function return `As Result<T>`, `Return Err(\"...\")` on \
+                     failure, and handle it at the call site with the `?` operator or \
+                     `Select Case` over `Ok`/`Err`.",
+                );
+                // Swallow the rest of the line so we don't cascade more errors.
+                while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
+                    self.advance();
+                }
+                None
+            }
             Tok::Ident(name) => self.parse_ident_stmt(name),
             other => {
                 self.diags
@@ -471,8 +508,13 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::End, "to close the `Select`")?;
         self.expect(&Tok::Select, "after `End`")?;
 
-        // Rust's match must be exhaustive, so a missing `Case Else` is a hard error.
-        if else_body.is_none() {
+        // Rust's match must be exhaustive, so a missing `Case Else` is a hard error
+        // — unless the arms are Ok/Err/Some/None, which are exhaustive on their own.
+        let constructor_match = arms
+            .iter()
+            .flat_map(|a| &a.patterns)
+            .any(is_constructor_pattern);
+        if else_body.is_none() && !constructor_match {
             self.diags.error(
                 line,
                 "`Select Case` must end with `Case Else`. Rust's match has to cover every \
@@ -630,26 +672,35 @@ impl<'a> Parser<'a> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         let mut e = self.parse_atom()?;
-        // Postfix method calls: `expr.method(args)`, chainable.
-        while matches!(self.peek(), Tok::Dot) {
-            self.advance();
-            let method = self.expect_ident("after `.`")?;
-            self.expect(&Tok::LParen, "after the method name")?;
-            let mut args = Vec::new();
-            if !matches!(self.peek(), Tok::RParen) {
-                loop {
-                    args.push(self.parse_expr()?);
-                    if !self.eat(&Tok::Comma) {
-                        break;
+        // Postfix: chained `.method(args)` calls and the `?` operator.
+        loop {
+            match self.peek() {
+                Tok::Dot => {
+                    self.advance();
+                    let method = self.expect_ident("after `.`")?;
+                    self.expect(&Tok::LParen, "after the method name")?;
+                    let mut args = Vec::new();
+                    if !matches!(self.peek(), Tok::RParen) {
+                        loop {
+                            args.push(self.parse_expr()?);
+                            if !self.eat(&Tok::Comma) {
+                                break;
+                            }
+                        }
                     }
+                    self.expect(&Tok::RParen, "to close the method arguments")?;
+                    e = Expr::MethodCall {
+                        recv: Box::new(e),
+                        method,
+                        args,
+                    };
                 }
+                Tok::Question => {
+                    self.advance();
+                    e = Expr::Try(Box::new(e));
+                }
+                _ => break,
             }
-            self.expect(&Tok::RParen, "to close the method arguments")?;
-            e = Expr::MethodCall {
-                recv: Box::new(e),
-                method,
-                args,
-            };
         }
         Some(e)
     }
@@ -716,5 +767,17 @@ fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
         op,
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
+    }
+}
+
+/// Is this `Case` pattern an `Ok`/`Err`/`Some`/`None` constructor? Such matches
+/// are exhaustive without a `Case Else`.
+fn is_constructor_pattern(p: &CasePattern) -> bool {
+    match p {
+        CasePattern::Value(Expr::Call { name, .. }) => {
+            matches!(name.as_str(), "Ok" | "Err" | "Some")
+        }
+        CasePattern::Value(Expr::Ident(n)) => n == "None",
+        _ => false,
     }
 }

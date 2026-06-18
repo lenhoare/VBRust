@@ -1,0 +1,5 @@
+' MEANT to fail — Rust has no On Error; use Result<T> instead.
+Function Main()
+    On Error GoTo handler
+    Debug.Print "hello"
+End Function

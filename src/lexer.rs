@@ -64,6 +64,9 @@ pub enum Tok {
     RParen,
     Comma,
     Dot,
+    Question, // ?
+
+    On, // start of `On Error ...`
 
     Comment(String),
     Newline,
@@ -127,6 +130,7 @@ pub fn lex(src: &str) -> Vec<Token> {
             ')' => push(&mut tokens, Tok::RParen, line, &mut i),
             ',' => push(&mut tokens, Tok::Comma, line, &mut i),
             '.' => push(&mut tokens, Tok::Dot, line, &mut i),
+            '?' => push(&mut tokens, Tok::Question, line, &mut i),
             '<' => {
                 if chars.get(i + 1) == Some(&'>') {
                     tokens.push(Token { tok: Tok::Ne, line });
@@ -207,6 +211,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "return" => Tok::Return,
         "byval" => Tok::ByVal,
         "byref" => Tok::ByRef,
+        "on" => Tok::On,
         "end" => Tok::End,
         "dim" => Tok::Dim,
         "set" => Tok::Set,

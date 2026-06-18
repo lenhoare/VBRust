@@ -25,6 +25,8 @@ const HAPPY: &[&str] = &[
     "maths",
     "byref",
     "coercion",
+    "result",
+    "option",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
@@ -39,6 +41,7 @@ const ERRORS: &[&str] = &[
     "variant_error",
     "select_no_else",
     "rnd_error",
+    "on_error",
 ];
 
 fn examples_dir() -> PathBuf {

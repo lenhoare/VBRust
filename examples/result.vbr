@@ -1,0 +1,41 @@
+' Result<T> for fallible functions — propagate with ?, handle with Match
+Function Main()
+    ' Handle the outcome explicitly
+    Select Case Divide(10, 2)
+        Case Ok(value)
+            Debug.Print "10 / 2 = " & value
+        Case Err(message)
+            Debug.Print "error: " & message
+    End Select
+
+    Select Case Divide(7, 0)
+        Case Ok(value)
+            Debug.Print "7 / 0 = " & value
+        Case Err(message)
+            Debug.Print "error: " & message
+    End Select
+
+    ' A function that uses ? to propagate failure
+    Select Case DoubleQuotient(20, 4)
+        Case Ok(value)
+            Debug.Print "double of 20 / 4 = " & value
+        Case Err(message)
+            Debug.Print "error: " & message
+    End Select
+
+    ' .Unwrap() is allowed, but training wheels
+    Dim known As Long = Divide(9, 3).Unwrap()
+    Debug.Print "9 / 3 = " & known
+End Function
+
+Function Divide(ByVal numerator As Long, ByVal denominator As Long) As Result<Long>
+    If denominator = 0 Then
+        Return Err("cannot divide by zero")
+    End If
+    Return Ok(numerator / denominator)
+End Function
+
+Function DoubleQuotient(ByVal a As Long, ByVal b As Long) As Result<Long>
+    Dim q As Long = Divide(a, b)?
+    Return Ok(q * 2)
+End Function

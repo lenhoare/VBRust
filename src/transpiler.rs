@@ -40,8 +40,16 @@ fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &
     let name = rust_fn_name(&func.name, func.line, diags);
     let params: Vec<String> = func.params.iter().map(render_param).collect();
     let ret = match func.ret {
-        Some(ty) => format!(" -> {}", ty.rust()),
+        Some(RetType::Plain(t)) => format!(" -> {}", t.rust()),
+        Some(RetType::Result(t)) => format!(" -> Result<{}, String>", t.rust()),
+        Some(RetType::Option(t)) => format!(" -> Option<{}>", t.rust()),
         None => String::new(),
+    };
+    // Only a plain return type drives literal coercion of the tail expression;
+    // an Ok/Some wrapper carries its own type.
+    let tail_expected = match func.ret {
+        Some(RetType::Plain(t)) => Some(t),
+        _ => None,
     };
     out.push_str(&format!("fn {}({}){} {{\n", name, params.join(", "), ret));
 
@@ -66,7 +74,7 @@ fn emit_function(func: &Function, fns: &FnTable, diags: &mut Diagnostics, out: &
     collect_mutated(&body, &mut mutated);
     mutated.extend(passed_by_ref);
 
-    emit_fn_body(&body, &mutated, &byref, func.ret, diags, out);
+    emit_fn_body(&body, &mutated, &byref, tail_expected, diags, out);
     out.push_str("}\n");
 }
 
@@ -293,6 +301,19 @@ fn emit_stmt(
 
 fn render_pattern(p: &CasePattern) -> String {
     match p {
+        // Ok(v) / Err(e) / Some(x) bind their payload; None stands alone.
+        CasePattern::Value(Expr::Call { name, args })
+            if matches!(name.as_str(), "Ok" | "Err" | "Some") =>
+        {
+            let bindings: Vec<String> = args
+                .iter()
+                .map(|a| match a {
+                    Expr::Ident(b) => to_snake(b),
+                    other => render_expr(other, None),
+                })
+                .collect();
+            format!("{}({})", name, bindings.join(", "))
+        }
         CasePattern::Value(e) => render_expr(e, None),
         CasePattern::Range(lo, hi) => {
             format!("{}..={}", render_expr(lo, None), render_expr(hi, None))
@@ -421,12 +442,21 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             note_builtins_expr(lhs, diags);
             note_builtins_expr(rhs, diags);
         }
-        Expr::MethodCall { recv, args, .. } => {
+        Expr::MethodCall { recv, method, args } => {
+            if method.eq_ignore_ascii_case("unwrap") {
+                diags.warn_once_global(
+                    "unwrap-training-wheels",
+                    ".unwrap() works, but it's training wheels — it crashes the program if the \
+                     value is an error or None. Prefer the `?` operator to propagate, or \
+                     `Select Case` over Ok/Err (Some/None) to handle both outcomes.",
+                );
+            }
             note_builtins_expr(recv, diags);
             for a in args {
                 note_builtins_expr(a, diags);
             }
         }
+        Expr::Try(inner) => note_builtins_expr(inner, diags),
         Expr::Call { name, args } => {
             match name.to_ascii_lowercase().as_str() {
                 "mid" => diags.warn_once_global(
@@ -544,6 +574,8 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Float(f) => fmt_float(*f),
         Expr::Bool(b) => b.to_string(),
         Expr::Str(s) => format!("\"{}\"", escape(s)),
+        // `None` is the Option constructor, not a variable — keep it as-is.
+        Expr::Ident(name) if name == "None" => "None".to_string(),
         Expr::Ident(name) => to_snake(name),
         Expr::Binary { op, lhs, rhs } if *op == BinOp::Concat => {
             // `&` concatenation always becomes format!, sidestepping ownership.
@@ -583,18 +615,28 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::MethodCall { recv, method, args } => {
             let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
             // High parent precedence so a binary receiver gets parens: (a + b).abs()
-            format!("{}.{}({})", render_prec(recv, None, 5, false), method, rendered.join(", "))
+            // Method names follow Rust convention (`.Unwrap()` → `.unwrap()`).
+            format!(
+                "{}.{}({})",
+                render_prec(recv, None, 5, false),
+                to_snake(method),
+                rendered.join(", ")
+            )
         }
         Expr::Call { name, args } => {
-            // Known string builtins lower to idiomatic Rust; everything else is
-            // an ordinary call to a user function.
-            if let Some(s) = lower_builtin(name, args) {
+            if let Some(s) = lower_constructor(name, args) {
+                // Ok/Err/Some result/option constructors.
+                s
+            } else if let Some(s) = lower_builtin(name, args) {
+                // Known string/maths builtins lower to idiomatic Rust.
                 s
             } else {
+                // An ordinary call to a user function.
                 let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                 format!("{}({})", to_snake(name), rendered.join(", "))
             }
         }
+        Expr::Try(inner) => format!("{}?", render_prec(inner, None, 6, false)),
         Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 6, false)),
         Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 6, false)),
         Expr::Cast(inner, ty) => {
@@ -607,6 +649,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 cast
             }
         }
+    }
+}
+
+/// Lower the Result/Option constructors. `Err` wraps its message in `.to_string()`.
+fn lower_constructor(name: &str, args: &[Expr]) -> Option<String> {
+    match (name, args.len()) {
+        ("Ok", 1) => Some(format!("Ok({})", render_expr(&args[0], None))),
+        ("Some", 1) => Some(format!("Some({})", render_expr(&args[0], None))),
+        ("Err", 1) => Some(format!("Err({}.to_string())", render_expr(&args[0], None))),
+        _ => None,
     }
 }
 

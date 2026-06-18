@@ -21,7 +21,7 @@ use crate::transpiler::to_snake as snake;
 /// One user function's signature — enough to fix up its call sites.
 pub struct FnSig {
     pub modes: Vec<ParamMode>,
-    pub ret: Option<Type>,
+    pub ret: Option<RetType>,
 }
 
 pub type FnTable = HashMap<String, FnSig>;
@@ -253,7 +253,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
             }
         }
-        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) => resolve_expr(inner, ctx),
+        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) | Expr::Try(inner) => {
+            resolve_expr(inner, ctx)
+        }
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
     }
 }
@@ -269,6 +271,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         Expr::Ident(name) => ctx.vars.get(&snake(name)).copied().map_or(RType::Unknown, rtype_of),
         Expr::Deref(inner) => infer(inner, ctx),
         Expr::Cast(_, ty) => rtype_of(*ty),
+        // `?` unwraps a Result/Option to its payload; we don't track that yet.
+        Expr::Try(_) => RType::Unknown,
         Expr::MutRef(_) => RType::Unknown,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
@@ -277,12 +281,12 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
             _ => join(infer(lhs, ctx), infer(rhs, ctx)),
         },
         Expr::Call { name, args } => builtin_rtype(name).unwrap_or_else(|| {
-            // Not a builtin? Look up the user function's return type.
+            // Not a builtin? A plain return type is numeric; Result/Option aren't.
             let _ = args;
-            ctx.fns
-                .get(&snake(name))
-                .and_then(|s| s.ret)
-                .map_or(RType::Unknown, rtype_of)
+            match ctx.fns.get(&snake(name)).and_then(|s| s.ret) {
+                Some(RetType::Plain(t)) => rtype_of(t),
+                _ => RType::Unknown,
+            }
         }),
         Expr::MethodCall { .. } => RType::Unknown,
     }

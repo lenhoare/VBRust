@@ -71,9 +71,18 @@ pub struct Program {
 pub struct Function {
     pub name: String,
     pub params: Vec<Param>,
-    pub ret: Option<Type>,
+    pub ret: Option<RetType>,
     pub body: Vec<Stmt>,
     pub line: usize,
+}
+
+/// A function's return type. `Result<T>`/`Option<T>` are kept separate from the
+/// plain `Type` so `Type` can stay `Copy` and simple.
+#[derive(Debug, Clone, Copy)]
+pub enum RetType {
+    Plain(Type),
+    Result(Type), // -> Result<T, String>
+    Option(Type), // -> Option<T>
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +187,8 @@ pub enum Expr {
     /// `inner as Type` — inserted by the resolver for numeric coercions VB
     /// would do silently but Rust requires to be explicit.
     Cast(Box<Expr>, Type),
+    /// `inner?` — propagate the error/None of a Result/Option.
+    Try(Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
