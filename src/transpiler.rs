@@ -109,6 +109,16 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
                 }
             }
             Stmt::For { body, .. } => convert_returns(body, fn_name),
+            Stmt::Select {
+                arms, else_body, ..
+            } => {
+                for arm in arms.iter_mut() {
+                    convert_returns(&mut arm.body, fn_name);
+                }
+                if let Some(body) = else_body {
+                    convert_returns(body, fn_name);
+                }
+            }
             _ => {}
         }
     }
@@ -221,6 +231,37 @@ fn emit_stmt(
             out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
             emit_block(body, mutated, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
+        }
+        Stmt::Select {
+            scrutinee,
+            arms,
+            else_body,
+            line: _,
+        } => {
+            let arm_pad = "    ".repeat(indent + 1);
+            out.push_str(&format!("{}match {} {{\n", pad, render_expr(scrutinee, None)));
+            for arm in arms {
+                let pats: Vec<String> = arm.patterns.iter().map(render_pattern).collect();
+                out.push_str(&format!("{}{} => {{\n", arm_pad, pats.join(" | ")));
+                emit_block(&arm.body, mutated, indent + 2, diags, out);
+                out.push_str(&format!("{}}}\n", arm_pad));
+            }
+            // `Case Else` is the `_` catch-all (its absence is a hard error upstream).
+            if let Some(body) = else_body {
+                out.push_str(&format!("{}_ => {{\n", arm_pad));
+                emit_block(body, mutated, indent + 2, diags, out);
+                out.push_str(&format!("{}}}\n", arm_pad));
+            }
+            out.push_str(&format!("{}}}\n", pad));
+        }
+    }
+}
+
+fn render_pattern(p: &CasePattern) -> String {
+    match p {
+        CasePattern::Value(e) => render_expr(e, None),
+        CasePattern::Range(lo, hi) => {
+            format!("{}..={}", render_expr(lo, None), render_expr(hi, None))
         }
     }
 }
@@ -471,6 +512,16 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                 }
             }
             Stmt::For { body, .. } => collect_mutated(body, set),
+            Stmt::Select {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    collect_mutated(&arm.body, set);
+                }
+                if let Some(body) = else_body {
+                    collect_mutated(body, set);
+                }
+            }
             _ => {}
         }
     }

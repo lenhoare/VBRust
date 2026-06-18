@@ -1,0 +1,16 @@
+' Select Case → match
+Function Main()
+    Dim score As Long = 75
+    Select Case score
+        Case 100
+            Debug.Print "perfect"
+        Case 90 To 99
+            Debug.Print "excellent"
+        Case 70 To 89
+            Debug.Print "good"
+        Case 0, 1, 2
+            Debug.Print "very low"
+        Case Else
+            Debug.Print "somewhere in between"
+    End Select
+End Function

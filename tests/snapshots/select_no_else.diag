@@ -1,0 +1,1 @@
+✘ [line 4] `Select Case` must end with `Case Else`. Rust's match has to cover every possible value, so VBR requires the catch-all. Add `Case Else` for the rest.

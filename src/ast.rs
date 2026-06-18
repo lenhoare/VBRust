@@ -122,7 +122,27 @@ pub enum Stmt {
         step: Option<Expr>,
         body: Vec<Stmt>,
     },
+    /// `Select Case <scrutinee>` → `match`. Must have `Case Else` (the `_` arm).
+    Select {
+        scrutinee: Expr,
+        arms: Vec<SelectArm>,
+        else_body: Option<Vec<Stmt>>,
+        line: usize,
+    },
     Comment(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectArm {
+    /// One or more comma-separated patterns, joined with `|` in Rust.
+    pub patterns: Vec<CasePattern>,
+    pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
+pub enum CasePattern {
+    Value(Expr),      // `Case 2`        → `2`
+    Range(Expr, Expr), // `Case 4 To 10`  → `4..=10`
 }
 
 #[derive(Debug, Clone)]

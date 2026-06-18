@@ -288,7 +288,7 @@ impl<'a> Parser<'a> {
     fn at_block_end(&self) -> bool {
         matches!(
             self.peek(),
-            Tok::End | Tok::ElseIf | Tok::Else | Tok::Next | Tok::Eof
+            Tok::End | Tok::ElseIf | Tok::Else | Tok::Case | Tok::Next | Tok::Eof
         )
     }
 
@@ -319,6 +319,7 @@ impl<'a> Parser<'a> {
                 Some(Stmt::Return(Some(self.parse_expr()?)))
             }
             Tok::If => self.parse_if(),
+            Tok::Select => self.parse_select(),
             Tok::For => self.parse_for(),
             Tok::Ident(name) => self.parse_ident_stmt(name),
             other => {
@@ -421,6 +422,80 @@ impl<'a> Parser<'a> {
             branches,
             else_body,
         })
+    }
+
+    fn parse_select(&mut self) -> Option<Stmt> {
+        let line = self.line();
+        self.expect(&Tok::Select, "")?;
+        self.expect(&Tok::Case, "after `Select`")?;
+        let scrutinee = self.parse_expr()?;
+        self.expect(&Tok::Newline, "after the `Select Case` expression")?;
+
+        let mut arms = Vec::new();
+        let mut else_body = None;
+
+        loop {
+            self.skip_newlines();
+            match self.peek() {
+                Tok::Case => {
+                    self.advance();
+                    if self.eat(&Tok::Else) {
+                        self.expect(&Tok::Newline, "after `Case Else`")?;
+                        else_body = Some(self.parse_block()?);
+                        break;
+                    }
+                    let patterns = self.parse_case_patterns()?;
+                    self.expect(&Tok::Newline, "after the `Case` pattern")?;
+                    let body = self.parse_block()?;
+                    arms.push(SelectArm { patterns, body });
+                }
+                Tok::End => break,
+                other => {
+                    self.diags.error(
+                        self.line(),
+                        format!("Expected `Case` or `End Select`, found {:?}.", other),
+                    );
+                    return None;
+                }
+            }
+        }
+
+        self.expect(&Tok::End, "to close the `Select`")?;
+        self.expect(&Tok::Select, "after `End`")?;
+
+        // Rust's match must be exhaustive, so a missing `Case Else` is a hard error.
+        if else_body.is_none() {
+            self.diags.error(
+                line,
+                "`Select Case` must end with `Case Else`. Rust's match has to cover every \
+                 possible value, so VBR requires the catch-all. Add `Case Else` for the rest.",
+            );
+        }
+
+        Some(Stmt::Select {
+            scrutinee,
+            arms,
+            else_body,
+            line,
+        })
+    }
+
+    /// One Case line's comma-separated patterns: values and `lo To hi` ranges.
+    fn parse_case_patterns(&mut self) -> Option<Vec<CasePattern>> {
+        let mut patterns = Vec::new();
+        loop {
+            let lo = self.parse_expr()?;
+            if self.eat(&Tok::To) {
+                let hi = self.parse_expr()?;
+                patterns.push(CasePattern::Range(lo, hi));
+            } else {
+                patterns.push(CasePattern::Value(lo));
+            }
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        Some(patterns)
     }
 
     fn parse_for(&mut self) -> Option<Stmt> {
