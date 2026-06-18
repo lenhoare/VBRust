@@ -1,0 +1,4 @@
+✘ Rnd() is not built in — Rust keeps randomness in the `rand` crate so it stays explicit. Add it with `Use rand 0.8`, then:
+
+    use rand::Rng;
+    let x: f64 = rand::thread_rng().gen_range(0.0..1.0);

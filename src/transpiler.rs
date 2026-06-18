@@ -414,6 +414,13 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     "Val becomes Rust's .parse(), which returns a Result: parsing can fail, \
                      so you handle the error rather than getting a silent 0.",
                 ),
+                "rnd" => diags.error_once(
+                    "builtin-rnd",
+                    "Rnd() is not built in — Rust keeps randomness in the `rand` crate so it \
+                     stays explicit. Add it with `Use rand 0.8`, then:\n\n    \
+                     use rand::Rng;\n    \
+                     let x: f64 = rand::thread_rng().gen_range(0.0..1.0);",
+                ),
                 _ => {}
             }
             for a in args {
@@ -517,6 +524,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 render_prec(rhs, None, 0, false)
             )
         }
+        Expr::Binary { op, lhs, rhs } if *op == BinOp::Pow => {
+            // `^` lowers to powi (integer exponent) or powf (float exponent),
+            // assuming a floating-point base as the spec shows.
+            let base = render_math_recv(lhs);
+            match rhs.as_ref() {
+                Expr::Int(n) => format!("{}.powi({})", base, n),
+                Expr::Float(f) => format!("{}.powf({})", base, fmt_float(*f)),
+                other => format!("{}.powf({})", base, render_expr(other, None)),
+            }
+        }
         Expr::Binary { op, lhs, rhs } => {
             let p = prec(*op);
             // Arithmetic propagates the Double context; comparisons don't.
@@ -541,7 +558,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Call { name, args } => {
             // Known string builtins lower to idiomatic Rust; everything else is
             // an ordinary call to a user function.
-            if let Some(s) = lower_string_builtin(name, args) {
+            if let Some(s) = lower_builtin(name, args) {
                 s
             } else {
                 let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
@@ -551,26 +568,75 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
     }
 }
 
-/// Lower a VB string builtin to Rust, or return `None` if it isn't one (or the
-/// argument count doesn't match — then it's treated as a normal call).
-fn lower_string_builtin(name: &str, args: &[Expr]) -> Option<String> {
+/// Lower a VB string or maths builtin to Rust, or return `None` if it isn't one
+/// (or the argument count doesn't match — then it's treated as a normal call).
+fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
     let r = |i: usize| render_expr(&args[i], None);
     match (name.to_ascii_lowercase().as_str(), args.len()) {
-        ("len", 1) => Some(format!("{}.len()", r(0))),
-        ("ucase", 1) => Some(format!("{}.to_uppercase()", r(0))),
-        ("lcase", 1) => Some(format!("{}.to_lowercase()", r(0))),
-        ("trim", 1) => Some(format!("{}.trim()", r(0))),
+        // --- strings ---
+        ("len", 1) => Some(method0(&args[0], "len")),
+        ("ucase", 1) => Some(method0(&args[0], "to_uppercase")),
+        ("lcase", 1) => Some(method0(&args[0], "to_lowercase")),
+        ("trim", 1) => Some(method0(&args[0], "trim")),
         ("left", 2) => Some(format!("&{}[..{}]", r(0), r(1))),
         ("right", 2) => Some(format!("&{0}[{0}.len() - {1}..]", r(0), r(1))),
         ("replace", 3) => Some(format!("{}.replace({}, {})", r(0), r(1), r(2))),
-        ("str", 1) => Some(format!("{}.to_string()", r(0))),
+        ("str", 1) => Some(method0(&args[0], "to_string")),
         // InStr → .find() (returns Option); Val → .parse() (returns Result).
         ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
         ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),
         // Mid is 1-indexed in VB; Rust slices are 0-indexed, so shift by one.
         ("mid", 3) => Some(render_mid(&args[0], &args[1], Some(&args[2]))),
         ("mid", 2) => Some(render_mid(&args[0], &args[1], None)),
+        // --- maths (assume a floating-point argument) ---
+        ("sqr", 1) => Some(math0(&args[0], "sqrt")),
+        ("abs", 1) => Some(math0(&args[0], "abs")),
+        ("int", 1) => Some(math0(&args[0], "floor")),
+        ("round", 1) => Some(math0(&args[0], "round")),
+        ("sin", 1) => Some(math0(&args[0], "sin")),
+        ("cos", 1) => Some(math0(&args[0], "cos")),
+        ("tan", 1) => Some(math0(&args[0], "tan")),
+        ("log", 1) => Some(math0(&args[0], "ln")),
+        ("exp", 1) => Some(math0(&args[0], "exp")),
         _ => None,
+    }
+}
+
+/// `recv.method()` for a string builtin: parenthesise the receiver if needed.
+fn method0(recv: &Expr, method: &str) -> String {
+    format!("{}.{}()", render_recv(recv), method)
+}
+
+/// `recv.method()` for a maths builtin: a bare numeric literal receiver is
+/// ambiguous between f32/f64, so tag it `f64` (`3.7.floor()` won't compile,
+/// `3.7f64.floor()` will). Variables keep their declared type.
+fn math0(recv: &Expr, method: &str) -> String {
+    format!("{}.{}()", render_math_recv(recv), method)
+}
+
+fn render_recv(e: &Expr) -> String {
+    let s = render_prec(e, None, 6, false);
+    if s.starts_with('-') {
+        format!("({})", s)
+    } else {
+        s
+    }
+}
+
+fn render_math_recv(e: &Expr) -> String {
+    match e {
+        Expr::Int(n) => suffix_f64(n.to_string()),
+        Expr::Float(f) => suffix_f64(fmt_float(*f)),
+        _ => render_recv(e),
+    }
+}
+
+fn suffix_f64(literal: String) -> String {
+    let typed = format!("{}f64", literal);
+    if typed.starts_with('-') {
+        format!("({})", typed)
+    } else {
+        typed
     }
 }
 
@@ -604,6 +670,7 @@ fn prec(op: BinOp) -> u8 {
         BinOp::Concat => 2,
         BinOp::Add | BinOp::Sub => 3,
         BinOp::Mul | BinOp::Div => 4,
+        BinOp::Pow => 5,
     }
 }
 
@@ -619,6 +686,7 @@ fn op_str(op: BinOp) -> &'static str {
         BinOp::Gt => ">",
         BinOp::Le => "<=",
         BinOp::Ge => ">=",
+        BinOp::Pow => "^",    // handled separately (lowers to powi/powf)
         BinOp::Concat => "&", // handled separately
     }
 }

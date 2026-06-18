@@ -15,7 +15,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Programs that must transpile cleanly and compile.
-const HAPPY: &[&str] = &["hello", "strings", "functions", "types", "select", "string_funcs"];
+const HAPPY: &[&str] = &[
+    "hello",
+    "strings",
+    "functions",
+    "types",
+    "select",
+    "string_funcs",
+    "maths",
+];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
 /// because they rely on features not built yet (e.g. Option/Result handling).
@@ -28,6 +36,7 @@ const ERRORS: &[&str] = &[
     "currency_error",
     "variant_error",
     "select_no_else",
+    "rnd_error",
 ];
 
 fn examples_dir() -> PathBuf {

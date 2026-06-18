@@ -52,7 +52,8 @@ pub enum Tok {
     Minus,
     Star,
     Slash,
-    Amp, // &
+    Caret, // ^
+    Amp,   // &
     Eq,  // = (assignment or equality, parser decides)
     Ne,  // <>
     Lt,
@@ -119,6 +120,7 @@ pub fn lex(src: &str) -> Vec<Token> {
             '-' => push(&mut tokens, Tok::Minus, line, &mut i),
             '*' => push(&mut tokens, Tok::Star, line, &mut i),
             '/' => push(&mut tokens, Tok::Slash, line, &mut i),
+            '^' => push(&mut tokens, Tok::Caret, line, &mut i),
             '&' => push(&mut tokens, Tok::Amp, line, &mut i),
             '=' => push(&mut tokens, Tok::Eq, line, &mut i),
             '(' => push(&mut tokens, Tok::LParen, line, &mut i),

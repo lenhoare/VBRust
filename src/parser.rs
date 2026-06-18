@@ -597,14 +597,27 @@ impl<'a> Parser<'a> {
     fn parse_unary(&mut self) -> Option<Expr> {
         if matches!(self.peek(), Tok::Minus) {
             self.advance();
-            let e = self.parse_primary()?;
+            // `^` binds tighter than unary minus, so negate a whole power.
+            let e = self.parse_unary()?;
             return Some(match e {
                 Expr::Int(n) => Expr::Int(-n),
                 Expr::Float(f) => Expr::Float(-f),
                 other => bin(BinOp::Sub, Expr::Int(0), other),
             });
         }
-        self.parse_primary()
+        self.parse_power()
+    }
+
+    fn parse_power(&mut self) -> Option<Expr> {
+        let base = self.parse_primary()?;
+        if matches!(self.peek(), Tok::Caret) {
+            self.advance();
+            // Right operand via parse_unary so `2 ^ -3` works.
+            let exp = self.parse_unary()?;
+            Some(bin(BinOp::Pow, base, exp))
+        } else {
+            Some(base)
+        }
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {

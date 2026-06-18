@@ -176,6 +176,7 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Pow,    // ^  (lowers to .powi()/.powf())
     Concat, // &
     Eq,
     Ne,

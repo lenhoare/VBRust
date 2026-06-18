@@ -76,6 +76,18 @@ impl Diagnostics {
         }
     }
 
+    /// A line-less hard error shown only once per `key` — for unsupported
+    /// builtins that may appear many times (e.g. `Rnd()`).
+    pub fn error_once(&mut self, key: &str, message: impl Into<String>) {
+        if self.seen_notes.insert(key.to_string()) {
+            self.items.push(Diagnostic {
+                level: Level::Error,
+                message: message.into(),
+                line: None,
+            });
+        }
+    }
+
     /// A line-less warning shown only once per `key` — for general caveats not
     /// tied to a specific source position (e.g. "Mid is 1-indexed").
     pub fn warn_once_global(&mut self, key: &str, message: impl Into<String>) {

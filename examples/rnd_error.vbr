@@ -1,0 +1,5 @@
+' MEANT to fail — randomness lives in the rand crate, not built in.
+Function Main()
+    Dim r As Double = Rnd()
+    Debug.Print r
+End Function
