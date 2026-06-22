@@ -41,6 +41,7 @@ const HAPPY: &[&str] = &[
     "string_args",
     "case_guards",
     "terminal_io",
+    "inline_rust",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

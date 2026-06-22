@@ -416,6 +416,19 @@ fn emit_stmt(
             line,
         } => {
             let var = to_snake(name);
+            // `Dim x As T = Rust … End Rust` — the block's value, typed by `As T`.
+            if let Some(Expr::InlineRust(raw)) = init {
+                let kw = let_kw(mutated.contains(&var));
+                out.push_str(&format!(
+                    "{}{} {}: {} = {};\n",
+                    pad,
+                    kw,
+                    var,
+                    decltype_rust(ty),
+                    render_inline_block(raw, indent)
+                ));
+                return;
+            }
             match ty {
                 // Collections are `mut` only if mutated; empty unless given an
                 // initialiser (e.g. an iterator `.collect()`).
@@ -566,7 +579,11 @@ fn emit_stmt(
             out.push_str(&format!("{}{} = {};\n", pad, lhs, render_expr(value, None)));
         }
         Stmt::Expr(e) => {
-            out.push_str(&format!("{}{};\n", pad, render_expr(e, None)));
+            let rendered = match e {
+                Expr::InlineRust(raw) => render_inline_block(raw, indent),
+                _ => render_expr(e, None),
+            };
+            out.push_str(&format!("{}{};\n", pad, rendered));
         }
         Stmt::DestructureDim { names, value } => {
             // `let (a, b) = value;` — each binding is `mut` only if reassigned.
@@ -581,12 +598,11 @@ fn emit_stmt(
                     }
                 })
                 .collect();
-            out.push_str(&format!(
-                "{}let ({}) = {};\n",
-                pad,
-                pat.join(", "),
-                render_expr(value, None)
-            ));
+            let val = match value {
+                Expr::InlineRust(raw) => render_inline_block(raw, indent),
+                _ => render_expr(value, None),
+            };
+            out.push_str(&format!("{}let ({}) = {};\n", pad, pat.join(", "), val));
         }
         Stmt::Return(Some(e)) => {
             out.push_str(&format!("{}return {};\n", pad, render_expr(e, None)));
@@ -1036,6 +1052,49 @@ fn array_size_note(diags: &mut Diagnostics) {
     );
 }
 
+/// Render a `Rust … End Rust` body as a Rust block expression `{ … }`, dedented
+/// and re-indented under `indent`. A one-line body stays inline (`{ a + b }`).
+fn render_inline_block(raw: &str, indent: usize) -> String {
+    let body = dedent(raw);
+    let lines: Vec<&str> = body
+        .lines()
+        .skip_while(|l| l.trim().is_empty())
+        .collect();
+    // Drop trailing blank lines.
+    let end = lines.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |p| p + 1);
+    let lines = &lines[..end];
+
+    if lines.len() <= 1 {
+        return format!("{{ {} }}", lines.first().map_or("", |l| l.trim()));
+    }
+    let inner = "    ".repeat(indent + 1);
+    let close = "    ".repeat(indent);
+    let mut s = String::from("{\n");
+    for l in lines {
+        if l.trim().is_empty() {
+            s.push('\n');
+        } else {
+            s.push_str(&format!("{}{}\n", inner, l));
+        }
+    }
+    s.push_str(&format!("{}}}", close));
+    s
+}
+
+/// Strip the common leading whitespace from every non-blank line.
+fn dedent(s: &str) -> String {
+    let min = s
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    s.lines()
+        .map(|l| if l.len() >= min { &l[min..] } else { l })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn let_kw(is_mut: bool) -> &'static str {
     if is_mut {
         "let mut"
@@ -1197,6 +1256,9 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Index(inner, idx) => {
             format!("{}[{}]", render_prec(inner, None, 6, false), render_expr(idx, None))
         }
+        // Fallback for inline Rust in an embedded position (statement positions
+        // are rendered with proper indentation by the emitter).
+        Expr::InlineRust(raw) => render_inline_block(raw, 0),
         Expr::Call { name, args } => {
             if let Some(s) = lower_constructor(name, args) {
                 // Ok/Err/Some result/option constructors.

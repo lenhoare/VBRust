@@ -293,6 +293,8 @@ pub enum Expr {
     TupleIndex(Box<Expr>, usize),
     /// `expr[index]` — array/Vec indexing.
     Index(Box<Expr>, Box<Expr>),
+    /// A `Rust … End Rust` block — raw Rust spliced in as a block expression.
+    InlineRust(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

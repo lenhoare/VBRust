@@ -464,6 +464,8 @@ impl<'a> Parser<'a> {
             Tok::If => self.parse_if(),
             Tok::Select => self.parse_select(),
             Tok::For => self.parse_for(),
+            // A standalone inline Rust block (side effects; no value used).
+            Tok::InlineRust(_) => Some(Stmt::Expr(self.parse_primary()?)),
             Tok::Const => {
                 self.diags.error(
                     self.line(),
@@ -1142,6 +1144,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_atom(&mut self) -> Option<Expr> {
+        // An inline Rust block.
+        if let Tok::InlineRust(raw) = self.peek().clone() {
+            self.advance();
+            return Some(Expr::InlineRust(raw));
+        }
         // A closure: `|x| body` (or `|| body`).
         if matches!(self.peek(), Tok::Pipe) {
             self.advance();

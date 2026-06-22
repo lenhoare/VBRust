@@ -1,0 +1,21 @@
+' Inline Rust — drop into Rust for a bit, get a plain value back
+Function Main()
+    Dim a As Long = 5
+    Dim b As Long = 7
+
+    ' variables pass in automatically; last line (no semicolon) is the value
+    Dim sum As Long = Rust
+        a + b
+    End Rust
+    Debug.Print "sum is " & sum
+
+    ' a multi-line block — real Rust, sealed inside
+    Dim big As Long = Rust
+        let mut total = 0;
+        for i in 1..=100 {
+            total += i;
+        }
+        total
+    End Rust
+    Debug.Print "1 to 100 = " & big
+End Function

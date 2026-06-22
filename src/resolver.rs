@@ -579,6 +579,8 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 resolve_expr(v, ctx);
             }
         }
+        // Inline Rust is opaque — no resolution.
+        Expr::InlineRust(_) => {}
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
     }
 }
@@ -605,7 +607,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         | Expr::Closure { .. }
         | Expr::Tuple(_)
         | Expr::TupleIndex(..)
-        | Expr::Index(..) => RType::Unknown,
+        | Expr::Index(..)
+        | Expr::InlineRust(_) => RType::Unknown,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
             BinOp::Pow => RType::F64,

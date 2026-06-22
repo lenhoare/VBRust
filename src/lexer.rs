@@ -90,6 +90,9 @@ pub enum Tok {
 
     On, // start of `On Error ...`
 
+    /// A `Rust … End Rust` block, captured verbatim (the inner Rust is not tokenised).
+    InlineRust(String),
+
     Comment(String),
     Newline,
     Eof,
@@ -224,11 +227,23 @@ pub fn lex(src: &str) -> Vec<Token> {
                     j += 1;
                 }
                 let word: String = chars[start..j].iter().collect();
-                tokens.push(Token {
-                    tok: keyword_or_ident(&word),
-                    line,
-                });
-                i = j;
+                if word.eq_ignore_ascii_case("Rust") {
+                    // Inline Rust: capture the body verbatim (do NOT tokenise it)
+                    // until a line that reads `End Rust`.
+                    let (raw, resume, newlines) = capture_inline_rust(&chars, j);
+                    tokens.push(Token {
+                        tok: Tok::InlineRust(raw),
+                        line,
+                    });
+                    line += newlines;
+                    i = resume;
+                } else {
+                    tokens.push(Token {
+                        tok: keyword_or_ident(&word),
+                        line,
+                    });
+                    i = j;
+                }
             }
             _ => {
                 // Unknown character — skip it. The parser will notice the gap.
@@ -239,6 +254,40 @@ pub fn lex(src: &str) -> Vec<Token> {
 
     tokens.push(Token { tok: Tok::Eof, line });
     tokens
+}
+
+/// Capture an inline Rust block verbatim. `start` is just after the `Rust`
+/// keyword; the block runs until a line whose content is `End Rust`.
+/// Returns (raw body, index to resume at, number of newlines consumed).
+fn capture_inline_rust(chars: &[char], start: usize) -> (String, usize, usize) {
+    let mut line_start = start;
+    let mut newlines = 0;
+    loop {
+        // The current line is [line_start, le).
+        let mut le = line_start;
+        while le < chars.len() && chars[le] != '\n' {
+            le += 1;
+        }
+        let line_str: String = chars[line_start..le].iter().collect();
+        let words: Vec<&str> = line_str.split_whitespace().collect();
+        let is_end = words.len() == 2
+            && words[0].eq_ignore_ascii_case("end")
+            && words[1].eq_ignore_ascii_case("rust");
+        if is_end {
+            // Body is everything up to the newline before this line; resume at
+            // the newline after `End Rust` so the normal lexer emits a Newline.
+            let body_end = line_start.saturating_sub(1).max(start);
+            let raw: String = chars[start..body_end].iter().collect();
+            return (raw, le, newlines);
+        }
+        if le >= chars.len() {
+            // Unterminated — capture to end of file.
+            let raw: String = chars[start..].iter().collect();
+            return (raw, chars.len(), newlines);
+        }
+        newlines += 1;
+        line_start = le + 1;
+    }
 }
 
 fn push(tokens: &mut Vec<Token>, tok: Tok, line: usize, i: &mut usize) {
