@@ -211,6 +211,8 @@ pub enum Stmt {
 pub struct SelectArm {
     /// One or more comma-separated patterns, joined with `|` in Rust.
     pub patterns: Vec<CasePattern>,
+    /// An optional `If` guard: `Case n If n < 0` → `n if n < 0 =>`.
+    pub guard: Option<Expr>,
     pub body: Vec<Stmt>,
 }
 

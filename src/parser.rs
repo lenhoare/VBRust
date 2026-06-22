@@ -778,9 +778,19 @@ impl<'a> Parser<'a> {
                         break;
                     }
                     let patterns = self.parse_case_patterns()?;
+                    // Optional guard: `Case n If n < 0`.
+                    let guard = if self.eat(&Tok::If) {
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    };
                     self.expect(&Tok::Newline, "after the `Case` pattern")?;
                     let body = self.parse_block()?;
-                    arms.push(SelectArm { patterns, body });
+                    arms.push(SelectArm {
+                        patterns,
+                        guard,
+                        body,
+                    });
                 }
                 Tok::End => break,
                 other => {
@@ -797,12 +807,18 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Select, "after `End`")?;
 
         // Rust's match must be exhaustive, so a missing `Case Else` is a hard error
-        // — unless the arms are Ok/Err/Some/None, which are exhaustive on their own.
+        // — unless the arms are Ok/Err/Some/None (exhaustive on their own) or there's
+        // an unguarded catch-all (`Case _` or a bare binding `Case n`).
         let constructor_match = arms
             .iter()
             .flat_map(|a| &a.patterns)
             .any(is_constructor_pattern);
-        if else_body.is_none() && !constructor_match {
+        let has_catch_all = arms.iter().any(|a| {
+            a.guard.is_none()
+                && a.patterns.len() == 1
+                && matches!(&a.patterns[0], CasePattern::Value(Expr::Ident(_)))
+        });
+        if else_body.is_none() && !constructor_match && !has_catch_all {
             self.diags.error(
                 line,
                 "`Select Case` must end with `Case Else`. Rust's match has to cover every \

@@ -647,7 +647,11 @@ fn emit_stmt(
             out.push_str(&format!("{}match {} {{\n", pad, render_expr(scrutinee, None)));
             for arm in arms {
                 let pats: Vec<String> = arm.patterns.iter().map(render_pattern).collect();
-                out.push_str(&format!("{}{} => {{\n", arm_pad, pats.join(" | ")));
+                let guard = match &arm.guard {
+                    Some(g) => format!(" if {}", render_expr(g, None)),
+                    None => String::new(),
+                };
+                out.push_str(&format!("{}{}{} => {{\n", arm_pad, pats.join(" | "), guard));
                 emit_block(&arm.body, mutated, byref, indent + 2, diags, out);
                 out.push_str(&format!("{}}}\n", arm_pad));
             }
@@ -799,6 +803,9 @@ fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
                                 note_builtins_expr(hi, diags);
                             }
                         }
+                    }
+                    if let Some(g) = &arm.guard {
+                        note_builtins_expr(g, diags);
                     }
                     note_builtins(&arm.body, diags);
                 }

@@ -287,9 +287,20 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             Stmt::Print(e) => resolve_expr(e, ctx),
             Stmt::Return(Some(e)) => {
                 resolve_expr(e, ctx);
-                // Coerce the returned value to the declared numeric return type.
-                if let Some(t) = ctx.ret_coerce {
-                    maybe_cast(e, t, ctx);
+                match ctx.ret_coerce {
+                    // A String-returning function: an existing &str (literal, &str
+                    // param, Trim(..)) becomes an owned String.
+                    Some(Type::Text) if infer(e, ctx) == RType::Str => {
+                        let inner = std::mem::replace(e, Expr::Int(0));
+                        *e = Expr::MethodCall {
+                            recv: Box::new(inner),
+                            method: "to_string".to_string(),
+                            args: Vec::new(),
+                        };
+                    }
+                    // Coerce a numeric return value to the declared numeric type.
+                    Some(t) => maybe_cast(e, t, ctx),
+                    None => {}
                 }
             }
             Stmt::Expr(e) => {
@@ -369,6 +380,9 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                                 resolve_expr(hi, ctx);
                             }
                         }
+                    }
+                    if let Some(g) = &mut arm.guard {
+                        resolve_expr(g, ctx);
                     }
                     resolve_stmts(&mut arm.body, ctx);
                 }

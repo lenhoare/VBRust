@@ -39,6 +39,7 @@ const HAPPY: &[&str] = &[
     "arrays",
     "coercion_more",
     "string_args",
+    "case_guards",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
