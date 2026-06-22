@@ -707,6 +707,18 @@ impl<'a> Parser<'a> {
             return Some(Stmt::Print(value));
         }
 
+        // `MsgBox msg` has no window in a terminal app, so it prints the message.
+        if name.eq_ignore_ascii_case("MsgBox") {
+            self.advance(); // MsgBox
+            self.diags.note(
+                "msgbox-cli",
+                "MsgBox has no window in a terminal app, so VBR prints it to the terminal \
+                 (like Debug.Print). InputBox reads a line of input back.",
+            );
+            let value = self.parse_expr()?;
+            return Some(Stmt::Print(value));
+        }
+
         // Parse a place expression (Ident or `a.field`) or a call. `parse_primary`
         // stops before binary operators, so a top-level `=` isn't mistaken for the
         // equality operator.

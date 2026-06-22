@@ -11,6 +11,17 @@ use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::resolver::{self, FnTable};
 
+/// CLI stand-in for VB's InputBox: print the prompt, read a line, return it.
+const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> String {
+    use std::io::Write;
+    print!(\"{}\", prompt);
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+    line.trim_end().to_string()
+}
+";
+
 pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
@@ -43,6 +54,12 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
         }
         first_item = false;
     };
+
+    // Runtime helper for InputBox, emitted only when it's used.
+    if diags.has_mark("input_box") {
+        sep(&mut out);
+        out.push_str(INPUT_BOX_HELPER);
+    }
 
     if !program.constants.is_empty() {
         sep(&mut out);
@@ -879,6 +896,14 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     "Val becomes Rust's .parse(), which returns a Result: parsing can fail, \
                      so you handle the error rather than getting a silent 0.",
                 ),
+                "inputbox" => {
+                    diags.mark("input_box");
+                    diags.note(
+                        "builtin-inputbox",
+                        "InputBox has no window in a terminal app — VBR prints the prompt and \
+                         reads a line from the keyboard, returning it as a String.",
+                    );
+                }
                 "rnd" => diags.error_once(
                     "builtin-rnd",
                     "Rnd() is not built in — Rust keeps randomness in the `rand` crate so it \
@@ -1256,6 +1281,8 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         // InStr → .find() (returns Option); Val → .parse() (returns Result).
         ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
         ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),
+        // InputBox → a generated helper that prompts and reads a line.
+        ("inputbox", 1) => Some(format!("input_box({})", r(0))),
         // Mid is 1-indexed in VB; Rust slices are 0-indexed, so shift by one.
         ("mid", 3) => Some(render_mid(&args[0], &args[1], Some(&args[2]))),
         ("mid", 2) => Some(render_mid(&args[0], &args[1], None)),

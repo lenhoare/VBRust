@@ -1,0 +1,6 @@
+' Terminal I/O — InputBox reads a line, MsgBox prints to the terminal
+Function Main()
+    Dim name As String = InputBox("What is your name? ")
+    MsgBox "Hello, " & name & "!"
+    MsgBox "Nice to meet you."
+End Function

@@ -146,7 +146,7 @@ fn builtin_rtype(name: &str) -> Option<RType> {
     Some(match name.to_ascii_lowercase().as_str() {
         "len" => RType::Usize,
         "left" | "right" | "mid" | "trim" => RType::Str,
-        "ucase" | "lcase" | "replace" | "str" => RType::Strng,
+        "ucase" | "lcase" | "replace" | "str" | "inputbox" => RType::Strng,
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => RType::F64,
         // instr → Option, val → Result: not a plain value type yet.
         _ => return None,

@@ -45,6 +45,7 @@ impl Diagnostic {
 pub struct Diagnostics {
     items: Vec<Diagnostic>,
     seen_notes: HashSet<String>,
+    marks: HashSet<String>,
 }
 
 impl Diagnostics {
@@ -113,6 +114,16 @@ impl Diagnostics {
 
     pub fn has_errors(&self) -> bool {
         self.items.iter().any(|d| d.level == Level::Error)
+    }
+
+    /// A silent flag (not shown) the transpiler can leave for itself, e.g. to
+    /// note that a runtime helper needs emitting.
+    pub fn mark(&mut self, key: &str) {
+        self.marks.insert(key.to_string());
+    }
+
+    pub fn has_mark(&self, key: &str) -> bool {
+        self.marks.contains(key)
     }
 
     pub fn items(&self) -> &[Diagnostic] {
