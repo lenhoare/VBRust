@@ -166,6 +166,9 @@ fn decltype_rust(ty: &DeclType) -> String {
             format!("({})", parts.join(", "))
         }
         DeclType::Vec(t) => format!("Vec<{}>", t.rust()),
+        DeclType::Vec2D(t) => format!("Vec<Vec<{}>>", t.rust()),
+        DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
+        DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
         DeclType::Map(k, v) => format!("HashMap<{}, {}>", k.rust(), v.rust()),
     }
 }
@@ -397,6 +400,40 @@ fn emit_stmt(
                         k.rust(),
                         v.rust(),
                         value
+                    ));
+                }
+                DeclType::Vec2D(t) => {
+                    let kw = let_kw(mutated.contains(&var));
+                    let value = init
+                        .as_ref()
+                        .map(|e| render_expr(e, None))
+                        .unwrap_or_else(|| "Vec::new()".to_string());
+                    out.push_str(&format!(
+                        "{}{} {}: Vec<Vec<{}>> = {};\n",
+                        pad,
+                        kw,
+                        var,
+                        t.rust(),
+                        value
+                    ));
+                }
+                // Fixed arrays are auto-zeroed; the size is the element count.
+                DeclType::Array(t, n) => {
+                    array_size_note(diags);
+                    let kw = let_kw(mutated.contains(&var));
+                    let d = array_default(*t);
+                    out.push_str(&format!(
+                        "{}{} {}: [{}; {}] = [{}; {}];\n",
+                        pad, kw, var, t.rust(), n, d, n
+                    ));
+                }
+                DeclType::Array2D(t, r, c) => {
+                    array_size_note(diags);
+                    let kw = let_kw(mutated.contains(&var));
+                    let d = array_default(*t);
+                    out.push_str(&format!(
+                        "{}{} {}: [[{}; {}]; {}] = [[{}; {}]; {}];\n",
+                        pad, kw, var, t.rust(), c, r, d, c, r
                     ));
                 }
                 // A struct value (always fully initialised at the Dim).
@@ -801,6 +838,15 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
         Expr::Try(inner) | Expr::Field(inner, _) | Expr::Closure { body: inner, .. } => {
             note_builtins_expr(inner, diags)
         }
+        Expr::Index(inner, idx) => {
+            diags.note(
+                "index-bounds",
+                "Indexing with `x[i]` panics if `i` is out of bounds. When you're not sure \
+                 the index is valid, use `x.get(i)` — it returns an Option you can handle.",
+            );
+            note_builtins_expr(inner, diags);
+            note_builtins_expr(idx, diags);
+        }
         Expr::StructLit { fields, .. } => {
             for (_, v) in fields {
                 note_builtins_expr(v, diags);
@@ -867,7 +913,7 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
                 mark_mutating_calls(a, set);
             }
         }
-        Expr::Binary { lhs, rhs, .. } => {
+        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
             mark_mutating_calls(lhs, set);
             mark_mutating_calls(rhs, set);
         }
@@ -887,14 +933,31 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
     }
 }
 
-/// The root variable of an assignable place, e.g. `alice` in `alice.age`.
-/// `None` when there's no plain local at the root (e.g. a ByRef deref).
+/// The root variable of an assignable place, e.g. `alice` in `alice.age`,
+/// or `grid` in `grid[r][c]`. `None` when there's no plain local at the root.
 fn lvalue_root(target: &Expr) -> Option<String> {
     match target {
         Expr::Ident(name) => Some(to_snake(name)),
-        Expr::Field(inner, _) => lvalue_root(inner),
+        Expr::Field(inner, _) | Expr::Index(inner, _) => lvalue_root(inner),
         _ => None,
     }
+}
+
+/// The default element for a fixed array of `t` (it must be a Copy type).
+fn array_default(t: Type) -> &'static str {
+    match t {
+        Type::Single | Type::Double => "0.0",
+        Type::Boolean => "false",
+        _ => "0",
+    }
+}
+
+fn array_size_note(diags: &mut Diagnostics) {
+    diags.warn_once_global(
+        "array-size",
+        "A fixed array's size is the element COUNT, not an upper bound — `Dim x(10)` is \
+         10 elements with indexes 0..9 (VB6 gave you 11). For a growable list use a Vec.",
+    );
 }
 
 fn let_kw(is_mut: bool) -> &'static str {
@@ -1053,6 +1116,9 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             format!("({})", parts.join(", "))
         }
         Expr::TupleIndex(inner, n) => format!("{}.{}", render_prec(inner, None, 6, false), n),
+        Expr::Index(inner, idx) => {
+            format!("{}[{}]", render_prec(inner, None, 6, false), render_expr(idx, None))
+        }
         Expr::Call { name, args } => {
             if let Some(s) = lower_constructor(name, args) {
                 // Ok/Err/Some result/option constructors.

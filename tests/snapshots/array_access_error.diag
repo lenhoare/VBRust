@@ -1,0 +1,2 @@
+✘ 'xs' is an array — index it Rust-style with `xs[i]`, or use `xs.get(i)` for a safe Option.
+⚠ A fixed array's size is the element COUNT, not an upper bound — `Dim x(10)` is 10 elements with indexes 0..9 (VB6 gave you 11). For a growable list use a Vec.

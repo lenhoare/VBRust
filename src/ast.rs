@@ -121,6 +121,9 @@ pub enum DeclType {
     Named(String), // a user struct, e.g. Person
     Tuple(Vec<Type>),
     Vec(Type),
+    Vec2D(Type),               // Dim grid(,) → Vec<Vec<T>>
+    Array(Type, usize),        // Dim x(N)    → [T; N]
+    Array2D(Type, usize, usize), // Dim grid(R, C) → [[T; C]; R]
     Map(Type, Type),
 }
 
@@ -278,6 +281,8 @@ pub enum Expr {
     Tuple(Vec<Expr>),
     /// `expr.0` — tuple element access.
     TupleIndex(Box<Expr>, usize),
+    /// `expr[index]` — array/Vec indexing.
+    Index(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

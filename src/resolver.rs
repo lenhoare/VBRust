@@ -175,6 +175,7 @@ pub fn resolve_body(
     // mental model.
     let mut vars: HashMap<String, Type> = HashMap::new();
     let mut struct_vars = HashMap::new();
+    let mut array_vars = HashSet::new();
     for p in params {
         match &p.ty {
             DeclType::Plain(t) => {
@@ -182,6 +183,9 @@ pub fn resolve_body(
             }
             DeclType::Named(n) => {
                 struct_vars.insert(snake(&p.name), n.clone());
+            }
+            DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
+                array_vars.insert(snake(&p.name));
             }
             _ => {}
         }
@@ -195,6 +199,7 @@ pub fn resolve_body(
         diags,
         vars: &mut vars,
         struct_vars: &mut struct_vars,
+        array_vars: &mut array_vars,
         passed: &mut passed,
     };
     resolve_stmts(stmts, &mut ctx);
@@ -212,6 +217,8 @@ struct Ctx<'a> {
     vars: &'a mut HashMap<String, Type>,
     /// Variable name → struct type, for receiver-mutation detection.
     struct_vars: &'a mut HashMap<String, String>,
+    /// Array/Vec variable names — `x(i)` on one is a friendly error.
+    array_vars: &'a mut HashSet<String>,
     passed: &'a mut HashSet<String>,
 }
 
@@ -231,9 +238,20 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         resolve_expr(e, ctx);
                     }
                     ctx.struct_vars.insert(snake(name), struct_name.clone());
-                } else if let Some(e) = init {
-                    // Tuple / collection — type not tracked numerically.
-                    resolve_expr(e, ctx);
+                } else {
+                    if let Some(e) = init {
+                        // Tuple / collection — type not tracked numerically.
+                        resolve_expr(e, ctx);
+                    }
+                    if matches!(
+                        ty,
+                        DeclType::Vec(_)
+                            | DeclType::Vec2D(_)
+                            | DeclType::Array(..)
+                            | DeclType::Array2D(..)
+                    ) {
+                        ctx.array_vars.insert(snake(name));
+                    }
                 }
             }
             Stmt::DestructureDim { value, .. } => resolve_expr(value, ctx),
@@ -386,6 +404,17 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         Expr::Call { name, args } => {
+            // `x(i)` where x is an array is the VB way — point at Rust indexing.
+            if ctx.array_vars.contains(&snake(name)) {
+                ctx.diags.error_once(
+                    &format!("array-call-{}", snake(name)),
+                    format!(
+                        "'{}' is an array — index it Rust-style with `{}[i]`, or use \
+                         `{}.get(i)` for a safe Option.",
+                        name, name, name
+                    ),
+                );
+            }
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
             }
@@ -423,6 +452,10 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 resolve_expr(el, ctx);
             }
         }
+        Expr::Index(inner, idx) => {
+            resolve_expr(inner, ctx);
+            resolve_expr(idx, ctx);
+        }
         Expr::StructLit { fields, .. } => {
             for (_, v) in fields.iter_mut() {
                 resolve_expr(v, ctx);
@@ -452,7 +485,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         | Expr::ConstRef(_)
         | Expr::Closure { .. }
         | Expr::Tuple(_)
-        | Expr::TupleIndex(..) => RType::Unknown,
+        | Expr::TupleIndex(..)
+        | Expr::Index(..) => RType::Unknown,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
             BinOp::Pow => RType::F64,

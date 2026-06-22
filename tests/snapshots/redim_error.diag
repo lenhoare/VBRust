@@ -1,0 +1,1 @@
+✘ [line 4] ReDim isn't supported. Use a Vec (`Dim x As New Vec<T>`), which grows on demand with `.push(...)` — no resizing dance needed.

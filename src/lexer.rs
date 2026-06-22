@@ -71,8 +71,10 @@ pub enum Tok {
     Ge,
     LParen,
     RParen,
-    LBrace, // {
-    RBrace, // }
+    LBrace,   // {
+    RBrace,   // }
+    LBracket, // [
+    RBracket, // ]
     Comma,
     Dot,
     Colon,    // :
@@ -83,6 +85,7 @@ pub enum Tok {
     Public,
     Private,
     Const,
+    ReDim,
 
     On, // start of `On Error ...`
 
@@ -148,6 +151,8 @@ pub fn lex(src: &str) -> Vec<Token> {
             ')' => push(&mut tokens, Tok::RParen, line, &mut i),
             '{' => push(&mut tokens, Tok::LBrace, line, &mut i),
             '}' => push(&mut tokens, Tok::RBrace, line, &mut i),
+            '[' => push(&mut tokens, Tok::LBracket, line, &mut i),
+            ']' => push(&mut tokens, Tok::RBracket, line, &mut i),
             ',' => push(&mut tokens, Tok::Comma, line, &mut i),
             '.' => push(&mut tokens, Tok::Dot, line, &mut i),
             ':' => push(&mut tokens, Tok::Colon, line, &mut i),
@@ -238,6 +243,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "public" => Tok::Public,
         "private" => Tok::Private,
         "const" => Tok::Const,
+        "redim" => Tok::ReDim,
         "end" => Tok::End,
         "dim" => Tok::Dim,
         "set" => Tok::Set,

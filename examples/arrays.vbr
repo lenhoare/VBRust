@@ -1,0 +1,20 @@
+' Arrays — fixed size, 2D, and safe access with .get()
+Function Main()
+    Dim scores(5) As Long
+    scores[0] = 90
+    scores[1] = 85
+    scores[2] = 78
+    Debug.Print "scores[1] = " & scores[1]
+
+    Dim grid(2, 3) As Long
+    grid[1][2] = 42
+    Debug.Print "grid[1][2] = " & grid[1][2]
+
+    ' .get() returns an Option, so out-of-bounds is handled, not a crash
+    Select Case scores.get(0)
+        Case Some(v)
+            Debug.Print "first score = " & v
+        Case None
+            Debug.Print "no first score"
+    End Select
+End Function

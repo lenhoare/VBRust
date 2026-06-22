@@ -1,0 +1,5 @@
+' MEANT to fail — VB-style array access. Use xs[i] or xs.get(i).
+Function Main()
+    Dim xs(3) As Long
+    Debug.Print xs(0)
+End Function

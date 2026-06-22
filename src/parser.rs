@@ -456,6 +456,17 @@ impl<'a> Parser<'a> {
                 );
                 None
             }
+            Tok::ReDim => {
+                self.diags.error(
+                    self.line(),
+                    "ReDim isn't supported. Use a Vec (`Dim x As New Vec<T>`), which grows on \
+                     demand with `.push(...)` — no resizing dance needed.",
+                );
+                while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
+                    self.advance();
+                }
+                None
+            }
             Tok::Do => self.parse_do(),
             Tok::Continue => {
                 self.advance();
@@ -520,26 +531,20 @@ impl<'a> Parser<'a> {
             return Some(Stmt::DestructureDim { names, value });
         }
 
-        // `Dim x()` declares a growable list; `Dim x(N)` (fixed size) isn't supported yet.
-        let mut empty_parens = false;
-        if self.eat(&Tok::LParen) {
-            if self.eat(&Tok::RParen) {
-                empty_parens = true;
-            } else {
-                self.diags.error(
-                    line,
-                    "Fixed-size arrays `Dim x(N)` aren't supported yet — use \
-                     `Dim x As New Vec<...>` (or `Dim x() As ...`) for a growable list.",
-                );
-                return None;
-            }
-        }
+        // An optional dimension spec in parens: `()` `(,)` `(N)` `(R, C)`.
+        let dim = self.parse_dim_spec()?;
 
         self.expect(&Tok::As, "after the variable name")?;
-        let ty = self.parse_decl_type(empty_parens)?;
+        let ty = match dim {
+            DimSpec::None => self.parse_decl_type(false)?,
+            DimSpec::Empty1D => DeclType::Vec(self.parse_type()?),
+            DimSpec::Empty2D => DeclType::Vec2D(self.parse_type()?),
+            DimSpec::Fixed1D(n) => DeclType::Array(self.parse_type()?, n),
+            DimSpec::Fixed2D(r, c) => DeclType::Array2D(self.parse_type()?, r, c),
+        };
 
         // Plain scalars may carry an initialiser; a struct must be fully built at
-        // creation; collections start empty.
+        // creation; fixed arrays auto-zero; collections start empty.
         let init = match &ty {
             DeclType::Plain(_) | DeclType::Tuple(_) => {
                 if self.eat(&Tok::Eq) {
@@ -562,13 +567,15 @@ impl<'a> Parser<'a> {
                 }
             }
             // A collection may take an initialiser (e.g. an iterator `.collect()`).
-            DeclType::Vec(_) | DeclType::Map(..) => {
+            DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Map(..) => {
                 if self.eat(&Tok::Eq) {
                     Some(self.parse_expr()?)
                 } else {
                     None
                 }
             }
+            // Fixed arrays are auto-zeroed.
+            DeclType::Array(..) | DeclType::Array2D(..) => None,
         };
         Some(Stmt::Dim {
             name,
@@ -576,6 +583,44 @@ impl<'a> Parser<'a> {
             init,
             line,
         })
+    }
+
+    /// Parse the parenthesised dimension spec after a `Dim` name, if any.
+    fn parse_dim_spec(&mut self) -> Option<DimSpec> {
+        if !self.eat(&Tok::LParen) {
+            return Some(DimSpec::None);
+        }
+        if self.eat(&Tok::RParen) {
+            return Some(DimSpec::Empty1D);
+        }
+        if self.eat(&Tok::Comma) {
+            // `(,)` — a dynamic 2D array.
+            self.expect(&Tok::RParen, "to close `(,)`")?;
+            return Some(DimSpec::Empty2D);
+        }
+        let n = self.parse_array_size()?;
+        if self.eat(&Tok::Comma) {
+            let c = self.parse_array_size()?;
+            self.expect(&Tok::RParen, "to close the array dimensions")?;
+            Some(DimSpec::Fixed2D(n, c))
+        } else {
+            self.expect(&Tok::RParen, "to close the array size")?;
+            Some(DimSpec::Fixed1D(n))
+        }
+    }
+
+    fn parse_array_size(&mut self) -> Option<usize> {
+        if let Tok::Int(n) = self.peek() {
+            let n = *n as usize;
+            self.advance();
+            Some(n)
+        } else {
+            self.diags.error(
+                self.line(),
+                "An array size must be an integer literal, e.g. `Dim x(10) As Long`.",
+            );
+            None
+        }
     }
 
     fn parse_decl_type(&mut self, empty_parens: bool) -> Option<DeclType> {
@@ -1021,6 +1066,13 @@ impl<'a> Parser<'a> {
                     self.advance();
                     e = Expr::Try(Box::new(e));
                 }
+                // `expr[index]` — array/Vec indexing (chainable for 2D).
+                Tok::LBracket => {
+                    self.advance();
+                    let index = self.parse_expr()?;
+                    self.expect(&Tok::RBracket, "to close the index")?;
+                    e = Expr::Index(Box::new(e), Box::new(index));
+                }
                 _ => break,
             }
         }
@@ -1133,6 +1185,15 @@ impl<'a> Parser<'a> {
             }
         }
     }
+}
+
+/// The shape declared in a `Dim` name's parentheses.
+enum DimSpec {
+    None,
+    Empty1D,           // x()
+    Empty2D,           // x(,)
+    Fixed1D(usize),    // x(N)
+    Fixed2D(usize, usize), // x(R, C)
 }
 
 fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
