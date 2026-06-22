@@ -1,0 +1,29 @@
+' Tuples — literals, indexing, multiple return values, destructuring, patterns
+Function Main()
+    Dim pair As (Long, Long) = (3, 7)
+    Debug.Print "first = " & pair.0
+    Debug.Print "sum   = " & (pair.0 + pair.1)
+
+    Dim lo, hi = MinMax(10, 4)
+    Debug.Print "min = " & lo & ", max = " & hi
+
+    Select Case Classify(0, 5)
+        Case (0, y)
+            Debug.Print "on the y-axis at " & y
+        Case (x, 0)
+            Debug.Print "on the x-axis at " & x
+        Case Else
+            Debug.Print "off both axes"
+    End Select
+End Function
+
+Function MinMax(ByVal a As Long, ByVal b As Long) As (Long, Long)
+    If a < b Then
+        Return (a, b)
+    End If
+    Return (b, a)
+End Function
+
+Function Classify(ByVal x As Long, ByVal y As Long) As (Long, Long)
+    Return (x, y)
+End Function

@@ -2,6 +2,14 @@
 
 ---
 
+IMPORTANT NOTE:
+At first I agreed that VBR should follow Rust and use :: rather than . when referring to external libraries.
+But I have changed my mind and would like VBR to just use .
+Please ask to clarify when we come to implement.
+
+I guess we create with Set fs= New FileSystem
+We should use the Rust names like FileSystem excpet maybe 
+
 ## Project Structure
 
 ```

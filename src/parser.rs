@@ -267,8 +267,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// A return type: a plain type, or `Result<T>` / `Option<T>`.
+    /// A return type: a plain type, `Result<T>` / `Option<T>`, or a tuple.
     fn parse_ret_type(&mut self) -> Option<RetType> {
+        if matches!(self.peek(), Tok::LParen) {
+            return Some(RetType::Tuple(self.parse_tuple_types()?));
+        }
         if let Tok::Ident(word) = self.peek().clone() {
             let wrapper = match word.as_str() {
                 "Result" => Some(true),  // Result
@@ -505,6 +508,17 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Dim, "")?;
         let name = self.expect_ident("after `Dim`")?;
 
+        // `Dim a, b = expr` destructures a tuple.
+        if matches!(self.peek(), Tok::Comma) {
+            let mut names = vec![name];
+            while self.eat(&Tok::Comma) {
+                names.push(self.expect_ident("for the destructured name")?);
+            }
+            self.expect(&Tok::Eq, "in a tuple destructuring (`Dim a, b = …`)")?;
+            let value = self.parse_expr()?;
+            return Some(Stmt::DestructureDim { names, value });
+        }
+
         // `Dim x()` declares a growable list; `Dim x(N)` (fixed size) isn't supported yet.
         let mut empty_parens = false;
         if self.eat(&Tok::LParen) {
@@ -526,7 +540,7 @@ impl<'a> Parser<'a> {
         // Plain scalars may carry an initialiser; a struct must be fully built at
         // creation; collections start empty.
         let init = match &ty {
-            DeclType::Plain(_) => {
+            DeclType::Plain(_) | DeclType::Tuple(_) => {
                 if self.eat(&Tok::Eq) {
                     Some(self.parse_expr()?)
                 } else {
@@ -590,6 +604,8 @@ impl<'a> Parser<'a> {
             }
         } else if empty_parens {
             Some(DeclType::Vec(self.parse_type()?))
+        } else if matches!(self.peek(), Tok::LParen) {
+            Some(DeclType::Tuple(self.parse_tuple_types()?))
         } else if let Tok::Ident(name) = self.peek().clone() {
             // A non-keyword type name is a user struct.
             self.advance();
@@ -597,6 +613,22 @@ impl<'a> Parser<'a> {
         } else {
             Some(DeclType::Plain(self.parse_type()?))
         }
+    }
+
+    /// Parse a tuple type list `(Type, Type, …)`.
+    fn parse_tuple_types(&mut self) -> Option<Vec<Type>> {
+        self.expect(&Tok::LParen, "to start a tuple type")?;
+        let mut types = Vec::new();
+        if !matches!(self.peek(), Tok::RParen) {
+            loop {
+                types.push(self.parse_type()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen, "to close the tuple type")?;
+        Some(types)
     }
 
     fn parse_set(&mut self) -> Option<Stmt> {
@@ -953,6 +985,13 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Tok::Dot => {
                     self.advance();
+                    // `expr.0` — tuple element access.
+                    if let Tok::Int(n) = self.peek() {
+                        let n = *n as usize;
+                        self.advance();
+                        e = Expr::TupleIndex(Box::new(e), n);
+                        continue;
+                    }
                     let member = self.expect_ident("after `.`")?;
                     if matches!(self.peek(), Tok::LParen) {
                         // method call: expr.method(args)
@@ -1068,9 +1107,23 @@ impl<'a> Parser<'a> {
             }
             Tok::LParen => {
                 self.advance();
-                let e = self.parse_expr()?;
-                self.expect(&Tok::RParen, "to close `(`")?;
-                Some(e)
+                let first = self.parse_expr()?;
+                if matches!(self.peek(), Tok::Comma) {
+                    // A tuple: (a, b, …)
+                    let mut elems = vec![first];
+                    while self.eat(&Tok::Comma) {
+                        // allow a trailing comma
+                        if matches!(self.peek(), Tok::RParen) {
+                            break;
+                        }
+                        elems.push(self.parse_expr()?);
+                    }
+                    self.expect(&Tok::RParen, "to close the tuple")?;
+                    Some(Expr::Tuple(elems))
+                } else {
+                    self.expect(&Tok::RParen, "to close `(`")?;
+                    Some(first)
+                }
             }
             other => {
                 self.diags

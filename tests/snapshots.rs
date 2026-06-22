@@ -34,6 +34,7 @@ const HAPPY: &[&str] = &[
     "methods",
     "constants",
     "iterators",
+    "tuples",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

@@ -103,21 +103,22 @@ pub struct Function {
     pub line: usize,
 }
 
-/// A function's return type. `Result<T>`/`Option<T>` are kept separate from the
-/// plain `Type` so `Type` can stay `Copy` and simple.
-#[derive(Debug, Clone, Copy)]
+/// A function's return type.
+#[derive(Debug, Clone)]
 pub enum RetType {
     Plain(Type),
     Result(Type), // -> Result<T, String>
     Option(Type), // -> Option<T>
+    Tuple(Vec<Type>),
 }
 
-/// The declared type of a `Dim`/field — a plain type, a named struct, or a
-/// growable collection.
+/// The declared type of a `Dim`/field — a plain type, a named struct, a tuple,
+/// or a growable collection.
 #[derive(Debug, Clone)]
 pub enum DeclType {
     Plain(Type),
     Named(String), // a user struct, e.g. Person
+    Tuple(Vec<Type>),
     Vec(Type),
     Map(Type, Type),
 }
@@ -152,6 +153,11 @@ pub enum Stmt {
     },
     Assign {
         target: Expr,
+        value: Expr,
+    },
+    /// `Dim a, b = expr` — destructure a tuple into several bindings.
+    DestructureDim {
+        names: Vec<String>,
         value: Expr,
     },
     /// `Return value` or `FunctionName = value` — both become a Rust return.
@@ -265,6 +271,10 @@ pub enum Expr {
         params: Vec<String>,
         body: Box<Expr>,
     },
+    /// `(a, b, …)` — a tuple literal.
+    Tuple(Vec<Expr>),
+    /// `expr.0` — tuple element access.
+    TupleIndex(Box<Expr>, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

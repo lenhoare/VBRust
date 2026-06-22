@@ -161,6 +161,10 @@ fn decltype_rust(ty: &DeclType) -> String {
     match ty {
         DeclType::Plain(t) => t.rust().to_string(),
         DeclType::Named(n) => n.clone(),
+        DeclType::Tuple(ts) => {
+            let parts: Vec<&str> = ts.iter().map(|t| t.rust()).collect();
+            format!("({})", parts.join(", "))
+        }
         DeclType::Vec(t) => format!("Vec<{}>", t.rust()),
         DeclType::Map(k, v) => format!("HashMap<{}, {}>", k.rust(), v.rust()),
     }
@@ -202,16 +206,20 @@ fn emit_fn(
     }
     params.extend(func.params.iter().map(render_param));
 
-    let ret = match func.ret {
+    let ret = match &func.ret {
         Some(RetType::Plain(t)) => format!(" -> {}", t.rust()),
         Some(RetType::Result(t)) => format!(" -> Result<{}, String>", t.rust()),
         Some(RetType::Option(t)) => format!(" -> Option<{}>", t.rust()),
+        Some(RetType::Tuple(ts)) => {
+            let parts: Vec<&str> = ts.iter().map(|t| t.rust()).collect();
+            format!(" -> ({})", parts.join(", "))
+        }
         None => String::new(),
     };
     // Only a plain return type drives literal coercion of the tail expression;
-    // an Ok/Some wrapper carries its own type.
-    let tail_expected = match func.ret {
-        Some(RetType::Plain(t)) => Some(t),
+    // an Ok/Some/tuple wrapper carries its own type.
+    let tail_expected = match &func.ret {
+        Some(RetType::Plain(t)) => Some(*t),
         _ => None,
     };
     out.push_str(&format!("{}fn {}({}){} {{\n", pad, name, params.join(", "), ret));
@@ -395,6 +403,21 @@ fn emit_stmt(
                         .unwrap_or_default();
                     out.push_str(&format!("{}{} {}: {} = {};\n", pad, kw, var, n, value));
                 }
+                DeclType::Tuple(_) => {
+                    let kw = let_kw(mutated.contains(&var));
+                    let value = init
+                        .as_ref()
+                        .map(|e| render_expr(e, None))
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "{}{} {}: {} = {};\n",
+                        pad,
+                        kw,
+                        var,
+                        decltype_rust(ty),
+                        value
+                    ));
+                }
                 DeclType::Plain(t) => {
                     let is_mut = mutated.contains(&var);
                     if !t.is_fixed_size() {
@@ -454,6 +477,26 @@ fn emit_stmt(
         }
         Stmt::Expr(e) => {
             out.push_str(&format!("{}{};\n", pad, render_expr(e, None)));
+        }
+        Stmt::DestructureDim { names, value } => {
+            // `let (a, b) = value;` — each binding is `mut` only if reassigned.
+            let pat: Vec<String> = names
+                .iter()
+                .map(|n| {
+                    let v = to_snake(n);
+                    if mutated.contains(&v) {
+                        format!("mut {}", v)
+                    } else {
+                        v
+                    }
+                })
+                .collect();
+            out.push_str(&format!(
+                "{}let ({}) = {};\n",
+                pad,
+                pat.join(", "),
+                render_expr(value, None)
+            ));
         }
         Stmt::Return(Some(e)) => {
             out.push_str(&format!("{}return {};\n", pad, render_expr(e, None)));
@@ -999,6 +1042,11 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             )
         }
         Expr::Closure { params, body } => render_closure(params, body, false),
+        Expr::Tuple(elems) => {
+            let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
+            format!("({})", parts.join(", "))
+        }
+        Expr::TupleIndex(inner, n) => format!("{}.{}", render_prec(inner, None, 6, false), n),
         Expr::Call { name, args } => {
             if let Some(s) = lower_constructor(name, args) {
                 // Ok/Err/Some result/option constructors.

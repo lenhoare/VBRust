@@ -88,7 +88,7 @@ pub fn build_fn_table(program: &Program) -> FnTable {
                 snake(&f.name),
                 FnSig {
                     modes: f.params.iter().map(|p| p.mode).collect(),
-                    ret: f.ret,
+                    ret: f.ret.clone(),
                 },
             )
         })
@@ -219,9 +219,11 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     }
                     ctx.struct_vars.insert(snake(name), struct_name.clone());
                 } else if let Some(e) = init {
+                    // Tuple / collection — type not tracked numerically.
                     resolve_expr(e, ctx);
                 }
             }
+            Stmt::DestructureDim { value, .. } => resolve_expr(value, ctx),
             Stmt::Assign { target, value } => {
                 // Coerce based on the target variable's type (plain Ident targets only).
                 let target_ty = match &*target {
@@ -387,7 +389,13 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) | Expr::Try(inner)
-        | Expr::Field(inner, _) | Expr::Closure { body: inner, .. } => resolve_expr(inner, ctx),
+        | Expr::Field(inner, _) | Expr::Closure { body: inner, .. }
+        | Expr::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        Expr::Tuple(elems) => {
+            for el in elems.iter_mut() {
+                resolve_expr(el, ctx);
+            }
+        }
         Expr::StructLit { fields, .. } => {
             for (_, v) in fields.iter_mut() {
                 resolve_expr(v, ctx);
@@ -411,10 +419,13 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
         Expr::Try(_) => RType::Unknown,
         Expr::MutRef(_) => RType::Unknown,
-        // Struct values, field types, const refs, closures aren't tracked numerically.
-        Expr::StructLit { .. } | Expr::Field(..) | Expr::ConstRef(_) | Expr::Closure { .. } => {
-            RType::Unknown
-        }
+        // Struct/tuple values, field types, const refs, closures: not numeric.
+        Expr::StructLit { .. }
+        | Expr::Field(..)
+        | Expr::ConstRef(_)
+        | Expr::Closure { .. }
+        | Expr::Tuple(_)
+        | Expr::TupleIndex(..) => RType::Unknown,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,
             BinOp::Pow => RType::F64,
@@ -424,8 +435,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         Expr::Call { name, args } => builtin_rtype(name).unwrap_or_else(|| {
             // Not a builtin? A plain return type is numeric; Result/Option aren't.
             let _ = args;
-            match ctx.fns.get(&snake(name)).and_then(|s| s.ret) {
-                Some(RetType::Plain(t)) => rtype_of(t),
+            match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
+                Some(RetType::Plain(t)) => rtype_of(*t),
                 _ => RType::Unknown,
             }
         }),
