@@ -137,6 +137,15 @@ impl<'a> Parser<'a> {
                     );
                     break;
                 }
+                Tok::Ident(w) if w == "Option" => {
+                    self.diags.error(
+                        self.line(),
+                        "`Option` directives (Option Base, Option Explicit, …) aren't \
+                         supported and aren't needed — Rust is always zero-indexed and \
+                         always explicit about types.",
+                    );
+                    break;
+                }
                 other => {
                     self.diags.error(
                         self.line(),
@@ -465,6 +474,15 @@ impl<'a> Parser<'a> {
                 while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
                     self.advance();
                 }
+                None
+            }
+            Tok::With => {
+                self.diags.error(
+                    self.line(),
+                    "`With` blocks aren't supported — write the variable name out each time \
+                     (e.g. `p.x = 1` / `p.y = 2`, not `With p` … `.x = 1`). It's a little more \
+                     typing but far clearer about what you're touching.",
+                );
                 None
             }
             Tok::Do => self.parse_do(),

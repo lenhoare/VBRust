@@ -1,0 +1,6 @@
+' MEANT to fail — With blocks aren't supported; name the variable each time.
+Function Main()
+    With p
+        .x = 1
+    End With
+End Function

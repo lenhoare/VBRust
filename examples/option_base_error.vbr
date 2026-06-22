@@ -1,0 +1,6 @@
+' MEANT to fail — Option directives aren't needed; Rust is always zero-indexed.
+Option Base 1
+
+Function Main()
+    Debug.Print "hi"
+End Function

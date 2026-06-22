@@ -1,0 +1,1 @@
+✘ [line 2] `Option` directives (Option Base, Option Explicit, …) aren't supported and aren't needed — Rust is always zero-indexed and always explicit about types.

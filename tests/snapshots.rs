@@ -62,6 +62,8 @@ const ERRORS: &[&str] = &[
     "byref_literal_error",
     "ignored_result_error",
     "format_error",
+    "with_error",
+    "option_base_error",
 ];
 
 fn examples_dir() -> PathBuf {
