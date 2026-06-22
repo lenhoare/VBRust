@@ -21,6 +21,7 @@ fn main() {
         Some("run") => cmd_run(&args[1..]),
         Some("runproject") => cmd_project(&args[1..], true),
         Some("build") => cmd_project(&args[1..], false),
+        Some("transpile") => cmd_transpile(&args[1..]),
         Some("emit") => cmd_emit(&args[1..]),
         _ => {
             usage();
@@ -35,6 +36,7 @@ fn usage() {
          \tvbr run <file.vbr>      compile with rustc and run (single file, no stdlib/crates)\n\
          \tvbr runproject [path]   generate a cargo project in build/ and run it\n\
          \tvbr build [path]        generate the cargo project without running\n\
+         \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)"
     );
 }
@@ -63,6 +65,17 @@ fn transpile(path: &Path) -> vbr::Compiled {
 /// Such programs can't be linked by `rustc` alone — they need the project build.
 fn needs_project(rust: &str) -> bool {
     rust.contains("vbr_stdlib")
+}
+
+fn cmd_transpile(args: &[String]) {
+    let (input, output) = parse_emit_args(args);
+    let result = transpile(&input);
+    let out = output.unwrap_or_else(|| input.with_extension("rs"));
+    if let Err(e) = fs::write(&out, &result.rust) {
+        eprintln!("✘ Could not write {}: {}", out.display(), e);
+        exit(1);
+    }
+    eprintln!("✔ Wrote {}", out.display());
 }
 
 fn cmd_emit(args: &[String]) {
