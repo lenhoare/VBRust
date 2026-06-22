@@ -38,6 +38,7 @@ const HAPPY: &[&str] = &[
     "struct_params",
     "arrays",
     "coercion_more",
+    "string_args",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

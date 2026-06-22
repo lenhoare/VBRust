@@ -1,0 +1,11 @@
+' Passing strings to functions — VBR borrows an owned String automatically
+Function Shout(ByVal text As String) As String
+    Return UCase(text)
+End Function
+
+Function Main()
+    Dim name As String = "alice"
+    Debug.Print Shout(name)          ' owned String  -> shout(&name)
+    Debug.Print Shout("bob")         ' literal &str   -> shout("bob")
+    Debug.Print Shout(name & "!")    ' concat String  -> shout(&format!(...))
+End Function

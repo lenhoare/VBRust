@@ -1,7 +1,7 @@
 // String and ownership demo
 
 fn main() {
-    let greeting: &str = "Hello";
+    let greeting: String = "Hello".to_string();
     // a literal is a fixed-size &str
     let view = &greeting;
     // borrow — no copy is made

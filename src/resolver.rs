@@ -177,8 +177,13 @@ pub fn resolve_body(
     let mut vars: HashMap<String, Type> = HashMap::new();
     let mut struct_vars = HashMap::new();
     let mut array_vars = HashSet::new();
+    let mut str_params = HashSet::new();
     for p in params {
         match &p.ty {
+            // A ByVal String parameter is a `&str` (already a slice).
+            DeclType::Plain(Type::Text) if p.mode == ParamMode::ByVal => {
+                str_params.insert(snake(&p.name));
+            }
             DeclType::Plain(t) => {
                 vars.insert(snake(&p.name), *t);
             }
@@ -202,6 +207,7 @@ pub fn resolve_body(
         vars: &mut vars,
         struct_vars: &mut struct_vars,
         array_vars: &mut array_vars,
+        str_params: &mut str_params,
         passed: &mut passed,
     };
     resolve_stmts(stmts, &mut ctx);
@@ -223,6 +229,8 @@ struct Ctx<'a> {
     struct_vars: &'a mut HashMap<String, String>,
     /// Array/Vec variable names — `x(i)` on one is a friendly error.
     array_vars: &'a mut HashSet<String>,
+    /// ByVal String parameters — they are `&str`, so they don't get re-borrowed.
+    str_params: &'a mut HashSet<String>,
     passed: &'a mut HashSet<String>,
 }
 
@@ -509,14 +517,22 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                             *arg = Expr::MutRef(Box::new(inner));
                         }
                         // ByVal of an unknown-size type borrows immutably (`&arg`).
-                        Some(ParamMode::ByVal)
-                            if matches!(
-                                sig.param_types.get(i),
-                                Some(DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..))
-                            ) =>
-                        {
-                            let inner = std::mem::replace(arg, Expr::Int(0));
-                            *arg = Expr::Ref(Box::new(inner));
+                        Some(ParamMode::ByVal) => {
+                            let needs_ref = match sig.param_types.get(i) {
+                                Some(
+                                    DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..),
+                                ) => true,
+                                // A `&str` param: borrow an owned String, but leave an
+                                // existing slice (literal, `&str` param, `Trim(..)`) alone.
+                                Some(DeclType::Plain(Type::Text)) => {
+                                    infer(arg, ctx) != RType::Str
+                                }
+                                _ => false,
+                            };
+                            if needs_ref {
+                                let inner = std::mem::replace(arg, Expr::Int(0));
+                                *arg = Expr::Ref(Box::new(inner));
+                            }
                         }
                         _ => {}
                     }
@@ -552,6 +568,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         Expr::Float(_) => RType::F64,
         Expr::Bool(_) => RType::Bool,
         Expr::Str(_) => RType::Str,
+        Expr::Ident(name) if ctx.str_params.contains(&snake(name)) => RType::Str,
         Expr::Ident(name) => ctx.vars.get(&snake(name)).copied().map_or(RType::Unknown, rtype_of),
         Expr::Deref(inner) => infer(inner, ctx),
         Expr::Cast(_, ty) => rtype_of(*ty),

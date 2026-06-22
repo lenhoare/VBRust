@@ -699,19 +699,15 @@ fn emit_dim_string(
         None => {
             out.push_str(&format!("{}{} {}: String;\n", pad, let_kw(is_mut), var));
         }
-        // A string literal is fixed size, so it can be a borrowed &str —
-        // unless we later mutate it, in which case we need an owned String.
+        // Every String variable is an owned String — uniform and predictable.
         Some(Expr::Str(s)) => {
-            if is_mut {
-                out.push_str(&format!(
-                    "{}let mut {}: String = \"{}\".to_string();\n",
-                    pad,
-                    var,
-                    escape(s)
-                ));
-            } else {
-                out.push_str(&format!("{}let {}: &str = \"{}\";\n", pad, var, escape(s)));
-            }
+            out.push_str(&format!(
+                "{}{} {}: String = \"{}\".to_string();\n",
+                pad,
+                let_kw(is_mut),
+                var,
+                escape(s)
+            ));
         }
         // Assigning one String variable to another would move/copy something of
         // unknown size. Rust won't do that silently — explain the explicit forms.

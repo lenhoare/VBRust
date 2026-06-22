@@ -1,7 +1,7 @@
 // Built-in string functions
 
 fn main() {
-    let s: &str = "Hello, World";
+    let s: String = "Hello, World".to_string();
     println!("{}", format!("{}{}", "length:    ", s.len()));
     println!("{}", format!("{}{}", "upper:     ", s.to_uppercase()));
     println!("{}", format!("{}{}", "lower:     ", s.to_lowercase()));
