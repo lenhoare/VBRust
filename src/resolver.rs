@@ -22,6 +22,7 @@ use crate::transpiler::to_screaming;
 /// One user function's signature — enough to fix up its call sites.
 pub struct FnSig {
     pub modes: Vec<ParamMode>,
+    pub param_types: Vec<DeclType>,
     pub ret: Option<RetType>,
 }
 
@@ -88,6 +89,7 @@ pub fn build_fn_table(program: &Program) -> FnTable {
                 snake(&f.name),
                 FnSig {
                     modes: f.params.iter().map(|p| p.mode).collect(),
+                    param_types: f.params.iter().map(|p| p.ty.clone()).collect(),
                     ret: f.ret.clone(),
                 },
             )
@@ -161,18 +163,29 @@ pub fn resolve_body(
     consts: &HashMap<String, String>,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
+    // Only ByRef *primitive* params are dereferenced — struct/collection field
+    // and method access auto-derefs, so those don't need an explicit `*`.
     let byref: HashSet<String> = params
         .iter()
-        .filter(|p| p.mode == ParamMode::ByRef)
+        .filter(|p| p.mode == ParamMode::ByRef && matches!(p.ty, DeclType::Plain(_)))
         .map(|p| snake(&p.name))
         .collect();
 
     // Variable types in scope. VB has no block scope, so a flat map matches the
-    // mental model; a ByRef parameter is stored as its pointee type.
-    let mut vars: HashMap<String, Type> =
-        params.iter().map(|p| (snake(&p.name), p.ty)).collect();
-
+    // mental model.
+    let mut vars: HashMap<String, Type> = HashMap::new();
     let mut struct_vars = HashMap::new();
+    for p in params {
+        match &p.ty {
+            DeclType::Plain(t) => {
+                vars.insert(snake(&p.name), *t);
+            }
+            DeclType::Named(n) => {
+                struct_vars.insert(snake(&p.name), n.clone());
+            }
+            _ => {}
+        }
+    }
     let mut passed = HashSet::new();
     let mut ctx = Ctx {
         deref: byref,
@@ -378,18 +391,32 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             if let Some(sig) = ctx.fns.get(&snake(name)) {
                 for (i, arg) in args.iter_mut().enumerate() {
-                    if sig.modes.get(i) == Some(&ParamMode::ByRef) {
-                        if let Expr::Ident(v) = arg {
-                            ctx.passed.insert(snake(v));
+                    match sig.modes.get(i) {
+                        // ByRef: borrow mutably; the local must be `mut`.
+                        Some(ParamMode::ByRef) => {
+                            if let Expr::Ident(v) = arg {
+                                ctx.passed.insert(snake(v));
+                            }
+                            let inner = std::mem::replace(arg, Expr::Int(0));
+                            *arg = Expr::MutRef(Box::new(inner));
                         }
-                        let inner = std::mem::replace(arg, Expr::Int(0));
-                        *arg = Expr::MutRef(Box::new(inner));
+                        // ByVal of an unknown-size type borrows immutably (`&arg`).
+                        Some(ParamMode::ByVal)
+                            if matches!(
+                                sig.param_types.get(i),
+                                Some(DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..))
+                            ) =>
+                        {
+                            let inner = std::mem::replace(arg, Expr::Int(0));
+                            *arg = Expr::Ref(Box::new(inner));
+                        }
+                        _ => {}
                     }
                 }
             }
         }
-        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Cast(inner, _) | Expr::Try(inner)
-        | Expr::Field(inner, _) | Expr::Closure { body: inner, .. }
+        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Ref(inner) | Expr::Cast(inner, _)
+        | Expr::Try(inner) | Expr::Field(inner, _) | Expr::Closure { body: inner, .. }
         | Expr::TupleIndex(inner, _) => resolve_expr(inner, ctx),
         Expr::Tuple(elems) => {
             for el in elems.iter_mut() {
@@ -418,7 +445,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         Expr::Cast(_, ty) => rtype_of(*ty),
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
         Expr::Try(_) => RType::Unknown,
-        Expr::MutRef(_) => RType::Unknown,
+        Expr::MutRef(_) | Expr::Ref(_) => RType::Unknown,
         // Struct/tuple values, field types, const refs, closures: not numeric.
         Expr::StructLit { .. }
         | Expr::Field(..)

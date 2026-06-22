@@ -107,8 +107,9 @@ pub struct Function {
 #[derive(Debug, Clone)]
 pub enum RetType {
     Plain(Type),
-    Result(Type), // -> Result<T, String>
-    Option(Type), // -> Option<T>
+    Named(String), // -> Person (an owned struct)
+    Result(Type),  // -> Result<T, String>
+    Option(Type),  // -> Option<T>
     Tuple(Vec<Type>),
 }
 
@@ -126,7 +127,7 @@ pub enum DeclType {
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
-    pub ty: Type,
+    pub ty: DeclType,
     pub mode: ParamMode,
 }
 
@@ -252,6 +253,8 @@ pub enum Expr {
     Deref(Box<Expr>),
     /// `&mut inner` — inserted by the resolver for `ByRef` call arguments.
     MutRef(Box<Expr>),
+    /// `&inner` — inserted by the resolver for `ByVal` struct/collection args.
+    Ref(Box<Expr>),
     /// `inner as Type` — inserted by the resolver for numeric coercions VB
     /// would do silently but Rust requires to be explicit.
     Cast(Box<Expr>, Type),

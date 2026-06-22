@@ -289,6 +289,9 @@ impl<'a> Parser<'a> {
                     RetType::Option(inner)
                 });
             }
+            // Any other type name is a user struct returned by value.
+            self.advance();
+            return Some(RetType::Named(word));
         }
         Some(RetType::Plain(self.parse_type()?))
     }
@@ -304,24 +307,22 @@ impl<'a> Parser<'a> {
         };
         let name = self.expect_ident("for the parameter")?;
         self.expect(&Tok::As, "after the parameter name")?;
-        let ty = self.parse_type()?;
+        let ty = self.parse_decl_type(false)?;
 
+        // Fixed-size primitives default to ByVal; unknown-size types (String,
+        // struct, collection) must be explicit about lending vs sharing.
+        let fixed_size = matches!(&ty, DeclType::Plain(t) if t.is_fixed_size())
+            || matches!(&ty, DeclType::Tuple(_));
         let mode = match explicit_mode {
             Some(m) => m,
-            // Fixed-size primitives default to ByVal; unknown-size types must
-            // be explicit so the caller knows whether it's lending or sharing.
-            None if ty.is_fixed_size() => ParamMode::ByVal,
+            None if fixed_size => ParamMode::ByVal,
             None => {
                 self.diags.error(
                     line,
                     format!(
-                        "Parameter '{}' is a {} (unknown size) — say how it is passed: \
-                         `ByVal {} As String` borrows it as `&str` (read only), \
-                         `ByRef {} As String` borrows it as `&mut String` (can change it).",
-                        name,
-                        ty.vb_name(),
-                        name,
-                        name
+                        "Parameter '{}' has an unknown size — say how it is passed: \
+                         `ByVal {}` borrows it (read only), `ByRef {}` borrows it mutably.",
+                        name, name, name
                     ),
                 );
                 ParamMode::ByVal

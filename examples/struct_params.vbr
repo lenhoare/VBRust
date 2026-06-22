@@ -1,0 +1,28 @@
+' Structs as function parameters and return values
+Type Point
+    Public X As Long
+    Public Y As Long
+End Type
+
+Function Origin() As Point
+    Return Point { x: 0, y: 0 }
+End Function
+
+Function DistanceSquared(ByVal a As Point, ByVal b As Point) As Long
+    Dim dx As Long = a.X - b.X
+    Dim dy As Long = a.Y - b.Y
+    Return dx * dx + dy * dy
+End Function
+
+Function MoveRight(ByRef p As Point, ByVal by As Long)
+    p.X = p.X + by
+End Function
+
+Function Main()
+    Dim p As Point = Point { x: 3, y: 4 }
+    Dim o As Point = Origin()
+    Debug.Print "dist squared = " & DistanceSquared(p, o)
+
+    MoveRight(p, 10)
+    Debug.Print "after move, x = " & p.X
+End Function

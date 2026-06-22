@@ -208,6 +208,7 @@ fn emit_fn(
 
     let ret = match &func.ret {
         Some(RetType::Plain(t)) => format!(" -> {}", t.rust()),
+        Some(RetType::Named(n)) => format!(" -> {}", n),
         Some(RetType::Result(t)) => format!(" -> Result<{}, String>", t.rust()),
         Some(RetType::Option(t)) => format!(" -> Option<{}>", t.rust()),
         Some(RetType::Tuple(ts)) => {
@@ -251,12 +252,16 @@ fn emit_fn(
 }
 
 fn render_param(p: &Param) -> String {
-    let ty = match (p.mode, p.ty) {
-        // ByVal String borrows as a read-only &str; other ByVal types pass by value.
-        (ParamMode::ByVal, Type::Text) => "&str".to_string(),
-        (ParamMode::ByVal, t) => t.rust().to_string(),
-        // ByRef always becomes a mutable borrow.
-        (ParamMode::ByRef, t) => format!("&mut {}", t.rust()),
+    let ty = match (&p.mode, &p.ty) {
+        // ByVal String borrows as a read-only &str.
+        (ParamMode::ByVal, DeclType::Plain(Type::Text)) => "&str".to_string(),
+        // ByVal fixed-size primitive / tuple: pass by value.
+        (ParamMode::ByVal, DeclType::Plain(t)) => t.rust().to_string(),
+        (ParamMode::ByVal, DeclType::Tuple(_)) => decltype_rust(&p.ty),
+        // ByVal struct/collection: immutable borrow.
+        (ParamMode::ByVal, dt) => format!("&{}", decltype_rust(dt)),
+        // ByRef: a mutable borrow of whatever it is.
+        (ParamMode::ByRef, dt) => format!("&mut {}", decltype_rust(dt)),
     };
     format!("{}: {}", to_snake(&p.name), ty)
 }
@@ -871,6 +876,7 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
         | Expr::Cast(inner, _)
         | Expr::Deref(inner)
         | Expr::MutRef(inner)
+        | Expr::Ref(inner)
         | Expr::Closure { body: inner, .. } => mark_mutating_calls(inner, set),
         Expr::StructLit { fields, .. } => {
             for (_, v) in fields {
@@ -1086,6 +1092,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 6, false)),
         Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 6, false)),
+        Expr::Ref(inner) => format!("&{}", render_prec(inner, None, 6, false)),
         Expr::Cast(inner, ty) => {
             // `x as f64`. Parenthesise the cast if it sits under a tighter op.
             let inner = render_prec(inner, None, 6, false);
