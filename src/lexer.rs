@@ -133,11 +133,25 @@ pub fn lex(src: &str) -> Vec<Token> {
             '"' => {
                 let mut j = i + 1;
                 let mut s = String::new();
-                while j < chars.len() && chars[j] != '"' {
-                    s.push(chars[j]);
-                    j += 1;
+                loop {
+                    match chars.get(j) {
+                        None => break, // unterminated — best effort
+                        Some('"') => {
+                            // VB doubles a quote to embed one: "" → "
+                            if chars.get(j + 1) == Some(&'"') {
+                                s.push('"');
+                                j += 2;
+                            } else {
+                                j += 1; // closing quote
+                                break;
+                            }
+                        }
+                        Some(c) => {
+                            s.push(*c);
+                            j += 1;
+                        }
+                    }
                 }
-                j += 1; // consume closing quote (if present)
                 tokens.push(Token { tok: Tok::Str(s), line });
                 i = j;
             }

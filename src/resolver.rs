@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::transpiler::to_snake as snake;
-use crate::transpiler::to_screaming;
+use crate::transpiler::{stdlib_type, to_screaming};
 
 /// One user function's signature — enough to fix up its call sites.
 pub struct FnSig {
@@ -477,6 +477,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
+            }
+            // Stdlib functions take string args by `&str`; borrow an owned String.
+            if matches!(&**recv, Expr::Ident(n) if stdlib_type(n).is_some()) {
+                for arg in args.iter_mut() {
+                    if infer(arg, ctx) == RType::Strng {
+                        let inner = std::mem::replace(arg, Expr::Int(0));
+                        *arg = Expr::Ref(Box::new(inner));
+                    }
+                }
             }
             if let Some(v) = recv_var {
                 if let Some(struct_name) = ctx.struct_vars.get(&v) {

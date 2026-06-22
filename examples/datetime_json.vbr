@@ -1,0 +1,18 @@
+' Standard library — DateTime and Json are value types you hold and use
+Function Main()
+    Dim now As DateTime = DateTime.Now()
+    Debug.Print "this year: " & now.Year()
+    Dim later As DateTime = now.AddDays(30)
+    Debug.Print "in 30 days: " & later.Format("%Y-%m-%d")
+
+    Dim person As Json = Json.Parse("{""name"":""Alice"",""age"":42}").Unwrap()
+    Debug.Print "name = " & person.GetString("name").Unwrap()
+    Debug.Print "age  = " & person.GetInt("age").Unwrap()
+
+    Dim doc As Json = Json.Parse("{""tags"":[""red"",""green"",""blue""]}").Unwrap()
+    Dim tags As New Vec<Json> = doc.GetArray("tags").Unwrap()
+    Debug.Print "tag count: " & tags.Len()
+    For Each tag In tags
+        Debug.Print "  tag: " & tag.AsString().Unwrap()
+    Next
+End Function

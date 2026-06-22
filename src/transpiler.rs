@@ -28,6 +28,7 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     for func in &program.functions {
         note_builtins(&func.body, diags);
     }
+    mark_stdlib_types(program, diags);
 
     let fns = resolver::build_fn_table(program);
     let methods = resolver::build_method_table(program);
@@ -43,6 +44,15 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     // Pull in HashMap automatically when it's used.
     if program.functions.iter().any(|f| body_uses_hashmap(&f.body)) {
         out.push_str("use std::collections::HashMap;\n\n");
+    }
+    // Pull in the stdlib namespaces that were used (marked during note_builtins).
+    let std_used: Vec<&str> = STDLIB_TYPES
+        .iter()
+        .filter(|t| diags.has_mark(&format!("stdlib:{}", t)))
+        .copied()
+        .collect();
+    if !std_used.is_empty() {
+        out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_used.join(", ")));
     }
 
     // Top-level items, separated by a single blank line: structs, then impl
@@ -182,11 +192,18 @@ fn decltype_rust(ty: &DeclType) -> String {
             let parts: Vec<&str> = ts.iter().map(|t| t.rust()).collect();
             format!("({})", parts.join(", "))
         }
-        DeclType::Vec(t) => format!("Vec<{}>", t.rust()),
+        DeclType::Vec(t) => format!("Vec<{}>", elemtype_rust(t)),
         DeclType::Vec2D(t) => format!("Vec<Vec<{}>>", t.rust()),
         DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
         DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
-        DeclType::Map(k, v) => format!("HashMap<{}, {}>", k.rust(), v.rust()),
+        DeclType::Map(k, v) => format!("HashMap<{}, {}>", elemtype_rust(k), elemtype_rust(v)),
+    }
+}
+
+fn elemtype_rust(e: &ElemType) -> String {
+    match e {
+        ElemType::Plain(t) => t.rust().to_string(),
+        ElemType::Named(n) => n.clone(),
     }
 }
 
@@ -408,7 +425,14 @@ fn emit_stmt(
                         .as_ref()
                         .map(|e| render_expr(e, None))
                         .unwrap_or_else(|| "Vec::new()".to_string());
-                    out.push_str(&format!("{}{} {}: Vec<{}> = {};\n", pad, kw, var, t.rust(), value));
+                    out.push_str(&format!(
+                        "{}{} {}: Vec<{}> = {};\n",
+                        pad,
+                        kw,
+                        var,
+                        elemtype_rust(t),
+                        value
+                    ));
                 }
                 DeclType::Map(k, v) => {
                     let kw = let_kw(mutated.contains(&var));
@@ -421,8 +445,8 @@ fn emit_stmt(
                         pad,
                         kw,
                         var,
-                        k.rust(),
-                        v.rust(),
+                        elemtype_rust(k),
+                        elemtype_rust(v),
                         value
                     ));
                 }
@@ -842,6 +866,16 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             note_builtins_expr(rhs, diags);
         }
         Expr::MethodCall { recv, method, args } => {
+            if let Expr::Ident(name) = &**recv {
+                if let Some(canon) = stdlib_type(name) {
+                    diags.mark(&format!("stdlib:{}", canon));
+                    diags.note(
+                        "stdlib-call",
+                        "The standard library is a Rust crate — `FileSystem.Read(...)` becomes \
+                         `FileSystem::read(...)` and `use vbr_stdlib::…;` is added for you.",
+                    );
+                }
+            }
             if method.eq_ignore_ascii_case("unwrap") {
                 diags.warn_once_global(
                     "unwrap-training-wheels",
@@ -1127,6 +1161,13 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         Expr::MethodCall { recv, method, args } => {
             let m = to_snake(method);
+            // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
+            if let Expr::Ident(name) = &**recv {
+                if let Some(canon) = stdlib_type(name) {
+                    let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                    return format!("{}::{}({})", canon, m, rendered.join(", "));
+                }
+            }
             if is_iter_method(&m) {
                 return render_iter_method(recv, &m, args);
             }
@@ -1143,21 +1184,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                     render_expr(a, None)
                 })
                 .collect();
-            // High parent precedence so a binary receiver gets parens: (a + b).abs()
-            // Method names follow Rust convention (`.Unwrap()` → `.unwrap()`).
-            format!(
-                "{}.{}({})",
-                render_prec(recv, None, 5, false),
-                m,
-                rendered.join(", ")
-            )
+            // render_recv parenthesises a leading `*`/`-` receiver, e.g.
+            // `(*tag).as_string()`. Method names follow Rust convention.
+            format!("{}.{}({})", render_recv(recv), m, rendered.join(", "))
         }
         Expr::Closure { params, body } => render_closure(params, body, false),
         Expr::Tuple(elems) => {
             let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
             format!("({})", parts.join(", "))
         }
-        Expr::TupleIndex(inner, n) => format!("{}.{}", render_prec(inner, None, 6, false), n),
+        Expr::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
         Expr::Index(inner, idx) => {
             format!("{}[{}]", render_prec(inner, None, 6, false), render_expr(idx, None))
         }
@@ -1175,9 +1211,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         Expr::Try(inner) => format!("{}?", render_prec(inner, None, 6, false)),
-        Expr::Field(inner, field) => {
-            format!("{}.{}", render_prec(inner, None, 6, false), to_snake(field))
-        }
+        Expr::Field(inner, field) => format!("{}.{}", render_recv(inner), to_snake(field)),
         // Already the verbatim SCREAMING_SNAKE name from the resolver.
         Expr::ConstRef(name) => name.clone(),
         Expr::StructLit { name, fields } => {
@@ -1471,6 +1505,90 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
 /// SCREAMING_SNAKE_CASE for constants.
 pub(crate) fn to_screaming(name: &str) -> String {
     to_snake(name).to_uppercase()
+}
+
+/// The canonical name of a vbr_stdlib namespace, if `name` is one. Stdlib calls
+/// use `.` in VBR (`FileSystem.Read`) but `::` in Rust (`FileSystem::read`).
+pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
+    match name.to_ascii_lowercase().as_str() {
+        "filesystem" => Some("FileSystem"),
+        "json" => Some("Json"),
+        "datetime" => Some("DateTime"),
+        "regex" => Some("Regex"),
+        _ => None,
+    }
+}
+
+/// All stdlib namespace names, for emitting `use vbr_stdlib::{…}`.
+const STDLIB_TYPES: [&str; 4] = ["FileSystem", "Json", "DateTime", "Regex"];
+
+/// Mark stdlib types that appear as *type annotations* (params, returns, Dims,
+/// fields, Vec/Map elements) so their `use` is emitted even without a `Type.X()`
+/// call — e.g. `ByVal d As DateTime`.
+fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
+    fn mark_name(name: &str, diags: &mut Diagnostics) {
+        if let Some(canon) = stdlib_type(name) {
+            diags.mark(&format!("stdlib:{}", canon));
+        }
+    }
+    fn mark_elem(e: &ElemType, diags: &mut Diagnostics) {
+        if let ElemType::Named(n) = e {
+            mark_name(n, diags);
+        }
+    }
+    fn mark_decltype(dt: &DeclType, diags: &mut Diagnostics) {
+        match dt {
+            DeclType::Named(n) => mark_name(n, diags),
+            DeclType::Vec(t) => mark_elem(t, diags),
+            DeclType::Map(k, v) => {
+                mark_elem(k, diags);
+                mark_elem(v, diags);
+            }
+            _ => {}
+        }
+    }
+    fn walk(stmts: &[Stmt], diags: &mut Diagnostics) {
+        for s in stmts {
+            match s {
+                Stmt::Dim { ty, .. } => mark_decltype(ty, diags),
+                Stmt::If { branches, else_body } => {
+                    for (_, b) in branches {
+                        walk(b, diags);
+                    }
+                    if let Some(b) = else_body {
+                        walk(b, diags);
+                    }
+                }
+                Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. }
+                | Stmt::DoLoop { body, .. } => walk(body, diags),
+                Stmt::Select { arms, else_body, .. } => {
+                    for a in arms {
+                        walk(&a.body, diags);
+                    }
+                    if let Some(b) = else_body {
+                        walk(b, diags);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    for s in &program.structs {
+        for f in &s.fields {
+            mark_decltype(&f.ty, diags);
+        }
+    }
+    for func in &program.functions {
+        for p in &func.params {
+            mark_decltype(&p.ty, diags);
+        }
+        if let Some(RetType::Named(n)) = &func.ret {
+            mark_name(n, diags);
+        }
+        walk(&func.body, diags);
+    }
 }
 
 /// Convert PascalCase / camelCase to snake_case. Already-snake names pass through.

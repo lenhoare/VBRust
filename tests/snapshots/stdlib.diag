@@ -1,0 +1,2 @@
+⚠ .unwrap() works, but it's training wheels — it crashes the program if the value is an error or None. Prefer the `?` operator to propagate, or `Select Case` over Ok/Err (Some/None) to handle both outcomes.
+ℹ The standard library is a Rust crate — `FileSystem.Read(...)` becomes `FileSystem::read(...)` and `use vbr_stdlib::…;` is added for you.

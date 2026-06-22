@@ -44,8 +44,9 @@ const HAPPY: &[&str] = &[
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
-/// because they rely on features not built yet (e.g. Option/Result handling).
-const TRANSPILE_ONLY: &[&str] = &["string_options"];
+/// here — they need a feature not yet built, or an external crate (vbr_stdlib)
+/// that our rustc-only compile check can't link.
+const TRANSPILE_ONLY: &[&str] = &["string_options", "stdlib", "datetime_json"];
 
 /// Files that are meant to fail, exercising the teaching diagnostics.
 const ERRORS: &[&str] = &[

@@ -561,7 +561,7 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::As, "after the variable name")?;
         let ty = match dim {
             DimSpec::None => self.parse_decl_type(false)?,
-            DimSpec::Empty1D => DeclType::Vec(self.parse_type()?),
+            DimSpec::Empty1D => DeclType::Vec(self.parse_elem_type()?),
             DimSpec::Empty2D => DeclType::Vec2D(self.parse_type()?),
             DimSpec::Fixed1D(n) => DeclType::Array(self.parse_type()?, n),
             DimSpec::Fixed2D(r, c) => DeclType::Array2D(self.parse_type()?, r, c),
@@ -653,14 +653,14 @@ impl<'a> Parser<'a> {
             self.expect(&Tok::Lt, "before the element type, e.g. Vec<Long>")?;
             match kind.as_str() {
                 "Vec" => {
-                    let t = self.parse_type()?;
+                    let t = self.parse_elem_type()?;
                     self.expect(&Tok::Gt, "to close `Vec<...>`")?;
                     Some(DeclType::Vec(t))
                 }
                 "HashMap" => {
-                    let k = self.parse_type()?;
+                    let k = self.parse_elem_type()?;
                     self.expect(&Tok::Comma, "between the key and value types")?;
-                    let v = self.parse_type()?;
+                    let v = self.parse_elem_type()?;
                     self.expect(&Tok::Gt, "to close `HashMap<...>`")?;
                     Some(DeclType::Map(k, v))
                 }
@@ -673,7 +673,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if empty_parens {
-            Some(DeclType::Vec(self.parse_type()?))
+            Some(DeclType::Vec(self.parse_elem_type()?))
         } else if matches!(self.peek(), Tok::LParen) {
             Some(DeclType::Tuple(self.parse_tuple_types()?))
         } else if let Tok::Ident(name) = self.peek().clone() {
@@ -682,6 +682,16 @@ impl<'a> Parser<'a> {
             Some(DeclType::Named(name))
         } else {
             Some(DeclType::Plain(self.parse_type()?))
+        }
+    }
+
+    /// A `Vec`/`HashMap` element type: a primitive, or a named struct/stdlib type.
+    fn parse_elem_type(&mut self) -> Option<ElemType> {
+        if let Tok::Ident(name) = self.peek().clone() {
+            self.advance();
+            Some(ElemType::Named(name))
+        } else {
+            Some(ElemType::Plain(self.parse_type()?))
         }
     }
 

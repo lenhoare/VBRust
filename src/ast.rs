@@ -120,11 +120,19 @@ pub enum DeclType {
     Plain(Type),
     Named(String), // a user struct, e.g. Person
     Tuple(Vec<Type>),
-    Vec(Type),
+    Vec(ElemType),
     Vec2D(Type),               // Dim grid(,) → Vec<Vec<T>>
     Array(Type, usize),        // Dim x(N)    → [T; N]
     Array2D(Type, usize, usize), // Dim grid(R, C) → [[T; C]; R]
-    Map(Type, Type),
+    Map(ElemType, ElemType),
+}
+
+/// An element type inside a `Vec`/`HashMap` — a primitive or a named
+/// struct/stdlib type (so `Vec<Person>` and `Vec<Json>` are expressible).
+#[derive(Debug, Clone)]
+pub enum ElemType {
+    Plain(Type),
+    Named(String),
 }
 
 #[derive(Debug, Clone)]
