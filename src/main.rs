@@ -5,6 +5,7 @@
 //!   vbr runproject [path]     generate a cargo project in `build/` and run it
 //!                             (handles the standard library and external crates)
 //!   vbr build [path]          generate the cargo project without running it
+//!   vbr transpile <file.vbr>  write the generated Rust to <file>.rs (or `-o file`)
 //!   vbr emit <file.vbr>       print the generated Rust to stdout (or `-o file`)
 //!
 //! `path` for runproject/build is a `.vbr` entry file or a folder containing
