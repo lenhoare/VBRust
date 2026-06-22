@@ -1,0 +1,7 @@
+' MEANT to fail — module-level mutable state isn't supported. Pass it around
+' or wrap it in a struct with methods.
+Public counter As Long
+
+Function Main()
+    Debug.Print "hi"
+End Function

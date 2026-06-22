@@ -108,21 +108,27 @@ impl<'a> Parser<'a> {
                     Some(c) => constants.push(c),
                     None => break,
                 },
-                Tok::Public => {
+                Tok::Public | Tok::Private => {
+                    let public = matches!(self.peek(), Tok::Public);
                     self.advance();
                     match self.peek() {
-                        Tok::Type => match self.parse_struct(true) {
+                        Tok::Type => match self.parse_struct(public) {
                             Some(s) => structs.push(s),
                             None => break,
                         },
-                        Tok::Const => match self.parse_const(true) {
+                        Tok::Const => match self.parse_const(public) {
                             Some(c) => constants.push(c),
                             None => break,
                         },
                         _ => {
                             self.diags.error(
                                 self.line(),
-                                "Only `Public Type` and `Public Const` are supported at the top level so far.",
+                                "Module-level variables (global state) aren't supported. Rust \
+                                 avoids global mutable state because it makes data races easy to \
+                                 write by accident. Instead, pass the value into the functions \
+                                 that need it — as a `ByRef` parameter when they must change it — \
+                                 or wrap related state in a struct (`Type`) and give it methods. \
+                                 (Module-level `Const` is fine — it's immutable and shared safely.)",
                             );
                             break;
                         }

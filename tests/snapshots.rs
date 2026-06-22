@@ -64,6 +64,7 @@ const ERRORS: &[&str] = &[
     "format_error",
     "with_error",
     "option_base_error",
+    "global_error",
 ];
 
 fn examples_dir() -> PathBuf {
