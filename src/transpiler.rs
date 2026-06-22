@@ -242,8 +242,15 @@ fn emit_fn(
 
     // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
     // `as` casts for numeric coercions) and tells us which locals were lent.
-    let passed_by_ref =
-        resolver::resolve_body(&mut body, &func.params, fns, methods, consts, diags);
+    let passed_by_ref = resolver::resolve_body(
+        &mut body,
+        &func.params,
+        fns,
+        methods,
+        consts,
+        tail_expected,
+        diags,
+    );
 
     // Which locals need `let mut`: those reassigned, plus those lent mutably.
     let mut mutated = HashSet::new();
@@ -875,6 +882,13 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                      stays explicit. Add it with `Use rand 0.8`, then:\n\n    \
                      use rand::Rng;\n    \
                      let x: f64 = rand::thread_rng().gen_range(0.0..1.0);",
+                ),
+                "format" => diags.error_once(
+                    "builtin-format",
+                    "Format(value, \"pattern\") is not supported. For a fixed number of \
+                     decimals use a format specifier — `Debug.Print Str(x)` or directly \
+                     `format!(\"{:.2}\", x)`. For grouped thousands (\"#,###\"), add the \
+                     num-format crate (`Use num-format`).",
                 ),
                 _ => {}
             }

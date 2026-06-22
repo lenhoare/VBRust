@@ -1,0 +1,1 @@
+✘ Format(value, "pattern") is not supported. For a fixed number of decimals use a format specifier — `Debug.Print Str(x)` or directly `format!("{:.2}", x)`. For grouped thousands ("#,###"), add the num-format crate (`Use num-format`).

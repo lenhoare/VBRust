@@ -1,0 +1,4 @@
+' MEANT to fail — Format(value, "pattern") isn't supported.
+Function Main()
+    Debug.Print Format(3.14159, "#,###.00")
+End Function

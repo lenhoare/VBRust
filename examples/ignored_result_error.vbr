@@ -1,0 +1,8 @@
+' MEANT to fail — the Result is thrown away instead of handled.
+Function Risky() As Result<Long>
+    Return Ok(1)
+End Function
+
+Function Main()
+    Risky()
+End Function

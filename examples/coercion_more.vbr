@@ -1,0 +1,10 @@
+' More numeric coercion: maths on integers, and Return values
+Function StringLength(ByVal s As String) As Long
+    Return Len(s)                 ' usize -> Long, coerced on return
+End Function
+
+Function Main()
+    Dim n As Long = 9
+    Debug.Print "sqrt of 9 = " & Sqr(n)              ' (n as f64).sqrt()
+    Debug.Print "len of hello = " & StringLength("hello")
+End Function

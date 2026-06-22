@@ -1,0 +1,8 @@
+' MEANT to fail — a ByRef parameter needs a variable, not a literal.
+Function Bump(ByRef x As Long)
+    x = x + 1
+End Function
+
+Function Main()
+    Bump(5)
+End Function

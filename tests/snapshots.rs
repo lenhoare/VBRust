@@ -37,6 +37,7 @@ const HAPPY: &[&str] = &[
     "tuples",
     "struct_params",
     "arrays",
+    "coercion_more",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
@@ -55,6 +56,9 @@ const ERRORS: &[&str] = &[
     "struct_no_init",
     "array_access_error",
     "redim_error",
+    "byref_literal_error",
+    "ignored_result_error",
+    "format_error",
 ];
 
 fn examples_dir() -> PathBuf {

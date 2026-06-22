@@ -161,6 +161,7 @@ pub fn resolve_body(
     fns: &FnTable,
     methods: &MethodTable,
     consts: &HashMap<String, String>,
+    ret_coerce: Option<Type>,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
     // Only ByRef *primitive* params are dereferenced — struct/collection field
@@ -196,6 +197,7 @@ pub fn resolve_body(
         fns,
         methods,
         consts,
+        ret_coerce,
         diags,
         vars: &mut vars,
         struct_vars: &mut struct_vars,
@@ -213,6 +215,8 @@ struct Ctx<'a> {
     fns: &'a FnTable,
     methods: &'a MethodTable,
     consts: &'a HashMap<String, String>,
+    /// The function's plain numeric return type, for coercing `Return` values.
+    ret_coerce: Option<Type>,
     diags: &'a mut Diagnostics,
     vars: &'a mut HashMap<String, Type>,
     /// Variable name → struct type, for receiver-mutation detection.
@@ -272,7 +276,28 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
             }
             Stmt::Set { value, .. } => resolve_expr(value, ctx),
-            Stmt::Return(Some(e)) | Stmt::Expr(e) | Stmt::Print(e) => resolve_expr(e, ctx),
+            Stmt::Print(e) => resolve_expr(e, ctx),
+            Stmt::Return(Some(e)) => {
+                resolve_expr(e, ctx);
+                // Coerce the returned value to the declared numeric return type.
+                if let Some(t) = ctx.ret_coerce {
+                    maybe_cast(e, t, ctx);
+                }
+            }
+            Stmt::Expr(e) => {
+                resolve_expr(e, ctx);
+                // A bare call that yields a Result/Option must not be discarded.
+                if let Some(kind) = ignored_result(e, ctx) {
+                    ctx.diags.error_once(
+                        "ignored-result",
+                        format!(
+                            "This {} is being thrown away. Handle it: `?` to propagate, \
+                             `Select Case` over Ok/Err (or Some/None), or assign it with `Dim`.",
+                            kind
+                        ),
+                    );
+                }
+            }
             Stmt::Return(None) | Stmt::Comment(_) => {}
             Stmt::If { branches, else_body } => {
                 for (cond, body) in branches {
@@ -370,6 +395,43 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
     }
 }
 
+/// Maths builtins that require a floating-point receiver (`abs` works on ints).
+fn maths_needs_float(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "sqr" | "sin" | "cos" | "tan" | "log" | "exp" | "int" | "round"
+    )
+}
+
+fn is_literal(e: &Expr) -> bool {
+    matches!(e, Expr::Int(_) | Expr::Float(_))
+}
+
+/// Can this expression be borrowed mutably (i.e. is it a place)?
+fn is_lvalue(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::Ident(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleIndex(..) | Expr::Deref(_)
+    )
+}
+
+/// If `e` is a bare call yielding a Result/Option, returns its kind name.
+fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
+    if let Expr::Call { name, .. } = e {
+        match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
+            Some(RetType::Result(_)) => return Some("Result"),
+            Some(RetType::Option(_)) => return Some("Option"),
+            _ => {}
+        }
+        match name.to_ascii_lowercase().as_str() {
+            "instr" => return Some("Option"),
+            "val" => return Some("Result"),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
     match e {
         Expr::Ident(name) if ctx.deref.contains(&snake(name)) => {
@@ -418,11 +480,28 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
             }
+            // Maths builtins need a floating-point receiver — cast an integer
+            // argument so e.g. `Sqr(n)` becomes `(n as f64).sqrt()`.
+            if maths_needs_float(name) && args.len() == 1 && !is_literal(&args[0]) {
+                let t = infer(&args[0], ctx);
+                if t.is_numeric() && !t.is_float() {
+                    let inner = std::mem::replace(&mut args[0], Expr::Int(0));
+                    args[0] = Expr::Cast(Box::new(inner), Type::Double);
+                }
+            }
             if let Some(sig) = ctx.fns.get(&snake(name)) {
                 for (i, arg) in args.iter_mut().enumerate() {
                     match sig.modes.get(i) {
                         // ByRef: borrow mutably; the local must be `mut`.
                         Some(ParamMode::ByRef) => {
+                            if !is_lvalue(arg) {
+                                ctx.diags.error_once(
+                                    "byref-lvalue",
+                                    "A ByRef parameter must be given a variable (so it can be \
+                                     borrowed and changed in place), not a literal or an \
+                                     expression.",
+                                );
+                            }
                             if let Expr::Ident(v) = arg {
                                 ctx.passed.insert(snake(v));
                             }
