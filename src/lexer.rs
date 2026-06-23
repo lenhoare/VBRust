@@ -257,36 +257,64 @@ pub fn lex(src: &str) -> Vec<Token> {
 }
 
 /// Capture an inline Rust block verbatim. `start` is just after the `Rust`
-/// keyword; the block runs until a line whose content is `End Rust`.
+/// keyword; the block runs until the `End Rust` terminator, which may sit on its
+/// own line (multi-line block) or trail the body on one line (`Rust … End Rust`).
 /// Returns (raw body, index to resume at, number of newlines consumed).
 fn capture_inline_rust(chars: &[char], start: usize) -> (String, usize, usize) {
-    let mut line_start = start;
-    let mut newlines = 0;
-    loop {
-        // The current line is [line_start, le).
-        let mut le = line_start;
-        while le < chars.len() && chars[le] != '\n' {
-            le += 1;
-        }
-        let line_str: String = chars[line_start..le].iter().collect();
-        let words: Vec<&str> = line_str.split_whitespace().collect();
-        let is_end = words.len() == 2
-            && words[0].eq_ignore_ascii_case("end")
-            && words[1].eq_ignore_ascii_case("rust");
-        if is_end {
-            // Body is everything up to the newline before this line; resume at
-            // the newline after `End Rust` so the normal lexer emits a Newline.
-            let body_end = line_start.saturating_sub(1).max(start);
+    let mut i = start;
+    while i < chars.len() {
+        if let Some(resume) = match_end_rust(chars, i) {
+            // Trim whitespace/newlines between the body and `End`.
+            let mut body_end = i;
+            while body_end > start && chars[body_end - 1].is_whitespace() {
+                body_end -= 1;
+            }
             let raw: String = chars[start..body_end].iter().collect();
-            return (raw, le, newlines);
+            let newlines = chars[start..resume].iter().filter(|&&c| c == '\n').count();
+            return (raw, resume, newlines);
         }
-        if le >= chars.len() {
-            // Unterminated — capture to end of file.
-            let raw: String = chars[start..].iter().collect();
-            return (raw, chars.len(), newlines);
+        i += 1;
+    }
+    // Unterminated — capture to end of file.
+    let raw: String = chars[start..].iter().collect();
+    let newlines = chars[start..].iter().filter(|&&c| c == '\n').count();
+    (raw, chars.len(), newlines)
+}
+
+/// If `chars[i..]` begins a whole-word `End` <ws> `Rust` terminator (at a word
+/// boundary), return the index just past `Rust`; otherwise `None`.
+fn match_end_rust(chars: &[char], i: usize) -> Option<usize> {
+    // `End` must start at a word boundary.
+    if i > 0 && !chars[i - 1].is_whitespace() {
+        return None;
+    }
+    let word = |p: usize, w: &str| -> Option<usize> {
+        let w: Vec<char> = w.chars().collect();
+        if p + w.len() > chars.len() {
+            return None;
         }
-        newlines += 1;
-        line_start = le + 1;
+        for (k, c) in w.iter().enumerate() {
+            if !chars[p + k].eq_ignore_ascii_case(c) {
+                return None;
+            }
+        }
+        Some(p + w.len())
+    };
+    let after_end = word(i, "end")?;
+    // At least one whitespace between `End` and `Rust`.
+    if !chars.get(after_end).is_some_and(|c| c.is_whitespace()) {
+        return None;
+    }
+    let mut p = after_end;
+    while p < chars.len() && chars[p].is_whitespace() {
+        p += 1;
+    }
+    let after_rust = word(p, "rust")?;
+    // `Rust` must end at a word boundary (whitespace or EOF).
+    match chars.get(after_rust) {
+        None => Some(after_rust),
+        Some(c) if c.is_whitespace() => Some(after_rust),
+        _ => None,
     }
 }
 

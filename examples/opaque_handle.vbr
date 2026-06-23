@@ -1,0 +1,15 @@
+' Opaque handles — hold a Rust value VBR has no type for, and pass it
+' back into later Rust blocks. Here: a Rust iterator, held across blocks.
+Function Main()
+    ' No `As` — the type (a SplitWhitespace iterator) lives only in Rust.
+    Dim words = Rust
+        "the quick brown fox".split_whitespace()
+    End Rust
+
+    ' The handle persists between blocks; each .next() advances the same one.
+    Dim first As String = Rust words.next().unwrap().to_string() End Rust
+    Dim second As String = Rust words.next().unwrap().to_string() End Rust
+
+    Debug.Print "first:  " & first
+    Debug.Print "second: " & second
+End Function

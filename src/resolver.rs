@@ -197,6 +197,7 @@ pub fn resolve_body(
         }
     }
     let mut passed = HashSet::new();
+    let mut handles = HashSet::new();
     let mut ctx = Ctx {
         deref: byref,
         fns,
@@ -209,6 +210,7 @@ pub fn resolve_body(
         array_vars: &mut array_vars,
         str_params: &mut str_params,
         passed: &mut passed,
+        handles: &mut handles,
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -232,6 +234,10 @@ struct Ctx<'a> {
     /// ByVal String parameters — they are `&str`, so they don't get re-borrowed.
     str_params: &'a mut HashSet<String>,
     passed: &'a mut HashSet<String>,
+    /// Opaque Rust handles (`Dim h = Rust …`). Their only legal use is being
+    /// spliced into another inline-Rust block (which the resolver never sees as
+    /// an AST ident), so *any* ident-use of one is a value-use error.
+    handles: &'a mut HashSet<String>,
 }
 
 fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
@@ -267,6 +273,11 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
             }
             Stmt::DestructureDim { value, .. } => resolve_expr(value, ctx),
+            // The body is raw Rust (not an Expr), so there's nothing to resolve —
+            // just record the name so later value-uses of it are caught.
+            Stmt::HandleDim { name, .. } => {
+                ctx.handles.insert(snake(name));
+            }
             Stmt::Assign { target, value } => {
                 // Coerce based on the target variable's type (plain Ident targets only).
                 let target_ty = match &*target {
@@ -456,6 +467,18 @@ fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
 
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
     match e {
+        // An opaque Rust handle appearing as a value — the one thing it can't do.
+        Expr::Ident(name) if ctx.handles.contains(&snake(name)) => {
+            ctx.diags.error_once(
+                &format!("handle-value-{}", snake(name)),
+                format!(
+                    "'{}' is an opaque Rust handle — its type lives only inside Rust. \
+                     You can pass it back into another `Rust … End Rust` block, but VBR \
+                     can't print it, compare it, assign it, or pass it to a function.",
+                    name
+                ),
+            );
+        }
         Expr::Ident(name) if ctx.deref.contains(&snake(name)) => {
             *e = Expr::Deref(Box::new(Expr::Ident(name.clone())));
         }

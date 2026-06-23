@@ -557,6 +557,23 @@ impl<'a> Parser<'a> {
             return Some(Stmt::DestructureDim { names, value });
         }
 
+        // `Dim name = Rust … End Rust` — an opaque handle. The only `As`-less
+        // single `Dim`: the type is whatever Rust infers, hidden from VBR.
+        if self.eat(&Tok::Eq) {
+            if let Tok::InlineRust(raw) = self.peek().clone() {
+                self.advance();
+                return Some(Stmt::HandleDim { name, raw, line });
+            }
+            self.diags.error(
+                line,
+                "A `Dim` needs a type: `Dim x As Long`. The one exception is \
+                 `Dim h = Rust … End Rust`, which makes an opaque Rust handle whose \
+                 type Rust infers — VBR can pass it back into another `Rust` block but \
+                 can't use it as a value.",
+            );
+            return None;
+        }
+
         // An optional dimension spec in parens: `()` `(,)` `(N)` `(R, C)`.
         let dim = self.parse_dim_spec()?;
 

@@ -42,6 +42,7 @@ const HAPPY: &[&str] = &[
     "case_guards",
     "terminal_io",
     "inline_rust",
+    "opaque_handle",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
@@ -67,6 +68,7 @@ const ERRORS: &[&str] = &[
     "with_error",
     "option_base_error",
     "global_error",
+    "handle_value_error",
 ];
 
 fn examples_dir() -> PathBuf {

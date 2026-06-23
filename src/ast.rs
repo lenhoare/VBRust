@@ -172,6 +172,14 @@ pub enum Stmt {
         names: Vec<String>,
         value: Expr,
     },
+    /// `Dim name = Rust … End Rust` — an opaque Rust handle. No `As` type: the
+    /// value's type lives only in Rust (inferred there). VBR can pass it back
+    /// into another inline-Rust block but never use it as a value.
+    HandleDim {
+        name: String,
+        raw: String,
+        line: usize,
+    },
     /// `Return value` or `FunctionName = value` — both become a Rust return.
     Return(Option<Expr>),
     /// A bare expression used as a statement — chiefly a call for its effect,

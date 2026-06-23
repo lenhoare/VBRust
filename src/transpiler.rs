@@ -604,6 +604,19 @@ fn emit_stmt(
             };
             out.push_str(&format!("{}let ({}) = {};\n", pad, pat.join(", "), val));
         }
+        Stmt::HandleDim { name, raw, .. } => {
+            // An opaque handle: Rust infers the type (no annotation). We can't see
+            // whether later blocks mutate it (`.next()` vs a `&self` call), so we
+            // bind it `mut` and allow the case where that mut goes unused.
+            let var = to_snake(name);
+            out.push_str(&format!(
+                "{}#[allow(unused_mut)]\n{}let mut {} = {};\n",
+                pad,
+                pad,
+                var,
+                render_inline_block(raw, indent)
+            ));
+        }
         Stmt::Return(Some(e)) => {
             out.push_str(&format!("{}return {};\n", pad, render_expr(e, None)));
         }
