@@ -13,4 +13,8 @@ Function Main()
     Debug.Print "cos(0)     = " & Cos(angle)
     Debug.Print "exp(1)     = " & Exp(1.0)
     Debug.Print "ln(e)      = " & Log(2.718281828)
+
+    ' Mod gives the remainder (→ Rust's %, same precedence as * and /)
+    Dim n As Long = 17
+    Debug.Print "17 Mod 5   = " & (n Mod 5)
 End Function

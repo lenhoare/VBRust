@@ -1522,7 +1522,7 @@ fn render_mid(s: &Expr, start: &Expr, len: Option<&Expr>) -> String {
 }
 
 fn is_arithmetic(op: BinOp) -> bool {
-    matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div)
+    matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod)
 }
 
 /// Binding power — higher binds tighter.
@@ -1535,7 +1535,7 @@ fn prec(op: BinOp) -> u8 {
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 4,
         BinOp::Concat => 5,
         BinOp::Add | BinOp::Sub => 6,
-        BinOp::Mul | BinOp::Div => 7,
+        BinOp::Mul | BinOp::Div | BinOp::Mod => 7,
         BinOp::Pow => 8,
     }
 }
@@ -1546,6 +1546,7 @@ fn op_str(op: BinOp) -> &'static str {
         BinOp::Sub => "-",
         BinOp::Mul => "*",
         BinOp::Div => "/",
+        BinOp::Mod => "%",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",

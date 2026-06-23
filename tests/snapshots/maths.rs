@@ -13,4 +13,7 @@ fn main() {
     println!("{}", format!("{}{}", "cos(0)     = ", angle.cos()));
     println!("{}", format!("{}{}", "exp(1)     = ", 1.0f64.exp()));
     println!("{}", format!("{}{}", "ln(e)      = ", 2.718281828f64.ln()));
+    // Mod gives the remainder (→ Rust's %, same precedence as * and /)
+    let n: i64 = 17;
+    println!("{}", format!("{}{}", "17 Mod 5   = ", n % 5));
 }

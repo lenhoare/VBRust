@@ -149,7 +149,7 @@ Operators, tightest binding first to last:
 |-------|----------------------|------------------------------------------|
 | 1     | `^`                  | exponentiation (`.powf`/`.powi`)         |
 | 2     | unary `-`            | negation                                 |
-| 3     | `*`  `/`             | multiply, divide                         |
+| 3     | `*`  `/`  `Mod`      | multiply, divide, remainder (`%`)        |
 | 4     | `+`  `-`             | add, subtract                            |
 | 5     | `&`                  | string concatenation                     |
 | 6     | `=` `<>` `<` `>` `<=` `>=` | comparison                          |
@@ -162,9 +162,11 @@ Operators, tightest binding first to last:
 - `&` concatenates; operands are formatted to `String`.
 - Logical operators are **looser than comparison** and **short-circuit**, exactly
   as in Rust — `a > 0 And b < 10` → `a > 0 && b < 10`. They are logical only
-  (operands are `bool`); there is no bitwise `And`/`Or` overload, and no `Mod` /
-  integer-divide (`\`) at this revision. For bitwise or other Rust operators, use
-  an inline `Rust` block (§9).
+  (operands are `bool`); there is no bitwise `And`/`Or` overload.
+- `Mod` is the remainder operator → Rust's `%` (Rust rules: integer remainder for
+  ints, float remainder for floats), at the same precedence as `*`/`/` (Rust's,
+  not VB's own rung). Integer-divide (`\`) is not provided. For bitwise or other
+  Rust operators, use an inline `Rust` block (§9).
 
 Other expression forms: literals, identifiers, `Me` (→ `self`), calls
 `f(a, b)`, method/field access `recv.method(...)` / `recv.field`, indexing

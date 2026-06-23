@@ -1188,6 +1188,7 @@ impl<'a> Parser<'a> {
             let op = match self.peek() {
                 Tok::Star => BinOp::Mul,
                 Tok::Slash => BinOp::Div,
+                Tok::Mod => BinOp::Mod,
                 _ => break,
             };
             self.advance();

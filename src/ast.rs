@@ -335,4 +335,5 @@ pub enum BinOp {
     And, // logical, short-circuit → &&
     Or,  // logical, short-circuit → ||
     Xor, // logical → ^ (on bool)
+    Mod, // remainder → % (Rust rules, multiplicative precedence)
 }
