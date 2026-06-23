@@ -386,7 +386,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     ctx.deref.remove(&s);
                 }
             }
-            Stmt::Select { scrutinee, arms, else_body, .. } => {
+            Stmt::Select { scrutinee, arms, else_body, line } => {
                 resolve_expr(scrutinee, ctx);
                 for arm in arms.iter_mut() {
                     for pat in arm.patterns.iter_mut() {
@@ -400,6 +400,26 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     }
                     if let Some(g) = &mut arm.guard {
                         resolve_expr(g, ctx);
+                    } else {
+                        // After const-resolution, a bare-identifier pattern (other
+                        // than `_`/`None`) in a guardless arm can only be a variable
+                        // or unknown name. In a Rust `match` that *binds* and matches
+                        // everything — it does NOT compare like VB. Reject it.
+                        for pat in &arm.patterns {
+                            if let CasePattern::Value(Expr::Ident(name)) = pat {
+                                if name != "_" && name != "None" {
+                                    ctx.diags.error(
+                                        *line,
+                                        format!(
+                                            "`Case {name}` can't compare against a variable — \
+                                             Rust's `match` would treat `{name}` as a catch-all \
+                                             that matches everything. To compare, use a guard: \
+                                             `Case v If v = {name}`. For the default, use `Case Else`.",
+                                        ),
+                                    );
+                                }
+                            }
+                        }
                     }
                     resolve_stmts(&mut arm.body, ctx);
                 }

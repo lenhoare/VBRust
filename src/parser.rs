@@ -952,10 +952,13 @@ impl<'a> Parser<'a> {
             .iter()
             .flat_map(|a| &a.patterns)
             .any(is_constructor_pattern);
+        // Only `Case _` (or `Case Else`) is a catch-all. A bare `Case <name>` is
+        // NOT — it's a comparison attempt the resolver checks (a variable can't be
+        // matched against in Rust; consts and literals can).
         let has_catch_all = arms.iter().any(|a| {
             a.guard.is_none()
                 && a.patterns.len() == 1
-                && matches!(&a.patterns[0], CasePattern::Value(Expr::Ident(_)))
+                && matches!(&a.patterns[0], CasePattern::Value(Expr::Ident(n)) if n == "_")
         });
         if else_body.is_none() && !constructor_match && !has_catch_all {
             self.diags.error(

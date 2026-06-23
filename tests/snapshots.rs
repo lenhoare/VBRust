@@ -58,6 +58,7 @@ const ERRORS: &[&str] = &[
     "currency_error",
     "variant_error",
     "select_no_else",
+    "case_variable_error",
     "rnd_error",
     "on_error",
     "struct_no_init",

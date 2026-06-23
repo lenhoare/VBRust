@@ -221,16 +221,20 @@ End If
 ### Select Case
 ```
 Select Case subject
-    Case v1, v2               ' one or more values
+    Case v1, v2               ' one or more literals / constants
     Case lo To hi             ' inclusive range
-    Case x If x < 0           ' bind the value as x, with an If guard
+    Case v If v < 0           ' bind the value as v, with an If guard
     Case _                    ' wildcard
     Case Else
 End Select
 ```
-- Lowered to a Rust `match`. A catch-all (`Case Else`, `Case _`, or a bare
-  binding `Case x`) is **required** unless the arms are already exhaustive
-  (`Ok`/`Err`, `Some`/`None`). A non-exhaustive `Select` without one is rejected.
+- Lowered to a Rust `match`. The catch-all is **`Case Else` or `Case _`**; one is
+  **required** unless the arms are already exhaustive (`Ok`/`Err`, `Some`/`None`).
+- A `Case` compares against **literals** and **`Const`s** (both are valid Rust
+  patterns). It **cannot** compare against a **variable**: `Case y` (where `y` is
+  a variable) is rejected, because in a Rust `match` a bare name *binds* and
+  matches everything rather than comparing. To compare against a variable, use a
+  guard — `Case v If v = y`.
 
 ### Loops
 ```

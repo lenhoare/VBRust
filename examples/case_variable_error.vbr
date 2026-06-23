@@ -1,0 +1,14 @@
+' MEANT to fail — `Case y` looks like a comparison but Rust's match can't
+' compare against a variable. Use a guard (`Case v If v = y`) instead.
+Function Main()
+    Dim x As Long = 3
+    Dim y As Long = 5
+    Select Case x
+        Case 1
+            Debug.Print "one"
+        Case y
+            Debug.Print "matches y"
+        Case Else
+            Debug.Print "other"
+    End Select
+End Function
