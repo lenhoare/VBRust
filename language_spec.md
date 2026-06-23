@@ -34,15 +34,20 @@ Primitive VBR types map to Rust as follows:
 
 | VBR        | Rust     | Notes                                            |
 |------------|----------|--------------------------------------------------|
-| `Integer`  | `i16`    |                                                  |
-| `Long`     | `i32`    |                                                  |
-| `LongLong` | `i64`    |                                                  |
+| `Integer`  | `i32`    | Rust's default integer (not VBA's 16-bit).       |
+| `Long`     | `i64`    |                                                  |
+| `LongLong` | `i64`    | Same as `Long`; kept for familiarity.            |
 | `Single`   | `f32`    |                                                  |
 | `Double`   | `f64`    |                                                  |
 | `Boolean`  | `bool`   |                                                  |
 | `Byte`     | `u8`     |                                                  |
 | `Date`     | `i64`    | No calendar semantics; a plain number (warns).   |
 | `String`   | `String` | Owned, unknown size — ownership rules apply.     |
+
+Integer sizes are chosen **Rust-first**: `Integer` is the `i32` a Rust
+programmer expects, not VBA's legacy 16-bit. Bare integer literals are `i32`;
+loop counters are `i32` but adapt to their use (Rust infers a wider type from
+context, e.g. when added to a `Long`).
 
 Compound / declared types:
 

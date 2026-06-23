@@ -1,8 +1,8 @@
 // VBR vertical-slice demo — everything here is in the first milestone
 
 fn main() {
-    let count: i32 = 3;
-    let mut total: i32 = 0;
+    let count: i64 = 3;
+    let mut total: i64 = 0;
     for i in 1..=count {
         total = total + i;
     }

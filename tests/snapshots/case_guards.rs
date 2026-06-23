@@ -1,6 +1,6 @@
 // Case guards (If) and the _ wildcard
 
-fn describe(n: i32) -> String {
+fn describe(n: i64) -> String {
     match n {
         0 => {
             return "zero".to_string();

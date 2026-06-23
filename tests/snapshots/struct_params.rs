@@ -1,21 +1,21 @@
 // Structs as function parameters and return values
 
 struct Point {
-    pub x: i32,
-    pub y: i32,
+    pub x: i64,
+    pub y: i64,
 }
 
 fn origin() -> Point {
     Point { x: 0, y: 0 }
 }
 
-fn distance_squared(a: &Point, b: &Point) -> i32 {
-    let dx: i32 = a.x - b.x;
-    let dy: i32 = a.y - b.y;
+fn distance_squared(a: &Point, b: &Point) -> i64 {
+    let dx: i64 = a.x - b.x;
+    let dy: i64 = a.y - b.y;
     dx * dx + dy * dy
 }
 
-fn move_right(p: &mut Point, by: i32) {
+fn move_right(p: &mut Point, by: i64) {
     p.x = p.x + by;
 }
 

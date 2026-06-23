@@ -28,18 +28,18 @@ fn main() {
         }
     }
     // .Unwrap() is allowed, but training wheels
-    let known: i32 = divide(9, 3).unwrap();
+    let known: i64 = divide(9, 3).unwrap();
     println!("{}", format!("{}{}", "9 / 3 = ", known));
 }
 
-fn divide(numerator: i32, denominator: i32) -> Result<i32, String> {
+fn divide(numerator: i64, denominator: i64) -> Result<i64, String> {
     if denominator == 0 {
         return Err("cannot divide by zero".to_string());
     }
     Ok(numerator / denominator)
 }
 
-fn double_quotient(a: i32, b: i32) -> Result<i32, String> {
-    let q: i32 = divide(a, b)?;
+fn double_quotient(a: i64, b: i64) -> Result<i64, String> {
+    let q: i64 = divide(a, b)?;
     Ok(q * 2)
 }

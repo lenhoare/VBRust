@@ -1,24 +1,24 @@
 // Functions, parameters and returns
 
 fn main() {
-    let a: i32 = add(2, 3);
-    let s: i32 = square(4);
-    let f: i32 = factorial(5);
+    let a: i64 = add(2, 3);
+    let s: i64 = square(4);
+    let f: i64 = factorial(5);
     println!("{}", format!("{}{}", "2 + 3 = ", a));
     println!("{}", format!("{}{}", "4 squared = ", s));
     println!("{}", format!("{}{}", "5! = ", f));
 }
 
-fn add(x: i32, y: i32) -> i32 {
+fn add(x: i64, y: i64) -> i64 {
     x + y
 }
 
-fn square(n: i32) -> i32 {
+fn square(n: i64) -> i64 {
     // VB style: assign to the function name
     n * n
 }
 
-fn factorial(n: i32) -> i32 {
+fn factorial(n: i64) -> i64 {
     if n <= 1 {
         return 1;
     }

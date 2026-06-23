@@ -1,7 +1,7 @@
 // Tuples — literals, indexing, multiple return values, destructuring, patterns
 
 fn main() {
-    let pair: (i32, i32) = (3, 7);
+    let pair: (i64, i64) = (3, 7);
     println!("{}", format!("{}{}", "first = ", pair.0));
     println!("{}", format!("{}{}", "sum   = ", pair.0 + pair.1));
     let (lo, hi) = min_max(10, 4);
@@ -19,13 +19,13 @@ fn main() {
     }
 }
 
-fn min_max(a: i32, b: i32) -> (i32, i32) {
+fn min_max(a: i64, b: i64) -> (i64, i64) {
     if a < b {
         return (a, b);
     }
     (b, a)
 }
 
-fn classify(x: i32, y: i32) -> (i32, i32) {
+fn classify(x: i64, y: i64) -> (i64, i64) {
     (x, y)
 }

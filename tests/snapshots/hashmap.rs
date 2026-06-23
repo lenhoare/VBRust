@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 fn main() {
-    let mut ages: HashMap<String, i32> = HashMap::new();
+    let mut ages: HashMap<String, i64> = HashMap::new();
     ages.insert("Alice".to_string(), 30);
     ages.insert("Bob".to_string(), 25);
     println!("{}", format!("{}{}", "Alice is ", ages.get("Alice").unwrap()));

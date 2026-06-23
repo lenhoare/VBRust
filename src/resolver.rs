@@ -101,7 +101,6 @@ pub fn build_fn_table(program: &Program) -> FnTable {
 /// `usize`, a string slice, or simply unknown).
 #[derive(Clone, Copy, PartialEq)]
 enum RType {
-    I16,
     I32,
     I64,
     U8,
@@ -118,7 +117,7 @@ impl RType {
     fn is_numeric(self) -> bool {
         matches!(
             self,
-            RType::I16 | RType::I32 | RType::I64 | RType::U8 | RType::Usize | RType::F32 | RType::F64
+            RType::I32 | RType::I64 | RType::U8 | RType::Usize | RType::F32 | RType::F64
         )
     }
 
@@ -129,8 +128,8 @@ impl RType {
 
 fn rtype_of(ty: Type) -> RType {
     match ty {
-        Type::Integer => RType::I16,
-        Type::Long => RType::I32,
+        Type::Integer => RType::I32,
+        Type::Long => RType::I64,
         Type::LongLong => RType::I64,
         Type::Single => RType::F32,
         Type::Double => RType::F64,
@@ -349,8 +348,10 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 if let Some(s) = step {
                     resolve_expr(s, ctx);
                 }
-                // The loop variable is an integer in scope for the body.
-                ctx.vars.insert(snake(var), Type::Long);
+                // The loop variable is an `i32` in scope for the body — Rust infers
+                // that from literal bounds (`for i in 1..=10`), so it must be
+                // `Integer`, not `Long` (i64), to stay consistent.
+                ctx.vars.insert(snake(var), Type::Integer);
                 resolve_stmts(body, ctx);
             }
             Stmt::DoLoop { cond, body } => {

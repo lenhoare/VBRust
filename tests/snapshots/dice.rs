@@ -2,7 +2,7 @@
 // A single `Use` needs the project build — run with: vbr runproject
 
 fn main() {
-    let roll: i32 = {
+    let roll: i64 = {
         use rand::Rng;
         rand::thread_rng().gen_range(1..=6)
     };

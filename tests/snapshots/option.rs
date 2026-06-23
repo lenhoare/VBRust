@@ -19,7 +19,7 @@ fn main() {
     }
 }
 
-fn halve(n: i32) -> Option<i32> {
+fn halve(n: i64) -> Option<i64> {
     if n / 2 * 2 == n {
         return Some(n / 2);
     }

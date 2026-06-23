@@ -4,6 +4,6 @@
 
 fn main() {
     println!("{}", &"hello"[1..4]);
-    let pos: i32 = "hello".find("l");
+    let pos: i64 = "hello".find("l");
     let num: f64 = "3.14".parse::<f64>();
 }

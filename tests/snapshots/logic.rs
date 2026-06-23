@@ -2,7 +2,7 @@
 // than comparison, just like Rust's &&, ||, !, ^ — no backwards-compat quirks.
 
 fn main() {
-    let age: i32 = 30;
+    let age: i64 = 30;
     let member: bool = true;
     if age >= 18 && member {
         println!("{}", "admitted");

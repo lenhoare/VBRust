@@ -7,9 +7,9 @@
 /// (note: `Integer` is `i16` here, not `i32` as the stale README says).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
-    Integer,  // i16
-    Long,     // i32
-    LongLong, // i64
+    Integer,  // i32 — the Rust default int (not VBA's 16-bit)
+    Long,     // i64
+    LongLong, // i64 — same as Long now (kept for familiarity)
     Single,   // f32
     Double,   // f64
     Boolean,  // bool
@@ -22,8 +22,8 @@ impl Type {
     /// The Rust type this maps to (the owned form for `Text`).
     pub fn rust(self) -> &'static str {
         match self {
-            Type::Integer => "i16",
-            Type::Long => "i32",
+            Type::Integer => "i32",
+            Type::Long => "i64",
             Type::LongLong => "i64",
             Type::Single => "f32",
             Type::Double => "f64",

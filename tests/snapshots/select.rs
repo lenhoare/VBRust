@@ -1,7 +1,7 @@
 // Select Case → match
 
 fn main() {
-    let score: i32 = 75;
+    let score: i64 = 75;
     match score {
         100 => {
             println!("{}", "perfect");
