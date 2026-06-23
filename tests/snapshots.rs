@@ -62,6 +62,7 @@ const ERRORS: &[&str] = &[
     "case_variable_error",
     "rnd_error",
     "on_error",
+    "try_no_result_error",
     "struct_no_init",
     "array_access_error",
     "redim_error",

@@ -302,6 +302,11 @@ fn emit_fn(
 
     // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
     // `as` casts for numeric coercions) and tells us which locals were lent.
+    // `?` is only valid when this function can itself fail (returns Result/Option).
+    let can_propagate = matches!(
+        func.ret,
+        Some(RetType::Result(_)) | Some(RetType::Option(_))
+    );
     let passed_by_ref = resolver::resolve_body(
         &mut body,
         &func.params,
@@ -310,6 +315,7 @@ fn emit_fn(
         consts,
         modules,
         tail_expected,
+        can_propagate,
         diags,
     );
 

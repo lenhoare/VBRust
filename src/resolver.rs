@@ -161,6 +161,7 @@ pub fn resolve_body(
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
     ret_coerce: Option<Type>,
+    can_propagate: bool,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
     // Only ByRef *primitive* params are dereferenced — struct/collection field
@@ -203,6 +204,7 @@ pub fn resolve_body(
         methods,
         consts,
         ret_coerce,
+        can_propagate,
         diags,
         vars: &mut vars,
         struct_vars: &mut struct_vars,
@@ -225,6 +227,9 @@ struct Ctx<'a> {
     consts: &'a HashMap<String, String>,
     /// The function's plain numeric return type, for coercing `Return` values.
     ret_coerce: Option<Type>,
+    /// Whether the enclosing function returns `Result`/`Option` — i.e. whether
+    /// `?` is allowed here.
+    can_propagate: bool,
     diags: &'a mut Diagnostics,
     vars: &'a mut HashMap<String, Type>,
     /// Variable name → struct type, for receiver-mutation detection.
@@ -622,8 +627,22 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Ref(inner) | Expr::Cast(inner, _)
-        | Expr::Try(inner) | Expr::Field(inner, _) | Expr::Closure { body: inner, .. }
+        | Expr::Field(inner, _) | Expr::Closure { body: inner, .. }
         | Expr::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        Expr::Try(inner) => {
+            resolve_expr(inner, ctx);
+            // `?` returns the error to the caller on failure, so the enclosing
+            // function must itself be able to fail (return Result / Option).
+            if !ctx.can_propagate {
+                ctx.diags.error_once(
+                    "try-needs-result",
+                    "`?` can only be used in a function that returns `Result` (or `Option`). \
+                     It hands the error back to the caller on failure, so this function's \
+                     signature must allow failure: declare it `As Result<T>`, or handle the \
+                     error here with `Select Case` over `Ok`/`Err`.",
+                );
+            }
+        }
         Expr::Tuple(elems) => {
             for el in elems.iter_mut() {
                 resolve_expr(el, ctx);

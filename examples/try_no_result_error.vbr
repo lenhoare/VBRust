@@ -1,0 +1,10 @@
+' MEANT to fail — `?` propagates a failure to the caller, so it's only allowed
+' in a function that returns Result/Option. Main returns nothing.
+Function Main()
+    Dim x As Long = MightFail()?
+    Debug.Print x
+End Function
+
+Function MightFail() As Result<Long>
+    Return Ok(5)
+End Function

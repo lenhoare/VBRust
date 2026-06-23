@@ -15,10 +15,12 @@ semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rule
 - Source files use the `.vbr` extension; UTF-8.
 - **Statements** are newline-terminated. There is no statement separator.
 - **Keywords are case-insensitive** (`Dim`, `dim`, `DIM`).
-- **Identifiers** are case-sensitive and re-cased for Rust idiom: procedures,
-  variables, parameters, and fields → `snake_case`; `Const` names →
-  `SCREAMING_SNAKE_CASE`; `Type` (struct) names are kept as written (expected
-  PascalCase). A rename emits a one-time `ℹ`/`⚠` note.
+- **Identifiers are effectively case-insensitive** (as in VB). Each is re-cased
+  for Rust idiom — procedures, variables, parameters, and fields → `snake_case`;
+  `Const` names → `SCREAMING_SNAKE_CASE`; `Type` (struct) names kept as written
+  (expected PascalCase) — so names differing only in case collapse to the same
+  identifier (`Total` and `total` both become `total`). Use one consistent
+  spelling per name. A rename emits a one-time `ℹ`/`⚠` note.
 - **Comments:** `'` to end of line. Emitted as `//` in the output.
 - **String literals:** `"…"`. A doubled quote `""` inside a literal denotes one
   `"` (VBA escaping). No backslash escapes.
@@ -282,13 +284,36 @@ End Type
 
 ## 8. Error model
 
-VBR has no `On Error`. Failure is values, not jumps.
+VBR has no `On Error` — no exceptions, no jumps. **Failure is a value.** A
+fallible function declares `As Result<T>` and returns `Ok(v)` on success or
+`Err("…")` on failure. The caller receives that `Result` — a value that is
+*either* `Ok` or `Err`, not a bare `T` — and **cannot silently ignore it**.
+`As Option<T>` (`Some`/`None`) is the same idea for "a value, or nothing."
 
-- A fallible procedure declares `As Result<T>` and returns `Err("…")` / `Ok(v)`.
-- Optional results use `As Option<T>` with `Some`/`None`.
-- A returned `Result` may not be silently ignored at the call site; propagate it
-  (Rust `?`) or handle it.
-- `On Error …` is rejected with guidance toward `Result`.
+A `Result` at the call site must be **handled**, **propagated**, or
+**unwrapped**:
+
+- **Handle it** — `Select Case` over `Ok`/`Err` (or `Some`/`None`):
+  ```
+  Select Case Divide(10, 2)
+      Case Ok(value)      ' success — value is the T
+      Case Err(message)   ' failure — message is the error
+  End Select
+  ```
+- **Propagate it — `?`** — `Dim x As Long = MightFail()?` means: *if it's `Err`,
+  return that error from the current function immediately; if it's `Ok`, take the
+  value and continue.* It is shorthand for the "unwrap on success / early-return
+  on failure" pattern, and is the idiomatic way to pass a failure up to whoever
+  called you. **`?` is only valid inside a function that itself returns `Result`**
+  (the propagated error needs somewhere to go).
+- **Unwrap it — `.Unwrap()`** — returns the value, or panics (crashes) on `Err`.
+  Allowed, but flagged as training wheels; avoid in real code.
+
+Rule of thumb: use `?` when handling the failure isn't *this* function's job
+(push it up); use `Select Case` at the level that knows how to recover or report.
+
+Silently discarding a returned `Result` (calling it as a bare statement) is
+rejected. `On Error …` is also rejected, with guidance toward `Result`.
 
 ---
 
@@ -371,6 +396,7 @@ These parse but are deliberately refused, each with guidance:
 | `Option Base` / `Option Explicit` | Rust is always zero-indexed and explicit.    |
 | `Exit` (other than Do/For/Function) | Only those three targets.                  |
 | Ignoring a returned `Result`    | Must propagate or handle.                       |
+| `?` outside a `Result`/`Option` function | Propagation needs a fallible caller; use `Select Case`, or declare `As Result<T>`. |
 | Passing a literal to `ByRef`    | Needs an assignable place.                      |
 | Declaring a struct uninitialised | Construct fully at `Dim`.                      |
 | Indexing where a bound/type is unknown | Compile-time error with explanation.     |
