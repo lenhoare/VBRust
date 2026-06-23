@@ -1,4 +1,0 @@
-' MEANT to fail — VBR has no Sub, only Function.
-Sub DoStuff()
-    Debug.Print "hello"
-End Sub

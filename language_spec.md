@@ -119,7 +119,9 @@ End Function
 - `Function … As T` returns `T`. `RetType` may be a primitive, named type,
   tuple, `Result<T>`, or `Option<T>`. A `Function` with **no** `As` returns
   nothing (`()`).
-- `Sub` is rejected — use a no-`As` `Function` instead.
+- `Sub Name(params) … End Sub` is accepted as **sugar** for a no-return
+  `Function` — both become a Rust `fn` — and emits a one-time note. A `Sub` may
+  not declare `As T` (it returns nothing).
 - `Return expr` yields a value; bare `Return` exits early. The transpiler lowers
   a trailing `Return` to a Rust tail expression where possible.
 - Procedure names are emitted `snake_case`.

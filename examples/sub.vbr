@@ -1,0 +1,8 @@
+' `Sub` is sugar for a `Function` with no return value — both become a Rust `fn`.
+Sub Greet(ByVal name As String)
+    Debug.Print "Hello, " & name
+End Sub
+
+Function Main()
+    Greet("world")
+End Function

@@ -102,9 +102,13 @@ impl<'a> Parser<'a> {
                         uses.push(u);
                     }
                 }
-                Tok::Function => match self.parse_function(false) {
+                Tok::Function => match self.parse_function(false, false) {
                     Some(f) => functions.push(f),
                     None => break, // error already recorded
+                },
+                Tok::Sub => match self.parse_function(false, true) {
+                    Some(f) => functions.push(f),
+                    None => break,
                 },
                 Tok::Type => match self.parse_struct(false) {
                     Some(s) => structs.push(s),
@@ -118,7 +122,11 @@ impl<'a> Parser<'a> {
                     let public = matches!(self.peek(), Tok::Public);
                     self.advance();
                     match self.peek() {
-                        Tok::Function => match self.parse_function(public) {
+                        Tok::Function => match self.parse_function(public, false) {
+                            Some(f) => functions.push(f),
+                            None => break,
+                        },
+                        Tok::Sub => match self.parse_function(public, true) {
                             Some(f) => functions.push(f),
                             None => break,
                         },
@@ -143,15 +151,6 @@ impl<'a> Parser<'a> {
                             break;
                         }
                     }
-                }
-                Tok::Sub => {
-                    self.diags.error(
-                        self.line(),
-                        "`Sub` is not part of VBR. In Rust every routine is a function; \
-                         a Function with no `As` return type simply returns nothing. \
-                         Replace `Sub Foo()` with `Function Foo()`.",
-                    );
-                    break;
                 }
                 Tok::Ident(w) if w == "Option" => {
                     self.diags.error(
@@ -281,10 +280,20 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_function(&mut self, public: bool) -> Option<Function> {
+    fn parse_function(&mut self, public: bool, is_sub: bool) -> Option<Function> {
         let line = self.line();
-        self.expect(&Tok::Function, "to start a function")?;
-        let first = self.expect_ident("for the function")?;
+        if is_sub {
+            self.expect(&Tok::Sub, "to start a sub")?;
+            self.diags.warn_once(
+                "sub-is-function",
+                line,
+                "`Sub` works, but in VBR it's just a `Function` with no return value — both \
+                 become a Rust `fn`. You can write `Function` everywhere if you prefer.",
+            );
+        } else {
+            self.expect(&Tok::Function, "to start a function")?;
+        }
+        let first = self.expect_ident(if is_sub { "for the sub" } else { "for the function" })?;
         // `Function Struct.Method()` is a method; otherwise a free function.
         let (receiver, name) = if self.eat(&Tok::Dot) {
             (Some(first), self.expect_ident("for the method name")?)
@@ -304,17 +313,27 @@ impl<'a> Parser<'a> {
         }
         self.expect(&Tok::RParen, "to close the parameter list")?;
 
-        // Optional return type: `Function Foo() As Long` / `As Result<Long>` / `As Option<String>`
-        let ret = if self.eat(&Tok::As) {
+        // A Sub never returns a value; a Function may declare a return type.
+        let ret = if is_sub {
+            if matches!(self.peek(), Tok::As) {
+                self.diags.error(
+                    self.line(),
+                    "A `Sub` returns nothing — to return a value, use `Function … As T`.",
+                );
+                return None;
+            }
+            None
+        } else if self.eat(&Tok::As) {
+            // `Function Foo() As Long` / `As Result<Long>` / `As Option<String>`
             Some(self.parse_ret_type()?)
         } else {
             None
         };
 
-        self.expect(&Tok::Newline, "after the function header")?;
+        self.expect(&Tok::Newline, "after the header")?;
         let body = self.parse_block()?;
-        self.expect(&Tok::End, "to close the function")?;
-        self.expect(&Tok::Function, "after `End`")?;
+        self.expect(&Tok::End, if is_sub { "to close the sub" } else { "to close the function" })?;
+        self.expect(if is_sub { &Tok::Sub } else { &Tok::Function }, "after `End`")?;
         // trailing newline is optional (EOF is fine)
         self.eat(&Tok::Newline);
 

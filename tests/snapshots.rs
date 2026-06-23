@@ -19,6 +19,7 @@ const HAPPY: &[&str] = &[
     "hello",
     "strings",
     "functions",
+    "sub",
     "types",
     "select",
     "string_funcs",
@@ -54,7 +55,6 @@ const TRANSPILE_ONLY: &[&str] = &["string_options", "stdlib", "datetime_json"];
 /// Files that are meant to fail, exercising the teaching diagnostics.
 const ERRORS: &[&str] = &[
     "ownership_error",
-    "sub_error",
     "currency_error",
     "variant_error",
     "select_no_else",
