@@ -1,6 +1,6 @@
 ' HashMap<K, V> — VBA's Scripting.Dictionary, done natively
 Function Main()
-    Dim ages As New HashMap<String, Long>
+    Dim ages As HashMap<String, Long>
     ages.insert("Alice", 30)
     ages.insert("Bob", 25)
 

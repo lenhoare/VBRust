@@ -1,5 +1,5 @@
 ' MEANT to fail — ReDim isn't supported; a Vec grows on its own.
 Function Main()
-    Dim xs As New Vec<Long>
+    Dim xs As Vec<Long>
     ReDim xs(5)
 End Function

@@ -523,7 +523,7 @@ impl<'a> Parser<'a> {
             Tok::ReDim => {
                 self.diags.error(
                     self.line(),
-                    "ReDim isn't supported. Use a Vec (`Dim x As New Vec<T>`), which grows on \
+                    "ReDim isn't supported. Use a Vec (`Dim x As Vec<T>`), which grows on \
                      demand with `.push(...)` — no resizing dance needed.",
                 );
                 while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
@@ -714,38 +714,46 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_decl_type(&mut self, empty_parens: bool) -> Option<DeclType> {
+        // `New` is a VB-ism with no meaning in VBR (Rust has no uninitialised
+        // objects) — accept it out of habit, but nudge toward dropping it.
         if self.eat(&Tok::New) {
-            let kind = self.expect_ident("after `New` (Vec or HashMap)")?;
-            self.expect(&Tok::Lt, "before the element type, e.g. Vec<Long>")?;
-            match kind.as_str() {
+            self.diags.warn(
+                self.line(),
+                "`New` isn't needed in VBR — a value is created by its declaration. \
+                 Write `Dim v As Vec<T>` / `As HashMap<K, V>` without `New`.",
+            );
+        }
+        if empty_parens {
+            return Some(DeclType::Vec(self.parse_elem_type()?));
+        }
+        if matches!(self.peek(), Tok::LParen) {
+            return Some(DeclType::Tuple(self.parse_tuple_types()?));
+        }
+        if let Tok::Ident(name) = self.peek().clone() {
+            // `Vec<T>` / `HashMap<K, V>` are the built-in collections; any other
+            // name is a user struct.
+            match name.as_str() {
                 "Vec" => {
+                    self.advance();
+                    self.expect(&Tok::Lt, "before the element type, e.g. Vec<Long>")?;
                     let t = self.parse_elem_type()?;
                     self.expect(&Tok::Gt, "to close `Vec<...>`")?;
                     Some(DeclType::Vec(t))
                 }
                 "HashMap" => {
+                    self.advance();
+                    self.expect(&Tok::Lt, "before the key type, e.g. HashMap<String, Long>")?;
                     let k = self.parse_elem_type()?;
                     self.expect(&Tok::Comma, "between the key and value types")?;
                     let v = self.parse_elem_type()?;
                     self.expect(&Tok::Gt, "to close `HashMap<...>`")?;
                     Some(DeclType::Map(k, v))
                 }
-                other => {
-                    self.diags.error(
-                        self.line(),
-                        format!("`New {}` is not a collection — use `New Vec<T>` or `New HashMap<K, V>`.", other),
-                    );
-                    None
+                _ => {
+                    self.advance();
+                    Some(DeclType::Named(name))
                 }
             }
-        } else if empty_parens {
-            Some(DeclType::Vec(self.parse_elem_type()?))
-        } else if matches!(self.peek(), Tok::LParen) {
-            Some(DeclType::Tuple(self.parse_tuple_types()?))
-        } else if let Tok::Ident(name) = self.peek().clone() {
-            // A non-keyword type name is a user struct.
-            self.advance();
-            Some(DeclType::Named(name))
         } else {
             Some(DeclType::Plain(self.parse_type()?))
         }

@@ -1,14 +1,14 @@
 ' Iterators — filter, map, sum, any, count, collect
 Function Main()
-    Dim nums As New Vec<Long>
+    Dim nums As Vec<Long>
     nums.push(1)
     nums.push(2)
     nums.push(3)
     nums.push(4)
     nums.push(5)
 
-    Dim big As New Vec<Long> = nums.filter(|x| x > 2).collect()
-    Dim doubled As New Vec<Long> = nums.map(|x| x * 2).collect()
+    Dim big As Vec<Long> = nums.filter(|x| x > 2).collect()
+    Dim doubled As Vec<Long> = nums.map(|x| x * 2).collect()
 
     Dim total As Long = nums.sum()
     Dim hasBig As Boolean = nums.any(|x| x > 4)

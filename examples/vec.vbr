@@ -1,6 +1,6 @@
 ' Vec<T> — a growable list
 Function Main()
-    Dim nums As New Vec<Long>
+    Dim nums As Vec<Long>
     nums.push(10)
     nums.push(20)
     nums.push(30)

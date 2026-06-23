@@ -10,7 +10,7 @@ Function Main()
     Debug.Print "age  = " & person.GetInt("age").Unwrap()
 
     Dim doc As Json = Json.Parse("{""tags"":[""red"",""green"",""blue""]}").Unwrap()
-    Dim tags As New Vec<Json> = doc.GetArray("tags").Unwrap()
+    Dim tags As Vec<Json> = doc.GetArray("tags").Unwrap()
     Debug.Print "tag count: " & tags.Len()
     For Each tag In tags
         Debug.Print "  tag: " & tag.AsString().Unwrap()

@@ -84,11 +84,14 @@ Dim v() As Long = expr     ' growable with initialiser (e.g. .collect())
 Indexing is `x(i)` in source → `x[i]` in output; **zero-based**. `ReDim` is
 rejected — use a `Vec`.
 
-### Collections — `New`
+### Collections
 ```
-Dim v As New Vec<T>
-Dim m As New HashMap<K, V>
+Dim v As Vec<T>
+Dim m As HashMap<K, V>
 ```
+`Vec<T>` and `HashMap<K, V>` are the built-in collections. A `New` keyword (VB
+habit) is accepted but **warns** — Rust creates the value from the declaration
+itself, so `New` is redundant.
 
 ### Constants — `Const`
 ```
@@ -158,17 +161,44 @@ Operators, tightest binding first to last:
 
 Other expression forms: literals, identifiers, `Me` (→ `self`), calls
 `f(a, b)`, method/field access `recv.method(...)` / `recv.field`, indexing
-`a(i)`, tuple index, `New` (§3), and inline Rust (§9).
+`a(i)`, tuple index, and inline Rust (§9).
 
 ---
 
 ## 6. Statements & control flow
 
 ### Assignment
+
 ```
 target = expr            ' Ident or place expression (a.field, a(i))
-Set target = expr        ' accepted; same as assignment
 ```
+
+### Borrowing — `Set`
+
+`Set` binds a name as a **borrow** of another value (Rust `&` / `&mut`) instead
+of copying it:
+
+```
+Set name = value         ' shared borrow   → let name = &value;
+Set Mut name = value     ' mutable borrow  → let name = &mut value;
+```
+
+Unlike VB — where `Set` is for object references only — **VBR's `Set` works on
+any variable**. It is the one explicit way to say "point at this, don't copy it."
+
+`Set` is meaningful for **owned / non-`Copy`** types (`String`, structs, `Vec`,
+`HashMap`), where a borrow avoids a move or a `.clone()`. On `Copy` primitives
+(`Long`, `Boolean`, …) a borrow is legal but pointless — Rust copies them freely.
+A note explains the borrow.
+
+```
+Dim greeting As String = "Hello"
+Set view = greeting                  ' borrow → let view = &greeting;  (no copy)
+Dim copy As String = greeting.clone()  ' owned copy → greeting.clone();
+Debug.Print view                     ' greeting is still usable; view just points at it
+```
+The borrow (`view`) and the clone (`copy`) make Rust's central distinction —
+**reference vs. ownership** — visible, using familiar VB syntax.
 
 ### Conditional
 ```
