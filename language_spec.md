@@ -41,8 +41,10 @@ Primitive VBR types map to Rust as follows:
 | `Double`   | `f64`    |                                                  |
 | `Boolean`  | `bool`   |                                                  |
 | `Byte`     | `u8`     |                                                  |
-| `Date`     | `i64`    | No calendar semantics; a plain number (warns).   |
 | `String`   | `String` | Owned, unknown size — ownership rules apply.     |
+
+`Date` is **not** a built-in type (it would be a number with no calendar
+semantics) — use `DateTime` from the standard library (§10).
 
 Integer sizes are chosen **Rust-first**: `Integer` is the `i32` a Rust
 programmer expects, not VBA's legacy 16-bit. Bare integer literals are `i32`;
@@ -362,6 +364,7 @@ These parse but are deliberately refused, each with guidance:
 |---------------------------------|------------------------------------------------|
 | `Currency`                      | No fixed-point type; use `Double` or minor units in `Long`. |
 | `Variant`                       | Types must be known at compile time; declare the concrete type. |
+| `Date`                          | Use `DateTime` from the stdlib (a bare date is just a number). |
 | `ReDim`                         | Use a `Vec` (grows dynamically).               |
 | `On Error …`                    | Use `Result<T>` + `Err`/`?`.                   |
 | Mutable module-level globals    | Use `Const`, or pass state / wrap it in a `Type`. |

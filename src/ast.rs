@@ -14,7 +14,6 @@ pub enum Type {
     Double,   // f64
     Boolean,  // bool
     Byte,     // u8
-    Date,     // i64 — no date semantics, just a number
     Text,     // String — unknown size, ownership rules apply
 }
 
@@ -29,7 +28,6 @@ impl Type {
             Type::Double => "f64",
             Type::Boolean => "bool",
             Type::Byte => "u8",
-            Type::Date => "i64",
             Type::Text => "String",
         }
     }
@@ -55,7 +53,6 @@ impl Type {
             Type::Double => "Double",
             Type::Boolean => "Boolean",
             Type::Byte => "Byte",
-            Type::Date => "Date",
             Type::Text => "String",
         }
     }

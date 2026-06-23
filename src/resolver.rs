@@ -135,7 +135,6 @@ fn rtype_of(ty: Type) -> RType {
         Type::Double => RType::F64,
         Type::Boolean => RType::Bool,
         Type::Byte => RType::U8,
-        Type::Date => RType::I64,
         Type::Text => RType::Strng,
     }
 }

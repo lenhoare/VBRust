@@ -7,7 +7,6 @@ Function Main()
     Dim ratio As Double = 2.5
     Dim flag As Boolean = True
     Dim letter As Byte = 65
-    Dim stamp As Date = 0
 
     Debug.Print "small  = " & small
     Debug.Print "count  = " & count
@@ -16,5 +15,4 @@ Function Main()
     Debug.Print "ratio  = " & ratio
     Debug.Print "flag   = " & flag
     Debug.Print "letter = " & letter
-    Debug.Print "stamp  = " & stamp
 End Function

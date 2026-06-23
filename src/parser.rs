@@ -423,13 +423,13 @@ impl<'a> Parser<'a> {
             Tok::TyBoolean => Type::Boolean,
             Tok::TyByte => Type::Byte,
             Tok::TyDate => {
-                self.diags.warn_once(
-                    "date-no-semantics",
+                self.diags.error(
                     line,
-                    "Date becomes a plain i64 — VBR gives it no calendar semantics. \
-                     For real date/time work, reach for the chrono crate via the stdlib later.",
+                    "Date isn't a built-in VBR type — a bare date with no calendar semantics is \
+                     just a number in disguise. Use `DateTime` from the standard library: \
+                     `Dim now As DateTime = DateTime.Now()`, then `.AddDays(n)`, `.Format(...)`, etc.",
                 );
-                Type::Date
+                return None;
             }
             Tok::TyString => Type::Text,
             Tok::TyCurrency => {
@@ -454,7 +454,7 @@ impl<'a> Parser<'a> {
                     line,
                     format!(
                         "Expected a type (Integer, Long, LongLong, Single, Double, Boolean, \
-                         Byte, Date, String), found {:?}.",
+                         Byte, String), found {:?}.",
                         other
                     ),
                 );

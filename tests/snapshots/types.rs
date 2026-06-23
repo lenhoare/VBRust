@@ -8,7 +8,6 @@ fn main() {
     let ratio: f64 = 2.5;
     let flag: bool = true;
     let letter: u8 = 65;
-    let stamp: i64 = 0;
     println!("{}", format!("{}{}", "small  = ", small));
     println!("{}", format!("{}{}", "count  = ", count));
     println!("{}", format!("{}{}", "huge   = ", huge));
@@ -16,5 +15,4 @@ fn main() {
     println!("{}", format!("{}{}", "ratio  = ", ratio));
     println!("{}", format!("{}{}", "flag   = ", flag));
     println!("{}", format!("{}{}", "letter = ", letter));
-    println!("{}", format!("{}{}", "stamp  = ", stamp));
 }
