@@ -1205,6 +1205,26 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 render_prec(rhs, None, 0, false)
             )
         }
+        Expr::Binary { op, lhs, rhs } if *op == BinOp::Xor => {
+            // VBR treats Xor as a loose logical op, but Rust's `^` binds *tighter*
+            // than comparison/`&&`/`||`. So parenthesise any binary operand to keep
+            // our grouping, and wrap the whole node when it sits under a tighter op.
+            let operand = |e: &Expr| {
+                let s = render_prec(e, None, 0, false);
+                if matches!(e, Expr::Binary { .. }) {
+                    format!("({})", s)
+                } else {
+                    s
+                }
+            };
+            let inner = format!("{} ^ {}", operand(lhs), operand(rhs));
+            let p = prec(BinOp::Xor);
+            if p < parent_prec || (p == parent_prec && is_right) {
+                format!("({})", inner)
+            } else {
+                inner
+            }
+        }
         Expr::Binary { op, lhs, rhs } if *op == BinOp::Pow => {
             // `^` lowers to powi (integer exponent) or powf (float exponent),
             // assuming a floating-point base as the spec shows.
@@ -1267,11 +1287,14 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         Expr::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
         Expr::Index(inner, idx) => {
-            format!("{}[{}]", render_prec(inner, None, 6, false), render_expr(idx, None))
+            format!("{}[{}]", render_prec(inner, None, 9, false), render_expr(idx, None))
         }
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).
         Expr::InlineRust(raw) => render_inline_block(raw, 0),
+        // `Not e` → `!e`. Unary `!` binds tighter than any binary op, so it never
+        // needs outer parens; the operand is parenthesised if it's itself binary.
+        Expr::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
         Expr::Call { name, args } => {
             if let Some(s) = lower_constructor(name, args) {
                 // Ok/Err/Some result/option constructors.
@@ -1285,7 +1308,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 format!("{}({})", to_snake(name), rendered.join(", "))
             }
         }
-        Expr::Try(inner) => format!("{}?", render_prec(inner, None, 6, false)),
+        Expr::Try(inner) => format!("{}?", render_prec(inner, None, 9, false)),
         Expr::Field(inner, field) => format!("{}.{}", render_recv(inner), to_snake(field)),
         // Already the verbatim SCREAMING_SNAKE name from the resolver.
         Expr::ConstRef(name) => name.clone(),
@@ -1307,12 +1330,12 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 format!("{} {{ {} }}", name, parts.join(", "))
             }
         }
-        Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 6, false)),
-        Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 6, false)),
-        Expr::Ref(inner) => format!("&{}", render_prec(inner, None, 6, false)),
+        Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 9, false)),
+        Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 9, false)),
+        Expr::Ref(inner) => format!("&{}", render_prec(inner, None, 9, false)),
         Expr::Cast(inner, ty) => {
             // `x as f64`. Parenthesise the cast if it sits under a tighter op.
-            let inner = render_prec(inner, None, 6, false);
+            let inner = render_prec(inner, None, 9, false);
             let cast = format!("{} as {}", inner, ty.rust());
             if parent_prec > 0 {
                 format!("({})", cast)
@@ -1339,9 +1362,9 @@ fn recv_is_iter(e: &Expr) -> bool {
 /// `filter` closure derefs its `&` parameter.
 fn render_iter_method(recv: &Expr, method: &str, args: &[Expr]) -> String {
     let base = if recv_is_iter(recv) {
-        render_prec(recv, None, 5, false)
+        render_prec(recv, None, 8, false)
     } else {
-        format!("{}.iter().copied()", render_prec(recv, None, 5, false))
+        format!("{}.iter().copied()", render_prec(recv, None, 8, false))
     };
     let rendered: Vec<String> = args
         .iter()
@@ -1422,7 +1445,7 @@ fn math0(recv: &Expr, method: &str) -> String {
 }
 
 fn render_recv(e: &Expr) -> String {
-    let s = render_prec(e, None, 6, false);
+    let s = render_prec(e, None, 9, false);
     // Parenthesise a leading unary so `(-5.0).abs()` / `(*p).foo()` parse right.
     if s.starts_with('-') || s.starts_with('*') {
         format!("({})", s)
@@ -1474,11 +1497,15 @@ fn is_arithmetic(op: BinOp) -> bool {
 /// Binding power — higher binds tighter.
 fn prec(op: BinOp) -> u8 {
     match op {
-        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 1,
-        BinOp::Concat => 2,
-        BinOp::Add | BinOp::Sub => 3,
-        BinOp::Mul | BinOp::Div => 4,
-        BinOp::Pow => 5,
+        // Logical operators are loosest (looser than comparison), as in Rust.
+        BinOp::Or => 1,
+        BinOp::Xor => 2,
+        BinOp::And => 3,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 4,
+        BinOp::Concat => 5,
+        BinOp::Add | BinOp::Sub => 6,
+        BinOp::Mul | BinOp::Div => 7,
+        BinOp::Pow => 8,
     }
 }
 
@@ -1496,6 +1523,9 @@ fn op_str(op: BinOp) -> &'static str {
         BinOp::Ge => ">=",
         BinOp::Pow => "^",    // handled separately (lowers to powi/powf)
         BinOp::Concat => "&", // handled separately
+        BinOp::And => "&&",
+        BinOp::Or => "||",
+        BinOp::Xor => "^",
     }
 }
 

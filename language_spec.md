@@ -128,7 +128,7 @@ End Sub
 
 ## 5. Expressions & operators
 
-Operators, tightest binding last to first:
+Operators, tightest binding first to last:
 
 | Level | Operators            | Meaning                                  |
 |-------|----------------------|------------------------------------------|
@@ -138,11 +138,18 @@ Operators, tightest binding last to first:
 | 4     | `+`  `-`             | add, subtract                            |
 | 5     | `&`                  | string concatenation                     |
 | 6     | `=` `<>` `<` `>` `<=` `>=` | comparison                          |
+| 7     | `Not`                | logical negation → `!` (unary)           |
+| 8     | `And`                | logical and → `&&` (short-circuit)       |
+| 9     | `Xor`                | logical xor → `^` (on `bool`)            |
+| 10    | `Or`                 | logical or → `\|\|` (short-circuit)      |
 
 - `=` is equality in expression position and assignment in statement position.
 - `&` concatenates; operands are formatted to `String`.
-- There are no boolean `And`/`Or`/`Not` operators and no `Mod` / integer-divide
-  (`\`) at this revision.
+- Logical operators are **looser than comparison** and **short-circuit**, exactly
+  as in Rust — `a > 0 And b < 10` → `a > 0 && b < 10`. They are logical only
+  (operands are `bool`); there is no bitwise `And`/`Or` overload, and no `Mod` /
+  integer-divide (`\`) at this revision. For bitwise or other Rust operators, use
+  an inline `Rust` block (§9).
 
 Other expression forms: literals, identifiers, `Me` (→ `self`), calls
 `f(a, b)`, method/field access `recv.method(...)` / `recv.field`, indexing

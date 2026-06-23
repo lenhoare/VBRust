@@ -1,0 +1,31 @@
+' Logical operators: And, Or, Not, Xor. Logical (short-circuit) and looser
+' than comparison, just like Rust's &&, ||, !, ^ — no backwards-compat quirks.
+Function Main()
+    Dim age As Long = 30
+    Dim member As Boolean = True
+
+    If age >= 18 And member Then
+        Debug.Print "admitted"
+    End If
+
+    If age < 13 Or age > 65 Then
+        Debug.Print "discounted"
+    Else
+        Debug.Print "full price"
+    End If
+
+    If Not member Then
+        Debug.Print "please join"
+    Else
+        Debug.Print "welcome back"
+    End If
+
+    ' Xor: true when exactly one side is true.
+    Dim heads As Boolean = True
+    Dim tails As Boolean = False
+    Debug.Print "valid coin: " & (heads Xor tails)
+
+    ' Precedence: And binds tighter than Or, comparisons tighter than both.
+    Dim ok As Boolean = age > 0 And age < 120 Or member
+    Debug.Print "ok: " & ok
+End Function

@@ -43,6 +43,7 @@ const HAPPY: &[&str] = &[
     "terminal_io",
     "inline_rust",
     "opaque_handle",
+    "logic",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

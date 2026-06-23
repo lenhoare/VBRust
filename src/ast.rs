@@ -303,6 +303,8 @@ pub enum Expr {
     Index(Box<Expr>, Box<Expr>),
     /// A `Rust … End Rust` block — raw Rust spliced in as a block expression.
     InlineRust(String),
+    /// `Not inner` — logical negation → `!(inner)`.
+    Not(Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,4 +321,7 @@ pub enum BinOp {
     Gt,
     Le,
     Ge,
+    And, // logical, short-circuit → &&
+    Or,  // logical, short-circuit → ||
+    Xor, // logical → ^ (on bool)
 }

@@ -1014,6 +1014,47 @@ impl<'a> Parser<'a> {
     // ----- Expressions (precedence climbing) -----
 
     fn parse_expr(&mut self) -> Option<Expr> {
+        self.parse_or()
+    }
+
+    // Logical operators bind looser than comparison (as in both VB and Rust);
+    // tightness: Not > And > Xor > Or. They are short-circuit (&&/||), per Rust.
+    fn parse_or(&mut self) -> Option<Expr> {
+        let mut lhs = self.parse_xor()?;
+        while matches!(self.peek(), Tok::Or) {
+            self.advance();
+            let rhs = self.parse_xor()?;
+            lhs = bin(BinOp::Or, lhs, rhs);
+        }
+        Some(lhs)
+    }
+
+    fn parse_xor(&mut self) -> Option<Expr> {
+        let mut lhs = self.parse_and()?;
+        while matches!(self.peek(), Tok::Xor) {
+            self.advance();
+            let rhs = self.parse_and()?;
+            lhs = bin(BinOp::Xor, lhs, rhs);
+        }
+        Some(lhs)
+    }
+
+    fn parse_and(&mut self) -> Option<Expr> {
+        let mut lhs = self.parse_not()?;
+        while matches!(self.peek(), Tok::And) {
+            self.advance();
+            let rhs = self.parse_not()?;
+            lhs = bin(BinOp::And, lhs, rhs);
+        }
+        Some(lhs)
+    }
+
+    fn parse_not(&mut self) -> Option<Expr> {
+        if matches!(self.peek(), Tok::Not) {
+            self.advance();
+            let inner = self.parse_not()?;
+            return Some(Expr::Not(Box::new(inner)));
+        }
         self.parse_comparison()
     }
 
