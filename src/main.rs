@@ -218,26 +218,31 @@ fn resolve_entry(arg: &str) -> Option<PathBuf> {
 fn generate_project(entry: &Path) -> PathBuf {
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
 
-    // Discover sibling modules: every other `.vbr` file in the folder.
+    // Discover sibling modules: every other `.vbr` file (transpiled), plus any
+    // `.rs` file (included verbatim — a hand-written Rust module).
     let entry_canon = entry.canonicalize().ok();
-    let mut module_files: Vec<PathBuf> = Vec::new();
+    let mut vbr_files: Vec<PathBuf> = Vec::new();
+    let mut rs_files: Vec<PathBuf> = Vec::new();
     if let Ok(entries) = fs::read_dir(project_dir) {
         for e in entries.flatten() {
             let p = e.path();
-            if p.extension().and_then(|s| s.to_str()) != Some("vbr") {
-                continue;
-            }
             if p.canonicalize().ok() == entry_canon {
                 continue;
             }
-            module_files.push(p);
+            match p.extension().and_then(|s| s.to_str()) {
+                Some("vbr") => vbr_files.push(p),
+                // A stray `main.rs` would clobber the generated entry — skip it.
+                Some("rs") if stem_name(&p) != "main" => rs_files.push(p),
+                _ => {}
+            }
         }
     }
-    module_files.sort();
-    let module_names: Vec<String> = module_files
-        .iter()
-        .map(|p| vbr::module_name(p.file_stem().and_then(|s| s.to_str()).unwrap_or("module")))
-        .collect();
+    vbr_files.sort();
+    rs_files.sort();
+    let vbr_names: Vec<String> = vbr_files.iter().map(|p| module_of(p)).collect();
+    let rs_names: Vec<String> = rs_files.iter().map(|p| module_of(p)).collect();
+    // Every sibling module is a possible qualified-call target and a `mod` decl.
+    let module_names: Vec<String> = vbr_names.iter().chain(&rs_names).cloned().collect();
 
     let build = project_dir.join("build");
     let src = build.join("src");
@@ -254,8 +259,8 @@ fn generate_project(entry: &Path) -> PathBuf {
     }
     let mut any_stdlib = needs_project(&entry_compiled.rust);
 
-    // Each sibling → <name>.rs.
-    for (file, name) in module_files.iter().zip(&module_names) {
+    // Each `.vbr` sibling → transpiled `<name>.rs`.
+    for (file, name) in vbr_files.iter().zip(&vbr_names) {
         let compiled = compile_path(file, &module_names, false);
         let path = src.join(format!("{}.rs", name));
         if let Err(e) = fs::write(&path, &compiled.rust) {
@@ -263,6 +268,23 @@ fn generate_project(entry: &Path) -> PathBuf {
             exit(1);
         }
         any_stdlib |= needs_project(&compiled.rust);
+    }
+
+    // Each `.rs` sibling → copied verbatim as `<name>.rs`.
+    for (file, name) in rs_files.iter().zip(&rs_names) {
+        let content = match fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("✘ Could not read {}: {}", file.display(), e);
+                exit(1);
+            }
+        };
+        let path = src.join(format!("{}.rs", name));
+        if let Err(e) = fs::write(&path, &content) {
+            eprintln!("✘ Could not write {}: {}", path.display(), e);
+            exit(1);
+        }
+        any_stdlib |= needs_project(&content);
     }
 
     let mut cargo = format!(
@@ -278,6 +300,16 @@ fn generate_project(entry: &Path) -> PathBuf {
     }
 
     build
+}
+
+/// The raw file stem (`http.rs` → `http`), before snake-casing.
+fn stem_name(p: &Path) -> String {
+    p.file_stem().and_then(|s| s.to_str()).unwrap_or("module").to_string()
+}
+
+/// The Rust module name for a project file (`MyHelpers.vbr` → `my_helpers`).
+fn module_of(p: &Path) -> String {
+    vbr::module_name(&stem_name(p))
 }
 
 /// Read + compile one project file (as entry or module), printing diagnostics

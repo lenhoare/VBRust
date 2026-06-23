@@ -349,8 +349,14 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
   (`MyHelpers.vbr` → module `my_helpers`).
 - **Cross-module calls are qualified:** `Shapes.CircleArea(r)` →
   `crate::shapes::circle_area(r)`. The callee must be `Public`.
+- A sibling **`.rs` file is a hand-written module**, included **verbatim** (it
+  skips transpilation) and called with the same qualified syntax —
+  `Text.Shout(s)` → `crate::text::shout(s)`. This is the in-project "wrapper"
+  for stateful or unwrapped Rust, with no published crate required. Since VBR
+  doesn't see its signatures, argument types must match the Rust side directly.
 - Generated layout is **visible and explorable** under `build/`
   (`src/main.rs`, `src/<module>.rs`, `Cargo.toml`); regenerated each run.
 
-Mixed `.vbr` / `.rs` modules and `Use crate version` dependency declarations are
-specified for the project mode but not yet built.
+`Use crate version` dependency declarations (for `.rs` modules or inline Rust
+that pull external crates) are specified for the project mode but not yet built —
+so today's `.rs` modules may use `std` or `vbr_stdlib`, not arbitrary crates.

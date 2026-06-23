@@ -205,3 +205,37 @@ fn multifile_project_compiles() {
     assert!(output.status.success(), "rustc rejected multifile project:\n{stderr}");
     assert!(stderr.trim().is_empty(), "rustc emitted warnings:\n{stderr}");
 }
+
+/// A mixed project: a `.vbr` entry calling a hand-written `.rs` module. The `.rs`
+/// file is included verbatim; we snapshot the generated entry, then compile the
+/// two together to prove the qualified call into hand-written Rust links.
+#[test]
+fn mixed_rs_project_compiles() {
+    let proj = examples_dir().join("mixed_project");
+    let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
+    let text_rs = fs::read_to_string(proj.join("text.rs")).unwrap();
+    let modules = vec![vbr::module_name("text")];
+
+    let main_rs = vbr::compile_module(&main_src, &modules, true);
+    assert!(!main_rs.has_errors, "main.vbr errors: {:?}", main_rs.diagnostics);
+    check_snapshot("mixed_main", "rs", &main_rs.rust);
+
+    let dir = std::env::temp_dir().join("vbr_mixed");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("text.rs"), &text_rs).unwrap();
+    let main_path = dir.join("main.rs");
+    fs::write(&main_path, &main_rs.rust).unwrap();
+
+    let output = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg("-o")
+        .arg(dir.join("bin"))
+        .arg(&main_path)
+        .output()
+        .expect("failed to run rustc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "rustc rejected mixed project:\n{stderr}");
+    assert!(stderr.trim().is_empty(), "rustc emitted warnings:\n{stderr}");
+}
