@@ -1,0 +1,6 @@
+' A `Use` must pin a version, for reproducible builds.
+Use rand
+
+Function Main()
+    Debug.Print "hello"
+End Function

@@ -85,6 +85,7 @@ impl<'a> Parser<'a> {
         let mut functions = Vec::new();
         let mut structs = Vec::new();
         let mut constants = Vec::new();
+        let mut uses = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -94,6 +95,11 @@ impl<'a> Parser<'a> {
                 Tok::Comment(_) => {
                     if let Tok::Comment(text) = self.advance() {
                         top_comments.push(text);
+                    }
+                }
+                Tok::Use(_) => {
+                    if let Some(u) = self.parse_use() {
+                        uses.push(u);
                     }
                 }
                 Tok::Function => match self.parse_function(false) {
@@ -171,10 +177,46 @@ impl<'a> Parser<'a> {
         }
         Program {
             leading_comments: top_comments,
+            uses,
             constants,
             structs,
             functions,
         }
+    }
+
+    /// `Use <crate> <version>` — the line was captured raw by the lexer; split it
+    /// into the crate name and its version requirement.
+    fn parse_use(&mut self) -> Option<UseDecl> {
+        let line = self.line();
+        let raw = match self.advance() {
+            Tok::Use(s) => s,
+            _ => return None,
+        };
+        let mut parts = raw.split_whitespace();
+        let crate_name = match parts.next() {
+            Some(c) => c.to_string(),
+            None => {
+                self.diags.error(line, "`Use` needs a crate name, e.g. `Use rand 0.8`.");
+                return None;
+            }
+        };
+        let version: String = parts.collect::<Vec<_>>().join(" ");
+        if version.is_empty() {
+            self.diags.error(
+                line,
+                format!(
+                    "`Use {}` needs a version, e.g. `Use {} 0.8`. An explicit version keeps \
+                     builds reproducible.",
+                    crate_name, crate_name
+                ),
+            );
+            return None;
+        }
+        Some(UseDecl {
+            crate_name,
+            version,
+            line,
+        })
     }
 
     fn parse_const(&mut self, public: bool) -> Option<ConstDef> {

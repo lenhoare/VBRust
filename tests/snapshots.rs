@@ -70,6 +70,7 @@ const ERRORS: &[&str] = &[
     "option_base_error",
     "global_error",
     "handle_value_error",
+    "use_no_version_error",
 ];
 
 fn examples_dir() -> PathBuf {
@@ -238,4 +239,18 @@ fn mixed_rs_project_compiles() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "rustc rejected mixed project:\n{stderr}");
     assert!(stderr.trim().is_empty(), "rustc emitted warnings:\n{stderr}");
+}
+
+/// `Use <crate> <version>` declarations become Cargo dependencies. We can't
+/// `rustc`-link an external crate here, so we check the parsed deps and snapshot
+/// the generated Rust (the inline block) rather than compiling it.
+#[test]
+fn use_declares_dependencies() {
+    let result = vbr::compile(&read_example("dice"));
+    assert!(!result.has_errors, "dice errors: {:?}", result.diagnostics);
+    assert_eq!(
+        result.dependencies,
+        vec![("rand".to_string(), "0.8".to_string())]
+    );
+    check_snapshot("dice", "rs", &result.rust);
 }

@@ -14,9 +14,11 @@ semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rule
 
 - Source files use the `.vbr` extension; UTF-8.
 - **Statements** are newline-terminated. There is no statement separator.
-- **Keywords and type names are case-insensitive** (`Dim`, `dim`, `DIM`).
-  Identifiers are case-sensitive and emitted to Rust as written, except where a
-  mapping applies (procedure names → `snake_case`).
+- **Keywords are case-insensitive** (`Dim`, `dim`, `DIM`).
+- **Identifiers** are case-sensitive and re-cased for Rust idiom: procedures,
+  variables, parameters, and fields → `snake_case`; `Const` names →
+  `SCREAMING_SNAKE_CASE`; `Type` (struct) names are kept as written (expected
+  PascalCase). A rename emits a one-time `ℹ`/`⚠` note.
 - **Comments:** `'` to end of line. Emitted as `//` in the output.
 - **String literals:** `"…"`. A doubled quote `""` inside a literal denotes one
   `"` (VBA escaping). No backslash escapes.
@@ -50,8 +52,11 @@ Compound / declared types:
 - **Fixed array:** `[T; N]` (see §3).
 - **Named type:** a user `Type` (§7) or stdlib type (§10), used by name.
 
-`Currency` and `Variant` are rejected (§12). There are no implicit numeric
-coercions beyond integer-literal-to-float on assignment.
+`Currency` and `Variant` are rejected (§12). Where VB would coerce one numeric
+type to another silently, VBR inserts an **explicit Rust `as` cast** (e.g. a
+`Long` assigned into a `Double` becomes `… as f64`) — the conversion VB hides,
+made visible. Bare numeric literals adapt to their context instead (a `5` in a
+float slot is emitted `5.0`).
 
 ---
 
@@ -179,15 +184,16 @@ End If
 ### Select Case
 ```
 Select Case subject
-    Case v1, v2
+    Case v1, v2               ' one or more values
     Case lo To hi             ' inclusive range
-    Case Is > n               ' (where supported by guards)
+    Case x If x < 0           ' bind the value as x, with an If guard
+    Case _                    ' wildcard
     Case Else
 End Select
 ```
-- Lowered to a Rust `match`. A `Case Else` is **required** unless the arms are
-  already exhaustive (`Ok`/`Err`, `Some`/`None`) or a bare-binding catch-all is
-  present. A non-exhaustive `Select` without `Case Else` is rejected.
+- Lowered to a Rust `match`. A catch-all (`Case Else`, `Case _`, or a bare
+  binding `Case x`) is **required** unless the arms are already exhaustive
+  (`Ok`/`Err`, `Some`/`None`). A non-exhaustive `Select` without one is rejected.
 
 ### Loops
 ```
@@ -207,8 +213,8 @@ A condition may sit on the `Do` **or** the `Loop`, not both.
 `Exit Do`, `Exit For`, `Exit Function`, `Continue`.
 
 ### Output / input
-`Debug.Print expr` → `println!`. Terminal input/prompt replace `MsgBox` /
-`InputBox` (§10).
+`Debug.Print expr` → `println!`. `MsgBox` / `InputBox` are lowered to terminal
+output and prompted input (no GUI), as built-ins — not part of the stdlib crate.
 
 ---
 
@@ -222,9 +228,10 @@ End Type
 ```
 - Emitted as a Rust `struct`. Construct with all fields:
   `Dim p As Person = Person { name: "…", age: 30 }`.
-- **Methods:** a `Function`/`Sub` whose first parameter is the receiver (`Me`)
-  becomes an `impl` method; calls use `recv.method(...)`. Static/associated
-  calls use `Type.method(...)` → `Type::method(...)`.
+- **Methods** are declared `Function TypeName.MethodName(params) …` and become
+  `impl` methods; inside the body, **`Me`** is the receiver (`→ self`). Instance
+  calls use `recv.method(...)`; a method that mutates `Me` takes `&mut self`.
+  Associated/static calls use `Type.method(...)` → `Type::method(...)`.
 
 ---
 
@@ -270,7 +277,8 @@ End Rust
   Rust blocks, persisting state between them.
 - Emitted `let mut` (VBR cannot see whether a later block mutates it).
 
-Crate-using inline Rust additionally requires the project run mode (§13).
+An inline block may use an external crate: declare it with `Use` (§13) and run
+the project with `runproject`.
 
 ---
 
@@ -333,9 +341,9 @@ The CLI compiles a `.vbr` source through lexer → parser → resolver → trans
 
 | Command       | Behaviour                                                       |
 |---------------|-----------------------------------------------------------------|
-| `run <file>`  | Transpile + `rustc` a single file + execute. **Errors** if the program needs the stdlib (use `runproject`). |
-| `runproject <dir>` | Generate a visible `build/` Cargo project (linking `vbr_stdlib`), then `cargo run`. |
-| `build <dir>` | Generate the project without running.                           |
+| `run <file>`  | Transpile a single file with `rustc` and execute. **Errors** if it uses the stdlib or any `Use` crate (those can't be linked by `rustc` alone — use `runproject`). |
+| `runproject [dir]` | Generate a visible `build/` Cargo project — multifile `.vbr`/`.rs` modules, the stdlib, and `Use` crates — then `cargo run` it. Defaults to the current directory. |
+| `build [dir]` | Generate the project without running.                           |
 | `transpile <file>` | Write the generated Rust to `<file>.rs` (or `-o`).         |
 | `emit <file>` | Print the generated Rust to stdout.                             |
 
@@ -357,6 +365,18 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
 - Generated layout is **visible and explorable** under `build/`
   (`src/main.rs`, `src/<module>.rs`, `Cargo.toml`); regenerated each run.
 
-`Use crate version` dependency declarations (for `.rs` modules or inline Rust
-that pull external crates) are specified for the project mode but not yet built —
-so today's `.rs` modules may use `std` or `vbr_stdlib`, not arbitrary crates.
+### External crates — `Use`
+
+A top-level **`Use <crate> <version>`** declares a Cargo dependency:
+
+```
+Use rand 0.8          →   [dependencies]  rand = "0.8"
+```
+- A version is **required** (reproducible builds); omitting it is an error.
+- Declarations across all project files are aggregated into one `Cargo.toml`.
+- `Use` only adds the dependency; the crate is *used* from an inline `Rust`
+  block (which brings in its own traits, e.g. `use rand::Rng;`) or from a `.rs`
+  module. This is what makes inline Rust and `.rs` modules able to reach the
+  crate ecosystem.
+- Any `Use` makes the program a project build: single-file `run` refuses it and
+  points to `runproject` (`rustc` alone can't link crates).

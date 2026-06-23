@@ -20,6 +20,8 @@ pub struct Compiled {
     pub diagnostics: Vec<String>,
     /// True if any diagnostic was a hard error (no Rust should be used).
     pub has_errors: bool,
+    /// Crate dependencies declared with `Use <crate> <version>` → Cargo lines.
+    pub dependencies: Vec<(String, String)>,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -35,12 +37,18 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
+    let dependencies = program
+        .uses
+        .iter()
+        .map(|u| (u.crate_name.clone(), u.version.clone()))
+        .collect();
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
 
     Compiled {
         rust,
         diagnostics: diags.items().iter().map(|d| d.render()).collect(),
         has_errors: diags.has_errors(),
+        dependencies,
     }
 }
 

@@ -122,10 +122,10 @@ fn cmd_run(args: &[String]) {
     };
     let result = transpile(&input);
 
-    if needs_project(&result.rust) {
+    if needs_project(&result.rust) || !result.dependencies.is_empty() {
         eprintln!(
-            "\n✘ This program uses the standard library (or an external crate), which \
-             needs the project build.\n  Run it with `vbr runproject` instead."
+            "\n✘ This program uses the standard library (or an external crate via `Use`), \
+             which needs the project build.\n  Run it with `vbr runproject` instead."
         );
         exit(1);
     }
@@ -258,6 +258,7 @@ fn generate_project(entry: &Path) -> PathBuf {
         exit(1);
     }
     let mut any_stdlib = needs_project(&entry_compiled.rust);
+    let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
 
     // Each `.vbr` sibling → transpiled `<name>.rs`.
     for (file, name) in vbr_files.iter().zip(&vbr_names) {
@@ -268,6 +269,7 @@ fn generate_project(entry: &Path) -> PathBuf {
             exit(1);
         }
         any_stdlib |= needs_project(&compiled.rust);
+        deps.extend(compiled.dependencies);
     }
 
     // Each `.rs` sibling → copied verbatim as `<name>.rs`.
@@ -293,6 +295,12 @@ fn generate_project(entry: &Path) -> PathBuf {
     );
     if any_stdlib {
         cargo.push_str(&format!("vbr_stdlib = {{ path = \"{}\" }}\n", stdlib_path()));
+    }
+    // `Use`'d crates, sorted and deduped by name, for stable output.
+    deps.sort();
+    deps.dedup_by(|a, b| a.0 == b.0);
+    for (krate, version) in &deps {
+        cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
     }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);

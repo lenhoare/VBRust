@@ -1,0 +1,11 @@
+' `Use` declares an external crate dependency; an inline Rust block then uses it.
+' A single `Use` needs the project build — run with: vbr runproject
+Use rand 0.8
+
+Function Main()
+    Dim roll As Long = Rust
+        use rand::Rng;
+        rand::thread_rng().gen_range(1..=6)
+    End Rust
+    Debug.Print "you rolled a " & roll
+End Function

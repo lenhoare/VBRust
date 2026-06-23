@@ -1,0 +1,1 @@
+✘ [line 2] `Use rand` needs a version, e.g. `Use rand 0.8`. An explicit version keeps builds reproducible.

@@ -97,6 +97,9 @@ pub enum Tok {
     /// A `Rust … End Rust` block, captured verbatim (the inner Rust is not tokenised).
     InlineRust(String),
 
+    /// A `Use <crate> <version>` line, captured raw (the parser splits it).
+    Use(String),
+
     Comment(String),
     Newline,
     Eof,
@@ -241,6 +244,15 @@ pub fn lex(src: &str) -> Vec<Token> {
                     });
                     line += newlines;
                     i = resume;
+                } else if word.eq_ignore_ascii_case("Use") {
+                    // `Use rand 0.8` — capture the rest of the line raw, so a
+                    // version like `0.8.5` doesn't fight the tokeniser.
+                    let (rest, resume) = capture_to_eol(&chars, j);
+                    tokens.push(Token {
+                        tok: Tok::Use(rest),
+                        line,
+                    });
+                    i = resume;
                 } else {
                     tokens.push(Token {
                         tok: keyword_or_ident(&word),
@@ -258,6 +270,17 @@ pub fn lex(src: &str) -> Vec<Token> {
 
     tokens.push(Token { tok: Tok::Eof, line });
     tokens
+}
+
+/// Capture the rest of the current line (trimmed), returning it and the index of
+/// the line's newline (or EOF) so the main lexer resumes there.
+fn capture_to_eol(chars: &[char], start: usize) -> (String, usize) {
+    let mut e = start;
+    while e < chars.len() && chars[e] != '\n' {
+        e += 1;
+    }
+    let rest: String = chars[start..e].iter().collect();
+    (rest.trim().to_string(), e)
 }
 
 /// Capture an inline Rust block verbatim. `start` is just after the `Rust`

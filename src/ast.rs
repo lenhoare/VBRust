@@ -64,9 +64,18 @@ impl Type {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub leading_comments: Vec<String>,
+    pub uses: Vec<UseDecl>,
     pub constants: Vec<ConstDef>,
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
+}
+
+/// A `Use <crate> <version>` declaration → a Cargo `[dependencies]` line.
+#[derive(Debug, Clone)]
+pub struct UseDecl {
+    pub crate_name: String,
+    pub version: String,
+    pub line: usize,
 }
 
 #[derive(Debug, Clone)]
