@@ -95,6 +95,8 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    /// `Public Function` — visible to other modules (emitted `pub fn`).
+    pub public: bool,
     /// `Some(struct)` for a method `Function Struct.Name()`, else a free function.
     pub receiver: Option<String>,
     pub params: Vec<Param>,

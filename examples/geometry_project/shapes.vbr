@@ -1,0 +1,10 @@
+' shapes.vbr → module `shapes`. Public functions are visible across modules.
+Const PI As Double = 3.14159
+
+Public Function CircleArea(radius As Double) As Double
+    Return PI * radius * radius
+End Function
+
+Public Function CirclePerimeter(radius As Double) As Double
+    Return 2.0 * PI * radius
+End Function

@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
                         top_comments.push(text);
                     }
                 }
-                Tok::Function => match self.parse_function() {
+                Tok::Function => match self.parse_function(false) {
                     Some(f) => functions.push(f),
                     None => break, // error already recorded
                 },
@@ -112,6 +112,10 @@ impl<'a> Parser<'a> {
                     let public = matches!(self.peek(), Tok::Public);
                     self.advance();
                     match self.peek() {
+                        Tok::Function => match self.parse_function(public) {
+                            Some(f) => functions.push(f),
+                            None => break,
+                        },
                         Tok::Type => match self.parse_struct(public) {
                             Some(s) => structs.push(s),
                             None => break,
@@ -235,7 +239,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_function(&mut self) -> Option<Function> {
+    fn parse_function(&mut self, public: bool) -> Option<Function> {
         let line = self.line();
         self.expect(&Tok::Function, "to start a function")?;
         let first = self.expect_ident("for the function")?;
@@ -274,6 +278,7 @@ impl<'a> Parser<'a> {
 
         Some(Function {
             name,
+            public,
             receiver,
             params,
             ret,

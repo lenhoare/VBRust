@@ -216,9 +216,29 @@ fn resolve_entry(arg: &str) -> Option<PathBuf> {
 
 /// Generate the cargo project under `<project>/build/` and return its path.
 fn generate_project(entry: &Path) -> PathBuf {
-    let result = transpile(entry);
-
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
+
+    // Discover sibling modules: every other `.vbr` file in the folder.
+    let entry_canon = entry.canonicalize().ok();
+    let mut module_files: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(project_dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("vbr") {
+                continue;
+            }
+            if p.canonicalize().ok() == entry_canon {
+                continue;
+            }
+            module_files.push(p);
+        }
+    }
+    module_files.sort();
+    let module_names: Vec<String> = module_files
+        .iter()
+        .map(|p| vbr::module_name(p.file_stem().and_then(|s| s.to_str()).unwrap_or("module")))
+        .collect();
+
     let build = project_dir.join("build");
     let src = build.join("src");
     if let Err(e) = fs::create_dir_all(&src) {
@@ -226,16 +246,30 @@ fn generate_project(entry: &Path) -> PathBuf {
         exit(1);
     }
 
-    if let Err(e) = fs::write(src.join("main.rs"), &result.rust) {
+    // Entry → main.rs (crate root: `mod` declarations + `fn main`).
+    let entry_compiled = compile_path(entry, &module_names, true);
+    if let Err(e) = fs::write(src.join("main.rs"), &entry_compiled.rust) {
         eprintln!("✘ Could not write main.rs: {}", e);
         exit(1);
+    }
+    let mut any_stdlib = needs_project(&entry_compiled.rust);
+
+    // Each sibling → <name>.rs.
+    for (file, name) in module_files.iter().zip(&module_names) {
+        let compiled = compile_path(file, &module_names, false);
+        let path = src.join(format!("{}.rs", name));
+        if let Err(e) = fs::write(&path, &compiled.rust) {
+            eprintln!("✘ Could not write {}: {}", path.display(), e);
+            exit(1);
+        }
+        any_stdlib |= needs_project(&compiled.rust);
     }
 
     let mut cargo = format!(
         "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
         pkg_name(entry)
     );
-    if needs_project(&result.rust) {
+    if any_stdlib {
         cargo.push_str(&format!("vbr_stdlib = {{ path = \"{}\" }}\n", stdlib_path()));
     }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
@@ -244,6 +278,30 @@ fn generate_project(entry: &Path) -> PathBuf {
     }
 
     build
+}
+
+/// Read + compile one project file (as entry or module), printing diagnostics
+/// and exiting on error.
+fn compile_path(path: &Path, modules: &[String], is_entry: bool) -> vbr::Compiled {
+    let source = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("✘ Could not read {}: {}", path.display(), e);
+            exit(1);
+        }
+    };
+    let result = vbr::compile_module(&source, modules, is_entry);
+    for d in &result.diagnostics {
+        eprintln!("{}", d);
+    }
+    if result.has_errors {
+        eprintln!(
+            "\nTranspilation failed in {} — no Rust was produced.",
+            path.display()
+        );
+        exit(1);
+    }
+    result
 }
 
 /// A valid cargo package name derived from the entry file stem.

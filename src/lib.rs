@@ -22,16 +22,30 @@ pub struct Compiled {
     pub has_errors: bool,
 }
 
-/// Run the full lexer → parser → transpiler pipeline over `source`.
+/// Run the full pipeline over `source` as a single standalone file (the entry,
+/// with no sibling modules).
 pub fn compile(source: &str) -> Compiled {
+    compile_module(source, &[], true)
+}
+
+/// Compile one file of a multifile project. `modules` are the other project
+/// module names (snake-cased file stems), used to qualify cross-module calls;
+/// `is_entry` marks the crate root (gets `mod <name>;` declarations and `fn main`).
+pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compiled {
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
-    let rust = transpiler::transpile(&program, &mut diags);
+    let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
 
     Compiled {
         rust,
         diagnostics: diags.items().iter().map(|d| d.render()).collect(),
         has_errors: diags.has_errors(),
     }
+}
+
+/// The Rust module name for a project file stem (`MyHelpers` → `my_helpers`),
+/// matching how identifiers are snake-cased everywhere else.
+pub fn module_name(stem: &str) -> String {
+    transpiler::to_snake(stem)
 }

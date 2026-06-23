@@ -167,3 +167,41 @@ fn happy_outputs_compile_without_warnings() {
         );
     }
 }
+
+/// A multifile project: cross-module qualified calls, `mod` declarations, and
+/// `pub` items. We snapshot each generated file, then compile them together as
+/// one crate to prove the qualified paths and visibility actually link.
+#[test]
+fn multifile_project_compiles() {
+    let proj = examples_dir().join("geometry_project");
+    let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
+    let shapes_src = fs::read_to_string(proj.join("shapes.vbr")).unwrap();
+    let modules = vec![vbr::module_name("shapes")];
+
+    let main_rs = vbr::compile_module(&main_src, &modules, true);
+    let shapes_rs = vbr::compile_module(&shapes_src, &modules, false);
+    assert!(!main_rs.has_errors, "main.vbr errors: {:?}", main_rs.diagnostics);
+    assert!(!shapes_rs.has_errors, "shapes.vbr errors: {:?}", shapes_rs.diagnostics);
+
+    check_snapshot("geometry_main", "rs", &main_rs.rust);
+    check_snapshot("geometry_shapes", "rs", &shapes_rs.rust);
+
+    let dir = std::env::temp_dir().join("vbr_multifile");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("shapes.rs"), &shapes_rs.rust).unwrap();
+    let main_path = dir.join("main.rs");
+    fs::write(&main_path, &main_rs.rust).unwrap();
+
+    let output = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg("-o")
+        .arg(dir.join("bin"))
+        .arg(&main_path)
+        .output()
+        .expect("failed to run rustc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "rustc rejected multifile project:\n{stderr}");
+    assert!(stderr.trim().is_empty(), "rustc emitted warnings:\n{stderr}");
+}

@@ -1,0 +1,6 @@
+' A multifile project: main.vbr calls into the shapes module.
+Function Main()
+    Dim r As Double = 3.0
+    Debug.Print "area:      " & Shapes.CircleArea(r)
+    Debug.Print "perimeter: " & Shapes.CirclePerimeter(r)
+End Function

@@ -161,6 +161,7 @@ pub fn resolve_body(
     fns: &FnTable,
     methods: &MethodTable,
     consts: &HashMap<String, String>,
+    modules: &HashSet<String>,
     ret_coerce: Option<Type>,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
@@ -211,6 +212,7 @@ pub fn resolve_body(
         str_params: &mut str_params,
         passed: &mut passed,
         handles: &mut handles,
+        modules,
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -238,6 +240,9 @@ struct Ctx<'a> {
     /// spliced into another inline-Rust block (which the resolver never sees as
     /// an AST ident), so *any* ident-use of one is a value-use error.
     handles: &'a mut HashSet<String>,
+    /// Other project modules (snake-cased file stems). A `Module.func(...)` call
+    /// on one rewrites to a qualified `crate::module::func(...)`.
+    modules: &'a HashSet<String>,
 }
 
 fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
@@ -517,6 +522,17 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         ctx.passed.insert(v);
                     }
                 }
+            }
+            // `Utils.DoThing(x)` on another project module → `crate::utils::do_thing(x)`.
+            let qualified = match &**recv {
+                Expr::Ident(m) if ctx.modules.contains(&snake(m)) => {
+                    Some(format!("crate::{}::{}", snake(m), snake(method)))
+                }
+                _ => None,
+            };
+            if let Some(path) = qualified {
+                let taken = std::mem::take(args);
+                *e = Expr::Call { name: path, args: taken };
             }
         }
         Expr::Call { name, args } => {

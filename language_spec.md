@@ -98,21 +98,21 @@ Module-level constants are permitted. Mutable module-level globals are **not**
 ## 4. Procedures
 
 ```
-Function Name(params) As RetType
+[Public | Private] Function Name(params) As RetType
     …
     Return expr
 End Function
-
-Sub Name(params)
-    …
-End Sub
 ```
 - `Function … As T` returns `T`. `RetType` may be a primitive, named type,
-  tuple, `Result<T>`, or `Option<T>`.
-- `Sub` returns nothing (`()`).
-- `Return expr` yields a value; bare `Return` exits a `Sub`. The transpiler
-  lowers a trailing `Return` to a Rust tail expression where possible.
+  tuple, `Result<T>`, or `Option<T>`. A `Function` with **no** `As` returns
+  nothing (`()`).
+- `Sub` is rejected — use a no-`As` `Function` instead.
+- `Return expr` yields a value; bare `Return` exits early. The transpiler lowers
+  a trailing `Return` to a Rust tail expression where possible.
 - Procedure names are emitted `snake_case`.
+- **`Public`** makes a function visible to other modules (emitted `pub fn`); bare
+  or `Private` functions are file-local (§13). The same applies to `Type` and
+  `Const`.
 - **Entry point:** `Function Main()` → `fn main()`.
 
 ### Parameters
@@ -339,6 +339,18 @@ The CLI compiles a `.vbr` source through lexer → parser → resolver → trans
 | `transpile <file>` | Write the generated Rust to `<file>.rs` (or `-o`).         |
 | `emit <file>` | Print the generated Rust to stdout.                             |
 
-A **project** is a folder; each `.vbr` file is a module; cross-file calls are
-qualified. Mixed `.vbr` / `.rs` modules and `Use crate version` dependency
-declarations are specified for the project mode but not part of this revision.
+### Projects (multifile)
+
+A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
+
+- The file with `Function Main()` (default `main.vbr`) is the **entry** → crate
+  root `main.rs`, which declares the others with `mod <name>;`.
+- Every other `<File>.vbr` becomes a module named `to_snake(File)`
+  (`MyHelpers.vbr` → module `my_helpers`).
+- **Cross-module calls are qualified:** `Shapes.CircleArea(r)` →
+  `crate::shapes::circle_area(r)`. The callee must be `Public`.
+- Generated layout is **visible and explorable** under `build/`
+  (`src/main.rs`, `src/<module>.rs`, `Cargo.toml`); regenerated each run.
+
+Mixed `.vbr` / `.rs` modules and `Use crate version` dependency declarations are
+specified for the project mode but not yet built.

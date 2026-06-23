@@ -23,12 +23,25 @@ const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> String {
 ";
 
 pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
+    transpile_module(program, &[], true, diags)
+}
+
+/// Transpile one file of a project. `modules` are the other project module names
+/// (snake-cased), used to qualify cross-module calls; when `is_entry`, the file
+/// is the crate root and gets `mod <name>;` declarations and `fn main`.
+pub fn transpile_module(
+    program: &Program,
+    modules: &[String],
+    is_entry: bool,
+    diags: &mut Diagnostics,
+) -> String {
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
     for func in &program.functions {
         note_builtins(&func.body, diags);
     }
     mark_stdlib_types(program, diags);
+    let module_set: HashSet<String> = modules.iter().cloned().collect();
 
     let fns = resolver::build_fn_table(program);
     let methods = resolver::build_method_table(program);
@@ -39,6 +52,15 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
         out.push_str(&format!("// {}\n", comment));
     }
     if !program.leading_comments.is_empty() {
+        out.push('\n');
+    }
+    // The crate root declares each sibling module (alphabetical, for stable output).
+    if is_entry && !modules.is_empty() {
+        let mut mods: Vec<&String> = modules.iter().collect();
+        mods.sort();
+        for m in mods {
+            out.push_str(&format!("mod {};\n", m));
+        }
         out.push('\n');
     }
     // Pull in HashMap automatically when it's used.
@@ -94,12 +116,12 @@ pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
     }
     for recv in receivers {
         sep(&mut out);
-        emit_impl(recv, program, &fns, &methods, &consts, diags, &mut out);
+        emit_impl(recv, program, &fns, &methods, &consts, &module_set, diags, &mut out);
     }
 
     for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
         sep(&mut out);
-        emit_fn(func, &fns, &methods, &consts, diags, &mut out, 0, None);
+        emit_fn(func, &fns, &methods, &consts, &module_set, diags, &mut out, 0, None);
     }
     out
 }
@@ -143,6 +165,7 @@ fn emit_impl(
     fns: &FnTable,
     methods: &resolver::MethodTable,
     consts: &HashMap<String, String>,
+    modules: &HashSet<String>,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
@@ -162,7 +185,7 @@ fn emit_impl(
             .copied()
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
-        emit_fn(f, fns, methods, consts, diags, out, 1, Some(self_param));
+        emit_fn(f, fns, methods, consts, modules, diags, out, 1, Some(self_param));
     }
     out.push_str("}\n");
 }
@@ -229,6 +252,7 @@ fn emit_fn(
     fns: &FnTable,
     methods: &resolver::MethodTable,
     consts: &HashMap<String, String>,
+    modules: &HashSet<String>,
     diags: &mut Diagnostics,
     out: &mut String,
     base_indent: usize,
@@ -260,7 +284,9 @@ fn emit_fn(
         Some(RetType::Plain(t)) => Some(*t),
         _ => None,
     };
-    out.push_str(&format!("{}fn {}({}){} {{\n", pad, name, params.join(", "), ret));
+    // `Public Function` → `pub fn`, so other modules can call it.
+    let vis = if func.public { "pub " } else { "" };
+    out.push_str(&format!("{}{}fn {}({}){} {{\n", pad, vis, name, params.join(", "), ret));
 
     // `FunctionName = value` is really a return — rewrite it before emitting.
     let mut body = func.body.clone();
@@ -282,6 +308,7 @@ fn emit_fn(
         fns,
         methods,
         consts,
+        modules,
         tail_expected,
         diags,
     );
@@ -1296,7 +1323,11 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         // needs outer parens; the operand is parenthesised if it's itself binary.
         Expr::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
         Expr::Call { name, args } => {
-            if let Some(s) = lower_constructor(name, args) {
+            if name.contains("::") {
+                // Already a qualified path (a cross-module call) — render verbatim.
+                let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                format!("{}({})", name, rendered.join(", "))
+            } else if let Some(s) = lower_constructor(name, args) {
                 // Ok/Err/Some result/option constructors.
                 s
             } else if let Some(s) = lower_builtin(name, args) {
