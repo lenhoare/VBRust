@@ -1,0 +1,28 @@
+Window Counter
+    Title "Counter"
+
+    State
+        Dim count As Long = 0
+    End State
+
+    View
+        Column
+            Text "Counter"
+            Text count
+            Button "-"
+                On Click Decrement
+            End Button
+            Button "+"
+                On Click Increment
+            End Button
+        End Column
+    End View
+
+    Event Increment
+        count += 1
+    End Event
+
+    Event Decrement
+        count -= 1
+    End Event
+End Window
