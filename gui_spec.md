@@ -1,6 +1,6 @@
 # VBR GUI Specification
 
-Status: Draft V1  
+Status: Draft V0.1  
 Target backend: Iced  
 Purpose: Define the first GUI model for VBR using a VB-like surface syntax and a modern state/message/view architecture.
 
@@ -34,7 +34,7 @@ Events update the state.
 ---
 
 ## 2. Conceptual Model
-
+cargo run -- run examples/hello.vbr
 A VBR GUI window consists of:
 
 ```text
@@ -313,7 +313,7 @@ Maps to Iced `pick_list`.
 
 A searchable chooser may later map to Iced `combo_box`, but `Chooser` V1 should mean a simple dropdown selection.
 
-V1 does not include a VB-style permanently open listbox.
+V1 does not include a VB-style permanently open listbox, but we should add it to the next version.
 
 ---
 
@@ -929,18 +929,21 @@ Some of these may be added later. They should not block V1.
 Potential V1.5 or V2 controls:
 
 ```text
-Table
-Tabs
+List
+Markdown
+Svg
+Combobox
 MenuBar
 Toolbar
 Tooltip
-Markdown
-Svg
-ComboBox
+Table
+Tabs
 VerticalSlider
 FilePicker
 ColorPicker
 DatePicker
+
+Way down the line, maybe
 CustomControl
 ```
 
@@ -950,9 +953,9 @@ Some of these map to existing Iced widgets or common extension patterns, but the
 
 ## 16. Implementation Notes
 
-The compiler should lower GUI files into an intermediate GUI representation before generating Rust/Iced code.
+Maybe compiler should lower GUI files into an intermediate GUI representation before generating Rust/Iced code.
 
-Suggested internal representation:
+Possible internal representation to discuss.
 
 ```text
 GuiModule
@@ -968,7 +971,7 @@ This avoids coupling the VBR syntax directly to Iced and leaves open the possibi
 
 The Iced backend should be the first supported backend.
 
-Inline Rust may be supported inside events, but VBR GUI code should not require inline Rust for ordinary applications.
+Inline Rust may be supported inside events...
 
 ---
 

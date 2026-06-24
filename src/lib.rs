@@ -5,6 +5,7 @@
 
 pub mod ast;
 pub mod diagnostics;
+pub mod gui;
 pub mod lexer;
 pub mod parser;
 pub mod resolver;
@@ -40,11 +41,15 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
-    let dependencies = program
+    let mut dependencies: Vec<(String, String)> = program
         .uses
         .iter()
         .map(|u| (u.crate_name.clone(), u.version.clone()))
         .collect();
+    // A GUI program needs Iced (a project build, like the stdlib/crate cases).
+    if !program.windows.is_empty() {
+        dependencies.push(("iced".to_string(), "0.13".to_string()));
+    }
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
     let stdlib_used = transpiler::stdlib_used(&diags);
 

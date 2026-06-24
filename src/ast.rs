@@ -65,6 +65,45 @@ pub struct Program {
     pub constants: Vec<ConstDef>,
     pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
+    pub windows: Vec<Window>,
+}
+
+/// A GUI window: state (the source of truth), a view derived from it, and events
+/// that update it. Compiles to an Iced application. (GUI slice 1.)
+#[derive(Debug, Clone)]
+pub struct Window {
+    pub name: String,
+    pub title: Option<String>,
+    pub state: Vec<StateField>,
+    pub view: ViewNode,
+    pub events: Vec<GuiEvent>,
+}
+
+/// One field of a window's `State` block — a `Dim` with an initial value.
+#[derive(Debug, Clone)]
+pub struct StateField {
+    pub name: String,
+    pub ty: Type,
+    pub init: Expr,
+}
+
+/// A node in the view tree.
+#[derive(Debug, Clone)]
+pub enum ViewNode {
+    Column(Vec<ViewNode>),
+    Row(Vec<ViewNode>),
+    Text(Expr),
+    Button {
+        label: Expr,
+        on_click: Option<String>,
+    },
+}
+
+/// A window event handler — maps to an Iced `Message` variant + `update` arm.
+#[derive(Debug, Clone)]
+pub struct GuiEvent {
+    pub name: String,
+    pub body: Vec<Stmt>,
 }
 
 /// A `Use <crate> <version>` declaration → a Cargo `[dependencies]` line.

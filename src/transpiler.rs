@@ -35,6 +35,11 @@ pub fn transpile_module(
     is_entry: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    // A GUI program (slice 1: a single `Window`) compiles to an Iced application
+    // instead of the usual top-level items.
+    if let Some(window) = program.windows.first() {
+        return crate::gui::emit_window(window, diags);
+    }
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
     for func in &program.functions {
@@ -430,7 +435,7 @@ fn emit_block(
     }
 }
 
-fn emit_stmt(
+pub(crate) fn emit_stmt(
     stmt: &Stmt,
     mutated: &HashSet<String>,
     byref: &HashSet<String>,
@@ -1208,7 +1213,7 @@ fn render_range(from: &Expr, to: &Expr, step: Option<&Expr>, diags: &mut Diagnos
 
 /// Render an expression. `expected` lets a `Double` context coerce integer
 /// literals to floats (`5` -> `5.0`), which Rust requires.
-fn render_expr(e: &Expr, expected: Option<Type>) -> String {
+pub(crate) fn render_expr(e: &Expr, expected: Option<Type>) -> String {
     render_prec(e, expected, 0, false)
 }
 

@@ -86,6 +86,7 @@ impl<'a> Parser<'a> {
         let mut structs = Vec::new();
         let mut constants = Vec::new();
         let mut uses = Vec::new();
+        let mut windows = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -152,6 +153,13 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Window") => {
+                    if let Some(win) = self.parse_window() {
+                        windows.push(win);
+                    } else {
+                        break;
+                    }
+                }
                 Tok::Ident(w) if w == "Option" => {
                     self.diags.error(
                         self.line(),
@@ -180,6 +188,7 @@ impl<'a> Parser<'a> {
             constants,
             structs,
             functions,
+            windows,
         }
     }
 
@@ -346,6 +355,235 @@ impl<'a> Parser<'a> {
             body,
             line,
         })
+    }
+
+    // ── GUI (slice 1): Window / State / View / Event ──────────────────────────
+
+    /// Expect an identifier equal to `name` (case-insensitive) — used for the
+    /// GUI block keywords, which are contextual identifiers, not lexer keywords.
+    fn expect_kw_ident(&mut self, name: &str) -> Option<()> {
+        match self.advance() {
+            Tok::Ident(w) if w.eq_ignore_ascii_case(name) => Some(()),
+            other => {
+                self.diags
+                    .error(self.line(), format!("Expected `{}`, found {:?}.", name, other));
+                None
+            }
+        }
+    }
+
+    /// Expect a string literal.
+    fn expect_string(&mut self, ctx: &str) -> Option<String> {
+        match self.advance() {
+            Tok::Str(s) => Some(s),
+            other => {
+                self.diags
+                    .error(self.line(), format!("Expected a string {}, found {:?}.", ctx, other));
+                None
+            }
+        }
+    }
+
+    fn parse_window(&mut self) -> Option<Window> {
+        self.advance(); // `Window`
+        let name = self.expect_ident("for the window name")?;
+        self.expect(&Tok::Newline, "after the window name")?;
+
+        let mut title = None;
+        let mut state = Vec::new();
+        let mut view = None;
+        let mut events = Vec::new();
+
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident("Window")?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
+                    self.advance();
+                    title = Some(self.expect_string("after `Title`")?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("State") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `State`")?;
+                    state = self.parse_state_block()?;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("View") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `View`")?;
+                    view = Some(self.parse_view_node()?);
+                    self.skip_newlines();
+                    self.expect(&Tok::End, "to close `View`")?;
+                    self.expect_kw_ident("View")?;
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Event") => {
+                    self.advance();
+                    let ev_name = self.expect_ident("for the event name")?;
+                    self.expect(&Tok::Newline, "after the event name")?;
+                    let body = self.parse_block()?;
+                    self.expect(&Tok::End, "to close the event")?;
+                    self.expect_kw_ident("Event")?;
+                    self.eat(&Tok::Newline);
+                    events.push(GuiEvent { name: ev_name, body });
+                }
+                other => {
+                    self.diags.error(
+                        self.line(),
+                        format!(
+                            "Unexpected {:?} inside a Window — expected Title, State, View, \
+                             Event, or `End Window`.",
+                            other
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+
+        let view = match view {
+            Some(v) => v,
+            None => {
+                self.diags
+                    .error(self.line(), "A Window needs a `View` block.");
+                return None;
+            }
+        };
+        Some(Window {
+            name,
+            title,
+            state,
+            view,
+            events,
+        })
+    }
+
+    fn parse_state_block(&mut self) -> Option<Vec<StateField>> {
+        let mut fields = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End) {
+                self.advance();
+                self.expect_kw_ident("State")?;
+                self.eat(&Tok::Newline);
+                break;
+            }
+            if !matches!(self.peek(), Tok::Dim) {
+                self.diags
+                    .error(self.line(), "A `State` block may only contain `Dim` declarations.");
+                return None;
+            }
+            match self.parse_dim()? {
+                Stmt::Dim {
+                    name,
+                    ty: DeclType::Plain(t),
+                    init: Some(init),
+                    ..
+                } => fields.push(StateField { name, ty: t, init }),
+                _ => {
+                    self.diags.error(
+                        self.line(),
+                        "A State field must be a simple typed value with an initial value, \
+                         e.g. `Dim count As Integer = 0`.",
+                    );
+                    return None;
+                }
+            }
+            self.eat(&Tok::Newline);
+        }
+        Some(fields)
+    }
+
+    fn parse_view_node(&mut self) -> Option<ViewNode> {
+        self.skip_newlines();
+        let kw = match self.peek().clone() {
+            Tok::Ident(w) => w,
+            other => {
+                self.diags
+                    .error(self.line(), format!("Expected a widget, found {:?}.", other));
+                return None;
+            }
+        };
+        match kw.to_ascii_lowercase().as_str() {
+            "column" => {
+                self.advance();
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Column(self.parse_view_children("Column")?))
+            }
+            "row" => {
+                self.advance();
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Row(self.parse_view_children("Row")?))
+            }
+            "text" => {
+                self.advance();
+                let e = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Text(e))
+            }
+            "button" => {
+                self.advance();
+                let label = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                let mut on_click = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Click")?;
+                            on_click = Some(self.expect_ident("for the click event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Button")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a Button expected `On Click <event>` or `End Button`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::Button { label, on_click })
+            }
+            other => {
+                self.diags.error(
+                    self.line(),
+                    format!("Unknown widget `{}` (slice 1: Column, Row, Text, Button).", other),
+                );
+                None
+            }
+        }
+    }
+
+    fn parse_view_children(&mut self, container: &str) -> Option<Vec<ViewNode>> {
+        let mut children = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End) {
+                self.advance();
+                self.expect_kw_ident(container)?;
+                self.eat(&Tok::Newline);
+                break;
+            }
+            children.push(self.parse_view_node()?);
+        }
+        Some(children)
     }
 
     /// A return type: a plain type, `Result<T>` / `Option<T>`, or a tuple.
