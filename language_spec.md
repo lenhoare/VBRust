@@ -364,11 +364,18 @@ the project with `runproject`.
 Provided by the `vbr_stdlib` crate, auto-imported when referenced. Calls are
 **namespaced**: `Namespace.member(...)` → `Namespace::member(...)`.
 
-- **Stateless namespaces:** `FileSystem`, `Regex` — module-style functions.
+- **Stateless namespaces:** `FileSystem`, `Regex`, `Http` — module-style
+  functions. `Http.Get(url)` / `Http.Post(url, body)` are blocking, one-shot
+  requests returning `Result<String>` (the body); for a reused client/session,
+  use inline Rust or a `.rs` module.
 - **Wrapper types:** `DateTime`, `Json` — opaque value types with methods
   (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`, `j.GetString(...)`,
   etc.). Static calls use `.` → `::`; instance calls use `.` → `.`.
-- No HTTP at this revision.
+
+Every dependency-bearing namespace is behind a Cargo **feature** (`json`,
+`datetime`, `regex`, `http`); `FileSystem` is std-only and always available. The
+project generator enables exactly the features a program uses, so a project only
+compiles the wrappers it touches.
 
 Programs that reference the stdlib must be built/run via the project run mode
 (§13), not the single-file `run`.

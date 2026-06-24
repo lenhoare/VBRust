@@ -10,14 +10,24 @@
 // Every fallible function returns `Result<T, String>`, which maps onto VBR's
 // `As Result<T>`.
 
-pub mod datetime;
+// `FileSystem` is std-only and always available; the rest are behind features
+// (see Cargo.toml) so a project compiles only the wrappers it actually uses.
 pub mod filesystem;
+#[cfg(feature = "datetime")]
+pub mod datetime;
+#[cfg(feature = "json")]
 pub mod json;
+#[cfg(feature = "regex")]
 pub mod regex;
+#[cfg(feature = "http")]
+pub mod http;
 
-// HTTP is deferred (see Cargo.toml). Database is a V2 feature (needs async).
-
-pub use datetime::DateTime;
 pub use filesystem::FileSystem;
+#[cfg(feature = "datetime")]
+pub use datetime::DateTime;
+#[cfg(feature = "json")]
 pub use json::Json;
+#[cfg(feature = "regex")]
 pub use regex::Regex;
+#[cfg(feature = "http")]
+pub use http::Http;

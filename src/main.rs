@@ -259,6 +259,7 @@ fn generate_project(entry: &Path) -> PathBuf {
     }
     let mut any_stdlib = needs_project(&entry_compiled.rust);
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
+    let mut stdlib_ns: Vec<String> = entry_compiled.stdlib_used.clone();
 
     // Each `.vbr` sibling → transpiled `<name>.rs`.
     for (file, name) in vbr_files.iter().zip(&vbr_names) {
@@ -270,6 +271,7 @@ fn generate_project(entry: &Path) -> PathBuf {
         }
         any_stdlib |= needs_project(&compiled.rust);
         deps.extend(compiled.dependencies);
+        stdlib_ns.extend(compiled.stdlib_used);
     }
 
     // Each `.rs` sibling → copied verbatim as `<name>.rs`.
@@ -287,6 +289,13 @@ fn generate_project(entry: &Path) -> PathBuf {
             exit(1);
         }
         any_stdlib |= needs_project(&content);
+        // A hand-written `.rs` module may use a stdlib namespace too; over-enabling
+        // a feature is harmless, under-enabling breaks the build, so scan loosely.
+        for (ns, _) in STDLIB_FEATURES {
+            if content.contains(ns) {
+                stdlib_ns.push(ns.to_string());
+            }
+        }
     }
 
     let mut cargo = format!(
@@ -294,7 +303,31 @@ fn generate_project(entry: &Path) -> PathBuf {
         pkg_name(entry)
     );
     if any_stdlib {
-        cargo.push_str(&format!("vbr_stdlib = {{ path = \"{}\" }}\n", stdlib_path()));
+        // Enable only the features the program uses (FileSystem needs none).
+        let mut features: Vec<&str> = STDLIB_FEATURES
+            .iter()
+            .filter(|(ns, _)| stdlib_ns.iter().any(|u| u == ns))
+            .map(|(_, feat)| *feat)
+            .collect();
+        features.sort();
+        features.dedup();
+        if features.is_empty() {
+            cargo.push_str(&format!(
+                "vbr_stdlib = {{ path = \"{}\", default-features = false }}\n",
+                stdlib_path()
+            ));
+        } else {
+            let list = features
+                .iter()
+                .map(|f| format!("\"{}\"", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            cargo.push_str(&format!(
+                "vbr_stdlib = {{ path = \"{}\", default-features = false, features = [{}] }}\n",
+                stdlib_path(),
+                list
+            ));
+        }
     }
     // `Use`'d crates, sorted and deduped by name, for stable output.
     deps.sort();
@@ -309,6 +342,15 @@ fn generate_project(entry: &Path) -> PathBuf {
 
     build
 }
+
+/// Stdlib namespaces that map to a `vbr_stdlib` Cargo feature. `FileSystem` is
+/// std-only and needs no feature, so it is intentionally absent.
+const STDLIB_FEATURES: &[(&str, &str)] = &[
+    ("Json", "json"),
+    ("DateTime", "datetime"),
+    ("Regex", "regex"),
+    ("Http", "http"),
+];
 
 /// The raw file stem (`http.rs` → `http`), before snake-casing.
 fn stem_name(p: &Path) -> String {

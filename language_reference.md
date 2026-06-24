@@ -665,15 +665,30 @@ mention them. Calls are namespaced, the dot becoming Rust's path separator:
 Dim text As String = FileSystem.Read("notes.txt")?
 ```
 
-`FileSystem` and `Regex` are stateless namespaces of functions. `DateTime` and
-`Json` are value types you hold and use — the polished, pre-built version of the
-`.rs`-helper idea, done once for the common cases:
+`FileSystem`, `Regex`, and `Http` are stateless namespaces of functions; `DateTime`
+and `Json` are value types you hold and use — the polished, pre-built version of
+the `.rs`-helper idea, done once for the common cases:
 
 ```vb
 Dim now As DateTime = DateTime.Now()
 Dim later As DateTime = now.AddDays(30)
 Debug.Print later.Format("%Y-%m-%d")
 ```
+
+`Http` does simple, blocking, one-shot requests:
+
+```vb
+Dim body As String = Http.Get("https://example.com")?
+```
+
+For a *stateful* HTTP client — a reused connection, cookies, auth across many
+calls — this isn't the tool; that's the case for an opaque handle or a `.rs`
+module holding a `reqwest::Client`. The stdlib keeps the easy case easy.
+
+Each namespace that pulls a real crate (`Json`, `DateTime`, `Regex`, `Http`) sits
+behind a Cargo feature, and the project build enables only the ones you use — so a
+program that just reads a file compiles nothing extra. `FileSystem` is always
+there.
 
 ### Running and seeing
 

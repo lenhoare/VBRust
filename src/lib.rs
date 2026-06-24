@@ -22,6 +22,9 @@ pub struct Compiled {
     pub has_errors: bool,
     /// Crate dependencies declared with `Use <crate> <version>` → Cargo lines.
     pub dependencies: Vec<(String, String)>,
+    /// Stdlib namespaces used (e.g. `Json`, `Http`) → which `vbr_stdlib`
+    /// features to enable.
+    pub stdlib_used: Vec<String>,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -43,12 +46,14 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         .map(|u| (u.crate_name.clone(), u.version.clone()))
         .collect();
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
+    let stdlib_used = transpiler::stdlib_used(&diags);
 
     Compiled {
         rust,
         diagnostics: diags.items().iter().map(|d| d.render()).collect(),
         has_errors: diags.has_errors(),
         dependencies,
+        stdlib_used,
     }
 }
 

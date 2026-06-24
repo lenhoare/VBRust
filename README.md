@@ -1,161 +1,124 @@
-# VBR (Visual Basic to Rust) Transpiler
+# VBR
 
-A transpiler that converts Visual Basic code to Rust-based VBR syntax, designed to help VB programmers transition to Rust.
+A transpiler that turns VB-flavoured source into idiomatic Rust, compiles it, and
+runs it. It's a teaching tool: the syntax is familiar VB, the semantics are Rust's,
+and the generated Rust is always there to read.
 
-## Philosophy
+- **`language_reference.md`** — the readable guide (start here).
+- **`language_spec.md`** — the terse, normative reference.
 
-- **VBA syntax, Rust semantics** - Never choose the VB way when there's a conflict
-- **Idiomatic Rust output** - Generate proper Rust code
-- **Educational** - Warn about pitfalls but don't preach
-- **Inline Rust escape hatch** - Allow advanced features through Rust code
+## Building
 
-## Features
+VBR is a Rust project. Build the `vbr` binary with Cargo:
 
-### Supported Language Features
-
-#### Data Types
-- Integer → i32 (copies freely - fixed size)
-- Long → i32 (copies freely - fixed size)
-- LongLong → i64
-- Single → f32 (copies freely - fixed size)
-- Double → f64 (copies freely - fixed size)
-- Boolean → bool
-- Byte → u8
-- String → String / &str
-- User-defined types
-- HashMap<K, V>
-- Vec<T>
-- Result<T, E>
-
-#### Variable Declarations
-```vb
-Dim a As Long = 5
-Dim b As String = "hello"
-Dim dict As New HashMap<String, Long>
+```sh
+cargo build              # debug build → target/debug/vbr
+cargo build --release    # optimised  → target/release/vbr
 ```
 
-Converts to:
-```rust
-let a: i32 = 5;
-let b: &str = "hello";
-let mut dict: HashMap<String, i32> = HashMap::new();
+The examples below use `cargo run --` (which builds as needed); once built you can
+call `target/debug/vbr` directly instead.
+
+## Running a program
+
+A single `.vbr` file is transpiled, compiled with `rustc`, and executed in one step:
+
+```sh
+cargo run -- run examples/hello.vbr
 ```
 
-#### Control Flow
-- If/ElseIf/Else → if/else if/else
-- Select Case/Case/Case Else → match
-- For/To/Step → for/in with ..=
-- ForEach/In → for/in with references
-- While/Do/Loop → while
-- Do While/Until → loop with break/while
+`run` is for self-contained, dependency-free programs. A program that uses the
+standard library or an external crate needs the project build instead — `run`
+will tell you so and point you at `runproject`.
 
-#### Functions
+## Transpiling (seeing the Rust)
+
+To inspect the generated Rust without running it:
+
+```sh
+cargo run -- emit examples/hello.vbr           # print the Rust to stdout
+cargo run -- transpile examples/hello.vbr      # write it to examples/hello.rs
+cargo run -- transpile examples/hello.vbr -o out.rs
+```
+
+## Projects (multiple files, the stdlib, crates)
+
+A folder of `.vbr` files is a project. The file containing `Function Main()`
+(default `main.vbr`) is the entry point; other `.vbr` files become modules, and
+any `.rs` file is included verbatim as a hand-written module.
+
+```sh
+cargo run -- runproject myapp     # generate a visible build/ Cargo project and run it
+cargo run -- build myapp          # generate the project without running it
+```
+
+`runproject` writes an explorable Cargo project to `myapp/build/` and runs it with
+`cargo run`. Projects that use `vbr_stdlib` link it by path; override its location
+with the `VBR_STDLIB_PATH` environment variable if needed.
+
+## Using the standard library
+
+The standard library — `FileSystem`, `Regex`, `Http`, `DateTime`, `Json` — needs
+no setup. Just reference a namespace and run the project:
+
 ```vb
-Function Add(x As Integer, y As Integer) As Integer
-    Function = x + y
+' fetch.vbr
+Function Main()
+    Select Case Http.Get("https://example.com")
+        Case Ok(body)
+            Debug.Print "got " & body.Len() & " bytes"
+        Case Err(message)
+            Debug.Print "request failed: " & message
+    End Select
 End Function
 ```
 
-Converts to:
-```rust
-fn add(x: i32, y: i32) -> i32 {
-    x + y
-}
+```sh
+cargo run -- runproject myapp
 ```
 
-#### Error Handling
-- On Error Resume Next → Full explanation + error handling guidance
-- As Result<T, E> → `-> Result<T, String>`
-- Return Ok(value) / Return Err(msg)
-- ? operator support
+`runproject` detects which namespaces you used and pulls in the right
+dependencies automatically — each one is behind a Cargo feature, enabled for you.
+You never edit `Cargo.toml` or turn on a feature yourself; that's all internal.
+(`Http` does simple, blocking, one-shot requests; for a reused client or session,
+reach for an inline `Rust` block or a hand-written `.rs` module.)
 
-#### Collections
-- HashMap operations (insert, get, contains_key, remove)
-- Vec operations
-- For Each iteration
+## Running the tests
 
-#### String Operations
-- & concatenation → format!()
-- Len, Left, Right, Mid → .len(), [..3], [s.len()-3..], [1..4]
-- UCase, LCase → to_uppercase(), to_lowercase()
-- Trim, Replace, InStr → trim(), replace(), find()
-- Val → parse::<T>()
+The test suite snapshots every example in `examples/` and, for the runnable ones,
+compiles the generated Rust with `rustc` to prove it is valid and warning-free.
 
-### Not Supported (Will Generate Helpful Errors)
-
-- Currency type (use f64 or i64 explicitly)
-- Variant type (Rust requires explicit types)
-- On Error GoTo (use Result<T, String> instead)
-- Property Let/Get (use methods instead)
-- With blocks (use explicit variable names)
-- Option Base (Rust is always zero-indexed)
-- Sub procedures (use Functions with no return)
-- Dynamic arrays without explicit sizing
-- Pointer types (use references instead)
-- Custom type assignments without clone()
-- Unknown-size type assignments (must use explicit clone)
-
-## Usage
-
-```bash
-cargo build --release
-./target/release/vbr_transpiler input.vb > output.rs
+```sh
+cargo test
 ```
 
-Or use it programmatically:
-```rust
-use vbr_transpiler::transpile;
+After an *intended* change to code generation, regenerate the stored snapshots and
+review the diff:
 
-let vb_code = "Dim x As Long = 5";
-let rust_code = transpile(vb_code).unwrap();
+```sh
+UPDATE_SNAPSHOTS=1 cargo test
 ```
 
-## Testing
+The standard library is a separate crate with its own tests. Its
+dependency-bearing modules are behind Cargo features, so run them with all
+features enabled:
 
-Test files are in the `tests/` directory:
-- `tests/test_basic.vb` - Basic types, control flow, functions
-- `tests/test_advanced.vb` - Advanced features (types, collections, error handling)
-- `tests/test_errors.vb` - Features that require explicit Rust alternatives
-
-### Running Tests
-
-```bash
-# Transpile test files
-for f in tests/*.vb; do
-    echo "=== $f ==="
-    cargo run -- $f 2>&1 | head -20
-done
-
-# Compile transpiled output (requires Cargo.toml setup)
-cargo check --example from_vbr
+```sh
+cargo test --manifest-path vbr_stdlib/Cargo.toml --all-features
 ```
 
-## Architecture
+Examples live in `examples/`; their expected output (generated Rust or
+diagnostics) lives in `tests/snapshots/`.
 
-The transpiler consists of:
+## Try it
 
-1. **lexer** (`src/lexer.rs`) - Tokenizes VB source code
-2. **parser** (`src/parser.rs`) - Parses tokens into AST
-3. **ast** (`src/ast.rs`) - Abstract syntax tree definitions
-4. **transpiler** (`src/transpiler.rs`) - Converts AST to Rust code
+```vb
+' hello.vbr
+Function Main()
+    Debug.Print "hello, world"
+End Function
+```
 
-## Limitations & Educational Notes
-
-The transpiler is designed as a **teaching tool**, not a production compiler:
-
-1. **Size Matters**: Rust knows the size of fixed types (i32, f64, bool, u8) so they copy freely. Unknown-size types (String, Vec, HashMap) require explicit cloning or borrowing.
-
-2. **Ownership**: VB's implicit copying doesn't exist in Rust. The transpiler guides users to explicit `.clone()` or borrowing (`&`, `&mut`).
-
-3. **Error Messages**: When Rust concepts conflict with VB patterns, the transpiler provides educational error messages explaining the Rust way.
-
-4. **Progressive Learning**: Start with basic types and control flow, then gradually introduce collections, error handling, and advanced features.
-
-## Future Improvements
-
-- [ ] Verbose mode with more educational comments
-- [ ] Better handling of Option Base (generate bounds checks)
-- [ ] Module system support
-- [ ] More sophisticated type inference
-- [ ] Pattern matching conversion (Select Case → match)
-- [ ] Better test infrastructure with round-trip verification
+```sh
+cargo run -- run hello.vbr
+```

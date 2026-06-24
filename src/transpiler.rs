@@ -1664,12 +1664,23 @@ pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
         "json" => Some("Json"),
         "datetime" => Some("DateTime"),
         "regex" => Some("Regex"),
+        "http" => Some("Http"),
         _ => None,
     }
 }
 
 /// All stdlib namespace names, for emitting `use vbr_stdlib::{…}`.
-const STDLIB_TYPES: [&str; 4] = ["FileSystem", "Json", "DateTime", "Regex"];
+const STDLIB_TYPES: [&str; 5] = ["FileSystem", "Json", "DateTime", "Regex", "Http"];
+
+/// The stdlib namespaces a compiled program uses (for enabling Cargo features).
+/// `FileSystem` is std-only and needs no feature; the rest map to a feature.
+pub fn stdlib_used(diags: &Diagnostics) -> Vec<String> {
+    STDLIB_TYPES
+        .iter()
+        .filter(|t| diags.has_mark(&format!("stdlib:{}", t)))
+        .map(|s| s.to_string())
+        .collect()
+}
 
 /// Mark stdlib types that appear as *type annotations* (params, returns, Dims,
 /// fields, Vec/Map elements) so their `use` is emitted even without a `Type.X()`
