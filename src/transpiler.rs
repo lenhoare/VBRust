@@ -35,10 +35,11 @@ pub fn transpile_module(
     is_entry: bool,
     diags: &mut Diagnostics,
 ) -> String {
-    // A GUI program (slice 1: a single `Window`) compiles to an Iced application
-    // instead of the usual top-level items.
-    if let Some(window) = program.windows.first() {
-        return crate::gui::emit_window(window, diags);
+    // A GUI program (one with a `Window`) compiles to an Iced application: the
+    // window definitions plus a `fn main` that launches the one `Function Main()`
+    // names with `<Window>.Run`.
+    if !program.windows.is_empty() {
+        return crate::gui::emit_gui_program(program, diags);
     }
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.

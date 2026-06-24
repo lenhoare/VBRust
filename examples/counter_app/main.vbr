@@ -26,3 +26,7 @@ Window Counter
         count -= 1
     End Event
 End Window
+
+Function Main()
+    Counter.Run
+End Function

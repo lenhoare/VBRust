@@ -10,8 +10,71 @@ use crate::diagnostics::Diagnostics;
 use crate::transpiler::{emit_stmt, render_expr, to_snake};
 use std::collections::HashSet;
 
-/// Emit the full Iced application for one window.
-pub fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
+/// Emit a complete GUI program: each window's definition, then `fn main`, which
+/// launches the window named by `<Window>.Run` inside `Function Main()`.
+pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
+    let mut out = String::new();
+    for comment in &program.leading_comments {
+        out.push_str(&format!("// {}\n", comment));
+    }
+    if !program.leading_comments.is_empty() {
+        out.push('\n');
+    }
+    for w in &program.windows {
+        out.push_str(&emit_window(w, diags));
+        out.push('\n');
+    }
+    match find_launched_window(program) {
+        Some(w) => out.push_str(&emit_main(w)),
+        None => diags.error_once(
+            "gui-no-launch",
+            "A window is never launched. Add `Function Main()` containing `<Window>.Run`, \
+             e.g. `Counter.Run`.",
+        ),
+    }
+    out
+}
+
+/// `fn main` for a GUI: run the window. `iced::run` returns `iced::Result`, so
+/// `main` returns it.
+fn emit_main(w: &Window) -> String {
+    let title = w.title.clone().unwrap_or_else(|| w.name.clone());
+    format!(
+        "fn main() -> iced::Result {{\n    iced::run({:?}, update, view)\n}}\n",
+        title
+    )
+}
+
+/// Find the window launched by a `<Window>.Run` statement inside `Function Main()`.
+/// Accepts the property form (`Counter.Run`) and the call form (`Counter.Run()`).
+fn find_launched_window(program: &Program) -> Option<&Window> {
+    let main = program
+        .functions
+        .iter()
+        .find(|f| f.name.eq_ignore_ascii_case("Main"))?;
+    for stmt in &main.body {
+        if let Stmt::Expr(e) = stmt {
+            let (recv, method) = match e {
+                Expr::Field(recv, m) => (recv.as_ref(), m),
+                Expr::MethodCall { recv, method, .. } => (recv.as_ref(), method),
+                _ => continue,
+            };
+            if !method.eq_ignore_ascii_case("run") {
+                continue;
+            }
+            if let Expr::Ident(name) = recv {
+                if let Some(w) = program.windows.iter().find(|w| w.name.eq_ignore_ascii_case(name)) {
+                    return Some(w);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Emit one window's *definition* — the State struct, Message enum, update, and
+/// view. (`fn main` is emitted separately, from the launch in `Function Main()`.)
+fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
     let fields: HashSet<String> = w.state.iter().map(|f| to_snake(&f.name)).collect();
@@ -62,12 +125,6 @@ pub fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     // ── view ──
     out.push_str(&format!("fn view(state: &{}) -> Element<'_, Message> {{\n", ty));
     out.push_str(&format!("    {}\n", render_view(&w.view, &fields, true)));
-    out.push_str("}\n\n");
-
-    // ── main ──
-    let title = w.title.clone().unwrap_or_else(|| w.name.clone());
-    out.push_str("fn main() -> iced::Result {\n");
-    out.push_str(&format!("    iced::run({:?}, update, view)\n", title));
     out.push_str("}\n");
 
     out
