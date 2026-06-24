@@ -333,7 +333,17 @@ fn generate_project(entry: &Path) -> PathBuf {
     deps.sort();
     deps.dedup_by(|a, b| a.0 == b.0);
     for (krate, version) in &deps {
-        cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
+        if krate == "iced" {
+            // VBR GUIs render in software (tiny-skia) rather than wgpu: it builds
+            // far faster and runs everywhere (WSL2, modest/no GPU) — the right
+            // trade for a teaching tool, since forms don't need GPU acceleration.
+            cargo.push_str(&format!(
+                "iced = {{ version = \"{}\", default-features = false, features = [\"tiny-skia\"] }}\n",
+                version
+            ));
+        } else {
+            cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
+        }
     }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
