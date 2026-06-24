@@ -1,0 +1,11 @@
+' A String parameter defaults to ByVal — a read-only borrow. No keyword is
+' needed to read it; only changing it requires ByRef.
+Function Loudly(message As String) As String
+    Return message & "!"
+End Function
+
+Function Main()
+    Dim note As String = "hello"
+    Debug.Print Loudly(note)
+    Debug.Print note               ' note is untouched — Loudly only borrowed it
+End Function

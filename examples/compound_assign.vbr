@@ -1,0 +1,9 @@
+' Compound assignment — +=, -=, *=, /= (a modern convenience over `a = a + 1`).
+Function Main()
+    Dim n As Long = 10
+    n += 5
+    n -= 3
+    n *= 2
+    n /= 4
+    Debug.Print "n = " & n
+End Function

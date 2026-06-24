@@ -69,6 +69,10 @@ pub enum Tok {
     Slash,
     Caret, // ^
     Amp,   // &
+    PlusEq,  // +=
+    MinusEq, // -=
+    StarEq,  // *=
+    SlashEq, // /=
     Eq,  // = (assignment or equality, parser decides)
     Ne,  // <>
     Lt,
@@ -166,6 +170,10 @@ pub fn lex(src: &str) -> Vec<Token> {
                 tokens.push(Token { tok: Tok::Str(s), line });
                 i = j;
             }
+            '+' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::PlusEq, line, &mut i),
+            '-' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::MinusEq, line, &mut i),
+            '*' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::StarEq, line, &mut i),
+            '/' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::SlashEq, line, &mut i),
             '+' => push(&mut tokens, Tok::Plus, line, &mut i),
             '-' => push(&mut tokens, Tok::Minus, line, &mut i),
             '*' => push(&mut tokens, Tok::Star, line, &mut i),
@@ -349,6 +357,12 @@ fn match_end_rust(chars: &[char], i: usize) -> Option<usize> {
 fn push(tokens: &mut Vec<Token>, tok: Tok, line: usize, i: &mut usize) {
     tokens.push(Token { tok, line });
     *i += 1;
+}
+
+/// Push a two-character operator token and advance past both characters.
+fn two(tokens: &mut Vec<Token>, tok: Tok, line: usize, i: &mut usize) {
+    tokens.push(Token { tok, line });
+    *i += 2;
 }
 
 fn keyword_or_ident(word: &str) -> Tok {

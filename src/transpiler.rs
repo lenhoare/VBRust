@@ -384,6 +384,7 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
             Stmt::Assign {
                 target: Expr::Ident(name),
                 value,
+                op: None,
             } if to_snake(name) == fn_name => {
                 *stmt = Stmt::Return(Some(value.clone()));
             }
@@ -596,7 +597,7 @@ fn emit_stmt(
                 render_expr(value, None)
             ));
         }
-        Stmt::Assign { target, value } => {
+        Stmt::Assign { target, value, op } => {
             let lhs = match target {
                 // Assigning through a ByRef parameter writes to the pointee: `*p = …`.
                 Expr::Ident(name) => {
@@ -609,7 +610,12 @@ fn emit_stmt(
                 }
                 other => render_expr(other, None),
             };
-            out.push_str(&format!("{}{} = {};\n", pad, lhs, render_expr(value, None)));
+            // `+=` / `-=` / `*=` / `/=` for a compound assignment, else plain `=`.
+            let assign = match op {
+                Some(o) => format!("{}=", op_str(*o)),
+                None => "=".to_string(),
+            };
+            out.push_str(&format!("{}{} {} {};\n", pad, lhs, assign, render_expr(value, None)));
         }
         Stmt::Expr(e) => {
             let rendered = match e {

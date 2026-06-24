@@ -1,0 +1,8 @@
+' MEANT to fail — a ByVal String parameter is read-only. Use ByRef to change it.
+Function Append(s As String)
+    s = s & " world"
+End Function
+
+Function Main()
+    Append("hello")
+End Function

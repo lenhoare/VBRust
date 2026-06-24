@@ -286,7 +286,20 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             Stmt::HandleDim { name, .. } => {
                 ctx.handles.insert(snake(name));
             }
-            Stmt::Assign { target, value } => {
+            Stmt::Assign { target, value, .. } => {
+                // Writing to a ByVal String parameter — it's a read-only `&str`.
+                if let Expr::Ident(name) = &*target {
+                    if ctx.str_params.contains(&snake(name)) {
+                        ctx.diags.error_once(
+                            &format!("byval-string-write-{}", snake(name)),
+                            format!(
+                                "'{}' is passed read-only (ByVal), so it can't be changed here. \
+                                 To modify the caller's string, declare it `ByRef {} As String`.",
+                                name, name
+                            ),
+                        );
+                    }
+                }
                 // Coerce based on the target variable's type (plain Ident targets only).
                 let target_ty = match &*target {
                     Expr::Ident(name) => ctx.vars.get(&snake(name)).copied(),

@@ -397,6 +397,10 @@ impl<'a> Parser<'a> {
         let mode = match explicit_mode {
             Some(m) => m,
             None if fixed_size => ParamMode::ByVal,
+            // A String parameter defaults to ByVal — a read-only `&str` borrow.
+            // Trying to change it is caught with a friendly error in the resolver.
+            None if matches!(&ty, DeclType::Plain(Type::Text)) => ParamMode::ByVal,
+            // Struct / collection parameters still require an explicit mode.
             None => {
                 self.diags.error(
                     line,
@@ -852,9 +856,24 @@ impl<'a> Parser<'a> {
         let target = self.parse_primary()?;
         if self.eat(&Tok::Eq) {
             let value = self.parse_expr()?;
-            Some(Stmt::Assign { target, value })
+            Some(Stmt::Assign { target, value, op: None })
+        } else if let Some(op) = self.compound_assign_op() {
+            self.advance();
+            let value = self.parse_expr()?;
+            Some(Stmt::Assign { target, value, op: Some(op) })
         } else {
             Some(Stmt::Expr(target))
+        }
+    }
+
+    /// `+=` / `-=` / `*=` / `/=` at the current position → its arithmetic op.
+    fn compound_assign_op(&self) -> Option<BinOp> {
+        match self.peek() {
+            Tok::PlusEq => Some(BinOp::Add),
+            Tok::MinusEq => Some(BinOp::Sub),
+            Tok::StarEq => Some(BinOp::Mul),
+            Tok::SlashEq => Some(BinOp::Div),
+            _ => None,
         }
     }
 

@@ -138,10 +138,14 @@ End Function
 ```
 [ByVal | ByRef] name As Type
 ```
-- `ByVal` (default for fixed-size types) passes by value; `String` by value is
-  emitted as `&str` where it is not mutated.
-- `ByRef` passes a mutable reference (`&mut T`); the caller's binding is updated.
-- Passing a literal to a `ByRef` parameter is rejected.
+- `ByVal` passes by value: a fixed-size type is copied; a `String` is a read-only
+  borrow `&str`; a struct/collection is an immutable borrow `&T`.
+- `ByRef` passes a mutable reference `&mut T`; the caller's binding is updated.
+- **Default mode:** fixed-size types and `String` default to `ByVal` if no mode
+  is given. Struct and collection parameters require an explicit `ByVal`/`ByRef`.
+- **Writing to a `ByVal String` parameter is rejected** (it is read-only) — use
+  `ByRef` to modify the caller's string. Passing a literal to a `ByRef` parameter
+  is also rejected.
 
 ---
 
@@ -183,8 +187,11 @@ Other expression forms: literals, identifiers, `Me` (→ `self`), calls
 ### Assignment
 
 ```
-target = expr            ' Ident or place expression (a.field, a(i))
+target = expr            ' plain assignment (Ident or place: a.field, a(i))
+target += expr           ' compound assignment; also -=  *=  /=
 ```
+Compound assignment is numeric and lowers to Rust's `+=`/`-=`/`*=`/`/=` (a
+convenience beyond VB6; there is no `&=`, since `&` formats rather than appends).
 
 ### Borrowing — `Set`
 

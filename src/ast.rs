@@ -174,6 +174,9 @@ pub enum Stmt {
     Assign {
         target: Expr,
         value: Expr,
+        /// `Some(op)` for a compound assignment (`+=`, `-=`, `*=`, `/=`);
+        /// `None` for a plain `=`.
+        op: Option<BinOp>,
     },
     /// `Dim a, b = expr` — destructure a tuple into several bindings.
     DestructureDim {
