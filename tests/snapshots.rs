@@ -40,6 +40,7 @@ const HAPPY: &[&str] = &[
     "struct_params",
     "arrays",
     "coercion_more",
+    "coercions",
     "string_args",
     "string_param",
     "case_guards",

@@ -1307,6 +1307,12 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             if is_iter_method(&m) {
                 return render_iter_method(recv, &m, args);
             }
+            // Integer `^` lowered to `.pow(...)` (the resolver rewrites it here):
+            // Rust's integer `pow` takes a `u32` exponent.
+            if m == "pow" {
+                let arg = args.first().map_or_else(String::new, |a| render_expr(a, None));
+                return format!("{}.pow(({}) as u32)", render_recv(recv), arg);
+            }
             let rendered: Vec<String> = args
                 .iter()
                 .enumerate()
@@ -1331,7 +1337,12 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         Expr::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
         Expr::Index(inner, idx) => {
-            format!("{}[{}]", render_prec(inner, None, 9, false), render_expr(idx, None))
+            // A Rust index must be `usize`; a literal is fine, anything else is cast.
+            let i = match idx.as_ref() {
+                Expr::Int(n) => n.to_string(),
+                other => format!("({}) as usize", render_expr(other, None)),
+            };
+            format!("{}[{}]", render_prec(inner, None, 9, false), i)
         }
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).

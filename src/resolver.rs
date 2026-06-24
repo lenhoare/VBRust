@@ -126,6 +126,19 @@ impl RType {
     }
 }
 
+/// The VB type for an inferred numeric `RType` (for inserting `as` casts).
+/// `Usize`/`Str`/`Bool`/`Unknown` have no VB-type target.
+fn rtype_to_type(rt: RType) -> Option<Type> {
+    Some(match rt {
+        RType::I32 => Type::Integer,
+        RType::I64 => Type::Long,
+        RType::U8 => Type::Byte,
+        RType::F32 => Type::Single,
+        RType::F64 => Type::Double,
+        _ => return None,
+    })
+}
+
 fn rtype_of(ty: Type) -> RType {
     match ty {
         Type::Integer => RType::I32,
@@ -178,6 +191,9 @@ pub fn resolve_body(
     let mut struct_vars = HashMap::new();
     let mut array_vars = HashSet::new();
     let mut str_params = HashSet::new();
+    // ByVal collection params are passed as `&Vec`/`&HashMap`, so they're already
+    // a reference — `For Each` must not borrow them a second time.
+    let mut borrowed_collections = HashSet::new();
     for p in params {
         match &p.ty {
             // A ByVal String parameter is a `&str` (already a slice).
@@ -189,6 +205,10 @@ pub fn resolve_body(
             }
             DeclType::Named(n) => {
                 struct_vars.insert(snake(&p.name), n.clone());
+            }
+            DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Map(..) if p.mode == ParamMode::ByVal => {
+                array_vars.insert(snake(&p.name));
+                borrowed_collections.insert(snake(&p.name));
             }
             DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
                 array_vars.insert(snake(&p.name));
@@ -212,6 +232,7 @@ pub fn resolve_body(
         str_params: &mut str_params,
         passed: &mut passed,
         handles: &mut handles,
+        borrowed_collections: &mut borrowed_collections,
         modules,
     };
     resolve_stmts(stmts, &mut ctx);
@@ -243,6 +264,9 @@ struct Ctx<'a> {
     /// spliced into another inline-Rust block (which the resolver never sees as
     /// an AST ident), so *any* ident-use of one is a value-use error.
     handles: &'a mut HashSet<String>,
+    /// ByVal collection params (already `&Vec`/`&HashMap`); `For Each` over one
+    /// must reborrow (`&*p`) rather than double-borrow (`&&Vec`).
+    borrowed_collections: &'a mut HashSet<String>,
     /// Other project modules (snake-cased file stems). A `Module.func(...)` call
     /// on one rewrites to a qualified `crate::module::func(...)`.
     modules: &'a HashSet<String>,
@@ -386,6 +410,14 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             Stmt::Break | Stmt::Continue => {}
             Stmt::ForEach { var1, var2, iter, body } => {
                 resolve_expr(iter, ctx);
+                // A ByVal collection param is already `&Vec`; reborrow it (`&*p`)
+                // so the emitter's `&` doesn't produce a `&&Vec` double-borrow.
+                if let Expr::Ident(n) = &*iter {
+                    if ctx.borrowed_collections.contains(&snake(n)) {
+                        let inner = std::mem::replace(iter, Expr::Int(0));
+                        *iter = Expr::Deref(Box::new(inner));
+                    }
+                }
                 // Loop variables are references inside the body, so their uses
                 // get dereferenced — scoped to this loop only.
                 let v1 = snake(var1);
@@ -530,9 +562,36 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             *e = Expr::ConstRef(ctx.consts[name].clone());
         }
         Expr::Ident(_) | Expr::ConstRef(_) => {}
-        Expr::Binary { lhs, rhs, .. } => {
+        Expr::Binary { op, lhs, rhs } => {
             resolve_expr(lhs, ctx);
             resolve_expr(rhs, ctx);
+            // Integer `^` → `base.pow(exp)` (Rust's integer pow); only a float base
+            // uses `.powi`/`.powf` (handled in the renderer).
+            if *op == BinOp::Pow {
+                let base = infer(lhs, ctx);
+                if base.is_numeric() && !base.is_float() {
+                    let recv = std::mem::replace(&mut **lhs, Expr::Int(0));
+                    let exp = std::mem::replace(&mut **rhs, Expr::Int(0));
+                    *e = Expr::MethodCall {
+                        recv: Box::new(recv),
+                        method: "pow".to_string(),
+                        args: vec![exp],
+                    };
+                }
+                return;
+            }
+            // A `usize` operand (e.g. from `.Len()`) meeting a signed integer won't
+            // compile; cast the usize side to the other operand's type.
+            let (lt, rt) = (infer(lhs, ctx), infer(rhs, ctx));
+            if lt == RType::Usize && rt.is_numeric() && rt != RType::Usize {
+                if let Some(t) = rtype_to_type(rt) {
+                    maybe_cast(lhs, t, ctx);
+                }
+            } else if rt == RType::Usize && lt.is_numeric() && lt != RType::Usize {
+                if let Some(t) = rtype_to_type(lt) {
+                    maybe_cast(rhs, t, ctx);
+                }
+            }
         }
         Expr::MethodCall { recv, method, args } => {
             // Calling a `&mut self` method on a variable means it must be `mut`.
@@ -543,6 +602,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
+            }
+            // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
+            // not an owned String — use `.to_string()` so it fits a String slot.
+            if method.eq_ignore_ascii_case("clone") {
+                if let Expr::Ident(n) = &**recv {
+                    if ctx.str_params.contains(&snake(n)) {
+                        *method = "to_string".to_string();
+                    }
+                }
             }
             // Stdlib functions take string args by `&str`; borrow an owned String.
             if matches!(&**recv, Expr::Ident(n) if stdlib_type(n).is_some()) {
@@ -717,7 +785,12 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
                 _ => RType::Unknown,
             }
         }),
-        Expr::MethodCall { .. } => RType::Unknown,
+        // `.len()`/`.count()` return `usize` — needed so comparisons/assignments
+        // against signed ints get the right `as` cast.
+        Expr::MethodCall { method, .. } => match snake(method).as_str() {
+            "len" | "count" => RType::Usize,
+            _ => RType::Unknown,
+        },
     }
 }
 

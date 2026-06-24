@@ -1,0 +1,29 @@
+' Numeric/borrow coercions the transpiler inserts so real programs compile:
+' integer ^ → .pow, Vec index/compare → usize casts, For Each over a borrowed
+' Vec param, and .Clone() on a &str parameter → .to_string().
+Function Square(ByVal n As Long) As Long
+    Return n ^ 2
+End Function
+
+Function SumAndFirst(ByVal nums As Vec<Long>) As Long
+    Dim total As Long = 0
+    For Each x In nums
+        total += x
+    Next
+    Dim i As Long = 0
+    If i < nums.Len() Then
+        total += nums[i]
+    End If
+    Return total
+End Function
+
+Function Dup(ByVal s As String) As String
+    Return s.Clone()
+End Function
+
+Function Main()
+    Dim v() As Long = Rust vec![10, 20, 30] End Rust
+    Debug.Print "square(3)  = " & Square(3)
+    Debug.Print "sum+first  = " & SumAndFirst(v)
+    Debug.Print "dup        = " & Dup("hi")
+End Function
