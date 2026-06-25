@@ -126,6 +126,17 @@ impl RType {
     }
 }
 
+/// Wrap a `&str`-typed expression in `.to_string()`, making it an owned String.
+/// Used wherever a String is expected: Dim init, assignment, return, Ok/Some.
+fn to_owned_string(e: &mut Expr) {
+    let inner = std::mem::replace(e, Expr::Int(0));
+    *e = Expr::MethodCall {
+        recv: Box::new(inner),
+        method: "to_string".to_string(),
+        args: Vec::new(),
+    };
+}
+
 /// The VB type for an inferred numeric `RType` (for inserting `as` casts).
 /// `Usize`/`Str`/`Bool`/`Unknown` have no VB-type target.
 fn rtype_to_type(rt: RType) -> Option<Type> {
@@ -281,6 +292,12 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     if let Some(e) = init {
                         resolve_expr(e, ctx);
                         maybe_cast(e, *t, ctx);
+                        // A `&str` *expression* (Mid, a String param, Trim…) into a
+                        // String var becomes owned. A bare literal is handled by the
+                        // emitter; an owned-String move still hits the ownership error.
+                        if *t == Type::Text && infer(e, ctx) == RType::Str && !matches!(e, Expr::Str(_)) {
+                            to_owned_string(e);
+                        }
                     }
                     ctx.vars.insert(snake(name), *t);
                 } else if let DeclType::Named(struct_name) = ty {
@@ -337,6 +354,11 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 resolve_expr(value, ctx);
                 if let Some(ty) = target_ty {
                     maybe_cast(value, ty, ctx);
+                    // Assigning a `&str` (a literal like `""`, a param, Mid…) to a
+                    // String variable → owned.
+                    if ty == Type::Text && infer(value, ctx) == RType::Str {
+                        to_owned_string(value);
+                    }
                 }
             }
             Stmt::Set { value, .. } => resolve_expr(value, ctx),
@@ -346,14 +368,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 match ctx.ret_coerce {
                     // A String-returning function: an existing &str (literal, &str
                     // param, Trim(..)) becomes an owned String.
-                    Some(Type::Text) if infer(e, ctx) == RType::Str => {
-                        let inner = std::mem::replace(e, Expr::Int(0));
-                        *e = Expr::MethodCall {
-                            recv: Box::new(inner),
-                            method: "to_string".to_string(),
-                            args: Vec::new(),
-                        };
-                    }
+                    Some(Type::Text) if infer(e, ctx) == RType::Str => to_owned_string(e),
                     // Coerce a numeric return value to the declared numeric type.
                     Some(t) => maybe_cast(e, t, ctx),
                     None => {}
@@ -655,6 +670,13 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
+            }
+            // `Ok(s)` / `Some(s)` of a `&str` need an owned String payload
+            // (VBR's `Result<String>`/`Option<String>` own their value).
+            if matches!(name.as_str(), "Ok" | "Some") && args.len() == 1
+                && infer(&args[0], ctx) == RType::Str
+            {
+                to_owned_string(&mut args[0]);
             }
             // Maths builtins need a floating-point receiver — cast an integer
             // argument so e.g. `Sqr(n)` becomes `(n as f64).sqrt()`.

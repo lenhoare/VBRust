@@ -43,6 +43,7 @@ const HAPPY: &[&str] = &[
     "coercions",
     "string_args",
     "string_param",
+    "string_coercions",
     "case_guards",
     "terminal_io",
     "inline_rust",

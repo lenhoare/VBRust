@@ -1318,8 +1318,9 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 .iter()
                 .enumerate()
                 .map(|(i, a)| {
-                    // HashMap insert: a string-literal key becomes an owned String.
-                    if m == "insert" && i == 0 {
+                    // A string literal into a `Vec<String>`/`HashMap` becomes owned:
+                    // `push("x")` / `insert("k", …)`.
+                    if m == "push" || (m == "insert" && i == 0) {
                         if let Expr::Str(s) = a {
                             return format!("\"{}\".to_string()", escape(s));
                         }
@@ -1506,8 +1507,9 @@ fn math0(recv: &Expr, method: &str) -> String {
 
 fn render_recv(e: &Expr) -> String {
     let s = render_prec(e, None, 9, false);
-    // Parenthesise a leading unary so `(-5.0).abs()` / `(*p).foo()` parse right.
-    if s.starts_with('-') || s.starts_with('*') {
+    // Parenthesise a leading unary so `(-5.0).abs()` / `(*p).foo()` / a borrowed
+    // slice `(&s[..]).to_string()` parse right.
+    if s.starts_with('-') || s.starts_with('*') || s.starts_with('&') {
         format!("({})", s)
     } else {
         s
