@@ -1,0 +1,14 @@
+' Single-line If: `If cond Then <stmt>` and `If cond Then <stmt> Else <stmt>`,
+' with no `End If`. Block If still works as before.
+Function Sign(ByVal n As Long) As String
+    If n < 0 Then Return "negative"
+    If n = 0 Then Return "zero" Else Return "positive"
+End Function
+
+Function Main()
+    Dim x As Long = 5
+    If x > 3 Then Debug.Print "big" Else Debug.Print "small"
+    Debug.Print "-2 -> " & Sign(-2)
+    Debug.Print " 0 -> " & Sign(0)
+    Debug.Print " 7 -> " & Sign(7)
+End Function

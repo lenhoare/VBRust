@@ -1134,6 +1134,20 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::If, "")?;
         let cond = self.parse_expr()?;
         self.expect(&Tok::Then, "after the `If` condition")?;
+        // Single-line form: `If cond Then <stmt> [Else <stmt>]` — a statement
+        // follows `Then` on the same line, and there is no `End If`.
+        if !matches!(self.peek(), Tok::Newline) {
+            let then_stmt = self.parse_stmt()?;
+            let else_body = if self.eat(&Tok::Else) {
+                Some(vec![self.parse_stmt()?])
+            } else {
+                None
+            };
+            return Some(Stmt::If {
+                branches: vec![(cond, vec![then_stmt])],
+                else_body,
+            });
+        }
         self.expect(&Tok::Newline, "after `Then`")?;
         let body = self.parse_block()?;
 

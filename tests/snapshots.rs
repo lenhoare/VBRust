@@ -22,6 +22,7 @@ const HAPPY: &[&str] = &[
     "sub",
     "types",
     "select",
+    "single_line_if",
     "string_funcs",
     "maths",
     "byref",

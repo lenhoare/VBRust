@@ -229,7 +229,11 @@ ElseIf cond Then
 Else
     …
 End If
+
+If cond Then stmt                  ' single-line form, no End If
+If cond Then stmt Else stmt
 ```
+The single-line form takes one statement per branch (e.g. `If x < 0 Then Return -x`).
 
 ### Select Case
 ```
