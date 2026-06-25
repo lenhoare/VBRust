@@ -84,15 +84,43 @@ End View
 
 The view is a declarative description of the interface. It is regenerated when state changes.
 
+The view may branch on state with **`Match`** *(BUILT — slice 2)* — the same
+`Match` as the rest of the language, but each arm produces the widget(s) to show:
+
+```vb
+View
+    Column
+        TextInput "type here", name
+            On Input Rename
+        End TextInput
+        Match name
+            "" => Text "Type your name above."
+            _  => Text "Hello, " & name & "!"
+        End Match
+    End Column
+End View
+```
+
+Each arm yields one widget (or several wrapped in an implicit `Column`); a
+`String` is matched as text, so `""` / literal patterns work.
+
 ### 2.3 Events
 
 The `Event` blocks define how state changes in response to user actions.
 
-Example:
-
 ```vb
 Event Increment
     count += 1
+End Event
+```
+
+An event may take **parameters** *(BUILT — slice 2)*, which carry data from the
+widget (e.g. a `TextInput`'s new text). The event becomes a message variant
+holding that data, and the body binds it:
+
+```vb
+Event Rename(value As String)   ' → Message::Rename(String)
+    name = value
 End Event
 ```
 
@@ -165,28 +193,29 @@ V1 should support at least PNG and JPEG if supported by the backend configuratio
 
 ### 4.2 Input Controls
 
-#### TextBox
+#### TextInput  *(BUILT — slice 2)*
 
-Single-line text input bound to a string state field.
-
-```vb
-TextBox name
-TextBox name Placeholder "Enter your name"
-```
-
-Maps to Iced `text_input`.
-
-When the user edits the text, VBR automatically updates the bound state field.
-
-Conceptual generated event:
+Single-line text input bound to a `String` state field. The placeholder comes
+first, then the bound field; an `On Input` clause names the event fired on each
+keystroke, which receives the new text as a payload.
 
 ```vb
-Event name_Changed(value As String)
+TextInput "Enter your name", name
+    On Input Rename
+End TextInput
+
+Event Rename(value As String)
     name = value
 End Event
 ```
 
-The user should not normally need to write this event manually.
+Maps to Iced `text_input("Enter your name", &state.name).on_input(Message::Rename)`.
+
+The binding is **explicit** by design: the event makes the message-passing
+mechanism visible (the point of a teaching tool) and gives you a place to
+validate or transform the input rather than only store it. (A future
+auto-binding shorthand could synthesise the trivial "just store it" event, but
+the explicit form is the foundation.)
 
 ---
 

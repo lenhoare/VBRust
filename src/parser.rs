@@ -425,12 +425,18 @@ impl<'a> Parser<'a> {
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Event") => {
                     self.advance();
                     let ev_name = self.expect_ident("for the event name")?;
+                    // Optional payload params: `Event Rename(value As String)`.
+                    let params = if self.eat(&Tok::LParen) {
+                        self.parse_params_until_rparen()?
+                    } else {
+                        Vec::new()
+                    };
                     self.expect(&Tok::Newline, "after the event name")?;
                     let body = self.parse_block()?;
                     self.expect(&Tok::End, "to close the event")?;
                     self.expect_kw_ident("Event")?;
                     self.eat(&Tok::Newline);
-                    events.push(GuiEvent { name: ev_name, body });
+                    events.push(GuiEvent { name: ev_name, params, body });
                 }
                 other => {
                     self.diags.error(
@@ -501,6 +507,10 @@ impl<'a> Parser<'a> {
 
     fn parse_view_node(&mut self) -> Option<ViewNode> {
         self.skip_newlines();
+        // `Match` lexes to a keyword token, so handle it before widget names.
+        if matches!(self.peek(), Tok::Match) {
+            return self.parse_view_match();
+        }
         let kw = match self.peek().clone() {
             Tok::Ident(w) => w,
             other => {
@@ -561,14 +571,102 @@ impl<'a> Parser<'a> {
                 }
                 Some(ViewNode::Button { label, on_click })
             }
+            "textinput" => {
+                self.advance();
+                let placeholder = self.parse_expr()?;
+                // The bound state field follows the placeholder: `TextInput "p", name`.
+                self.expect(&Tok::Comma, "after the placeholder — `TextInput \"hint\", field`")?;
+                let value = self.expect_ident("for the bound state field")?;
+                self.eat(&Tok::Newline);
+                let mut on_input = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Input")?;
+                            on_input = Some(self.expect_ident("for the input event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("TextInput")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a TextInput expected `On Input <event>` or \
+                                     `End TextInput`, found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::TextInput { placeholder, value, on_input })
+            }
             other => {
                 self.diags.error(
                     self.line(),
-                    format!("Unknown widget `{}` (slice 1: Column, Row, Text, Button).", other),
+                    format!(
+                        "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, Match).",
+                        other
+                    ),
                 );
                 None
             }
         }
+    }
+
+    /// `Match <expr>` inside a view: each arm is `pattern => <widget>` (inline) or
+    /// an indented block of widgets, just like the statement form (§Match) — but
+    /// the bodies are view nodes, and each arm yields one Iced `Element`.
+    fn parse_view_match(&mut self) -> Option<ViewNode> {
+        self.expect(&Tok::Match, "")?;
+        let scrutinee = self.parse_expr()?;
+        self.expect(&Tok::Newline, "after the `Match` expression")?;
+
+        let mut arms = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End | Tok::Eof) {
+                break;
+            }
+            let pattern = self.parse_pattern()?;
+            let guard = if self.eat(&Tok::If) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+            self.expect(&Tok::FatArrow, "after the pattern — every arm is `pattern => widget`")?;
+            let body = if matches!(self.peek(), Tok::Newline | Tok::Eof) {
+                self.parse_view_arm_body()?
+            } else {
+                vec![self.parse_view_node()?]
+            };
+            arms.push(ViewArm { pattern, guard, body });
+        }
+        self.expect(&Tok::End, "to close the `Match`")?;
+        self.expect(&Tok::Match, "after `End`")?;
+        Some(ViewNode::Match { scrutinee, arms })
+    }
+
+    /// A view-match arm's indented body: widgets until the next arm (a line with
+    /// `=>`) or `End Match`.
+    fn parse_view_arm_body(&mut self) -> Option<Vec<ViewNode>> {
+        let mut nodes = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End | Tok::Eof) || self.line_has_fat_arrow() {
+                break;
+            }
+            nodes.push(self.parse_view_node()?);
+        }
+        Some(nodes)
     }
 
     fn parse_view_children(&mut self, container: &str) -> Option<Vec<ViewNode>> {
@@ -623,6 +721,22 @@ impl<'a> Parser<'a> {
             }
         };
         Some(Param { name, ty, mode })
+    }
+
+    /// Parse a comma-separated parameter list, assuming the opening `(` is already
+    /// consumed, and consume the closing `)`.
+    fn parse_params_until_rparen(&mut self) -> Option<Vec<Param>> {
+        let mut params = Vec::new();
+        if !matches!(self.peek(), Tok::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen, "to close the parameter list")?;
+        Some(params)
     }
 
     /// Emit the "use DateTime" redirect for a `Date` used in type position.

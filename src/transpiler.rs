@@ -215,7 +215,7 @@ fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
 
 /// Render a `DeclType` as its Rust type, recursively. `Result<T>` injects the
 /// `String` error type at any nesting depth (`Result<T, String>`).
-fn decltype_rust(ty: &DeclType) -> String {
+pub(crate) fn decltype_rust(ty: &DeclType) -> String {
     match ty {
         DeclType::Plain(t) => t.rust().to_string(),
         DeclType::Named(n) => n.clone(),

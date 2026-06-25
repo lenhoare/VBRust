@@ -419,7 +419,12 @@ fn pkg_name(entry: &Path) -> String {
 }
 
 /// Where `vbr_stdlib` lives: `$VBR_STDLIB_PATH`, else the compile-time default.
+///
+/// Backslashes are normalised to forward slashes so the path is a valid TOML
+/// basic string (TOML treats `\` as an escape) — Cargo accepts forward-slash
+/// paths on Windows too, so this is portable.
 fn stdlib_path() -> String {
     std::env::var("VBR_STDLIB_PATH")
         .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/vbr_stdlib").to_string())
+        .replace('\\', "/")
 }

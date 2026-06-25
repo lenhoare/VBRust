@@ -1,0 +1,30 @@
+' A text input bound to state, with a payload-carrying event and a Match in the
+' view that reacts to what's typed.
+Window Greeter
+    Title "Greeter"
+
+    State
+        Dim name As String = ""
+    End State
+
+    View
+        Column
+            Text "What's your name?"
+            TextInput "type here", name
+                On Input Rename
+            End TextInput
+            Match name
+                "" => Text "Type your name above."
+                _ => Text "Hello, " & name & "!"
+            End Match
+        End Column
+    End View
+
+    Event Rename(value As String)
+        name = value
+    End Event
+End Window
+
+Function Main()
+    Greeter.Run
+End Function

@@ -97,12 +97,37 @@ pub enum ViewNode {
         label: Expr,
         on_click: Option<String>,
     },
+    /// A text entry box bound to a `String` state field. `on_input` names the
+    /// event fired on each keystroke (which receives the new text).
+    TextInput {
+        placeholder: Expr,
+        value: String,
+        on_input: Option<String>,
+    },
+    /// `Match <expr>` inside a view — each arm produces the widget(s) to show.
+    /// Lowers to a Rust `match` whose arms each yield an `Element`.
+    Match {
+        scrutinee: Expr,
+        arms: Vec<ViewArm>,
+    },
+}
+
+/// One arm of a view `Match`: a pattern (raw Rust, as in a statement `Match`)
+/// and the widget(s) it shows.
+#[derive(Debug, Clone)]
+pub struct ViewArm {
+    pub pattern: String,
+    pub guard: Option<Expr>,
+    pub body: Vec<ViewNode>,
 }
 
 /// A window event handler — maps to an Iced `Message` variant + `update` arm.
+/// `params` carry data from the widget (e.g. a `TextInput`'s new text), so the
+/// variant becomes `Name(T, …)` and the arm binds them.
 #[derive(Debug, Clone)]
 pub struct GuiEvent {
     pub name: String,
+    pub params: Vec<Param>,
     pub body: Vec<Stmt>,
 }
 

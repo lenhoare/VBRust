@@ -7,8 +7,16 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::transpiler::{emit_stmt, render_expr, to_snake};
-use std::collections::HashSet;
+use crate::transpiler::{decltype_rust, emit_stmt, render_expr, to_snake};
+use std::collections::{HashMap, HashSet};
+
+/// What the view renderer needs to know about a window's state: the field names
+/// (to rewrite `count` → `state.count`) and their types (so a `String` match
+/// scrutinee gets `.as_str()`).
+struct ViewCtx<'a> {
+    fields: &'a HashSet<String>,
+    field_ty: &'a HashMap<String, Type>,
+}
 
 /// Emit a complete GUI program: each window's definition, then `fn main`, which
 /// launches the window named by `<Window>.Run` inside `Function Main()`.
@@ -78,6 +86,9 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
     let fields: HashSet<String> = w.state.iter().map(|f| to_snake(&f.name)).collect();
+    let field_ty: HashMap<String, Type> =
+        w.state.iter().map(|f| (to_snake(&f.name), f.ty)).collect();
+    let ctx = ViewCtx { fields: &fields, field_ty: &field_ty };
 
     // Import only the widgets the view actually uses (no dead imports).
     let mut widgets: Vec<&'static str> = Vec::new();
@@ -101,19 +112,30 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     }
     out.push_str("        }\n    }\n}\n\n");
 
-    // ── Message enum (one variant per event) ──
+    // ── Message enum (one variant per event; payload params become its data) ──
     out.push_str("#[derive(Debug, Clone)]\nenum Message {\n");
     for e in &w.events {
-        out.push_str(&format!("    {},\n", e.name));
+        if e.params.is_empty() {
+            out.push_str(&format!("    {},\n", e.name));
+        } else {
+            let types: Vec<String> = e.params.iter().map(|p| decltype_rust(&p.ty)).collect();
+            out.push_str(&format!("    {}({}),\n", e.name, types.join(", ")));
+        }
     }
     out.push_str("}\n\n");
 
-    // ── update: each event body, with state fields rewritten to `state.field` ──
+    // ── update: each event body, with state fields rewritten to `state.field`.
+    //    A payload event's params are bound by the match arm (e.g. `Rename(value)`). ──
     let empty: HashSet<String> = HashSet::new();
     out.push_str(&format!("fn update(state: &mut {}, message: Message) {{\n", ty));
     out.push_str("    match message {\n");
     for e in &w.events {
-        out.push_str(&format!("        Message::{} => {{\n", e.name));
+        if e.params.is_empty() {
+            out.push_str(&format!("        Message::{} => {{\n", e.name));
+        } else {
+            let binds: Vec<String> = e.params.iter().map(|p| to_snake(&p.name)).collect();
+            out.push_str(&format!("        Message::{}({}) => {{\n", e.name, binds.join(", ")));
+        }
         for stmt in &e.body {
             let rewritten = rewrite_stmt(stmt.clone(), &fields);
             emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
@@ -124,7 +146,7 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
 
     // ── view ──
     out.push_str(&format!("fn view(state: &{}) -> Element<'_, Message> {{\n", ty));
-    out.push_str(&format!("    {}\n", render_view(&w.view, &fields, true)));
+    out.push_str(&format!("    {}\n", render_view(&w.view, &ctx, true)));
     out.push_str("}\n");
 
     out
@@ -138,26 +160,74 @@ fn render_init(init: &Expr, ty: Type) -> String {
     render_expr(init, Some(ty))
 }
 
-/// Render a view node to an Iced widget expression. The root gets `.into()` so
-/// the `view` function returns an `Element`.
-fn render_view(node: &ViewNode, fields: &HashSet<String>, root: bool) -> String {
+/// Render a view node to an Iced widget expression. The root (and each `Match`
+/// arm) gets `.into()` so the `view` function returns an `Element`.
+fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
     let s = match node {
-        ViewNode::Column(children) => format!("column![{}]", render_children(children, fields)),
-        ViewNode::Row(children) => format!("row![{}]", render_children(children, fields)),
-        ViewNode::Text(e) => render_text(e, fields),
+        ViewNode::Column(children) => format!("column![{}]", render_children(children, ctx)),
+        ViewNode::Row(children) => format!("row![{}]", render_children(children, ctx)),
+        ViewNode::Text(e) => render_text(e, ctx),
         ViewNode::Button { label, on_click } => {
-            let lbl = render_expr(&rewrite_expr(label.clone(), fields), None);
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields), None);
             match on_click {
                 Some(ev) => format!("button({}).on_press(Message::{})", lbl, ev),
                 None => format!("button({})", lbl),
             }
         }
+        ViewNode::TextInput { placeholder, value, on_input } => {
+            let ph = render_expr(&rewrite_expr(placeholder.clone(), ctx.fields), None);
+            let field = to_snake(value);
+            let base = format!("text_input({}, &state.{})", ph, field);
+            match on_input {
+                Some(ev) => format!("{}.on_input(Message::{})", base, ev),
+                None => base,
+            }
+        }
+        // A view `Match` lowers to a Rust `match` whose arms each yield an
+        // `Element` (via `.into()`). The result is pinned to `Element` with a
+        // typed binding so each arm's `.into()` has a target. A `String`
+        // scrutinee is matched as `&str`.
+        ViewNode::Match { scrutinee, arms } => {
+            let subj = render_match_scrutinee(scrutinee, ctx);
+            let mut m = format!("{{ let el: Element<'_, Message> = match {} {{ ", subj);
+            for arm in arms {
+                let guard = match &arm.guard {
+                    Some(g) => format!(" if {}", render_expr(&rewrite_expr(g.clone(), ctx.fields), None)),
+                    None => String::new(),
+                };
+                m.push_str(&format!("{}{} => {}, ", arm.pattern, guard, render_arm_body(&arm.body, ctx)));
+            }
+            m.push_str("}; el }");
+            m
+        }
     };
-    if root {
+    // A `match` block already evaluates to an `Element`; don't double-wrap.
+    if root && !matches!(node, ViewNode::Match { .. }) {
         format!("{}.into()", s)
     } else {
         s
     }
+}
+
+/// One view-`Match` arm body → a single `Element`: a lone widget, or several
+/// wrapped in a `column!`.
+fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx) -> String {
+    match body {
+        [one] => render_view(one, ctx, true),
+        many => format!("column![{}].into()", render_children(many, ctx)),
+    }
+}
+
+/// The scrutinee of a view `Match`: a bare `String` state field is matched as a
+/// slice (`state.name.as_str()`) so string-literal patterns line up.
+fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
+    let rendered = render_expr(&rewrite_expr(scrutinee.clone(), ctx.fields), None);
+    if let Expr::Ident(name) = scrutinee {
+        if ctx.field_ty.get(&to_snake(name)) == Some(&Type::Text) {
+            return format!("{}.as_str()", rendered);
+        }
+    }
+    rendered
 }
 
 /// Which Iced widget functions the view tree references, for the `use` line.
@@ -178,21 +248,27 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         }
         ViewNode::Text(_) => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
+        ViewNode::TextInput { .. } => add(used, "text_input"),
+        ViewNode::Match { arms, .. } => {
+            for arm in arms {
+                arm.body.iter().for_each(|c| collect_widgets(c, used));
+            }
+        }
     }
 }
 
-fn render_children(children: &[ViewNode], fields: &HashSet<String>) -> String {
+fn render_children(children: &[ViewNode], ctx: &ViewCtx) -> String {
     children
         .iter()
-        .map(|c| render_view(c, fields, false))
+        .map(|c| render_view(c, ctx, false))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 /// `Text` content: a string literal as-is, a concatenation as its `format!`, and
 /// anything else stringified with `format!("{}", …)`.
-fn render_text(e: &Expr, fields: &HashSet<String>) -> String {
-    let rendered = render_expr(&rewrite_expr(e.clone(), fields), None);
+fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
+    let rendered = render_expr(&rewrite_expr(e.clone(), ctx.fields), None);
     match e {
         Expr::Str(_) => format!("text({})", rendered),
         Expr::Binary { op: BinOp::Concat, .. } => format!("text({})", rendered),
