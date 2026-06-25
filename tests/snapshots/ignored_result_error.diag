@@ -1,2 +1,2 @@
 ⚠ [line 2] Function 'Risky' renamed to 'risky' — Rust uses snake_case for functions.
-✘ This Result is being thrown away. Handle it: `?` to propagate, `Select Case` over Ok/Err (or Some/None), or assign it with `Dim`.
+✘ This Result is being thrown away. Handle it: `?` to propagate, `Match` over Ok/Err (or Some/None), or assign it with `Dim`.

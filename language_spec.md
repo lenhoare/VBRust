@@ -207,7 +207,7 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
   type, and `is_nan`/`is_finite`/`is_power_of_two` are `bool`. So `Dim k As Long
   = n.abs()` keeps `k` a `Long`.
 - **Vec/collection** methods pass through too. The `Option`-returning accessors
-  (`first`, `last`, `get`) pair with `Select Case` over `Some`/`None`; `len` is a
+  (`first`, `last`, `get`) pair with `Match` over `Some`/`None`; `len` is a
   `usize`; `join` builds a `String`. `vec.contains(x)` takes `&T`, so the borrow
   (and owning a string element) is inserted for you — unlike `str.contains`,
   which is left as-is.
@@ -349,12 +349,12 @@ fallible function declares `As Result<T>` and returns `Ok(v)` on success or
 A `Result` at the call site must be **handled**, **propagated**, or
 **unwrapped**:
 
-- **Handle it** — `Select Case` over `Ok`/`Err` (or `Some`/`None`):
+- **Handle it** — `Match` over `Ok`/`Err` (or `Some`/`None`):
   ```
-  Select Case Divide(10, 2)
-      Case Ok(value)      ' success — value is the T
-      Case Err(message)   ' failure — message is the error
-  End Select
+  Match Divide(10, 2)
+      Ok(value) => Use(value)       ' success — value is the T
+      Err(message) => Report(message) ' failure — message is the error
+  End Match
   ```
 - **Propagate it — `?`** — `Dim x As Long = MightFail()?` means: *if it's `Err`,
   return that error from the current function immediately; if it's `Ok`, take the
@@ -366,7 +366,7 @@ A `Result` at the call site must be **handled**, **propagated**, or
   Allowed, but flagged as training wheels; avoid in real code.
 
 Rule of thumb: use `?` when handling the failure isn't *this* function's job
-(push it up); use `Select Case` at the level that knows how to recover or report.
+(push it up); use `Match` at the level that knows how to recover or report.
 
 Silently discarding a returned `Result` (calling it as a bare statement) is
 rejected. `On Error …` is also rejected, with guidance toward `Result`.
@@ -459,7 +459,7 @@ These parse but are deliberately refused, each with guidance:
 | `Option Base` / `Option Explicit` | Rust is always zero-indexed and explicit.    |
 | `Exit` (other than Do/For/Function) | Only those three targets.                  |
 | Ignoring a returned `Result`    | Must propagate or handle.                       |
-| `?` outside a `Result`/`Option` function | Propagation needs a fallible caller; use `Select Case`, or declare `As Result<T>`. |
+| `?` outside a `Result`/`Option` function | Propagation needs a fallible caller; use `Match`, or declare `As Result<T>`. |
 | Passing a literal to `ByRef`    | Needs an assignable place.                      |
 | Declaring a struct uninitialised | Construct fully at `Dim`.                      |
 | Indexing where a bound/type is unknown | Compile-time error with explanation.     |

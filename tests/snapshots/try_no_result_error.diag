@@ -1,2 +1,2 @@
-✘ `?` can only be used in a function that returns `Result` (or `Option`). It hands the error back to the caller on failure, so this function's signature must allow failure: declare it `As Result<T>`, or handle the error here with `Select Case` over `Ok`/`Err`.
+✘ `?` can only be used in a function that returns `Result` (or `Option`). It hands the error back to the caller on failure, so this function's signature must allow failure: declare it `As Result<T>`, or handle the error here with `Match` over `Ok`/`Err`.
 ⚠ [line 8] Function 'MightFail' renamed to 'might_fail' — Rust uses snake_case for functions.

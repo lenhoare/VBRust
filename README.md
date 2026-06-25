@@ -64,12 +64,10 @@ no setup. Just reference a namespace and run the project:
 ```vb
 ' fetch.vbr
 Function Main()
-    Select Case Http.Get("https://example.com")
-        Case Ok(body)
-            Debug.Print "got " & body.Len() & " bytes"
-        Case Err(message)
-            Debug.Print "request failed: " & message
-    End Select
+    Match Http.Get("https://example.com")
+        Ok(body) => Debug.Print "got " & body.Len() & " bytes"
+        Err(message) => Debug.Print "request failed: " & message
+    End Match
 End Function
 ```
 
