@@ -23,7 +23,7 @@ use crate::transpiler::{stdlib_type, to_screaming};
 pub struct FnSig {
     pub modes: Vec<ParamMode>,
     pub param_types: Vec<DeclType>,
-    pub ret: Option<RetType>,
+    pub ret: Option<DeclType>,
 }
 
 pub type FnTable = HashMap<String, FnSig>;
@@ -217,11 +217,11 @@ pub fn resolve_body(
             DeclType::Named(n) => {
                 struct_vars.insert(snake(&p.name), n.clone());
             }
-            DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Map(..) if p.mode == ParamMode::ByVal => {
+            DeclType::Vec(_) | DeclType::Map(..) if p.mode == ParamMode::ByVal => {
                 array_vars.insert(snake(&p.name));
                 borrowed_collections.insert(snake(&p.name));
             }
-            DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
+            DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
                 array_vars.insert(snake(&p.name));
             }
             _ => {}
@@ -312,10 +312,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     }
                     if matches!(
                         ty,
-                        DeclType::Vec(_)
-                            | DeclType::Vec2D(_)
-                            | DeclType::Array(..)
-                            | DeclType::Array2D(..)
+                        DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..)
                     ) {
                         ctx.array_vars.insert(snake(name));
                     }
@@ -542,8 +539,8 @@ fn is_lvalue(e: &Expr) -> bool {
 fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
     if let Expr::Call { name, .. } = e {
         match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
-            Some(RetType::Result(_)) => return Some("Result"),
-            Some(RetType::Option(_)) => return Some("Option"),
+            Some(DeclType::Result(_)) => return Some("Result"),
+            Some(DeclType::Option(_)) => return Some("Option"),
             _ => {}
         }
         match name.to_ascii_lowercase().as_str() {
@@ -617,6 +614,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
+            }
+            // `coll.push(s)` / `coll.insert(s)` of a `&str` need an owned String
+            // payload (a `Vec<String>`/`HashMap` slot owns its value).
+            if matches!(snake(method).as_str(), "push" | "insert") {
+                for arg in args.iter_mut() {
+                    if infer(arg, ctx) == RType::Str && !matches!(arg, Expr::Str(_)) {
+                        to_owned_string(arg);
+                    }
+                }
             }
             // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
             // not an owned String — use `.to_string()` so it fits a String slot.
@@ -803,7 +809,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
             // Not a builtin? A plain return type is numeric; Result/Option aren't.
             let _ = args;
             match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
-                Some(RetType::Plain(t)) => rtype_of(*t),
+                Some(DeclType::Plain(t)) => rtype_of(*t),
                 _ => RType::Unknown,
             }
         }),

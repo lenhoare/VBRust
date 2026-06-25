@@ -264,7 +264,7 @@ impl<'a> Parser<'a> {
             };
             let fname = self.expect_ident("for the field")?;
             self.expect(&Tok::As, "after the field name")?;
-            let ty = self.parse_decl_type(false)?;
+            let ty = self.parse_decl_type()?;
             fields.push(Field {
                 name: fname,
                 public: field_public,
@@ -334,7 +334,7 @@ impl<'a> Parser<'a> {
             None
         } else if self.eat(&Tok::As) {
             // `Function Foo() As Long` / `As Result<Long>` / `As Option<String>`
-            Some(self.parse_ret_type()?)
+            Some(self.parse_decl_type()?)
         } else {
             None
         };
@@ -586,39 +586,6 @@ impl<'a> Parser<'a> {
         Some(children)
     }
 
-    /// A return type: a plain type, `Result<T>` / `Option<T>`, or a tuple.
-    fn parse_ret_type(&mut self) -> Option<RetType> {
-        if matches!(self.peek(), Tok::LParen) {
-            return Some(RetType::Tuple(self.parse_tuple_types()?));
-        }
-        if let Tok::Ident(word) = self.peek().clone() {
-            let wrapper = match word.as_str() {
-                "Result" => Some(true),  // Result
-                "Option" => Some(false), // Option
-                _ => None,
-            };
-            if let Some(is_result) = wrapper {
-                self.advance(); // Result / Option
-                self.expect(&Tok::Lt, "before the type parameter (e.g. Result<Long>)")?;
-                let inner = self.parse_type()?;
-                self.expect(&Tok::Gt, "to close the type parameter")?;
-                return Some(if is_result {
-                    RetType::Result(inner)
-                } else {
-                    RetType::Option(inner)
-                });
-            }
-            if word.eq_ignore_ascii_case("Date") {
-                self.reject_date(self.line());
-                return None;
-            }
-            // Any other type name is a user struct returned by value.
-            self.advance();
-            return Some(RetType::Named(word));
-        }
-        Some(RetType::Plain(self.parse_type()?))
-    }
-
     fn parse_param(&mut self) -> Option<Param> {
         let line = self.line();
         let explicit_mode = if self.eat(&Tok::ByVal) {
@@ -630,7 +597,7 @@ impl<'a> Parser<'a> {
         };
         let name = self.expect_ident("for the parameter")?;
         self.expect(&Tok::As, "after the parameter name")?;
-        let ty = self.parse_decl_type(false)?;
+        let ty = self.parse_decl_type()?;
 
         // Fixed-size primitives default to ByVal; unknown-size types (String,
         // struct, collection) must be explicit about lending vs sharing.
@@ -898,9 +865,11 @@ impl<'a> Parser<'a> {
 
         self.expect(&Tok::As, "after the variable name")?;
         let ty = match dim {
-            DimSpec::None => self.parse_decl_type(false)?,
-            DimSpec::Empty1D => DeclType::Vec(self.parse_elem_type()?),
-            DimSpec::Empty2D => DeclType::Vec2D(self.parse_type()?),
+            DimSpec::None => self.parse_decl_type()?,
+            DimSpec::Empty1D => DeclType::Vec(Box::new(self.parse_decl_type()?)),
+            DimSpec::Empty2D => {
+                DeclType::Vec(Box::new(DeclType::Vec(Box::new(self.parse_decl_type()?))))
+            }
             DimSpec::Fixed1D(n) => DeclType::Array(self.parse_type()?, n),
             DimSpec::Fixed2D(r, c) => DeclType::Array2D(self.parse_type()?, r, c),
         };
@@ -929,7 +898,7 @@ impl<'a> Parser<'a> {
                 }
             }
             // A collection may take an initialiser (e.g. an iterator `.collect()`).
-            DeclType::Vec(_) | DeclType::Vec2D(_) | DeclType::Map(..) => {
+            DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(_) | DeclType::Option(_) => {
                 if self.eat(&Tok::Eq) {
                     Some(self.parse_expr()?)
                 } else {
@@ -985,7 +954,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_decl_type(&mut self, empty_parens: bool) -> Option<DeclType> {
+    /// The one recursive type parser — used in every position (Dim, field,
+    /// parameter, return). Handles `Result<T>`, `Option<T>`, `Vec<T>`,
+    /// `HashMap<K, V>`, tuples, primitives, and named structs, nested freely.
+    fn parse_decl_type(&mut self) -> Option<DeclType> {
         // `New` is a VB-ism with no meaning in VBR (Rust has no uninitialised
         // objects) — accept it out of habit, but nudge toward dropping it.
         if self.eat(&Tok::New) {
@@ -995,31 +967,40 @@ impl<'a> Parser<'a> {
                  Write `Dim v As Vec<T>` / `As HashMap<K, V>` without `New`.",
             );
         }
-        if empty_parens {
-            return Some(DeclType::Vec(self.parse_elem_type()?));
-        }
         if matches!(self.peek(), Tok::LParen) {
             return Some(DeclType::Tuple(self.parse_tuple_types()?));
         }
         if let Tok::Ident(name) = self.peek().clone() {
-            // `Vec<T>` / `HashMap<K, V>` are the built-in collections; any other
-            // name is a user struct.
             match name.as_str() {
                 "Vec" => {
                     self.advance();
                     self.expect(&Tok::Lt, "before the element type, e.g. Vec<Long>")?;
-                    let t = self.parse_elem_type()?;
+                    let t = self.parse_decl_type()?;
                     self.expect(&Tok::Gt, "to close `Vec<...>`")?;
-                    Some(DeclType::Vec(t))
+                    Some(DeclType::Vec(Box::new(t)))
                 }
                 "HashMap" => {
                     self.advance();
                     self.expect(&Tok::Lt, "before the key type, e.g. HashMap<String, Long>")?;
-                    let k = self.parse_elem_type()?;
+                    let k = self.parse_decl_type()?;
                     self.expect(&Tok::Comma, "between the key and value types")?;
-                    let v = self.parse_elem_type()?;
+                    let v = self.parse_decl_type()?;
                     self.expect(&Tok::Gt, "to close `HashMap<...>`")?;
-                    Some(DeclType::Map(k, v))
+                    Some(DeclType::Map(Box::new(k), Box::new(v)))
+                }
+                "Result" => {
+                    self.advance();
+                    self.expect(&Tok::Lt, "before the type, e.g. Result<Long>")?;
+                    let t = self.parse_decl_type()?;
+                    self.expect(&Tok::Gt, "to close `Result<...>`")?;
+                    Some(DeclType::Result(Box::new(t)))
+                }
+                "Option" => {
+                    self.advance();
+                    self.expect(&Tok::Lt, "before the type, e.g. Option<String>")?;
+                    let t = self.parse_decl_type()?;
+                    self.expect(&Tok::Gt, "to close `Option<...>`")?;
+                    Some(DeclType::Option(Box::new(t)))
                 }
                 _ if name.eq_ignore_ascii_case("Date") => {
                     self.reject_date(self.line());
@@ -1035,23 +1016,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A `Vec`/`HashMap` element type: a primitive, or a named struct/stdlib type.
-    fn parse_elem_type(&mut self) -> Option<ElemType> {
-        if let Tok::Ident(name) = self.peek().clone() {
-            self.advance();
-            Some(ElemType::Named(name))
-        } else {
-            Some(ElemType::Plain(self.parse_type()?))
-        }
-    }
-
     /// Parse a tuple type list `(Type, Type, …)`.
-    fn parse_tuple_types(&mut self) -> Option<Vec<Type>> {
+    fn parse_tuple_types(&mut self) -> Option<Vec<DeclType>> {
         self.expect(&Tok::LParen, "to start a tuple type")?;
         let mut types = Vec::new();
         if !matches!(self.peek(), Tok::RParen) {
             loop {
-                types.push(self.parse_type()?);
+                types.push(self.parse_decl_type()?);
                 if !self.eat(&Tok::Comma) {
                     break;
                 }

@@ -4,7 +4,7 @@
 //! `Debug.Print`, arithmetic, `If`, and `For`. It will grow one slice at a time.
 
 /// A VBR primitive type. Spec_01 is authoritative on the Rust mapping
-/// (note: `Integer` is `i16` here, not `i32` as the stale README says).
+/// (Rust-first: `Integer` → `i32`, `Long` → `i64` — not VBA's 16/32-bit widths).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Integer,  // i32 — the Rust default int (not VBA's 16-bit)
@@ -145,41 +145,26 @@ pub struct Function {
     /// `Some(struct)` for a method `Function Struct.Name()`, else a free function.
     pub receiver: Option<String>,
     pub params: Vec<Param>,
-    pub ret: Option<RetType>,
+    pub ret: Option<DeclType>,
     pub body: Vec<Stmt>,
     pub line: usize,
 }
 
-/// A function's return type.
-#[derive(Debug, Clone)]
-pub enum RetType {
-    Plain(Type),
-    Named(String), // -> Person (an owned struct)
-    Result(Type),  // -> Result<T, String>
-    Option(Type),  // -> Option<T>
-    Tuple(Vec<Type>),
-}
-
-/// The declared type of a `Dim`/field — a plain type, a named struct, a tuple,
-/// or a growable collection.
+/// The one recursive type expression — used wherever a type is written: `Dim`,
+/// field, parameter, and return. `Result`/`Option`/`Vec`/`Map`/`Tuple` nest
+/// freely (e.g. `Result<Vec<String>>`). Arrays stay special: fixed size with a
+/// primitive element, as they always were in VB.
 #[derive(Debug, Clone)]
 pub enum DeclType {
     Plain(Type),
-    Named(String), // a user struct, e.g. Person
-    Tuple(Vec<Type>),
-    Vec(ElemType),
-    Vec2D(Type),               // Dim grid(,) → Vec<Vec<T>>
-    Array(Type, usize),        // Dim x(N)    → [T; N]
+    Named(String), // a user struct/stdlib type, e.g. Person, Json
+    Vec(Box<DeclType>),
+    Map(Box<DeclType>, Box<DeclType>),
+    Result(Box<DeclType>), // → Result<T, String>
+    Option(Box<DeclType>), // → Option<T>
+    Tuple(Vec<DeclType>),
+    Array(Type, usize),          // Dim x(N)      → [T; N]
     Array2D(Type, usize, usize), // Dim grid(R, C) → [[T; C]; R]
-    Map(ElemType, ElemType),
-}
-
-/// An element type inside a `Vec`/`HashMap` — a primitive or a named
-/// struct/stdlib type (so `Vec<Person>` and `Vec<Json>` are expressible).
-#[derive(Debug, Clone)]
-pub enum ElemType {
-    Plain(Type),
-    Named(String),
 }
 
 #[derive(Debug, Clone)]

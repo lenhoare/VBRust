@@ -213,26 +213,22 @@ fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
     out.push_str("}\n");
 }
 
+/// Render a `DeclType` as its Rust type, recursively. `Result<T>` injects the
+/// `String` error type at any nesting depth (`Result<T, String>`).
 fn decltype_rust(ty: &DeclType) -> String {
     match ty {
         DeclType::Plain(t) => t.rust().to_string(),
         DeclType::Named(n) => n.clone(),
         DeclType::Tuple(ts) => {
-            let parts: Vec<&str> = ts.iter().map(|t| t.rust()).collect();
+            let parts: Vec<String> = ts.iter().map(decltype_rust).collect();
             format!("({})", parts.join(", "))
         }
-        DeclType::Vec(t) => format!("Vec<{}>", elemtype_rust(t)),
-        DeclType::Vec2D(t) => format!("Vec<Vec<{}>>", t.rust()),
+        DeclType::Vec(t) => format!("Vec<{}>", decltype_rust(t)),
+        DeclType::Map(k, v) => format!("HashMap<{}, {}>", decltype_rust(k), decltype_rust(v)),
+        DeclType::Result(t) => format!("Result<{}, String>", decltype_rust(t)),
+        DeclType::Option(t) => format!("Option<{}>", decltype_rust(t)),
         DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
         DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
-        DeclType::Map(k, v) => format!("HashMap<{}, {}>", elemtype_rust(k), elemtype_rust(v)),
-    }
-}
-
-fn elemtype_rust(e: &ElemType) -> String {
-    match e {
-        ElemType::Plain(t) => t.rust().to_string(),
-        ElemType::Named(n) => n.clone(),
     }
 }
 
@@ -274,20 +270,13 @@ fn emit_fn(
     params.extend(func.params.iter().map(render_param));
 
     let ret = match &func.ret {
-        Some(RetType::Plain(t)) => format!(" -> {}", t.rust()),
-        Some(RetType::Named(n)) => format!(" -> {}", n),
-        Some(RetType::Result(t)) => format!(" -> Result<{}, String>", t.rust()),
-        Some(RetType::Option(t)) => format!(" -> Option<{}>", t.rust()),
-        Some(RetType::Tuple(ts)) => {
-            let parts: Vec<&str> = ts.iter().map(|t| t.rust()).collect();
-            format!(" -> ({})", parts.join(", "))
-        }
+        Some(t) => format!(" -> {}", decltype_rust(t)),
         None => String::new(),
     };
     // Only a plain return type drives literal coercion of the tail expression;
     // an Ok/Some/tuple wrapper carries its own type.
     let tail_expected = match &func.ret {
-        Some(RetType::Plain(t)) => Some(*t),
+        Some(DeclType::Plain(t)) => Some(*t),
         _ => None,
     };
     // `Public Function` → `pub fn`, so other modules can call it.
@@ -311,7 +300,7 @@ fn emit_fn(
     // `?` is only valid when this function can itself fail (returns Result/Option).
     let can_propagate = matches!(
         func.ret,
-        Some(RetType::Result(_)) | Some(RetType::Option(_))
+        Some(DeclType::Result(_)) | Some(DeclType::Option(_))
     );
     let passed_by_ref = resolver::resolve_body(
         &mut body,
@@ -341,7 +330,10 @@ fn render_param(p: &Param) -> String {
         // ByVal fixed-size primitive / tuple: pass by value.
         (ParamMode::ByVal, DeclType::Plain(t)) => t.rust().to_string(),
         (ParamMode::ByVal, DeclType::Tuple(_)) => decltype_rust(&p.ty),
-        // ByVal struct/collection: immutable borrow.
+        // ByVal Result/Option: taken by value (owned) — they carry an outcome to
+        // consume, not a container to read through a borrow.
+        (ParamMode::ByVal, dt @ (DeclType::Result(_) | DeclType::Option(_))) => decltype_rust(dt),
+        // ByVal struct/collection (incl. Vec/HashMap): immutable borrow.
         (ParamMode::ByVal, dt) => format!("&{}", decltype_rust(dt)),
         // ByRef: a mutable borrow of whatever it is.
         (ParamMode::ByRef, dt) => format!("&mut {}", decltype_rust(dt)),
@@ -472,49 +464,26 @@ pub(crate) fn emit_stmt(
             match ty {
                 // Collections are `mut` only if mutated; empty unless given an
                 // initialiser (e.g. an iterator `.collect()`).
-                DeclType::Vec(t) => {
+                // Collections start empty unless given an initialiser; `Result`/
+                // `Option` always carry one (there's no meaningful empty value).
+                DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(_) | DeclType::Option(_) => {
                     let kw = let_kw(mutated.contains(&var));
+                    let empty = match ty {
+                        DeclType::Vec(_) => "Vec::new()",
+                        DeclType::Map(..) => "HashMap::new()",
+                        DeclType::Option(_) => "None",
+                        _ => "",
+                    };
                     let value = init
                         .as_ref()
                         .map(|e| render_expr(e, None))
-                        .unwrap_or_else(|| "Vec::new()".to_string());
+                        .unwrap_or_else(|| empty.to_string());
                     out.push_str(&format!(
-                        "{}{} {}: Vec<{}> = {};\n",
+                        "{}{} {}: {} = {};\n",
                         pad,
                         kw,
                         var,
-                        elemtype_rust(t),
-                        value
-                    ));
-                }
-                DeclType::Map(k, v) => {
-                    let kw = let_kw(mutated.contains(&var));
-                    let value = init
-                        .as_ref()
-                        .map(|e| render_expr(e, None))
-                        .unwrap_or_else(|| "HashMap::new()".to_string());
-                    out.push_str(&format!(
-                        "{}{} {}: HashMap<{}, {}> = {};\n",
-                        pad,
-                        kw,
-                        var,
-                        elemtype_rust(k),
-                        elemtype_rust(v),
-                        value
-                    ));
-                }
-                DeclType::Vec2D(t) => {
-                    let kw = let_kw(mutated.contains(&var));
-                    let value = init
-                        .as_ref()
-                        .map(|e| render_expr(e, None))
-                        .unwrap_or_else(|| "Vec::new()".to_string());
-                    out.push_str(&format!(
-                        "{}{} {}: Vec<Vec<{}>> = {};\n",
-                        pad,
-                        kw,
-                        var,
-                        t.rust(),
+                        decltype_rust(ty),
                         value
                     ));
                 }
@@ -1711,18 +1680,20 @@ fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
             diags.mark(&format!("stdlib:{}", canon));
         }
     }
-    fn mark_elem(e: &ElemType, diags: &mut Diagnostics) {
-        if let ElemType::Named(n) = e {
-            mark_name(n, diags);
-        }
-    }
     fn mark_decltype(dt: &DeclType, diags: &mut Diagnostics) {
         match dt {
             DeclType::Named(n) => mark_name(n, diags),
-            DeclType::Vec(t) => mark_elem(t, diags),
+            DeclType::Vec(t) | DeclType::Result(t) | DeclType::Option(t) => {
+                mark_decltype(t, diags)
+            }
             DeclType::Map(k, v) => {
-                mark_elem(k, diags);
-                mark_elem(v, diags);
+                mark_decltype(k, diags);
+                mark_decltype(v, diags);
+            }
+            DeclType::Tuple(ts) => {
+                for t in ts {
+                    mark_decltype(t, diags);
+                }
             }
             _ => {}
         }
@@ -1764,8 +1735,8 @@ fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
         for p in &func.params {
             mark_decltype(&p.ty, diags);
         }
-        if let Some(RetType::Named(n)) = &func.ret {
-            mark_name(n, diags);
+        if let Some(rt) = &func.ret {
+            mark_decltype(rt, diags);
         }
         walk(&func.body, diags);
     }

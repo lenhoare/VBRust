@@ -1,0 +1,48 @@
+' Result<T>, Option<T> and Vec<T> as first-class parameter and return types.
+Function Main()
+    Dim evens As Vec<Long> = EvensUpTo(10)
+    Debug.Print "evens count = " & evens.len()
+
+    Select Case FirstWord("hello world")
+        Case Some(w)
+            Debug.Print "first word = " & w
+        Case None
+            Debug.Print "no words"
+    End Select
+
+    Select Case Lines("a,b,c")
+        Case Ok(parts)
+            Debug.Print "parts = " & parts.len()
+        Case Err(message)
+            Debug.Print "error: " & message
+    End Select
+End Function
+
+' Returns a Vec by value.
+Function EvensUpTo(ByVal limit As Long) As Vec<Long>
+    Dim result As Vec<Long>
+    Dim n As Long = 0
+    Do While n <= limit
+        result.push(n)
+        n = n + 2
+    Loop
+    Return result
+End Function
+
+' Returns an Option by value.
+Function FirstWord(ByVal text As String) As Option<String>
+    If Len(text) = 0 Then
+        Return None
+    End If
+    Return Some(text)
+End Function
+
+' A nested wrapper: Result<Vec<String>>.
+Function Lines(ByVal text As String) As Result<Vec<String>>
+    If Len(text) = 0 Then
+        Return Err("empty input")
+    End If
+    Dim parts As Vec<String>
+    parts.push(text)
+    Return Ok(parts)
+End Function
