@@ -1,0 +1,25 @@
+' Rust string methods pass through alongside the VB functions — use whichever
+' reads better. Methods lower to real Rust (`.Trim()` and `.trim()` both work).
+Function Main()
+    Dim name As String = "  Ada Lovelace  "
+
+    ' VB muscle memory still works...
+    Debug.Print "VB UCase:  " & UCase(name)
+
+    ' ...and so do Rust's methods, with more reach.
+    Dim clean As String = name.trim()
+    Debug.Print "trimmed:   [" & clean & "]"
+    Debug.Print "upper:     " & clean.to_uppercase()
+    Debug.Print "swapped:   " & clean.replace("Ada", "Grace")
+    Debug.Print "has Love:  " & clean.contains("Love")
+    Debug.Print "length:    " & clean.len()
+
+    ' Chaining, and a chain assigned into a String (coercion still applies).
+    Dim shout As String = name.trim().to_uppercase()
+    Debug.Print "chain:     " & shout
+
+    ' A mutating method — receiver is made `mut` for you.
+    Dim greeting As String = "Hello"
+    greeting.push_str(", world")
+    Debug.Print "built:     " & greeting
+End Function

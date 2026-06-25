@@ -813,12 +813,32 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
                 _ => RType::Unknown,
             }
         }),
-        // `.len()`/`.count()` return `usize` — needed so comparisons/assignments
-        // against signed ints get the right `as` cast.
-        Expr::MethodCall { method, .. } => match snake(method).as_str() {
-            "len" | "count" => RType::Usize,
-            _ => RType::Unknown,
-        },
+        // Rust methods pass through verbatim; this curated table just tells the
+        // coercion logic what the common ones *return*, so e.g. assigning
+        // `s.trim()` (a `&str`) to a String still gets its `.to_string()`.
+        Expr::MethodCall { method, .. } => method_rtype(&snake(method)),
+    }
+}
+
+/// The return type of a known Rust method, by name — feeds the same coercion
+/// glue VB functions use. Strings first; extend with Vec/number rows as needed.
+/// Unknown methods still pass through to Rust untouched; they just don't get
+/// the smooth auto-coercion (rustc is the backstop).
+fn method_rtype(m: &str) -> RType {
+    match m {
+        // Borrowed `&str` slices — need `.to_string()` to land in a String slot.
+        "trim" | "trim_start" | "trim_end" | "trim_matches" => RType::Str,
+        // Owned `String` results — already own their value.
+        "to_uppercase" | "to_lowercase" | "to_ascii_uppercase" | "to_ascii_lowercase"
+        | "replace" | "replacen" | "repeat" | "to_string" | "concat" | "join" => RType::Strng,
+        // `usize` — counts and lengths (drive `as` casts in comparisons).
+        "len" | "count" | "capacity" => RType::Usize,
+        // Predicates.
+        "is_empty" | "contains" | "starts_with" | "ends_with" | "eq_ignore_ascii_case" => {
+            RType::Bool
+        }
+        // Iterators, parses, and anything else: leave to Rust (no coercion).
+        _ => RType::Unknown,
     }
 }
 

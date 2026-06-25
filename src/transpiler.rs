@@ -1010,6 +1010,8 @@ fn is_mutating_method(m: &str) -> bool {
         m,
         "push" | "insert" | "remove" | "pop" | "clear" | "sort" | "reverse" | "extend"
             | "retain" | "resize" | "truncate" | "append" | "dedup"
+            // String mutators.
+            | "push_str" | "insert_str" | "make_ascii_uppercase" | "make_ascii_lowercase"
     )
 }
 

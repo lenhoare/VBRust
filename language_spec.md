@@ -180,6 +180,32 @@ Other expression forms: literals, identifiers, `Me` (→ `self`), calls
 `f(a, b)`, method/field access `recv.method(...)` / `recv.field`, indexing
 `a(i)`, tuple index, and inline Rust (§9).
 
+### Rust methods
+
+Method calls pass straight through to Rust, so the full Rust API is available
+alongside the familiar VB functions — use whichever reads better:
+
+```vb
+Dim name As String = "  Ada  "
+Debug.Print UCase(name)          ' VB function — call form Trim(s), Left(s, n), …
+Debug.Print name.trim()          ' Rust method — call form s.trim(), s.replace(a, b), …
+Debug.Print name.trim().to_uppercase()   ' methods chain
+```
+
+- Method names **lower to idiomatic Rust**: both `.Trim()` (muscle memory) and
+  `.trim()` emit Rust's `.trim()`. Free functions (`Trim(s)`) are the VB world;
+  methods (`s.trim()`) are the Rust world — they never clash.
+- A curated set of common methods is **type-aware**, so the same coercions VB
+  functions get apply: assigning `s.trim()` (a `&str`) to a `String` inserts
+  `.to_string()`; `.len()` is a `usize` in comparisons; `.contains(...)` is a
+  `bool`. Known returns include `trim*` (`&str`); `to_uppercase`/`to_lowercase`/
+  `replace`/`repeat`/`to_string` (`String`); `len`/`count`/`capacity` (`usize`);
+  `is_empty`/`contains`/`starts_with`/`ends_with` (`bool`).
+- A **mutating** method (`push_str`, `push`, `sort`, …) makes its receiver `mut`
+  for you.
+- Methods outside the curated set still pass through verbatim; they simply skip
+  the auto-coercion, and `rustc` is the backstop if a type doesn't line up.
+
 ---
 
 ## 6. Statements & control flow
