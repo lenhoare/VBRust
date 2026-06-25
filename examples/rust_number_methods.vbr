@@ -1,0 +1,27 @@
+' Rust number methods pass through too — same deal as strings. Each returns the
+' receiver's own type, so casts and concatenation still line up.
+Function Main()
+    Dim n As Long = -42
+
+    ' Integer methods.
+    Debug.Print "abs:     " & n.abs()
+    Debug.Print "max(0):  " & n.max(0)
+    Debug.Print "clamp:   " & n.clamp(-10, 10)
+
+    Dim base As Long = 2
+    Debug.Print "2^10:    " & base.pow(10)
+
+    ' Float methods.
+    Dim x As Double = 7.3
+    Debug.Print "sqrt:    " & x.sqrt()
+    Debug.Print "floor:   " & x.floor()
+    Debug.Print "ceil:    " & x.ceil()
+    Debug.Print "round:   " & x.round()
+
+    ' A predicate returns a bool.
+    Debug.Print "is_nan:  " & x.is_nan()
+
+    ' The inferred type still drives coercion: abs() of a Long stays a Long.
+    Dim size As Long = n.abs()
+    Debug.Print "size+1:  " & (size + 1)
+End Function

@@ -201,6 +201,11 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
   `bool`. Known returns include `trim*` (`&str`); `to_uppercase`/`to_lowercase`/
   `replace`/`repeat`/`to_string` (`String`); `len`/`count`/`capacity` (`usize`);
   `is_empty`/`contains`/`starts_with`/`ends_with` (`bool`).
+- **Number** methods carry the receiver's own type: `n.abs()`/`min`/`max`/
+  `clamp`/`pow`/`signum` are the receiver's type, the float family (`sqrt`,
+  `floor`, `ceil`, `round`, `powf`, `ln`, the trig functions, …) is the float
+  type, and `is_nan`/`is_finite`/`is_power_of_two` are `bool`. So `Dim k As Long
+  = n.abs()` keeps `k` a `Long`.
 - A **mutating** method (`push_str`, `push`, `sort`, …) makes its receiver `mut`
   for you.
 - Methods outside the curated set still pass through verbatim; they simply skip

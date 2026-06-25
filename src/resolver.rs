@@ -816,8 +816,35 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         // Rust methods pass through verbatim; this curated table just tells the
         // coercion logic what the common ones *return*, so e.g. assigning
         // `s.trim()` (a `&str`) to a String still gets its `.to_string()`.
-        Expr::MethodCall { method, .. } => method_rtype(&snake(method)),
+        Expr::MethodCall { recv, method, .. } => {
+            let m = snake(method);
+            // Numeric methods that yield the receiver's own type (`abs`, `min`,
+            // `sqrt`, `floor`, …) — infer through to the receiver so the numeric
+            // type, and any `as` casts that depend on it, stay correct.
+            if is_receiver_typed_method(&m) {
+                infer(recv, ctx)
+            } else {
+                method_rtype(&m)
+            }
+        }
     }
+}
+
+/// Numeric methods whose result has the same type as their receiver — `n.abs()`
+/// is `i64` when `n` is, `x.sqrt()` is `f64` when `x` is. (Float-only methods
+/// like `sqrt` require a float receiver anyway, so passing the type through is
+/// always right for code that compiles.)
+fn is_receiver_typed_method(m: &str) -> bool {
+    matches!(
+        m,
+        // Same type as receiver, int or float.
+        "abs" | "min" | "max" | "clamp" | "signum" | "pow" | "rem_euclid" | "div_euclid"
+        // Float results (receiver is a float, so its type carries through).
+            | "sqrt" | "cbrt" | "floor" | "ceil" | "round" | "trunc" | "fract"
+            | "powi" | "powf" | "hypot" | "recip"
+            | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
+            | "ln" | "log10" | "log2" | "exp"
+    )
 }
 
 /// The return type of a known Rust method, by name — feeds the same coercion
@@ -833,10 +860,10 @@ fn method_rtype(m: &str) -> RType {
         | "replace" | "replacen" | "repeat" | "to_string" | "concat" | "join" => RType::Strng,
         // `usize` — counts and lengths (drive `as` casts in comparisons).
         "len" | "count" | "capacity" => RType::Usize,
-        // Predicates.
-        "is_empty" | "contains" | "starts_with" | "ends_with" | "eq_ignore_ascii_case" => {
-            RType::Bool
-        }
+        // Predicates — string and numeric.
+        "is_empty" | "contains" | "starts_with" | "ends_with" | "eq_ignore_ascii_case"
+        | "is_nan" | "is_finite" | "is_infinite" | "is_sign_positive" | "is_sign_negative"
+        | "is_power_of_two" => RType::Bool,
         // Iterators, parses, and anything else: leave to Rust (no coercion).
         _ => RType::Unknown,
     }
