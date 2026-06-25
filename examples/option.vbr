@@ -1,18 +1,14 @@
 ' Option<T> for maybe-absent values — Some / None
 Function Main()
-    Select Case Halve(10)
-        Case Some(value)
-            Debug.Print "half of 10 = " & value
-        Case None
-            Debug.Print "10 is odd, no exact half"
-    End Select
+    Match Halve(10)
+        Some(value) => Debug.Print "half of 10 = " & value
+        None => Debug.Print "10 is odd, no exact half"
+    End Match
 
-    Select Case Halve(7)
-        Case Some(value)
-            Debug.Print "half of 7 = " & value
-        Case None
-            Debug.Print "7 is odd, no exact half"
-    End Select
+    Match Halve(7)
+        Some(value) => Debug.Print "half of 7 = " & value
+        None => Debug.Print "7 is odd, no exact half"
+    End Match
 End Function
 
 Function Halve(ByVal n As Long) As Option<Long>

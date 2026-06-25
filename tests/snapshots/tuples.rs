@@ -7,10 +7,10 @@ fn main() {
     let (lo, hi) = min_max(10, 4);
     println!("{}", format!("{}{}", format!("{}{}", format!("{}{}", "min = ", lo), ", max = "), hi));
     match classify(0, 5) {
-        (0, y) => {
+        ( 0 , y ) => {
             println!("{}", format!("{}{}", "on the y-axis at ", y));
         }
-        (x, 0) => {
+        ( x , 0 ) => {
             println!("{}", format!("{}{}", "on the x-axis at ", x));
         }
         _ => {

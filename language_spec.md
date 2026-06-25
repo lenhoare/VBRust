@@ -271,23 +271,32 @@ If cond Then stmt Else stmt
 ```
 The single-line form takes one statement per branch (e.g. `If x < 0 Then Return -x`).
 
-### Select Case
+### Match
 ```
-Select Case subject
-    Case v1, v2               ' one or more literals / constants
-    Case lo To hi             ' inclusive range
-    Case v If v < 0           ' bind the value as v, with an If guard
-    Case _                    ' wildcard
-    Case Else
-End Select
+Match subject
+    100 => Debug.Print "exact"      ' a literal
+    1 | 2 | 3 => DoThing()          ' alternation
+    4..=10 => DoOther()             ' inclusive range
+    Ok(n) => Use(n)                 ' destructure / bind
+    n If n < 0 => Handle(n)         ' a binding with an If guard
+    _ =>                            ' wildcard, multi-statement body:
+        Log("default")
+        Reset()
+End Match
 ```
-- Lowered to a Rust `match`. The catch-all is **`Case Else` or `Case _`**; one is
-  **required** unless the arms are already exhaustive (`Ok`/`Err`, `Some`/`None`).
-- A `Case` compares against **literals** and **`Const`s** (both are valid Rust
-  patterns). It **cannot** compare against a **variable**: `Case y` (where `y` is
-  a variable) is rejected, because in a Rust `match` a bare name *binds* and
-  matches everything rather than comparing. To compare against a variable, use a
-  guard — `Case v If v = y`.
+- Lowered straight to a Rust `match`. Every arm is **`pattern => body`** — there
+  is no `Case` keyword. The body is one statement on the same line, or an indented
+  block on the following lines (running until the next arm or `End Match`).
+- **Patterns are real Rust**, passed through verbatim: literals, `|` alternation,
+  `..=` / `..` ranges, constructor/struct/tuple destructuring (`Ok(n)`, `Some(x)`,
+  `Point { x, y }`, `(a, b)`), bindings, and `_`. A guard is `<pattern> If <cond>`.
+- A bare name **binds** (it does not compare) — `n => …` matches everything and
+  names it `n`. To compare against a variable, use a guard: `v If v = y => …`.
+- **Exhaustiveness is rustc's job**: there is no forced catch-all. For a `Result`,
+  covering `Ok`/`Err` is complete; a missing case is a compile error that names
+  exactly what you left out.
+- Name bindings should be written snake_case (the Rust convention) — that's how
+  the body refers to them.
 
 ### Loops
 ```

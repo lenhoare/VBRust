@@ -25,10 +25,8 @@ Function Main()
     Debug.Print "first char  : " & FirstChar("world")
     Debug.Print "ch          : " & ch
     Debug.Print "names count : " & names.Len()
-    Select Case Validate("Ada")
-        Case Ok(v)
-            Debug.Print "validated   : " & v
-        Case Err(e)
-            Debug.Print "err         : " & e
-    End Select
+    Match Validate("Ada")
+        Ok(v) => Debug.Print "validated   : " & v
+        Err(e) => Debug.Print "err         : " & e
+    End Match
 End Function

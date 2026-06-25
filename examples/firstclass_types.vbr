@@ -3,19 +3,15 @@ Function Main()
     Dim evens As Vec<Long> = EvensUpTo(10)
     Debug.Print "evens count = " & evens.len()
 
-    Select Case FirstWord("hello world")
-        Case Some(w)
-            Debug.Print "first word = " & w
-        Case None
-            Debug.Print "no words"
-    End Select
+    Match FirstWord("hello world")
+        Some(w) => Debug.Print "first word = " & w
+        None => Debug.Print "no words"
+    End Match
 
-    Select Case Lines("a,b,c")
-        Case Ok(parts)
-            Debug.Print "parts = " & parts.len()
-        Case Err(message)
-            Debug.Print "error: " & message
-    End Select
+    Match Lines("a,b,c")
+        Ok(parts) => Debug.Print "parts = " & parts.len()
+        Err(message) => Debug.Print "error: " & message
+    End Match
 End Function
 
 ' Returns a Vec by value.

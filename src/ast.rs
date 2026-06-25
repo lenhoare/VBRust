@@ -248,21 +248,23 @@ pub enum Stmt {
         iter: Expr,
         body: Vec<Stmt>,
     },
-    /// `Select Case <scrutinee>` → `match`. Must have `Case Else` (the `_` arm).
-    Select {
+    /// `Match <scrutinee>` … `End Match` → Rust `match`. Each arm is
+    /// `pattern => body`; exhaustiveness is left to rustc (no forced catch-all).
+    Match {
         scrutinee: Expr,
-        arms: Vec<SelectArm>,
-        else_body: Option<Vec<Stmt>>,
+        arms: Vec<MatchArm>,
         line: usize,
     },
     Comment(String),
 }
 
 #[derive(Debug, Clone)]
-pub struct SelectArm {
-    /// One or more comma-separated patterns, joined with `|` in Rust.
-    pub patterns: Vec<CasePattern>,
-    /// An optional `If` guard: `Case n If n < 0` → `n if n < 0 =>`.
+pub struct MatchArm {
+    /// The pattern, captured as raw Rust text and emitted verbatim — so the full
+    /// pattern grammar (`Ok(n)`, `1 | 2`, `1..=10`, `Point { x, y }`, `_`) is
+    /// available. Name bindings should be written snake_case (Rust style).
+    pub pattern: String,
+    /// An optional `If` guard: `n If n < 0 =>` → `n if n < 0 =>`.
     pub guard: Option<Expr>,
     pub body: Vec<Stmt>,
 }
@@ -274,12 +276,6 @@ pub enum DoCond {
     PreUntil(Expr),  // Do Until c … Loop      → while !c
     PostWhile(Expr), // Do … Loop While c      → loop { …; if !c { break } }
     PostUntil(Expr), // Do … Loop Until c      → loop { …; if c { break } }
-}
-
-#[derive(Debug, Clone)]
-pub enum CasePattern {
-    Value(Expr),      // `Case 2`        → `2`
-    Range(Expr, Expr), // `Case 4 To 10`  → `4..=10`
 }
 
 #[derive(Debug, Clone)]

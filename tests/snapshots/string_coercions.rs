@@ -25,10 +25,10 @@ fn main() {
     println!("{}", format!("{}{}", "ch          : ", ch));
     println!("{}", format!("{}{}", "names count : ", names.len()));
     match validate("Ada") {
-        Ok(v) => {
+        Ok ( v ) => {
             println!("{}", format!("{}{}", "validated   : ", v));
         }
-        Err(e) => {
+        Err ( e ) => {
             println!("{}", format!("{}{}", "err         : ", e));
         }
     }

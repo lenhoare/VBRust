@@ -11,10 +11,8 @@ Function Main()
     Debug.Print "grid[1][2] = " & grid[1][2]
 
     ' .get() returns an Option, so out-of-bounds is handled, not a crash
-    Select Case scores.get(0)
-        Case Some(v)
-            Debug.Print "first score = " & v
-        Case None
-            Debug.Print "no first score"
-    End Select
+    Match scores.get(0)
+        Some(v) => Debug.Print "first score = " & v
+        None => Debug.Print "no first score"
+    End Match
 End Function

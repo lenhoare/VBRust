@@ -2,7 +2,7 @@
 
 fn main() {
     match halve(10) {
-        Some(value) => {
+        Some ( value ) => {
             println!("{}", format!("{}{}", "half of 10 = ", value));
         }
         None => {
@@ -10,7 +10,7 @@ fn main() {
         }
     }
     match halve(7) {
-        Some(value) => {
+        Some ( value ) => {
             println!("{}", format!("{}{}", "half of 7 = ", value));
         }
         None => {

@@ -11,7 +11,7 @@ fn main() {
     println!("{}", format!("{}{}", "grid[1][2] = ", grid[1][2]));
     // .get() returns an Option, so out-of-bounds is handled, not a crash
     match scores.get(0) {
-        Some(v) => {
+        Some ( v ) => {
             println!("{}", format!("{}{}", "first score = ", v));
         }
         None => {

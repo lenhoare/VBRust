@@ -7,14 +7,11 @@ Function Main()
     Dim lo, hi = MinMax(10, 4)
     Debug.Print "min = " & lo & ", max = " & hi
 
-    Select Case Classify(0, 5)
-        Case (0, y)
-            Debug.Print "on the y-axis at " & y
-        Case (x, 0)
-            Debug.Print "on the x-axis at " & x
-        Case Else
-            Debug.Print "off both axes"
-    End Select
+    Match Classify(0, 5)
+        (0, y) => Debug.Print "on the y-axis at " & y
+        (x, 0) => Debug.Print "on the x-axis at " & x
+        _ => Debug.Print "off both axes"
+    End Match
 End Function
 
 Function MinMax(ByVal a As Long, ByVal b As Long) As (Long, Long)

@@ -29,6 +29,7 @@ pub enum Tok {
     Else,
     Select,
     Case,
+    Match,
     For,
     Each,
     In,
@@ -89,6 +90,9 @@ pub enum Tok {
     Colon,    // :
     Question, // ?
     Pipe,     // |
+    FatArrow, // => (match arm)
+    DotDot,   // ..  (range pattern, exclusive)
+    DotDotEq, // ..= (range pattern, inclusive)
 
     Type,
     Public,
@@ -179,6 +183,7 @@ pub fn lex(src: &str) -> Vec<Token> {
             '/' => push(&mut tokens, Tok::Slash, line, &mut i),
             '^' => push(&mut tokens, Tok::Caret, line, &mut i),
             '&' => push(&mut tokens, Tok::Amp, line, &mut i),
+            '=' if chars.get(i + 1) == Some(&'>') => two(&mut tokens, Tok::FatArrow, line, &mut i),
             '=' => push(&mut tokens, Tok::Eq, line, &mut i),
             '(' => push(&mut tokens, Tok::LParen, line, &mut i),
             ')' => push(&mut tokens, Tok::RParen, line, &mut i),
@@ -187,6 +192,16 @@ pub fn lex(src: &str) -> Vec<Token> {
             '[' => push(&mut tokens, Tok::LBracket, line, &mut i),
             ']' => push(&mut tokens, Tok::RBracket, line, &mut i),
             ',' => push(&mut tokens, Tok::Comma, line, &mut i),
+            // `..=` and `..` for Rust range patterns (`1..=10`). Plain `.` stays
+            // member access / float point.
+            '.' if chars.get(i + 1) == Some(&'.') => {
+                if chars.get(i + 2) == Some(&'=') {
+                    tokens.push(Token { tok: Tok::DotDotEq, line });
+                    i += 3;
+                } else {
+                    two(&mut tokens, Tok::DotDot, line, &mut i);
+                }
+            }
             '.' => push(&mut tokens, Tok::Dot, line, &mut i),
             ':' => push(&mut tokens, Tok::Colon, line, &mut i),
             '?' => push(&mut tokens, Tok::Question, line, &mut i),
@@ -388,6 +403,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "else" => Tok::Else,
         "select" => Tok::Select,
         "case" => Tok::Case,
+        "match" => Tok::Match,
         "for" => Tok::For,
         "each" => Tok::Each,
         "in" => Tok::In,

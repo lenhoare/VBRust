@@ -748,7 +748,16 @@ impl<'a> Parser<'a> {
                 Some(Stmt::Return(Some(self.parse_expr()?)))
             }
             Tok::If => self.parse_if(),
-            Tok::Select => self.parse_select(),
+            Tok::Match => self.parse_match(),
+            Tok::Select => {
+                self.diags.error(
+                    self.line(),
+                    "`Select Case` has been replaced by `Match` … `End Match`, which maps \
+                     straight to Rust's `match`. Each arm is `pattern => body` (no `Case`); \
+                     patterns are real Rust — `Ok(n)`, `Some(x)`, `1 | 2`, `1..=10`, `_`.",
+                );
+                None
+            }
             Tok::For => self.parse_for(),
             // A standalone inline Rust block (side effects; no value used).
             Tok::InlineRust(_) => Some(Stmt::Expr(self.parse_primary()?)),
@@ -810,7 +819,7 @@ impl<'a> Parser<'a> {
                     "`On Error` is not supported. Rust signals failure through return values, \
                      not jumps. Make the function return `As Result<T>`, `Return Err(\"...\")` on \
                      failure, and handle it at the call site with the `?` operator or \
-                     `Select Case` over `Ok`/`Err`.",
+                     `Match` over `Ok`/`Err`.",
                 );
                 // Swallow the rest of the line so we don't cascade more errors.
                 while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
@@ -1153,102 +1162,104 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_select(&mut self) -> Option<Stmt> {
+    /// `Match <expr>` … `End Match`. Each arm is `pattern => body`, where the
+    /// pattern is raw Rust and the body is one inline statement or an indented
+    /// block running until the next arm (a line with `=>`) or `End Match`.
+    fn parse_match(&mut self) -> Option<Stmt> {
         let line = self.line();
-        self.expect(&Tok::Select, "")?;
-        self.expect(&Tok::Case, "after `Select`")?;
+        self.expect(&Tok::Match, "")?;
         let scrutinee = self.parse_expr()?;
-        self.expect(&Tok::Newline, "after the `Select Case` expression")?;
+        self.expect(&Tok::Newline, "after the `Match` expression")?;
 
         let mut arms = Vec::new();
-        let mut else_body = None;
-
         loop {
             self.skip_newlines();
-            match self.peek() {
-                Tok::Case => {
-                    self.advance();
-                    if self.eat(&Tok::Else) {
-                        self.expect(&Tok::Newline, "after `Case Else`")?;
-                        else_body = Some(self.parse_block()?);
-                        break;
-                    }
-                    let patterns = self.parse_case_patterns()?;
-                    // Optional guard: `Case n If n < 0`.
-                    let guard = if self.eat(&Tok::If) {
-                        Some(self.parse_expr()?)
-                    } else {
-                        None
-                    };
-                    self.expect(&Tok::Newline, "after the `Case` pattern")?;
-                    let body = self.parse_block()?;
-                    arms.push(SelectArm {
-                        patterns,
-                        guard,
-                        body,
-                    });
-                }
-                Tok::End => break,
-                other => {
-                    self.diags.error(
-                        self.line(),
-                        format!("Expected `Case` or `End Select`, found {:?}.", other),
-                    );
-                    return None;
-                }
-            }
-        }
-
-        self.expect(&Tok::End, "to close the `Select`")?;
-        self.expect(&Tok::Select, "after `End`")?;
-
-        // Rust's match must be exhaustive, so a missing `Case Else` is a hard error
-        // — unless the arms are Ok/Err/Some/None (exhaustive on their own) or there's
-        // an unguarded catch-all (`Case _` or a bare binding `Case n`).
-        let constructor_match = arms
-            .iter()
-            .flat_map(|a| &a.patterns)
-            .any(is_constructor_pattern);
-        // Only `Case _` (or `Case Else`) is a catch-all. A bare `Case <name>` is
-        // NOT — it's a comparison attempt the resolver checks (a variable can't be
-        // matched against in Rust; consts and literals can).
-        let has_catch_all = arms.iter().any(|a| {
-            a.guard.is_none()
-                && a.patterns.len() == 1
-                && matches!(&a.patterns[0], CasePattern::Value(Expr::Ident(n)) if n == "_")
-        });
-        if else_body.is_none() && !constructor_match && !has_catch_all {
-            self.diags.error(
-                line,
-                "`Select Case` must end with `Case Else`. Rust's match has to cover every \
-                 possible value, so VBR requires the catch-all. Add `Case Else` for the rest.",
-            );
-        }
-
-        Some(Stmt::Select {
-            scrutinee,
-            arms,
-            else_body,
-            line,
-        })
-    }
-
-    /// One Case line's comma-separated patterns: values and `lo To hi` ranges.
-    fn parse_case_patterns(&mut self) -> Option<Vec<CasePattern>> {
-        let mut patterns = Vec::new();
-        loop {
-            let lo = self.parse_expr()?;
-            if self.eat(&Tok::To) {
-                let hi = self.parse_expr()?;
-                patterns.push(CasePattern::Range(lo, hi));
-            } else {
-                patterns.push(CasePattern::Value(lo));
-            }
-            if !self.eat(&Tok::Comma) {
+            if matches!(self.peek(), Tok::End | Tok::Eof) {
                 break;
             }
+            let pattern = self.parse_pattern()?;
+            // Optional guard: `n If n < 0 =>`.
+            let guard = if self.eat(&Tok::If) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+            self.expect(&Tok::FatArrow, "after the pattern — every arm is `pattern => body`")?;
+            // A body is either one statement on the same line, or an indented
+            // block on the following lines (terminated by the next arm / `End`).
+            let body = if matches!(self.peek(), Tok::Newline | Tok::Eof) {
+                self.parse_arm_body()?
+            } else {
+                vec![self.parse_stmt()?]
+            };
+            arms.push(MatchArm { pattern, guard, body });
         }
-        Some(patterns)
+
+        self.expect(&Tok::End, "to close the `Match`")?;
+        self.expect(&Tok::Match, "after `End`")?;
+        Some(Stmt::Match { scrutinee, arms, line })
+    }
+
+    /// Capture a match-arm pattern as raw Rust text: every token up to the guard
+    /// `If` or the `=>`. Tokens are space-joined, which is valid Rust for the
+    /// whole pattern grammar (`Ok ( n )`, `1 ..= 10`, `1 | 2`, `Point { x , y }`).
+    fn parse_pattern(&mut self) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
+        while !matches!(
+            self.peek(),
+            Tok::FatArrow | Tok::If | Tok::Newline | Tok::Eof
+        ) {
+            let t = self.advance();
+            parts.push(pattern_tok_src(&t, self.line()));
+        }
+        if parts.is_empty() {
+            self.diags
+                .error(self.line(), "Expected a pattern before `=>`.");
+            return None;
+        }
+        Some(parts.join(" "))
+    }
+
+    /// Parse an arm's multi-line body: statements until the next arm (recognised
+    /// by a top-level `=>` on the line) or `End Match`. Nested `Match`/`If`/loops
+    /// are consumed by their own parsers, so their inner `=>` never confuse us.
+    fn parse_arm_body(&mut self) -> Option<Vec<Stmt>> {
+        let mut stmts = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End | Tok::Eof) || self.line_has_fat_arrow() {
+                break;
+            }
+            stmts.push(self.parse_stmt()?);
+            if let Tok::Comment(text) = self.peek().clone() {
+                self.advance();
+                stmts.push(Stmt::Comment(text));
+            }
+            if !matches!(self.peek(), Tok::Newline | Tok::Eof)
+                && !matches!(self.peek(), Tok::End)
+                && !self.line_has_fat_arrow()
+            {
+                self.diags.error(
+                    self.line(),
+                    format!("Expected end of line after statement, found {:?}.", self.peek()),
+                );
+                return None;
+            }
+        }
+        Some(stmts)
+    }
+
+    /// Does the current line contain a top-level `=>` (i.e. it starts a new arm)?
+    fn line_has_fat_arrow(&self) -> bool {
+        let mut k = self.pos;
+        while k < self.toks.len() {
+            match &self.toks[k].tok {
+                Tok::Newline | Tok::Eof => return false,
+                Tok::FatArrow => return true,
+                _ => k += 1,
+            }
+        }
+        false
     }
 
     fn parse_for(&mut self) -> Option<Stmt> {
@@ -1666,14 +1677,32 @@ fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     }
 }
 
-/// Is this `Case` pattern an `Ok`/`Err`/`Some`/`None` constructor? Such matches
-/// are exhaustive without a `Case Else`.
-fn is_constructor_pattern(p: &CasePattern) -> bool {
-    match p {
-        CasePattern::Value(Expr::Call { name, .. }) => {
-            matches!(name.as_str(), "Ok" | "Err" | "Some")
+/// Render one token of a match-arm pattern as Rust source. Patterns pass through
+/// verbatim, so this is a faithful surface form for the token kinds patterns use.
+fn pattern_tok_src(t: &Tok, line: usize) -> String {
+    match t {
+        Tok::Ident(s) => s.clone(),
+        Tok::Int(n) => n.to_string(),
+        Tok::Float(f) => format!("{f}"),
+        Tok::Str(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
+        Tok::True => "true".to_string(),
+        Tok::False => "false".to_string(),
+        Tok::Minus => "-".to_string(),
+        Tok::LParen => "(".to_string(),
+        Tok::RParen => ")".to_string(),
+        Tok::LBrace => "{".to_string(),
+        Tok::RBrace => "}".to_string(),
+        Tok::Comma => ",".to_string(),
+        Tok::Pipe => "|".to_string(),
+        Tok::DotDotEq => "..=".to_string(),
+        Tok::DotDot => "..".to_string(),
+        Tok::Colon => ":".to_string(),
+        Tok::Amp => "&".to_string(),
+        // Anything else isn't part of a pattern — let it through as a best-effort
+        // token so rustc reports a precise location if it really is a mistake.
+        other => {
+            let _ = line;
+            format!("{other:?}")
         }
-        CasePattern::Value(Expr::Ident(n)) => n == "None",
-        _ => false,
     }
 }

@@ -1,27 +1,21 @@
 ' Result<T> for fallible functions — propagate with ?, handle with Match
 Function Main()
     ' Handle the outcome explicitly
-    Select Case Divide(10, 2)
-        Case Ok(value)
-            Debug.Print "10 / 2 = " & value
-        Case Err(message)
-            Debug.Print "error: " & message
-    End Select
+    Match Divide(10, 2)
+        Ok(value) => Debug.Print "10 / 2 = " & value
+        Err(message) => Debug.Print "error: " & message
+    End Match
 
-    Select Case Divide(7, 0)
-        Case Ok(value)
-            Debug.Print "7 / 0 = " & value
-        Case Err(message)
-            Debug.Print "error: " & message
-    End Select
+    Match Divide(7, 0)
+        Ok(value) => Debug.Print "7 / 0 = " & value
+        Err(message) => Debug.Print "error: " & message
+    End Match
 
     ' A function that uses ? to propagate failure
-    Select Case DoubleQuotient(20, 4)
-        Case Ok(value)
-            Debug.Print "double of 20 / 4 = " & value
-        Case Err(message)
-            Debug.Print "error: " & message
-    End Select
+    Match DoubleQuotient(20, 4)
+        Ok(value) => Debug.Print "double of 20 / 4 = " & value
+        Err(message) => Debug.Print "error: " & message
+    End Match
 
     ' .Unwrap() is allowed, but training wheels
     Dim known As Long = Divide(9, 3).Unwrap()

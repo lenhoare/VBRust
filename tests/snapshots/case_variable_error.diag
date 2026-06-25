@@ -1,1 +1,0 @@
-✘ [line 6] `Case y` can't compare against a variable — Rust's `match` would treat `y` as a catch-all that matches everything. To compare, use a guard: `Case v If v = y`. For the default, use `Case Else`.

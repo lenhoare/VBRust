@@ -7,7 +7,7 @@ fn main() {
     let evens: Vec<i64> = evens_up_to(10);
     println!("{}", format!("{}{}", "evens count = ", evens.len()));
     match first_word("hello world") {
-        Some(w) => {
+        Some ( w ) => {
             println!("{}", format!("{}{}", "first word = ", w));
         }
         None => {
@@ -15,10 +15,10 @@ fn main() {
         }
     }
     match lines("a,b,c") {
-        Ok(parts) => {
+        Ok ( parts ) => {
             println!("{}", format!("{}{}", "parts = ", parts.len()));
         }
-        Err(message) => {
+        Err ( message ) => {
             println!("{}", format!("{}{}", "error: ", message));
         }
     }

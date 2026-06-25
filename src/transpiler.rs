@@ -241,10 +241,7 @@ fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
                 || else_body.as_ref().map_or(false, |b| body_uses_hashmap(b))
         }
         Stmt::For { body, .. } | Stmt::ForEach { body, .. } => body_uses_hashmap(body),
-        Stmt::Select { arms, else_body, .. } => {
-            arms.iter().any(|a| body_uses_hashmap(&a.body))
-                || else_body.as_ref().map_or(false, |b| body_uses_hashmap(b))
-        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| body_uses_hashmap(&a.body)),
         _ => false,
     })
 }
@@ -400,14 +397,9 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
             Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
                 convert_returns(body, fn_name)
             }
-            Stmt::Select {
-                arms, else_body, ..
-            } => {
+            Stmt::Match { arms, .. } => {
                 for arm in arms.iter_mut() {
                     convert_returns(&mut arm.body, fn_name);
-                }
-                if let Some(body) = else_body {
-                    convert_returns(body, fn_name);
                 }
             }
             _ => {}
@@ -721,53 +713,23 @@ pub(crate) fn emit_stmt(
             emit_block(body, mutated, byref, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
         }
-        Stmt::Select {
+        Stmt::Match {
             scrutinee,
             arms,
-            else_body,
             line: _,
         } => {
             let arm_pad = "    ".repeat(indent + 1);
             out.push_str(&format!("{}match {} {{\n", pad, render_expr(scrutinee, None)));
             for arm in arms {
-                let pats: Vec<String> = arm.patterns.iter().map(render_pattern).collect();
                 let guard = match &arm.guard {
                     Some(g) => format!(" if {}", render_expr(g, None)),
                     None => String::new(),
                 };
-                out.push_str(&format!("{}{}{} => {{\n", arm_pad, pats.join(" | "), guard));
+                out.push_str(&format!("{}{}{} => {{\n", arm_pad, arm.pattern, guard));
                 emit_block(&arm.body, mutated, byref, indent + 2, diags, out);
                 out.push_str(&format!("{}}}\n", arm_pad));
             }
-            // `Case Else` is the `_` catch-all (its absence is a hard error upstream).
-            if let Some(body) = else_body {
-                out.push_str(&format!("{}_ => {{\n", arm_pad));
-                emit_block(body, mutated, byref, indent + 2, diags, out);
-                out.push_str(&format!("{}}}\n", arm_pad));
-            }
             out.push_str(&format!("{}}}\n", pad));
-        }
-    }
-}
-
-fn render_pattern(p: &CasePattern) -> String {
-    match p {
-        // Ok(v) / Err(e) / Some(x) bind their payload; None stands alone.
-        CasePattern::Value(Expr::Call { name, args })
-            if matches!(name.as_str(), "Ok" | "Err" | "Some") =>
-        {
-            let bindings: Vec<String> = args
-                .iter()
-                .map(|a| match a {
-                    Expr::Ident(b) => to_snake(b),
-                    other => render_expr(other, None),
-                })
-                .collect();
-            format!("{}({})", name, bindings.join(", "))
-        }
-        CasePattern::Value(e) => render_expr(e, None),
-        CasePattern::Range(lo, hi) => {
-            format!("{}..={}", render_expr(lo, None), render_expr(hi, None))
         }
     }
 }
@@ -871,30 +833,13 @@ fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
                 }
                 note_builtins(body, diags);
             }
-            Stmt::Select {
-                scrutinee,
-                arms,
-                else_body,
-                ..
-            } => {
+            Stmt::Match { scrutinee, arms, .. } => {
                 note_builtins_expr(scrutinee, diags);
                 for arm in arms {
-                    for pat in &arm.patterns {
-                        match pat {
-                            CasePattern::Value(e) => note_builtins_expr(e, diags),
-                            CasePattern::Range(lo, hi) => {
-                                note_builtins_expr(lo, diags);
-                                note_builtins_expr(hi, diags);
-                            }
-                        }
-                    }
                     if let Some(g) = &arm.guard {
                         note_builtins_expr(g, diags);
                     }
                     note_builtins(&arm.body, diags);
-                }
-                if let Some(body) = else_body {
-                    note_builtins(body, diags);
                 }
             }
             _ => {}
@@ -924,7 +869,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     "unwrap-training-wheels",
                     ".unwrap() works, but it's training wheels — it crashes the program if the \
                      value is an error or None. Prefer the `?` operator to propagate, or \
-                     `Select Case` over Ok/Err (Some/None) to handle both outcomes.",
+                     `Match` over Ok/Err (Some/None) to handle both outcomes.",
                 );
             }
             if method.eq_ignore_ascii_case("insert") {
@@ -1610,14 +1555,9 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
             Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
                 collect_mutated(body, set)
             }
-            Stmt::Select {
-                arms, else_body, ..
-            } => {
+            Stmt::Match { arms, .. } => {
                 for arm in arms {
                     collect_mutated(&arm.body, set);
-                }
-                if let Some(body) = else_body {
-                    collect_mutated(body, set);
                 }
             }
             _ => {}
@@ -1715,12 +1655,9 @@ fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
                 Stmt::For { body, .. }
                 | Stmt::ForEach { body, .. }
                 | Stmt::DoLoop { body, .. } => walk(body, diags),
-                Stmt::Select { arms, else_body, .. } => {
+                Stmt::Match { arms, .. } => {
                     for a in arms {
                         walk(&a.body, diags);
-                    }
-                    if let Some(b) = else_body {
-                        walk(b, diags);
                     }
                 }
                 _ => {}

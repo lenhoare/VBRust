@@ -1,5 +1,5 @@
 ' Rust Vec methods pass through alongside the VB style. The Option-returning
-' accessors (first/last/get) pair naturally with Select Case over Some/None —
+' accessors (first/last/get) pair naturally with Match over Some/None —
 ' the safe way to reach into a list.
 Function Main()
     Dim nums As Vec<Long>
@@ -7,19 +7,15 @@ Function Main()
     nums.push(1)
     nums.push(2)
 
-    Select Case nums.first()
-        Case Some(v)
-            Debug.Print "first  = " & v
-        Case None
-            Debug.Print "empty"
-    End Select
+    Match nums.first()
+        Some(v) => Debug.Print "first  = " & v
+        None => Debug.Print "empty"
+    End Match
 
-    Select Case nums.get(5)
-        Case Some(v)
-            Debug.Print "at 5   = " & v
-        Case None
-            Debug.Print "no index 5"
-    End Select
+    Match nums.get(5)
+        Some(v) => Debug.Print "at 5   = " & v
+        None => Debug.Print "no index 5"
+    End Match
 
     ' len() is a usize; assigning to a Long inserts the cast for you.
     Dim count As Long = nums.len()

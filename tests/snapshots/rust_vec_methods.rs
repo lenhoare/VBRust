@@ -1,5 +1,5 @@
 // Rust Vec methods pass through alongside the VB style. The Option-returning
-// accessors (first/last/get) pair naturally with Select Case over Some/None —
+// accessors (first/last/get) pair naturally with Match over Some/None —
 // the safe way to reach into a list.
 
 fn main() {
@@ -8,7 +8,7 @@ fn main() {
     nums.push(1);
     nums.push(2);
     match nums.first() {
-        Some(v) => {
+        Some ( v ) => {
             println!("{}", format!("{}{}", "first  = ", v));
         }
         None => {
@@ -16,7 +16,7 @@ fn main() {
         }
     }
     match nums.get(5) {
-        Some(v) => {
+        Some ( v ) => {
             println!("{}", format!("{}{}", "at 5   = ", v));
         }
         None => {

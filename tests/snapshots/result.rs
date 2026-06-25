@@ -3,27 +3,27 @@
 fn main() {
     // Handle the outcome explicitly
     match divide(10, 2) {
-        Ok(value) => {
+        Ok ( value ) => {
             println!("{}", format!("{}{}", "10 / 2 = ", value));
         }
-        Err(message) => {
+        Err ( message ) => {
             println!("{}", format!("{}{}", "error: ", message));
         }
     }
     match divide(7, 0) {
-        Ok(value) => {
+        Ok ( value ) => {
             println!("{}", format!("{}{}", "7 / 0 = ", value));
         }
-        Err(message) => {
+        Err ( message ) => {
             println!("{}", format!("{}{}", "error: ", message));
         }
     }
     // A function that uses ? to propagate failure
     match double_quotient(20, 4) {
-        Ok(value) => {
+        Ok ( value ) => {
             println!("{}", format!("{}{}", "double of 20 / 4 = ", value));
         }
-        Err(message) => {
+        Err ( message ) => {
             println!("{}", format!("{}{}", "error: ", message));
         }
     }

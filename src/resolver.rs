@@ -64,10 +64,7 @@ pub fn method_mutates_self(stmts: &[Stmt]) -> bool {
         Stmt::For { body, .. }
         | Stmt::ForEach { body, .. }
         | Stmt::DoLoop { body, .. } => method_mutates_self(body),
-        Stmt::Select { arms, else_body, .. } => {
-            arms.iter().any(|a| method_mutates_self(&a.body))
-                || else_body.as_ref().map_or(false, |b| method_mutates_self(b))
-        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| method_mutates_self(&a.body)),
         _ => false,
     })
 }
@@ -379,7 +376,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         "ignored-result",
                         format!(
                             "This {} is being thrown away. Handle it: `?` to propagate, \
-                             `Select Case` over Ok/Err (or Some/None), or assign it with `Dim`.",
+                             `Match` over Ok/Err (or Some/None), or assign it with `Dim`.",
                             kind
                         ),
                     );
@@ -447,45 +444,15 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     ctx.deref.remove(&s);
                 }
             }
-            Stmt::Select { scrutinee, arms, else_body, line } => {
+            Stmt::Match { scrutinee, arms, .. } => {
                 resolve_expr(scrutinee, ctx);
+                // Patterns are raw Rust text (bindings live only inside the arm),
+                // so there's nothing to resolve there — just the guard and body.
                 for arm in arms.iter_mut() {
-                    for pat in arm.patterns.iter_mut() {
-                        match pat {
-                            CasePattern::Value(e) => resolve_expr(e, ctx),
-                            CasePattern::Range(lo, hi) => {
-                                resolve_expr(lo, ctx);
-                                resolve_expr(hi, ctx);
-                            }
-                        }
-                    }
                     if let Some(g) = &mut arm.guard {
                         resolve_expr(g, ctx);
-                    } else {
-                        // After const-resolution, a bare-identifier pattern (other
-                        // than `_`/`None`) in a guardless arm can only be a variable
-                        // or unknown name. In a Rust `match` that *binds* and matches
-                        // everything — it does NOT compare like VB. Reject it.
-                        for pat in &arm.patterns {
-                            if let CasePattern::Value(Expr::Ident(name)) = pat {
-                                if name != "_" && name != "None" {
-                                    ctx.diags.error(
-                                        *line,
-                                        format!(
-                                            "`Case {name}` can't compare against a variable — \
-                                             Rust's `match` would treat `{name}` as a catch-all \
-                                             that matches everything. To compare, use a guard: \
-                                             `Case v If v = {name}`. For the default, use `Case Else`.",
-                                        ),
-                                    );
-                                }
-                            }
-                        }
                     }
                     resolve_stmts(&mut arm.body, ctx);
-                }
-                if let Some(body) = else_body {
-                    resolve_stmts(body, ctx);
                 }
             }
         }
@@ -764,7 +731,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     "`?` can only be used in a function that returns `Result` (or `Option`). \
                      It hands the error back to the caller on failure, so this function's \
                      signature must allow failure: declare it `As Result<T>`, or handle the \
-                     error here with `Select Case` over `Ok`/`Err`.",
+                     error here with `Match` over `Ok`/`Err`.",
                 );
             }
         }
