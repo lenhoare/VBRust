@@ -1543,12 +1543,13 @@ fn render_mid(s: &Expr, start: &Expr, len: Option<&Expr>) -> String {
             format!("&{}[{}..{}]", s, lo, lo + len)
         }
         (Expr::Int(start), None) => format!("&{}[{}..]", s, start - 1),
+        // Variable positions: a Rust slice index must be `usize`, so cast.
         (_, Some(len)) => {
             let start = render_expr(start, None);
             let len = render_expr(len, None);
-            format!("&{0}[({1} - 1)..({1} - 1 + {2})]", s, start, len)
+            format!("&{0}[(({1} - 1) as usize)..(({1} - 1 + {2}) as usize)]", s, start, len)
         }
-        (_, None) => format!("&{}[({} - 1)..]", s, render_expr(start, None)),
+        (_, None) => format!("&{}[(({} - 1) as usize)..]", s, render_expr(start, None)),
     }
 }
 

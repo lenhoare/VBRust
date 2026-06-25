@@ -1,0 +1,12 @@
+' Mid with a variable index (slice bounds cast to usize), and `date` usable as
+' an ordinary identifier now that it's no longer a reserved type keyword.
+Function Main()
+    Dim s As String = "hello world"
+    Dim start As Long = 7
+    Dim length As Long = 5
+    Debug.Print "mid(7,5)  : " & Mid(s, start, length)
+    Debug.Print "from(7)   : " & Mid(s, start)
+
+    Dim date As String = "2026-06-25"
+    Debug.Print "date      : " & date
+End Function

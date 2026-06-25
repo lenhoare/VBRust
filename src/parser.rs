@@ -608,6 +608,10 @@ impl<'a> Parser<'a> {
                     RetType::Option(inner)
                 });
             }
+            if word.eq_ignore_ascii_case("Date") {
+                self.reject_date(self.line());
+                return None;
+            }
             // Any other type name is a user struct returned by value.
             self.advance();
             return Some(RetType::Named(word));
@@ -654,6 +658,16 @@ impl<'a> Parser<'a> {
         Some(Param { name, ty, mode })
     }
 
+    /// Emit the "use DateTime" redirect for a `Date` used in type position.
+    fn reject_date(&mut self, line: usize) {
+        self.diags.error(
+            line,
+            "Date isn't a built-in VBR type — a bare date with no calendar semantics is \
+             just a number in disguise. Use `DateTime` from the standard library: \
+             `Dim now As DateTime = DateTime.Now()`, then `.AddDays(n)`, `.Format(...)`, etc.",
+        );
+    }
+
     fn parse_type(&mut self) -> Option<Type> {
         let line = self.line();
         let ty = match self.peek() {
@@ -664,13 +678,10 @@ impl<'a> Parser<'a> {
             Tok::TyDouble => Type::Double,
             Tok::TyBoolean => Type::Boolean,
             Tok::TyByte => Type::Byte,
-            Tok::TyDate => {
-                self.diags.error(
-                    line,
-                    "Date isn't a built-in VBR type — a bare date with no calendar semantics is \
-                     just a number in disguise. Use `DateTime` from the standard library: \
-                     `Dim now As DateTime = DateTime.Now()`, then `.AddDays(n)`, `.Format(...)`, etc.",
-                );
+            // `Date` is no longer a built-in type (so `date` is free as an
+            // identifier); redirect a type-position `Date` to the stdlib.
+            Tok::Ident(w) if w.eq_ignore_ascii_case("Date") => {
+                self.reject_date(line);
                 return None;
             }
             Tok::TyString => Type::Text,
@@ -1009,6 +1020,10 @@ impl<'a> Parser<'a> {
                     let v = self.parse_elem_type()?;
                     self.expect(&Tok::Gt, "to close `HashMap<...>`")?;
                     Some(DeclType::Map(k, v))
+                }
+                _ if name.eq_ignore_ascii_case("Date") => {
+                    self.reject_date(self.line());
+                    None
                 }
                 _ => {
                     self.advance();
