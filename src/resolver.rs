@@ -624,6 +624,22 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
+            // `vec.contains(x)` takes `&T` (unlike `str::contains`), so borrow the
+            // argument when the receiver is a known collection — and own a string
+            // element first (`Vec<String>` holds `String`, not `&str`).
+            if snake(method) == "contains" {
+                if let Expr::Ident(r) = &**recv {
+                    if ctx.array_vars.contains(&snake(r)) {
+                        for arg in args.iter_mut() {
+                            if infer(arg, ctx) == RType::Str {
+                                to_owned_string(arg);
+                            }
+                            let inner = std::mem::replace(arg, Expr::Int(0));
+                            *arg = Expr::Ref(Box::new(inner));
+                        }
+                    }
+                }
+            }
             // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
             // not an owned String — use `.to_string()` so it fits a String slot.
             if method.eq_ignore_ascii_case("clone") {

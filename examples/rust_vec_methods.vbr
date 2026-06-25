@@ -1,0 +1,38 @@
+' Rust Vec methods pass through alongside the VB style. The Option-returning
+' accessors (first/last/get) pair naturally with Select Case over Some/None —
+' the safe way to reach into a list.
+Function Main()
+    Dim nums As Vec<Long>
+    nums.push(3)
+    nums.push(1)
+    nums.push(2)
+
+    Select Case nums.first()
+        Case Some(v)
+            Debug.Print "first  = " & v
+        Case None
+            Debug.Print "empty"
+    End Select
+
+    Select Case nums.get(5)
+        Case Some(v)
+            Debug.Print "at 5   = " & v
+        Case None
+            Debug.Print "no index 5"
+    End Select
+
+    ' len() is a usize; assigning to a Long inserts the cast for you.
+    Dim count As Long = nums.len()
+    Debug.Print "count  = " & count
+
+    ' contains takes &T on a Vec — the borrow is added for you.
+    If nums.contains(2) Then
+        Debug.Print "has 2"
+    End If
+
+    ' join builds a String from a Vec<String>.
+    Dim words As Vec<String>
+    words.push("Ada")
+    words.push("Grace")
+    Debug.Print "names  = " & words.join(" & ")
+End Function

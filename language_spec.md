@@ -206,6 +206,11 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
   `floor`, `ceil`, `round`, `powf`, `ln`, the trig functions, …) is the float
   type, and `is_nan`/`is_finite`/`is_power_of_two` are `bool`. So `Dim k As Long
   = n.abs()` keeps `k` a `Long`.
+- **Vec/collection** methods pass through too. The `Option`-returning accessors
+  (`first`, `last`, `get`) pair with `Select Case` over `Some`/`None`; `len` is a
+  `usize`; `join` builds a `String`. `vec.contains(x)` takes `&T`, so the borrow
+  (and owning a string element) is inserted for you — unlike `str.contains`,
+  which is left as-is.
 - A **mutating** method (`push_str`, `push`, `sort`, …) makes its receiver `mut`
   for you.
 - Methods outside the curated set still pass through verbatim; they simply skip
