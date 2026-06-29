@@ -48,7 +48,13 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
 fn emit_main(w: &Window) -> String {
     let title = w.title.clone().unwrap_or_else(|| w.name.clone());
     format!(
-        "fn main() -> iced::Result {{\n    iced::run({:?}, update, view)\n}}\n",
+        "fn main() -> iced::Result {{\n    \
+         // Logging is silent unless RUST_LOG is set, e.g.\n    \
+         //   RUST_LOG=winit=debug,iced_winit=debug,iced=debug\n    \
+         tracing_subscriber::fmt()\n        \
+         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())\n        \
+         .init();\n    \
+         iced::run({:?}, update, view)\n}}\n",
         title
     )
 }

@@ -349,6 +349,12 @@ fn generate_project(entry: &Path) -> PathBuf {
                 "iced = {{ version = \"{}\", default-features = false, features = [\"tiny-skia\"] }}\n",
                 version
             ));
+        } else if krate == "tracing-subscriber" {
+            // The `env-filter` feature is what makes `RUST_LOG` work.
+            cargo.push_str(&format!(
+                "tracing-subscriber = {{ version = \"{}\", features = [\"env-filter\"] }}\n",
+                version
+            ));
         } else {
             cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
         }
