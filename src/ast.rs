@@ -377,6 +377,9 @@ pub enum Expr {
     InlineRust(String),
     /// `Not inner` — logical negation → `!(inner)`.
     Not(Box<Expr>),
+    /// `Await inner` — only valid inside a Window event. The GUI codegen splits
+    /// the event around it; it never reaches normal expression rendering.
+    Await(Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

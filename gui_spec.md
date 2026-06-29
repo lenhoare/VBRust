@@ -126,6 +126,36 @@ End Event
 
 Widgets do not directly call arbitrary procedures. They emit events/messages, and the window handles them.
 
+#### Async events — `Await` *(BUILT — slice 4)*
+
+Slow work (an HTTP request, later a timer) must not run on the UI thread or the
+window freezes. `Await` runs it off-thread and resumes the handler when it
+finishes:
+
+```vb
+Event Fetch
+    status = "loading…"
+    Match Await Http.Get(url)
+        Ok(body) => status = "got " & body.len() & " bytes"
+        Err(e)   => status = "error: " & e
+    End Match
+End Event
+```
+
+Under the hood the event is **split in two**: a kick-off (runs the code before the
+`Await`, then hands Iced a `Task` that does the work) and an auto-generated
+continuation message (`FetchDone(result)`) that runs the code after it. The
+blocking stdlib call runs via `tokio::task::spawn_blocking`, and state used in
+the awaited call is snapshotted (cloned) into the task.
+
+Rules:
+- **Fallible** async (`Http.Get` returns a `Result`) **must** be handled with
+  `Match Await …` — a GUI must not crash on a failed request. **Infallible**
+  async can use `Dim x As T = Await …`.
+- **One `Await` per event** (V1). Multiple/looped awaits are a future state machine.
+- V1 awaits **known stdlib calls** (`Http.Get`); awaiting arbitrary user
+  functions is a future addition.
+
 ---
 
 ## 3. Backend Mapping

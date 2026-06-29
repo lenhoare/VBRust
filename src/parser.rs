@@ -1564,6 +1564,13 @@ impl<'a> Parser<'a> {
     // ----- Expressions (precedence climbing) -----
 
     fn parse_expr(&mut self) -> Option<Expr> {
+        // `Await <expr>` — a prefix that wraps the awaited expression (a stdlib
+        // call). Only meaningful in a Window event; the GUI codegen handles it.
+        if matches!(self.peek(), Tok::Await) {
+            self.advance();
+            let inner = self.parse_expr()?;
+            return Some(Expr::Await(Box::new(inner)));
+        }
         self.parse_or()
     }
 

@@ -279,6 +279,9 @@ fn generate_project(entry: &Path) -> PathBuf {
         exit(1);
     }
     let mut any_stdlib = needs_project(&entry_compiled.rust);
+    // An async GUI (an event with `Await`) runs blocking work via tokio, so Iced
+    // needs its `tokio` feature.
+    let async_gui = entry_compiled.rust.contains("spawn_blocking");
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
     let mut stdlib_ns: Vec<String> = entry_compiled.stdlib_used.clone();
 
@@ -358,13 +361,24 @@ fn generate_project(entry: &Path) -> PathBuf {
             // VBR GUIs render in software (tiny-skia) rather than wgpu: it builds
             // far faster and runs everywhere (WSL2, modest/no GPU) — the right
             // trade for a teaching tool, since forms don't need GPU acceleration.
+            // An async GUI also needs `tokio` (it runs blocking work via spawn_blocking).
+            let feats = if async_gui {
+                "\"tiny-skia\", \"tokio\""
+            } else {
+                "\"tiny-skia\""
+            };
             cargo.push_str(&format!(
-                "iced = {{ version = \"{}\", default-features = false, features = [\"tiny-skia\"] }}\n",
-                version
+                "iced = {{ version = \"{}\", default-features = false, features = [{}] }}\n",
+                version, feats
             ));
         } else {
             cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
         }
+    }
+    // An async GUI calls `tokio::task::spawn_blocking` directly, so tokio must be a
+    // direct dependency (Iced's `tokio` feature only links it transitively).
+    if async_gui {
+        cargo.push_str("tokio = { version = \"1\", features = [\"rt\"] }\n");
     }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);

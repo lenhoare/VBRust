@@ -1,0 +1,39 @@
+' Async events: Await runs blocking stdlib (Http.Get) off the UI thread so the
+' window never freezes. The event splits — kick-off sets "loading…", then the
+' result arrives in a generated continuation that updates the status.
+Window Fetcher
+    Title "Fetcher"
+
+    State
+        Dim url As String = "https://example.com"
+        Dim status As String = "idle"
+    End State
+
+    View
+        Column
+            TextInput "url", url
+                On Input SetUrl
+            End TextInput
+            Button "Fetch"
+                On Click Fetch
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event SetUrl(value As String)
+        url = value
+    End Event
+
+    Event Fetch
+        status = "loading…"
+        Match Await Http.Get(url)
+            Ok(body) => status = "got " & body.len() & " bytes"
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Window
+
+Function Main()
+    Fetcher.Run
+End Function

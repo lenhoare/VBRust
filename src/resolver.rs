@@ -752,6 +752,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         // Inline Rust is opaque — no resolution.
         Expr::InlineRust(_) => {}
         Expr::Not(inner) => resolve_expr(inner, ctx),
+        Expr::Await(inner) => resolve_expr(inner, ctx),
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
     }
 }
@@ -764,6 +765,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         Expr::Float(_) => RType::F64,
         Expr::Bool(_) => RType::Bool,
         Expr::Str(_) => RType::Str,
+        Expr::Await(inner) => infer(inner, ctx),
         Expr::Ident(name) if ctx.str_params.contains(&snake(name)) => RType::Str,
         Expr::Ident(name) => ctx.vars.get(&snake(name)).copied().map_or(RType::Unknown, rtype_of),
         Expr::Deref(inner) => infer(inner, ctx),

@@ -1268,6 +1268,9 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         // `Not e` → `!e`. Unary `!` binds tighter than any binary op, so it never
         // needs outer parens; the operand is parenthesised if it's itself binary.
         Expr::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
+        // `Await` is consumed by the GUI codegen (event splitting); if one reaches
+        // here it's a misuse — render the inner call so output is still valid Rust.
+        Expr::Await(inner) => render_prec(inner, expected, parent_prec, is_right),
         Expr::Call { name, args } => {
             if name.contains("::") {
                 // Already a qualified path (a cross-module call) — render verbatim.
