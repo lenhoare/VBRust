@@ -34,10 +34,11 @@ fn view(state: &Greeter) -> Element<'_, Message> {
 }
 
 fn main() -> iced::Result {
-    // Logging is silent unless RUST_LOG is set, e.g.
-    //   RUST_LOG=winit=debug,iced_winit=debug,iced=debug
+    eprintln!("[vbr-gui] starting {} — set RUST_LOG=winit=debug,iced=debug for detail", "Greeter");
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")))
         .init();
-    iced::run("Greeter", update, view)
+    let result = iced::run("Greeter", update, view);
+    eprintln!("[vbr-gui] iced::run returned: {:?}", result);
+    result
 }
