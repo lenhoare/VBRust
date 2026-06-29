@@ -218,22 +218,30 @@ fn resolve_entry(arg: &str) -> Option<PathBuf> {
 fn generate_project(entry: &Path) -> PathBuf {
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
 
+    // A multi-module project is a folder whose entry is `main.vbr`; its siblings
+    // are modules. A standalone file (e.g. `settings.vbr`) is a project of one —
+    // we must NOT pull in unrelated neighbours (that would, say, try to compile
+    // every other `.vbr` in `examples/`).
+    let is_project = entry.file_name().and_then(|s| s.to_str()) == Some("main.vbr");
+
     // Discover sibling modules: every other `.vbr` file (transpiled), plus any
     // `.rs` file (included verbatim — a hand-written Rust module).
     let entry_canon = entry.canonicalize().ok();
     let mut vbr_files: Vec<PathBuf> = Vec::new();
     let mut rs_files: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = fs::read_dir(project_dir) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.canonicalize().ok() == entry_canon {
-                continue;
-            }
-            match p.extension().and_then(|s| s.to_str()) {
-                Some("vbr") => vbr_files.push(p),
-                // A stray `main.rs` would clobber the generated entry — skip it.
-                Some("rs") if stem_name(&p) != "main" => rs_files.push(p),
-                _ => {}
+    if is_project {
+        if let Ok(entries) = fs::read_dir(project_dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.canonicalize().ok() == entry_canon {
+                    continue;
+                }
+                match p.extension().and_then(|s| s.to_str()) {
+                    Some("vbr") => vbr_files.push(p),
+                    // A stray `main.rs` would clobber the generated entry — skip it.
+                    Some("rs") if stem_name(&p) != "main" => rs_files.push(p),
+                    _ => {}
+                }
             }
         }
     }

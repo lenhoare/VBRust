@@ -1,0 +1,40 @@
+' Checkbox (bool) and Slider (number) — payload events carry the new value, and
+' a Match in the view reacts to the toggle.
+Window Settings
+    Title "Settings"
+
+    State
+        Dim agreed As Boolean = False
+        Dim volume As Integer = 50
+    End State
+
+    View
+        Column
+            Checkbox "I agree to the terms", agreed
+                On Toggle SetAgreed
+            End Checkbox
+
+            Text "Volume: " & volume
+            Slider 0..=100, volume
+                On Change SetVolume
+            End Slider
+
+            Match agreed
+                True => Text "Thanks — you're all set!"
+                False => Text "Please agree to continue."
+            End Match
+        End Column
+    End View
+
+    Event SetAgreed(value As Boolean)
+        agreed = value
+    End Event
+
+    Event SetVolume(value As Integer)
+        volume = value
+    End Event
+End Window
+
+Function Main()
+    Settings.Run
+End Function

@@ -160,6 +160,12 @@ The compiler may generate additional internal messages for bound controls such a
 
 The V1 GUI library should include the following controls.
 
+**Naming principle:** controls take their **Iced names**, not VB history —
+`TextInput` (not `TextBox`), `Checkbox`, `Slider`, etc. VBR is a stepping stone
+to Rust, so the names you learn here are the ones you'll meet in real Iced code.
+(Where this spec still shows older VB-flavoured names for unbuilt controls, those
+will be renamed to their Iced equivalent when built.)
+
 ### 4.1 Display Controls
 
 #### Text
@@ -266,17 +272,45 @@ This should be treated as syntactic sugar for an automatically generated event.
 
 ---
 
-#### CheckBox
+#### Checkbox  *(BUILT — slice 3)*
 
-Boolean option control bound to a Boolean state field.
+Boolean control bound to a `Boolean` state field. Like `TextInput`, the binding
+is explicit: an `On Toggle` clause names the event fired when it's ticked, which
+receives the new `bool`.
 
 ```vb
-CheckBox "Remember me", rememberMe
+Checkbox "Remember me", remember_me
+    On Toggle SetRemember
+End Checkbox
+
+Event SetRemember(value As Boolean)
+    remember_me = value
+End Event
 ```
 
-Maps to Iced `checkbox`.
+Maps to `checkbox("Remember me", state.remember_me).on_toggle(Message::SetRemember)`.
 
-Used for include/exclude options.
+---
+
+#### Slider  *(BUILT — slice 3)*
+
+A draggable value over an inclusive range `min..=max`, bound to a numeric state
+field. Iced sliders always report movement, so `On Change` is **required**.
+
+```vb
+Slider 0..=100, volume
+    On Change SetVolume
+End Slider
+
+Event SetVolume(value As Integer)
+    volume = value
+End Event
+```
+
+Maps to `slider(0..=100, state.volume, Message::SetVolume)`.
+
+The bound field must be a type Iced can convert to `f64` — `Integer`, `Single`,
+`Double`, or `Byte`. A `Long` (i64) is rejected with a friendly error.
 
 ---
 

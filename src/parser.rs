@@ -609,11 +609,102 @@ impl<'a> Parser<'a> {
                 }
                 Some(ViewNode::TextInput { placeholder, value, on_input })
             }
+            "checkbox" => {
+                self.advance();
+                let label = self.parse_expr()?;
+                // The bound bool field follows the label: `Checkbox "Agree", ok`.
+                self.expect(&Tok::Comma, "after the label — `Checkbox \"label\", field`")?;
+                let value = self.expect_ident("for the bound state field")?;
+                self.eat(&Tok::Newline);
+                let mut on_toggle = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Toggle")?;
+                            on_toggle = Some(self.expect_ident("for the toggle event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Checkbox")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a Checkbox expected `On Toggle <event>` or \
+                                     `End Checkbox`, found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::Checkbox { label, value, on_toggle })
+            }
+            "slider" => {
+                self.advance();
+                // Range first, then the bound field: `Slider 0..=100, volume`.
+                let min = self.parse_expr()?;
+                self.expect(&Tok::DotDotEq, "for the slider range — `min..=max`")?;
+                let max = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after the range — `Slider min..=max, field`")?;
+                let value = self.expect_ident("for the bound state field")?;
+                self.eat(&Tok::Newline);
+                let mut on_change = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Change")?;
+                            on_change = Some(self.expect_ident("for the change event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Slider")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a Slider expected `On Change <event>` or `End Slider`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                // Iced sliders always report changes, so the event is required.
+                let on_change = match on_change {
+                    Some(ev) => ev,
+                    None => {
+                        self.diags.error(
+                            self.line(),
+                            "A Slider needs `On Change <event>` — Iced sliders always report \
+                             movement, so there must be an event to receive the new value.",
+                        );
+                        return None;
+                    }
+                };
+                Some(ViewNode::Slider { min, max, value, on_change })
+            }
             other => {
                 self.diags.error(
                     self.line(),
                     format!(
-                        "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, Match).",
+                        "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
+                         Checkbox, Slider, Match).",
                         other
                     ),
                 );

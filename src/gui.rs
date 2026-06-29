@@ -89,6 +89,7 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     let field_ty: HashMap<String, Type> =
         w.state.iter().map(|f| (to_snake(&f.name), f.ty)).collect();
     let ctx = ViewCtx { fields: &fields, field_ty: &field_ty };
+    validate_view(&w.view, &field_ty, diags);
 
     // Import only the widgets the view actually uses (no dead imports).
     let mut widgets: Vec<&'static str> = Vec::new();
@@ -183,6 +184,25 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
                 None => base,
             }
         }
+        ViewNode::Checkbox { label, value, on_toggle } => {
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields), None);
+            let field = to_snake(value);
+            // `is_checked` is a `bool` (Copy), so it's passed by value.
+            let base = format!("checkbox({}, state.{})", lbl, field);
+            match on_toggle {
+                Some(ev) => format!("{}.on_toggle(Message::{})", base, ev),
+                None => base,
+            }
+        }
+        ViewNode::Slider { min, max, value, on_change } => {
+            let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields), None);
+            let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields), None);
+            let field = to_snake(value);
+            format!(
+                "slider({}..={}, state.{}, Message::{})",
+                lo, hi, field, on_change
+            )
+        }
         // A view `Match` lowers to a Rust `match` whose arms each yield an
         // `Element` (via `.into()`). The result is pinned to `Element` with a
         // typed binding so each arm's `.into()` has a target. A `String`
@@ -230,6 +250,36 @@ fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
     rendered
 }
 
+/// Walk the view for type mismatches we can explain better than rustc would.
+/// Currently: an Iced `Slider`'s value must be convertible to `f64`, which rules
+/// out `Long`/`LongLong` (i64) — point the user at `Integer`/`Single`/`Double`.
+fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut Diagnostics) {
+    match node {
+        ViewNode::Column(children) | ViewNode::Row(children) => {
+            children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        ViewNode::Match { arms, .. } => {
+            for arm in arms {
+                arm.body.iter().for_each(|c| validate_view(c, field_ty, diags));
+            }
+        }
+        ViewNode::Slider { value, .. } => {
+            if matches!(field_ty.get(&to_snake(value)), Some(Type::Long | Type::LongLong)) {
+                diags.error_once(
+                    &format!("slider-i64-{}", to_snake(value)),
+                    format!(
+                        "A Slider can't bind to `{}` because it's a `Long` (64-bit), which Iced \
+                         sliders don't support. Use `Integer`, `Single`, or `Double` for the \
+                         bound field.",
+                        value
+                    ),
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Which Iced widget functions the view tree references, for the `use` line.
 fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
     fn add(used: &mut Vec<&'static str>, w: &'static str) {
@@ -249,6 +299,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Text(_) => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
         ViewNode::TextInput { .. } => add(used, "text_input"),
+        ViewNode::Checkbox { .. } => add(used, "checkbox"),
+        ViewNode::Slider { .. } => add(used, "slider"),
         ViewNode::Match { arms, .. } => {
             for arm in arms {
                 arm.body.iter().for_each(|c| collect_widgets(c, used));

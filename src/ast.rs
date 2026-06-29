@@ -104,6 +104,22 @@ pub enum ViewNode {
         value: String,
         on_input: Option<String>,
     },
+    /// A checkbox bound to a `Boolean` state field. `on_toggle` names the event
+    /// fired when ticked/unticked (which receives the new `bool`).
+    Checkbox {
+        label: Expr,
+        value: String,
+        on_toggle: Option<String>,
+    },
+    /// A slider over `min..=max` bound to a numeric state field. `on_change`
+    /// names the event fired as it moves (receiving the new value); Iced requires
+    /// it, so it is mandatory.
+    Slider {
+        min: Expr,
+        max: Expr,
+        value: String,
+        on_change: String,
+    },
     /// `Match <expr>` inside a view — each arm produces the widget(s) to show.
     /// Lowers to a Rust `match` whose arms each yield an `Element`.
     Match {
