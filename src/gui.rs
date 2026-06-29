@@ -101,6 +101,11 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
         .collect();
     let any_async = splits.iter().any(Option::is_some);
 
+    // A blocking stdlib call in an event must be `Await`ed, or the window freezes.
+    for e in &w.events {
+        check_blocking_without_await(&e.body, diags);
+    }
+
     // Import only the widgets the view uses, plus Task / stdlib namespaces when
     // events need them.
     let mut widgets: Vec<&'static str> = Vec::new();
@@ -580,6 +585,111 @@ fn awaitable_info(
     }
     let call_src = format!("{}::{}({})", canon, m, arg_src.join(", "));
     Some(AwaitInfo { snapshots, call_src, ret_type: ret_type.to_string(), blocking })
+}
+
+/// True if `e` is a stdlib call that blocks on I/O — so in a GUI event it must be
+/// `Await`ed, or it freezes the window. (Same set `awaitable_info` knows about.)
+fn is_blocking_stdlib_call(e: &Expr) -> bool {
+    if let Expr::MethodCall { recv, method, .. } = e {
+        if let Expr::Ident(r) = &**recv {
+            if let Some(c) = stdlib_type(r) {
+                return matches!((c, to_snake(method).as_str()), ("Http", "get"));
+            }
+        }
+    }
+    false
+}
+
+/// Teaching diagnostic: a blocking stdlib call used in an event *without* `Await`
+/// would freeze the window. A call directly under `Await` is fine.
+fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
+    fn ex(e: &Expr, awaited: bool, diags: &mut Diagnostics) {
+        // The expression directly under `Await` is allowed to block.
+        if let Expr::Await(inner) = e {
+            ex(inner, true, diags);
+            return;
+        }
+        if !awaited && is_blocking_stdlib_call(e) {
+            diags.error_once(
+                "blocking-no-await",
+                "This stdlib call waits for I/O, so calling it directly in an event would \
+                 freeze the window until it finishes. Use `Await` so it runs off the UI \
+                 thread — e.g. `Match Await Http.Get(url) … End Match`.",
+            );
+        }
+        // Children are never "awaited" by this expression.
+        match e {
+            Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
+            | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
+            | Expr::Closure { body: i, .. } => ex(i, false, diags),
+            Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+                ex(lhs, false, diags);
+                ex(rhs, false, diags);
+            }
+            Expr::MethodCall { recv, args, .. } => {
+                ex(recv, false, diags);
+                for a in args {
+                    ex(a, false, diags);
+                }
+            }
+            Expr::Call { args, .. } => {
+                for a in args {
+                    ex(a, false, diags);
+                }
+            }
+            Expr::Tuple(es) => {
+                for e2 in es {
+                    ex(e2, false, diags);
+                }
+            }
+            Expr::StructLit { fields, .. } => {
+                for (_, v) in fields {
+                    ex(v, false, diags);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn st(s: &Stmt, diags: &mut Diagnostics) {
+        match s {
+            Stmt::Assign { target, value, .. } => {
+                ex(target, false, diags);
+                ex(value, false, diags);
+            }
+            Stmt::Dim { init: Some(e), .. } => ex(e, false, diags),
+            Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => ex(e, false, diags),
+            Stmt::If { branches, else_body } => {
+                for (c, b) in branches {
+                    ex(c, false, diags);
+                    for s2 in b {
+                        st(s2, diags);
+                    }
+                }
+                if let Some(b) = else_body {
+                    for s2 in b {
+                        st(s2, diags);
+                    }
+                }
+            }
+            Stmt::Match { scrutinee, arms, .. } => {
+                ex(scrutinee, false, diags);
+                for a in arms {
+                    for s2 in &a.body {
+                        st(s2, diags);
+                    }
+                }
+            }
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                for s2 in body {
+                    st(s2, diags);
+                }
+            }
+            _ => {}
+        }
+    }
+    for s in stmts {
+        st(s, diags);
+    }
 }
 
 /// Does a statement contain an `Await` (in any expression position)?

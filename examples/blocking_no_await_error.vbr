@@ -1,0 +1,27 @@
+' MEANT to fail — Http.Get blocks on I/O; in an event it must be Awaited, or the
+' window freezes while the request runs.
+Window Bad
+    Title "Bad"
+
+    State
+        Dim status As String = "idle"
+    End State
+
+    View
+        Column
+            Button "Fetch"
+                On Click Fetch
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event Fetch
+        Dim page As String = Http.Get("https://example.com")
+        status = page
+    End Event
+End Window
+
+Function Main()
+    Bad.Run
+End Function

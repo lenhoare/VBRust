@@ -155,6 +155,8 @@ Rules:
 - **One `Await` per event** (V1). Multiple/looped awaits are a future state machine.
 - V1 awaits **known stdlib calls** (`Http.Get`); awaiting arbitrary user
   functions is a future addition.
+- Calling a blocking stdlib call in an event **without** `Await` is a hard error
+  (✘ "would freeze the window — use `Await`"), so the trap is caught at compile time.
 
 ---
 

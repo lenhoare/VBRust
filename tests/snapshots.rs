@@ -84,6 +84,7 @@ const ERRORS: &[&str] = &[
     "global_error",
     "handle_value_error",
     "use_no_version_error",
+    "blocking_no_await_error",
 ];
 
 fn examples_dir() -> PathBuf {

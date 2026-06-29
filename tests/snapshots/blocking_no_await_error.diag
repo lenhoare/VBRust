@@ -1,0 +1,1 @@
+✘ This stdlib call waits for I/O, so calling it directly in an event would freeze the window until it finishes. Use `Await` so it runs off the UI thread — e.g. `Match Await Http.Get(url) … End Match`.
