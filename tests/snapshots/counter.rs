@@ -35,11 +35,5 @@ fn view(state: &Counter) -> Element<'_, Message> {
 }
 
 fn main() -> iced::Result {
-    eprintln!("[vbr-gui] starting {} — set RUST_LOG=winit=debug,iced=debug for detail", "Counter");
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")))
-        .init();
-    let result = iced::run("Counter", update, view);
-    eprintln!("[vbr-gui] iced::run returned: {:?}", result);
-    result
+    iced::run("Counter", update, view)
 }

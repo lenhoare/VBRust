@@ -47,12 +47,8 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         .map(|u| (u.crate_name.clone(), u.version.clone()))
         .collect();
     // A GUI program needs Iced (a project build, like the stdlib/crate cases).
-    // `tracing-subscriber` comes along too — a logger that's silent unless
-    // `RUST_LOG` is set, so `RUST_LOG=winit=debug,iced=debug` shows what the
-    // window/event loop is doing (invaluable when a window won't appear).
     if !program.windows.is_empty() {
         dependencies.push(("iced".to_string(), "0.13".to_string()));
-        dependencies.push(("tracing-subscriber".to_string(), "0.3".to_string()));
     }
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
     let stdlib_used = transpiler::stdlib_used(&diags);

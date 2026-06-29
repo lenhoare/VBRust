@@ -47,27 +47,10 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
 /// `main` returns it.
 fn emit_main(w: &Window) -> String {
     let title = w.title.clone().unwrap_or_else(|| w.name.clone());
-    let title_lit = format!("{:?}", title);
-    let mut s = String::new();
-    s.push_str("fn main() -> iced::Result {\n");
-    // Unconditional banner — proves we're on the new binary and reached `main`.
-    s.push_str(&format!(
-        "    eprintln!(\"[vbr-gui] starting {{}} — set RUST_LOG=winit=debug,iced=debug for detail\", {});\n",
-        title_lit
-    ));
-    // RUST_LOG-driven logging; defaults to warnings if RUST_LOG is unset.
-    s.push_str("    tracing_subscriber::fmt()\n");
-    s.push_str(
-        "        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()\
-         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(\"warn\")))\n",
-    );
-    s.push_str("        .init();\n");
-    s.push_str(&format!("    let result = iced::run({}, update, view);\n", title_lit));
-    // If `iced::run` ever returns (e.g. it errors out instead of looping), say so.
-    s.push_str("    eprintln!(\"[vbr-gui] iced::run returned: {:?}\", result);\n");
-    s.push_str("    result\n");
-    s.push_str("}\n");
-    s
+    format!(
+        "fn main() -> iced::Result {{\n    iced::run({:?}, update, view)\n}}\n",
+        title
+    )
 }
 
 /// Find the window launched by a `<Window>.Run` statement inside `Function Main()`.

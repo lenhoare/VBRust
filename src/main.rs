@@ -181,6 +181,19 @@ fn cmd_project(args: &[String], run: bool) {
         return;
     }
 
+    // First build of a GUI project compiles Iced from scratch (~30s) — without a
+    // heads-up, the wait looks like a hang and the window "never appears".
+    let first_build = !build.join("target").exists();
+    let uses_iced = fs::read_to_string(build.join("Cargo.toml"))
+        .map(|c| c.contains("iced"))
+        .unwrap_or(false);
+    if first_build && uses_iced {
+        eprintln!(
+            "→ first GUI build: fetching and compiling Iced, this can take ~30s. \
+             The window opens once it finishes — please wait."
+        );
+    }
+
     eprintln!("→ cargo run\n");
     match Command::new("cargo")
         .args(["run", "--quiet"])
@@ -347,12 +360,6 @@ fn generate_project(entry: &Path) -> PathBuf {
             // trade for a teaching tool, since forms don't need GPU acceleration.
             cargo.push_str(&format!(
                 "iced = {{ version = \"{}\", default-features = false, features = [\"tiny-skia\"] }}\n",
-                version
-            ));
-        } else if krate == "tracing-subscriber" {
-            // The `env-filter` feature is what makes `RUST_LOG` work.
-            cargo.push_str(&format!(
-                "tracing-subscriber = {{ version = \"{}\", features = [\"env-filter\"] }}\n",
                 version
             ));
         } else {
