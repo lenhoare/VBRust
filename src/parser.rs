@@ -437,6 +437,7 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Newline, "after the window name")?;
 
         let mut title = None;
+        let mut theme = None;
         let mut state = Vec::new();
         let mut view = None;
         let mut events = Vec::new();
@@ -453,6 +454,11 @@ impl<'a> Parser<'a> {
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
                     self.advance();
                     title = Some(self.expect_string("after `Title`")?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Theme") => {
+                    self.advance();
+                    theme = Some(self.expect_ident("for the theme name, e.g. `Theme Dracula`")?);
                     self.eat(&Tok::Newline);
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("State") => {
@@ -489,8 +495,8 @@ impl<'a> Parser<'a> {
                     self.diags.error(
                         self.line(),
                         format!(
-                            "Unexpected {:?} inside a Window — expected Title, State, View, \
-                             Event, or `End Window`.",
+                            "Unexpected {:?} inside a Window — expected Title, Theme, State, \
+                             View, Event, or `End Window`.",
                             other
                         ),
                     );
@@ -510,6 +516,7 @@ impl<'a> Parser<'a> {
         Some(Window {
             name,
             title,
+            theme,
             state,
             view,
             events,

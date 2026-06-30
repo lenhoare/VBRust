@@ -63,14 +63,40 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
     out
 }
 
-/// `fn main` for a GUI: run the window. `iced::run` returns `iced::Result`, so
-/// `main` returns it.
+/// Iced's built-in themes (variant names). Selecting one restyles the whole app.
+const KNOWN_THEMES: &[&str] = &[
+    "Light", "Dark", "Dracula", "Nord", "SolarizedLight", "SolarizedDark",
+    "GruvboxLight", "GruvboxDark", "CatppuccinLatte", "CatppuccinFrappe",
+    "CatppuccinMacchiato", "CatppuccinMocha", "TokyoNight", "TokyoNightStorm",
+    "TokyoNightLight", "KanagawaWave", "KanagawaDragon", "KanagawaLotus",
+    "Moonfly", "Nightfly", "Oxocarbon", "Ferra",
+];
+
+/// The canonical (PascalCase) name of a built-in theme, matched case-insensitively.
+fn canonical_theme(name: &str) -> Option<&'static str> {
+    KNOWN_THEMES.iter().find(|t| t.eq_ignore_ascii_case(name)).copied()
+}
+
+/// `fn main` for a GUI: run the window. With a `Theme`, use the `application`
+/// builder so we can set `.theme(...)`; otherwise the simpler `iced::run`.
 fn emit_main(w: &Window) -> String {
     let title = w.title.clone().unwrap_or_else(|| w.name.clone());
-    format!(
-        "fn main() -> iced::Result {{\n    iced::run({:?}, update, view)\n}}\n",
-        title
-    )
+    match &w.theme {
+        Some(t) => {
+            let theme = canonical_theme(t).unwrap_or(t);
+            format!(
+                "fn main() -> iced::Result {{\n    \
+                 iced::application({:?}, update, view)\n        \
+                 .theme(|_| iced::Theme::{})\n        \
+                 .run()\n}}\n",
+                title, theme
+            )
+        }
+        None => format!(
+            "fn main() -> iced::Result {{\n    iced::run({:?}, update, view)\n}}\n",
+            title
+        ),
+    }
 }
 
 /// Find the window launched by a `<Window>.Run` statement inside `Function Main()`.
@@ -110,6 +136,18 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
         w.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
     let ctx = ViewCtx { fields: &fields, field_ty: &field_ty, enums };
     validate_view(&w.view, &field_ty, diags);
+    if let Some(t) = &w.theme {
+        if canonical_theme(t).is_none() {
+            diags.error_once(
+                "unknown-theme",
+                format!(
+                    "Unknown theme `{}`. Built-in themes: {}.",
+                    t,
+                    KNOWN_THEMES.join(", ")
+                ),
+            );
+        }
+    }
 
     // Analyse each event for `Await`: an async event splits into a kick-off arm
     // (returns a `Task`) and a generated `<Event>Done(...)` continuation arm. If

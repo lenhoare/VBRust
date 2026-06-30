@@ -85,6 +85,8 @@ pub struct EnumDef {
 pub struct Window {
     pub name: String,
     pub title: Option<String>,
+    /// An optional built-in Iced theme name (e.g. `Dracula`) → `Theme::Dracula`.
+    pub theme: Option<String>,
     pub state: Vec<StateField>,
     pub view: ViewNode,
     pub events: Vec<GuiEvent>,

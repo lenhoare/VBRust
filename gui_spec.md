@@ -850,6 +850,24 @@ state.name = value;
 
 ## 10. Window Syntax
 
+A window may set a built-in **`Theme`** *(BUILT — slice 9)* — one of Iced's
+~20 palettes (`Dark`, `Light`, `Dracula`, `Nord`, `GruvboxDark`,
+`CatppuccinMocha`, `TokyoNight`, …). It restyles the **whole** window — Iced
+themes cascade to every widget, so there's no per-control styling:
+
+```vb
+Window Counter
+    Title "Counter"
+    Theme Dracula
+    …
+End Window
+```
+
+→ `iced::application(…, update, view).theme(|_| iced::Theme::Dracula).run()`. An
+unknown name is a friendly error listing the built-ins. (Loading a *custom*
+theme from a document — a small palette of colours — is a future low-touch
+addition; per-widget styling is intentionally out of scope.)
+
 A complete window has this structure:
 
 ```vb

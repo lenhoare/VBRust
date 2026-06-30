@@ -1,0 +1,39 @@
+' Built-in themes: `Theme Dracula` restyles the whole window — no per-control
+' work, because Iced themes cascade to every widget.
+Window Counter
+    Title "Dracula Counter"
+    Theme Dracula
+
+    State
+        Dim count As Integer = 0
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 20
+            Text "Count"
+            Text count
+            Row
+                Spacing 8
+                Button "-"
+                    On Click Down
+                End Button
+                Button "+"
+                    On Click Up
+                End Button
+            End Row
+        End Column
+    End View
+
+    Event Up
+        count += 1
+    End Event
+    Event Down
+        count -= 1
+    End Event
+End Window
+
+Function Main()
+    Counter.Run
+End Function
