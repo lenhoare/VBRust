@@ -1,0 +1,1 @@
+⚠ [line 41] Function 'SumTo' renamed to 'sum_to' — Rust uses snake_case for functions.

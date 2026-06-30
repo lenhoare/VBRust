@@ -1,0 +1,56 @@
+' Await your own function: a (pretend-slow) computation runs off the UI thread
+' via Await, and its Result comes back in the generated continuation. No stdlib
+' needed — VBR knows the function's return type, so it can build the message.
+Window Worker
+    Title "Worker"
+
+    State
+        Dim input As Integer = 5
+        Dim status As String = "idle"
+    End State
+
+    View
+        Column
+            Spacing 10
+            Padding 20
+            Text "Input:"
+            Text input
+            Slider 0..=50, input
+                On Change SetInput
+            End Slider
+            Button "Sum 1..n"
+                On Click Compute
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event SetInput(value As Integer)
+        input = value
+    End Event
+
+    Event Compute
+        status = "working…"
+        Match Await SumTo(input)
+            Ok(result) => status = "sum = " & result
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Window
+
+Function SumTo(ByVal n As Integer) As Result<Integer>
+    If n < 0 Then
+        Return Err("negative input")
+    End If
+    Dim total As Integer = 0
+    Dim i As Integer = 1
+    Do While i <= n
+        total = total + i
+        i = i + 1
+    Loop
+    Return Ok(total)
+End Function
+
+Function Main()
+    Worker.Run
+End Function

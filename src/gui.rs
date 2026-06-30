@@ -83,7 +83,7 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
     }
 
     for w in &program.windows {
-        out.push_str(&emit_window(w, &enums, diags));
+        out.push_str(&emit_window(w, &enums, &fns, diags));
         out.push('\n');
     }
     match find_launched_window(program) {
@@ -162,7 +162,12 @@ fn find_launched_window(program: &Program) -> Option<&Window> {
 
 /// Emit one window's *definition* — the State struct, Message enum, update, and
 /// view. (`fn main` is emitted separately, from the launch in `Function Main()`.)
-fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> String {
+fn emit_window(
+    w: &Window,
+    enums: &HashSet<String>,
+    fns: &resolver::FnTable,
+    diags: &mut Diagnostics,
+) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
     let fields: HashSet<String> = w.state.iter().map(|f| to_snake(&f.name)).collect();
@@ -189,7 +194,7 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
     let splits: Vec<Option<AwaitSplit>> = w
         .events
         .iter()
-        .map(|e| await_split(e, &field_ty, diags))
+        .map(|e| await_split(e, &field_ty, fns, diags))
         .collect();
     let any_async = splits.iter().any(Option::is_some);
 
@@ -873,12 +878,13 @@ struct AwaitInfo {
 fn await_split(
     e: &GuiEvent,
     field_ty: &HashMap<String, DeclType>,
+    fns: &resolver::FnTable,
     diags: &mut Diagnostics,
 ) -> Option<AwaitSplit> {
     let idx = e.body.iter().position(stmt_has_await)?;
     match &e.body[idx] {
         Stmt::Match { scrutinee: Expr::Await(call), arms, line } => {
-            let info = awaitable_info(call, field_ty, diags)?;
+            let info = awaitable_info(call, field_ty, fns, diags)?;
             // Continuation runs `match result { <arms> }`, then any trailing code.
             let mut cont = vec![Stmt::Match {
                 scrutinee: Expr::Ident("result".to_string()),
@@ -897,7 +903,7 @@ fn await_split(
             })
         }
         Stmt::Dim { name, init: Some(Expr::Await(call)), .. } => {
-            let info = awaitable_info(call, field_ty, diags)?;
+            let info = awaitable_info(call, field_ty, fns, diags)?;
             Some(AwaitSplit {
                 pre: e.body[..idx].to_vec(),
                 snapshots: info.snapshots,
@@ -919,54 +925,13 @@ fn await_split(
     }
 }
 
-/// Resolve an awaited stdlib call to its Rust form, result type, and how to run
-/// it (V1: a known stdlib call such as `Http.Get`).
-fn awaitable_info(
-    call: &Expr,
+/// The async task can't borrow `state`, so snapshot (clone) any state fields used
+/// as args, and render the call against those owned locals. Returns the `let …`
+/// snapshot lines and the rendered argument list.
+fn snapshot_args(
+    args: &[Expr],
     field_ty: &HashMap<String, DeclType>,
-    diags: &mut Diagnostics,
-) -> Option<AwaitInfo> {
-    let (recv, method, args) = match call {
-        Expr::MethodCall { recv, method, args } => (recv, method, args),
-        _ => {
-            diags.error_once(
-                "await-not-call",
-                "`Await` currently works only on a stdlib call like `Http.Get(url)`.",
-            );
-            return None;
-        }
-    };
-    let canon = match &**recv {
-        Expr::Ident(r) => stdlib_type(r),
-        _ => None,
-    };
-    let canon = match canon {
-        Some(c) => c,
-        None => {
-            diags.error_once(
-                "await-not-stdlib",
-                "`Await` currently works only on a stdlib call like `Http.Get(url)`.",
-            );
-            return None;
-        }
-    };
-    let m = to_snake(method);
-    let (ret_type, blocking) = match (canon, m.as_str()) {
-        ("Http", "get") => ("Result<String, String>", true),
-        _ => {
-            diags.error_once(
-                "await-unsupported",
-                format!(
-                    "`Await {}.{}` isn't supported yet — V1 awaits stdlib calls like `Http.Get`.",
-                    canon, method
-                ),
-            );
-            return None;
-        }
-    };
-    diags.mark(&format!("stdlib:{}", canon));
-    // The async task can't borrow `state`, so snapshot (clone) any state fields it
-    // uses, and render the call against those owned locals.
+) -> (Vec<String>, Vec<String>) {
     let mut snapshots = Vec::new();
     let mut arg_src = Vec::new();
     for a in args {
@@ -983,8 +948,85 @@ fn awaitable_info(
             other => arg_src.push(render_expr(other, None)),
         }
     }
-    let call_src = format!("{}::{}({})", canon, m, arg_src.join(", "));
-    Some(AwaitInfo { snapshots, call_src, ret_type: ret_type.to_string(), blocking })
+    (snapshots, arg_src)
+}
+
+/// Resolve an awaited call to its Rust form, result type, and how to run it: a
+/// known stdlib call (`Http.Get`), or one of the program's own functions (whose
+/// return type the `FnTable` records). Both run off the UI thread.
+fn awaitable_info(
+    call: &Expr,
+    field_ty: &HashMap<String, DeclType>,
+    fns: &resolver::FnTable,
+    diags: &mut Diagnostics,
+) -> Option<AwaitInfo> {
+    match call {
+        // A stdlib call: `Http.Get(url)`.
+        Expr::MethodCall { recv, method, args } => {
+            let canon = match &**recv {
+                Expr::Ident(r) => stdlib_type(r),
+                _ => None,
+            };
+            let Some(canon) = canon else {
+                diags.error_once(
+                    "await-not-awaitable",
+                    "`Await` works on a stdlib call (`Http.Get(url)`) or one of your own functions.",
+                );
+                return None;
+            };
+            let m = to_snake(method);
+            let (ret_type, blocking) = match (canon, m.as_str()) {
+                ("Http", "get") => ("Result<String, String>".to_string(), true),
+                _ => {
+                    diags.error_once(
+                        "await-unsupported",
+                        format!(
+                            "`Await {}.{}` isn't supported yet — V1 awaits `Http.Get` or your \
+                             own functions.",
+                            canon, method
+                        ),
+                    );
+                    return None;
+                }
+            };
+            diags.mark(&format!("stdlib:{}", canon));
+            let (snapshots, arg_src) = snapshot_args(args, field_ty);
+            let call_src = format!("{}::{}({})", canon, m, arg_src.join(", "));
+            Some(AwaitInfo { snapshots, call_src, ret_type, blocking })
+        }
+        // One of the program's own functions — its return type comes from the
+        // FnTable; it's synchronous Rust, so run it via `spawn_blocking`.
+        Expr::Call { name, args } => {
+            let Some(sig) = fns.get(&to_snake(name)) else {
+                diags.error_once(
+                    "await-unknown-fn",
+                    format!("`Await {}(…)` — there's no function `{}` to await.", name, name),
+                );
+                return None;
+            };
+            let Some(dt) = &sig.ret else {
+                diags.error_once(
+                    "await-no-return",
+                    format!(
+                        "`Await {}(…)` needs `{}` to return a value, so its result can come back.",
+                        name, name
+                    ),
+                );
+                return None;
+            };
+            let ret_type = decltype_rust(dt);
+            let (snapshots, arg_src) = snapshot_args(args, field_ty);
+            let call_src = format!("{}({})", to_snake(name), arg_src.join(", "));
+            Some(AwaitInfo { snapshots, call_src, ret_type, blocking: true })
+        }
+        _ => {
+            diags.error_once(
+                "await-not-awaitable",
+                "`Await` works on a stdlib call (`Http.Get(url)`) or one of your own functions.",
+            );
+            None
+        }
+    }
 }
 
 /// True if `e` is a stdlib call that blocks on I/O — so in a GUI event it must be

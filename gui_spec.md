@@ -176,8 +176,9 @@ Rules:
   `Match Await …` — a GUI must not crash on a failed request. **Infallible**
   async can use `Dim x As T = Await …`.
 - **One `Await` per event** (V1). Multiple/looped awaits are a future state machine.
-- V1 awaits **known stdlib calls** (`Http.Get`); awaiting arbitrary user
-  functions is a future addition.
+- `Await` works on a **known stdlib call** (`Http.Get`) **or one of your own
+  functions** (its return type is known, so the result message is generated;
+  it runs off-thread via `spawn_blocking`).
 - Calling a blocking stdlib call in an event **without** `Await` is a hard error
   (✘ "would freeze the window — use `Await`"), so the trap is caught at compile time.
 
