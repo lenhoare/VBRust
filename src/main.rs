@@ -181,16 +181,18 @@ fn cmd_project(args: &[String], run: bool) {
         return;
     }
 
-    // First build of a GUI project compiles Iced from scratch (~30s) — without a
-    // heads-up, the wait looks like a hang and the window "never appears".
-    let first_build = !build.join("target").exists();
+    // Compiling Iced from scratch takes ~30s — and `build/` is shared across
+    // examples, so a different example's deps can force a recompile even when
+    // `target/` already exists. So whenever Iced is a dependency, give the
+    // heads-up; otherwise a long compile looks like a hang. (On a cached rebuild
+    // it's instant, and the note is harmless.)
     let uses_iced = fs::read_to_string(build.join("Cargo.toml"))
         .map(|c| c.contains("iced"))
         .unwrap_or(false);
-    if first_build && uses_iced {
+    if uses_iced {
         eprintln!(
-            "→ first GUI build: fetching and compiling Iced, this can take ~30s. \
-             The window opens once it finishes — please wait."
+            "→ Building the GUI — compiling Iced can take ~30s the first time \
+             (instant once cached). The window opens when it finishes."
         );
     }
 

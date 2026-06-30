@@ -147,10 +147,19 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
     }
     out.push('\n');
 
+    // The multi-line editor fields (declared `As TextArea`) — held as a stateful
+    // `text_editor::Content`, each with an auto-generated edit message.
+    let textareas = collect_textareas(&w.view);
+
     // ── State struct ──
     out.push_str(&format!("struct {} {{\n", ty));
     for f in &w.state {
-        out.push_str(&format!("    {}: {},\n", to_snake(&f.name), decltype_rust(&f.ty)));
+        let fty = if is_textarea(&f.ty) {
+            "iced::widget::text_editor::Content".to_string()
+        } else {
+            decltype_rust(&f.ty)
+        };
+        out.push_str(&format!("    {}: {},\n", to_snake(&f.name), fty));
     }
     out.push_str("}\n\n");
 
@@ -158,11 +167,15 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
     out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
     out.push_str(&format!("        {} {{\n", ty));
     for f in &w.state {
-        out.push_str(&format!(
-            "            {}: {},\n",
-            to_snake(&f.name),
+        let init = if is_textarea(&f.ty) {
+            format!(
+                "iced::widget::text_editor::Content::with_text({})",
+                render_expr(&f.init, None)
+            )
+        } else {
             render_init(&f.init, &f.ty, enums)
-        ));
+        };
+        out.push_str(&format!("            {}: {},\n", to_snake(&f.name), init));
     }
     out.push_str("        }\n    }\n}\n\n");
 
@@ -179,6 +192,13 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
         if let Some(s) = split {
             out.push_str(&format!("    {}Done({}),\n", e.name, s.ret_type));
         }
+    }
+    // Auto-generated edit message for each TextArea (carries an editor Action).
+    for field in &textareas {
+        out.push_str(&format!(
+            "    {}Edited(iced::widget::text_editor::Action),\n",
+            to_pascal(field)
+        ));
     }
     out.push_str("}\n\n");
 
@@ -246,6 +266,15 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
             out.push_str("            Task::none()\n");
             out.push_str("        }\n");
         }
+    }
+    // Auto-generated arm for each TextArea: apply the edit to its content.
+    for field in &textareas {
+        out.push_str(&format!("        Message::{}Edited(action) => {{\n", to_pascal(field)));
+        out.push_str(&format!("            state.{}.perform(action);\n", field));
+        if any_async {
+            out.push_str("            Task::none()\n");
+        }
+        out.push_str("        }\n");
     }
     out.push_str("    }\n}\n\n");
 
@@ -351,6 +380,16 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             format!(
                 "radio({}, {}, Some(state.{}), Message::{})",
                 lbl, opt, field, on_select
+            )
+        }
+        ViewNode::TextArea { value } => {
+            let field = to_snake(value);
+            // Edits flow through an Action applied to the editor's Content (the
+            // `<Field>Edited` message is generated for you).
+            format!(
+                "text_editor(&state.{}).on_action(Message::{}Edited)",
+                field,
+                to_pascal(&field)
             )
         }
         // Containers/conditionals returned early above.
@@ -531,6 +570,17 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
                 );
             }
         }
+        ViewNode::TextArea { value } => {
+            if !matches!(field_ty.get(&to_snake(value)), Some(DeclType::Named(n)) if n == "TextArea") {
+                diags.error_once(
+                    &format!("textarea-type-{}", to_snake(value)),
+                    format!(
+                        "A TextArea binds to a field declared `As TextArea` — `{}` isn't one.",
+                        value
+                    ),
+                );
+            }
+        }
         ViewNode::Radio { value, .. } => {
             // Iced `radio` values must be `Copy + Eq` — an enum or an integer
             // (floats aren't `Eq`; strings aren't `Copy`).
@@ -554,6 +604,59 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
         }
         _ => {}
     }
+}
+
+/// Is this state-field type a `TextArea` (multi-line editor)?
+fn is_textarea(ty: &DeclType) -> bool {
+    matches!(ty, DeclType::Named(n) if n == "TextArea")
+}
+
+/// snake_case → PascalCase, for a generated `<Field>Edited` message variant.
+fn to_pascal(snake: &str) -> String {
+    snake
+        .split('_')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+/// The bound fields of every `TextArea` in the view (snake-cased, deduped).
+fn collect_textareas(node: &ViewNode) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(node: &ViewNode, out: &mut Vec<String>) {
+        match node {
+            ViewNode::TextArea { value } => {
+                let f = to_snake(value);
+                if !out.contains(&f) {
+                    out.push(f);
+                }
+            }
+            ViewNode::Column(children) | ViewNode::Row(children) => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, &mut out);
+    out
 }
 
 /// Which Iced widget functions the view tree references, for the `use` line.
@@ -580,6 +683,7 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Toggler { .. } => add(used, "toggler"),
         ViewNode::ProgressBar { .. } => add(used, "progress_bar"),
         ViewNode::Radio { .. } => add(used, "radio"),
+        ViewNode::TextArea { .. } => add(used, "text_editor"),
         ViewNode::Match { arms, .. } => {
             for arm in arms {
                 arm.body.iter().for_each(|c| collect_widgets(c, used));

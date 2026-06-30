@@ -10,7 +10,7 @@ enum Size {
     Large,
 }
 
-use iced::widget::{button, checkbox, column, progress_bar, radio, row, slider, text, text_input, toggler};
+use iced::widget::{button, checkbox, column, progress_bar, radio, row, slider, text, text_editor, text_input, toggler};
 use iced::Element;
 use iced::Task;
 use vbr_stdlib::{Http};
@@ -22,6 +22,7 @@ struct Panel {
     volume: i32,
     size: Size,
     status: String,
+    notes: iced::widget::text_editor::Content,
 }
 
 impl Default for Panel {
@@ -33,6 +34,7 @@ impl Default for Panel {
             volume: 50,
             size: Size::Medium,
             status: "ready".to_string(),
+            notes: iced::widget::text_editor::Content::with_text("Notes…"),
         }
     }
 }
@@ -46,6 +48,7 @@ enum Message {
     SetSize(Size),
     Fetch,
     FetchDone(Result<String, String>),
+    NotesEdited(iced::widget::text_editor::Action),
 }
 
 fn update(state: &mut Panel, message: Message) -> Task<Message> {
@@ -85,6 +88,10 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::NotesEdited(action) => {
+            state.notes.perform(action);
+            Task::none()
+        }
     }
 }
 
@@ -120,6 +127,7 @@ fn view(state: &Panel) -> Element<'_, Message> {
             };
             el
         },
+        text_editor(&state.notes).on_action(Message::NotesEdited),
         button("Fetch a page").on_press(Message::Fetch),
         text(format!("{}", state.status)),
     ].into()

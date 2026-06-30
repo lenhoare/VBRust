@@ -116,6 +116,12 @@ pub enum ViewNode {
         value: String,
         on_input: Option<String>,
     },
+    /// A multi-line text editor (Iced `text_editor`) bound to a state field
+    /// declared `As TextArea` (a `text_editor::Content`). The edit handler is
+    /// generated automatically; read the text with `field.Text()`.
+    TextArea {
+        value: String,
+    },
     /// A checkbox bound to a `Boolean` state field. `on_toggle` names the event
     /// fired when ticked/unticked (which receives the new `bool`).
     Checkbox {

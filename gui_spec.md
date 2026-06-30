@@ -273,18 +273,24 @@ the explicit form is the foundation.)
 
 ---
 
-#### TextArea
+#### TextArea  *(BUILT — slice 7)*
 
-Multiline text input bound to a string or text-buffer state field.
+A multi-line text editor (Iced `text_editor`). Unlike `TextInput`, it's
+**stateful** — the bound field is declared `As TextArea` and holds an editor
+buffer (`text_editor::Content`), not a `String`:
 
 ```vb
+' State: Dim notes As TextArea = "initial text"
 TextArea notes
-TextArea notes Placeholder "Notes"
 ```
 
-Maps to Iced `text_editor`.
+Maps to `text_editor(&state.notes).on_action(Message::NotesEdited)`. The edit
+handler is **generated automatically** (`state.notes.perform(action)`) — you
+don't write it. Read the typed text with **`.Text()`**: `notes.Text()` →
+`state.notes.text()` (e.g. `notes.Text().len()`).
 
-`TextArea` is deliberately separate from `TextBox`. Although it feels like a multiline textbox, the backend widget and behaviour are different enough that it should be a distinct VBR control.
+`TextArea` is deliberately separate from `TextInput`: the backend widget is
+stateful and behaves differently enough to be its own control.
 
 ---
 

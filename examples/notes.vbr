@@ -1,0 +1,28 @@
+' A multi-line text editor (TextArea). The edit handler is generated for you;
+' read the typed text with `.Text()`. Here a button counts the characters.
+Window Notes
+    Title "Notes"
+
+    State
+        Dim notes As TextArea = "Type your notes here…"
+        Dim status As String = "ready"
+    End State
+
+    View
+        Column
+            TextArea notes
+            Button "Count characters"
+                On Click Count
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event Count
+        status = "you typed " & notes.Text().len() & " characters"
+    End Event
+End Window
+
+Function Main()
+    Notes.Run
+End Function

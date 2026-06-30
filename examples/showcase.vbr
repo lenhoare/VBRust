@@ -17,6 +17,7 @@ Window Panel
         Dim volume As Integer = 50
         Dim size As Size = Size.Medium
         Dim status As String = "ready"
+        Dim notes As TextArea = "Notes…"
     End State
 
     View
@@ -65,6 +66,8 @@ Window Panel
             Else
                 Text "Please agree to continue."
             End If
+
+            TextArea notes
 
             Button "Fetch a page"
                 On Click Fetch

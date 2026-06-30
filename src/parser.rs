@@ -660,6 +660,14 @@ impl<'a> Parser<'a> {
                 }
                 Some(ViewNode::TextInput { placeholder, value, on_input })
             }
+            "textarea" => {
+                // Multi-line editor: just the bound field — the edit handler is
+                // generated, so there's no `On …` clause.
+                self.advance();
+                let value = self.expect_ident("for the bound TextArea field")?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::TextArea { value })
+            }
             "checkbox" => {
                 self.advance();
                 let label = self.parse_expr()?;
@@ -855,7 +863,7 @@ impl<'a> Parser<'a> {
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
-                         Checkbox, Slider, Toggler, ProgressBar, Radio, Match, If).",
+                         Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Match, If).",
                         other
                     ),
                 );
