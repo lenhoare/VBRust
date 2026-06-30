@@ -300,9 +300,29 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
             m.push_str("}; el }");
             m
         }
+        // A view `If` lowers to a Rust `if`/`else` yielding an `Element`; a missing
+        // `Else` shows nothing (a zero-size `Space`). Pinned to `Element` so each
+        // branch's `.into()` has a target.
+        ViewNode::If { branches, else_body } => {
+            let mut s = String::from("{ let el: Element<'_, Message> = ");
+            for (i, (cond, body)) in branches.iter().enumerate() {
+                let c = render_expr(&rewrite_expr(cond.clone(), ctx.fields), None);
+                let kw = if i == 0 { "if" } else { " else if" };
+                s.push_str(&format!("{} {} {{ {} }}", kw, c, render_arm_body(body, ctx)));
+            }
+            let els = match else_body {
+                Some(b) => render_arm_body(b, ctx),
+                None => {
+                    "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink).into()"
+                        .to_string()
+                }
+            };
+            s.push_str(&format!(" else {{ {} }}; el }}", els));
+            s
+        }
     };
-    // A `match` block already evaluates to an `Element`; don't double-wrap.
-    if root && !matches!(node, ViewNode::Match { .. }) {
+    // A `match`/`if` block already evaluates to an `Element`; don't double-wrap.
+    if root && !matches!(node, ViewNode::Match { .. } | ViewNode::If { .. }) {
         format!("{}.into()", s)
     } else {
         s
@@ -341,6 +361,14 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut 
         ViewNode::Match { arms, .. } => {
             for arm in arms {
                 arm.body.iter().for_each(|c| validate_view(c, field_ty, diags));
+            }
+        }
+        ViewNode::If { branches, else_body } => {
+            for (_, b) in branches {
+                b.iter().for_each(|c| validate_view(c, field_ty, diags));
+            }
+            if let Some(b) = else_body {
+                b.iter().for_each(|c| validate_view(c, field_ty, diags));
             }
         }
         ViewNode::Slider { value, .. } => {
@@ -384,6 +412,14 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Match { arms, .. } => {
             for arm in arms {
                 arm.body.iter().for_each(|c| collect_widgets(c, used));
+            }
+        }
+        ViewNode::If { branches, else_body } => {
+            for (_, b) in branches {
+                b.iter().for_each(|c| collect_widgets(c, used));
+            }
+            if let Some(b) = else_body {
+                b.iter().for_each(|c| collect_widgets(c, used));
             }
         }
     }

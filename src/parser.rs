@@ -507,9 +507,12 @@ impl<'a> Parser<'a> {
 
     fn parse_view_node(&mut self) -> Option<ViewNode> {
         self.skip_newlines();
-        // `Match` lexes to a keyword token, so handle it before widget names.
+        // `Match`/`If` lex to keyword tokens, so handle them before widget names.
         if matches!(self.peek(), Tok::Match) {
             return self.parse_view_match();
+        }
+        if matches!(self.peek(), Tok::If) {
+            return self.parse_view_if();
         }
         let kw = match self.peek().clone() {
             Tok::Ident(w) => w,
@@ -753,6 +756,59 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_newlines();
             if matches!(self.peek(), Tok::End | Tok::Eof) || self.line_has_fat_arrow() {
+                break;
+            }
+            nodes.push(self.parse_view_node()?);
+        }
+        Some(nodes)
+    }
+
+    /// `If <cond> Then … [ElseIf <cond> Then …] [Else …] End If` inside a view —
+    /// each branch is a block of widgets.
+    fn parse_view_if(&mut self) -> Option<ViewNode> {
+        self.expect(&Tok::If, "")?;
+        let cond = self.parse_expr()?;
+        self.expect(&Tok::Then, "after the `If` condition")?;
+        self.eat(&Tok::Newline);
+        let mut branches = vec![(cond, self.parse_view_branch_body()?)];
+        let mut else_body = None;
+        loop {
+            match self.peek() {
+                Tok::ElseIf => {
+                    self.advance();
+                    let c = self.parse_expr()?;
+                    self.expect(&Tok::Then, "after the `ElseIf` condition")?;
+                    self.eat(&Tok::Newline);
+                    branches.push((c, self.parse_view_branch_body()?));
+                }
+                Tok::Else => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                    else_body = Some(self.parse_view_branch_body()?);
+                    break;
+                }
+                Tok::End => break,
+                other => {
+                    self.diags.error(
+                        self.line(),
+                        format!("Inside a view `If` expected `ElseIf`, `Else`, or `End If`, found {:?}.", other),
+                    );
+                    return None;
+                }
+            }
+        }
+        self.expect(&Tok::End, "to close the view `If`")?;
+        self.expect(&Tok::If, "after `End`")?;
+        self.eat(&Tok::Newline);
+        Some(ViewNode::If { branches, else_body })
+    }
+
+    /// A view-`If` branch body: widgets until `ElseIf` / `Else` / `End`.
+    fn parse_view_branch_body(&mut self) -> Option<Vec<ViewNode>> {
+        let mut nodes = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::ElseIf | Tok::Else | Tok::End | Tok::Eof) {
                 break;
             }
             nodes.push(self.parse_view_node()?);

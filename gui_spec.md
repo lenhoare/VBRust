@@ -104,6 +104,22 @@ End View
 Each arm yields one widget (or several wrapped in an implicit `Column`); a
 `String` is matched as text, so `""` / literal patterns work.
 
+`If … Then … [ElseIf …] [Else …] End If` *(BUILT — slice 5)* does the same by
+condition rather than by pattern. `ElseIf`/`Else` are optional; an `If` with no
+`Else` shows nothing when false:
+
+```vb
+View
+    Column
+        If level >= 10 Then
+            Text "High!"
+        Else
+            Text "OK"
+        End If
+    End Column
+End View
+```
+
 ### 2.3 Events
 
 The `Event` blocks define how state changes in response to user actions.

@@ -1,0 +1,46 @@
+' If in the View — show different widgets by condition. ElseIf/Else are optional;
+' an If with no Else simply shows nothing when false.
+Window Gauge
+    Title "Gauge"
+
+    State
+        Dim level As Integer = 0
+    End State
+
+    View
+        Column
+            Text "Level:"
+            Text level
+            Button "+"
+                On Click Up
+            End Button
+            Button "-"
+                On Click Down
+            End Button
+
+            If level >= 10 Then
+                Text "High!"
+            ElseIf level <= 0 Then
+                Text "Empty"
+            Else
+                Text "OK"
+            End If
+
+            If level >= 10 Then
+                Text "(you hit the cap)"
+            End If
+        End Column
+    End View
+
+    Event Up
+        level += 1
+    End Event
+
+    Event Down
+        level -= 1
+    End Event
+End Window
+
+Function Main()
+    Gauge.Run
+End Function

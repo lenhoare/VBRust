@@ -126,6 +126,13 @@ pub enum ViewNode {
         scrutinee: Expr,
         arms: Vec<ViewArm>,
     },
+    /// `If <cond> Then … [ElseIf …] [Else …] End If` inside a view — show
+    /// different widget(s) by condition. Lowers to a Rust `if`/`else` whose
+    /// branches each yield an `Element` (a missing `Else` shows nothing).
+    If {
+        branches: Vec<(Expr, Vec<ViewNode>)>,
+        else_body: Option<Vec<ViewNode>>,
+    },
 }
 
 /// One arm of a view `Match`: a pattern (raw Rust, as in a statement `Match`)
