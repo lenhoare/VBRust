@@ -181,6 +181,7 @@ pub fn resolve_body(
     methods: &MethodTable,
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
+    enums: &HashSet<String>,
     ret_coerce: Option<Type>,
     can_propagate: bool,
     diags: &mut Diagnostics,
@@ -242,6 +243,7 @@ pub fn resolve_body(
         handles: &mut handles,
         borrowed_collections: &mut borrowed_collections,
         modules,
+        enums,
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -278,6 +280,9 @@ struct Ctx<'a> {
     /// Other project modules (snake-cased file stems). A `Module.func(...)` call
     /// on one rewrites to a qualified `crate::module::func(...)`.
     modules: &'a HashSet<String>,
+    /// Enum names. `Color.Red` (a field access on an enum name) rewrites to the
+    /// path `Color::Red`.
+    enums: &'a HashSet<String>,
 }
 
 fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
@@ -716,6 +721,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         _ => {}
                     }
                 }
+            }
+        }
+        // `Color.Red` (a field on an enum name) is an enum variant → the path
+        // `Color::Red`, not a value field access.
+        Expr::Field(inner, variant)
+            if matches!(&**inner, Expr::Ident(n) if ctx.enums.contains(n)) =>
+        {
+            if let Expr::Ident(n) = &**inner {
+                *e = Expr::ConstRef(format!("{}::{}", n, variant));
             }
         }
         Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Ref(inner) | Expr::Cast(inner, _)

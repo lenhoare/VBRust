@@ -96,6 +96,7 @@ pub enum Tok {
     DotDotEq, // ..= (range pattern, inclusive)
 
     Type,
+    Enum,
     Public,
     Private,
     Const,
@@ -389,6 +390,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "byref" => Tok::ByRef,
         "on" => Tok::On,
         "type" => Tok::Type,
+        "enum" => Tok::Enum,
         "public" => Tok::Public,
         "private" => Tok::Private,
         "const" => Tok::Const,

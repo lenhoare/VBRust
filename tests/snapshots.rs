@@ -36,6 +36,7 @@ const HAPPY: &[&str] = &[
     "hashmap",
     "doloop",
     "structs",
+    "enums",
     "methods",
     "constants",
     "iterators",

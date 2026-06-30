@@ -336,6 +336,24 @@ End Type
   calls use `recv.method(...)`; a method that mutates `Me` takes `&mut self`.
   Associated/static calls use `Type.method(...)` → `Type::method(...)`.
 
+### Enums (`Enum`)
+
+```
+[Public | Private] Enum Name
+    Variant
+    …
+End Enum
+```
+- A simple (C-like) enum: a named set of unit variants. Emitted as a Rust
+  `#[derive(Debug, Clone, Copy, PartialEq, Eq)] enum`. Variant names keep their
+  PascalCase (not snake-cased), as in Rust.
+- Reference a variant with a dot — `Suit.Hearts` → `Suit::Hearts` (a *name path*,
+  not a value access; see §1). The same dot-to-`::` applies in `Match` patterns:
+  `Match s / Suit.Hearts => …`.
+- Values are `Copy` and compare with `=` (`If s = Suit.Spades Then …`), pair with
+  `Match`, and work as a `Dim`/parameter/return type (`Dim s As Suit = …`).
+- Variants holding data (`Circle(Double)` — Rust sum types) are a future feature.
+
 ---
 
 ## 8. Error model

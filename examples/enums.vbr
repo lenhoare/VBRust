@@ -1,0 +1,26 @@
+' Simple enums — a named set of variants. They're Copy, compare with `=`, and
+' pair naturally with Match. Reference a variant as `Suit.Hearts` → `Suit::Hearts`.
+Enum Suit
+    Hearts
+    Diamonds
+    Clubs
+    Spades
+End Enum
+
+Function Color(ByVal s As Suit) As String
+    Match s
+        Suit.Hearts => Return "red"
+        Suit.Diamonds => Return "red"
+        Suit.Clubs => Return "black"
+        Suit.Spades => Return "black"
+    End Match
+End Function
+
+Function Main()
+    Dim s As Suit = Suit.Spades
+    Debug.Print "Spades are " & Color(s)
+    Debug.Print "Hearts are " & Color(Suit.Hearts)
+    If s = Suit.Spades Then
+        Debug.Print "yes, spades"
+    End If
+End Function

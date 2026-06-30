@@ -64,8 +64,19 @@ pub struct Program {
     pub uses: Vec<UseDecl>,
     pub constants: Vec<ConstDef>,
     pub structs: Vec<StructDef>,
+    pub enums: Vec<EnumDef>,
     pub functions: Vec<Function>,
     pub windows: Vec<Window>,
+}
+
+/// A simple (C-like) enum: a named set of unit variants. Maps to a Rust
+/// `#[derive(…)] enum Name { … }` (Copy, so it works as a Radio value, etc.).
+#[derive(Debug, Clone)]
+pub struct EnumDef {
+    pub name: String,
+    pub public: bool,
+    /// Variant names, kept PascalCase (Rust convention — not snake-cased).
+    pub variants: Vec<String>,
 }
 
 /// A GUI window: state (the source of truth), a view derived from it, and events

@@ -84,6 +84,7 @@ impl<'a> Parser<'a> {
     fn parse_program(&mut self) -> Program {
         let mut functions = Vec::new();
         let mut structs = Vec::new();
+        let mut enums = Vec::new();
         let mut constants = Vec::new();
         let mut uses = Vec::new();
         let mut windows = Vec::new();
@@ -115,6 +116,10 @@ impl<'a> Parser<'a> {
                     Some(s) => structs.push(s),
                     None => break,
                 },
+                Tok::Enum => match self.parse_enum(false) {
+                    Some(e) => enums.push(e),
+                    None => break,
+                },
                 Tok::Const => match self.parse_const(false) {
                     Some(c) => constants.push(c),
                     None => break,
@@ -133,6 +138,10 @@ impl<'a> Parser<'a> {
                         },
                         Tok::Type => match self.parse_struct(public) {
                             Some(s) => structs.push(s),
+                            None => break,
+                        },
+                        Tok::Enum => match self.parse_enum(public) {
+                            Some(e) => enums.push(e),
                             None => break,
                         },
                         Tok::Const => match self.parse_const(public) {
@@ -187,6 +196,7 @@ impl<'a> Parser<'a> {
             uses,
             constants,
             structs,
+            enums,
             functions,
             windows,
         }
@@ -287,6 +297,43 @@ impl<'a> Parser<'a> {
             public,
             fields,
         })
+    }
+
+    fn parse_enum(&mut self, public: bool) -> Option<EnumDef> {
+        self.expect(&Tok::Enum, "to start an enum")?;
+        let name = self.expect_ident("for the enum")?;
+        self.expect(&Tok::Newline, "after the enum name")?;
+
+        let mut variants = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), Tok::End) {
+                break;
+            }
+            // One variant name per line (PascalCase, kept as written).
+            variants.push(self.expect_ident("for an enum variant")?);
+            if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !matches!(self.peek(), Tok::End) {
+                self.diags.error(
+                    self.line(),
+                    format!(
+                        "Expected one variant name per line, found {:?}. (Simple enums hold no \
+                         data — `Circle(Double)`-style variants are a future feature.)",
+                        self.peek()
+                    ),
+                );
+                return None;
+            }
+        }
+
+        self.expect(&Tok::End, "to close the enum")?;
+        self.expect(&Tok::Enum, "after `End`")?;
+        self.eat(&Tok::Newline);
+        if variants.is_empty() {
+            self.diags
+                .error(self.line(), "An enum needs at least one variant.");
+            return None;
+        }
+        Some(EnumDef { name, public, variants })
     }
 
     fn parse_function(&mut self, public: bool, is_sub: bool) -> Option<Function> {
@@ -2012,6 +2059,9 @@ fn pattern_tok_src(t: &Tok, line: usize) -> String {
         Tok::Pipe => "|".to_string(),
         Tok::DotDotEq => "..=".to_string(),
         Tok::DotDot => "..".to_string(),
+        // A `.` in a pattern is always a path separator (enum variant like
+        // `Color.Red`) — there are no value field-accesses in pattern position.
+        Tok::Dot => "::".to_string(),
         Tok::Colon => ":".to_string(),
         Tok::Amp => "&".to_string(),
         // Anything else isn't part of a pattern — let it through as a best-effort

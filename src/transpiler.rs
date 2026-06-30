@@ -48,6 +48,8 @@ pub fn transpile_module(
     }
     mark_stdlib_types(program, diags);
     let module_set: HashSet<String> = modules.iter().cloned().collect();
+    // Enum names — a reference like `Color.Red` resolves to the path `Color::Red`.
+    let enum_set: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
 
     let fns = resolver::build_fn_table(program);
     let methods = resolver::build_method_table(program);
@@ -111,6 +113,11 @@ pub fn transpile_module(
         emit_struct(s, diags, &mut out);
     }
 
+    for e in &program.enums {
+        sep(&mut out);
+        emit_enum(e, &mut out);
+    }
+
     // Receivers in first-seen order.
     let mut receivers: Vec<&String> = Vec::new();
     for f in &program.functions {
@@ -122,12 +129,12 @@ pub fn transpile_module(
     }
     for recv in receivers {
         sep(&mut out);
-        emit_impl(recv, program, &fns, &methods, &consts, &module_set, diags, &mut out);
+        emit_impl(recv, program, &fns, &methods, &consts, &module_set, &enum_set, diags, &mut out);
     }
 
     for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
         sep(&mut out);
-        emit_fn(func, &fns, &methods, &consts, &module_set, diags, &mut out, 0, None);
+        emit_fn(func, &fns, &methods, &consts, &module_set, &enum_set, diags, &mut out, 0, None);
     }
     out
 }
@@ -172,6 +179,7 @@ fn emit_impl(
     methods: &resolver::MethodTable,
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
+    enums: &HashSet<String>,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
@@ -191,7 +199,22 @@ fn emit_impl(
             .copied()
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
-        emit_fn(f, fns, methods, consts, modules, diags, out, 1, Some(self_param));
+        emit_fn(f, fns, methods, consts, modules, enums, diags, out, 1, Some(self_param));
+    }
+    out.push_str("}\n");
+}
+
+/// Emit a simple enum: `#[derive(…)] enum Name { A, B, C }`. `Copy` so values can
+/// be matched/compared freely and used where Iced wants a `Copy` value.
+fn emit_enum(e: &EnumDef, out: &mut String) {
+    let kw = if e.public { "pub enum" } else { "enum" };
+    out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
+    // A variant matched-on but never constructed (defensive `Match` arms) is a
+    // normal, legitimate pattern — don't warn about it.
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str(&format!("{} {} {{\n", kw, e.name));
+    for v in &e.variants {
+        out.push_str(&format!("    {},\n", v));
     }
     out.push_str("}\n");
 }
@@ -252,6 +275,7 @@ fn emit_fn(
     methods: &resolver::MethodTable,
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
+    enums: &HashSet<String>,
     diags: &mut Diagnostics,
     out: &mut String,
     base_indent: usize,
@@ -306,6 +330,7 @@ fn emit_fn(
         methods,
         consts,
         modules,
+        enums,
         tail_expected,
         can_propagate,
         diags,
