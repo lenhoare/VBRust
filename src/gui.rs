@@ -7,8 +7,10 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
+use crate::resolver;
 use crate::transpiler::{
-    decltype_rust, emit_const, emit_enum, emit_stmt, emit_struct, render_expr, stdlib_type, to_snake,
+    decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, emit_struct, note_builtins,
+    render_expr, stdlib_type, to_snake,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -48,6 +50,38 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
     }
 
     let enums: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
+
+    // User-defined functions/methods (everything except `Main`, which becomes the
+    // Iced `fn main`). Without this a GUI couldn't call its own procedures.
+    let modules: HashSet<String> = HashSet::new();
+    let fns = resolver::build_fn_table(program);
+    let methods = resolver::build_method_table(program);
+    let consts = resolver::build_const_map(program);
+    let is_main = |f: &Function| f.receiver.is_none() && f.name.eq_ignore_ascii_case("Main");
+    for f in &program.functions {
+        if !is_main(f) {
+            note_builtins(&f.body, diags);
+        }
+    }
+    // Methods, grouped into `impl` blocks (receivers in first-seen order).
+    let mut receivers: Vec<&String> = Vec::new();
+    for f in &program.functions {
+        if let Some(r) = &f.receiver {
+            if !receivers.contains(&r) {
+                receivers.push(r);
+            }
+        }
+    }
+    for recv in receivers {
+        emit_impl(recv, program, &fns, &methods, &consts, &modules, &enums, diags, &mut out);
+        out.push('\n');
+    }
+    // Free functions, except `Main`.
+    for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
+        emit_fn(f, &fns, &methods, &consts, &modules, &enums, diags, &mut out, 0, None);
+        out.push('\n');
+    }
+
     for w in &program.windows {
         out.push_str(&emit_window(w, &enums, diags));
         out.push('\n');

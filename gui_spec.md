@@ -142,6 +142,13 @@ End Event
 
 Widgets do not directly call arbitrary procedures. They emit events/messages, and the window handles them.
 
+An event (or the view) **may call your own top-level `Function`/`Sub`s**
+*(BUILT — slice 10)* — they're emitted alongside the window, so helper logic
+(validation, formatting, computation) lives in a procedure rather than being
+inlined. (V1: call sites in events aren't resolved, so pass values rather than
+`ByRef`/struct args; helpers should avoid stdlib/HashMap for now — imports aren't
+unified across the GUI yet.)
+
 #### Async events — `Await` *(BUILT — slice 4)*
 
 Slow work (an HTTP request, later a timer) must not run on the UI thread or the

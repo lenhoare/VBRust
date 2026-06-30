@@ -1,0 +1,1 @@
+⚠ [line 31] Function 'ToFahrenheit' renamed to 'to_fahrenheit' — Rust uses snake_case for functions.

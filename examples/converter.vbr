@@ -1,0 +1,37 @@
+' A GUI calling its own function: the Celsius→Fahrenheit conversion lives in a
+' helper that the slider's event calls.
+Window Converter
+    Title "Converter"
+
+    State
+        Dim celsius As Integer = 20
+        Dim fahrenheit As Integer = 68
+    End State
+
+    View
+        Column
+            Spacing 10
+            Padding 20
+            Text "Celsius:"
+            Text celsius
+            Slider 0..=100, celsius
+                On Change SetCelsius
+            End Slider
+            Text "Fahrenheit:"
+            Text fahrenheit
+        End Column
+    End View
+
+    Event SetCelsius(value As Integer)
+        celsius = value
+        fahrenheit = ToFahrenheit(value)
+    End Event
+End Window
+
+Function ToFahrenheit(ByVal c As Integer) As Integer
+    Return c * 9 / 5 + 32
+End Function
+
+Function Main()
+    Converter.Run
+End Function

@@ -172,7 +172,7 @@ pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics
     ));
 }
 
-fn emit_impl(
+pub(crate) fn emit_impl(
     recv: &str,
     program: &Program,
     fns: &FnTable,
@@ -269,7 +269,7 @@ fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
     })
 }
 
-fn emit_fn(
+pub(crate) fn emit_fn(
     func: &Function,
     fns: &FnTable,
     methods: &resolver::MethodTable,
@@ -812,7 +812,7 @@ fn emit_dim_string(
 
 /// Walk the body firing the one-time `⚠`/`ℹ` notes for builtins that behave
 /// differently than VB programmers expect (indexing, Option/Result returns).
-fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
+pub(crate) fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
     for stmt in stmts {
         match stmt {
             Stmt::Dim { init: Some(e), .. } => note_builtins_expr(e, diags),
