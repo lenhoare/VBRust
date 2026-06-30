@@ -308,8 +308,12 @@ fn render_init(init: &Expr, ty: &DeclType, enums: &HashSet<String>) -> String {
 fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) -> String {
     // Containers and conditionals format across multiple lines.
     match node {
-        ViewNode::Column(children) => return render_container("column", children, ctx, indent, as_element),
-        ViewNode::Row(children) => return render_container("row", children, ctx, indent, as_element),
+        ViewNode::Column { children, spacing, padding } => {
+            return render_container("column", children, ctx, indent, as_element, *spacing, *padding)
+        }
+        ViewNode::Row { children, spacing, padding } => {
+            return render_container("row", children, ctx, indent, as_element, *spacing, *padding)
+        }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
         _ => {}
@@ -392,8 +396,16 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
                 to_pascal(&field)
             )
         }
+        // A blank gap.
+        ViewNode::Space { horizontal, amount } => {
+            if *horizontal {
+                format!("iced::widget::Space::with_width({})", amount)
+            } else {
+                format!("iced::widget::Space::with_height({})", amount)
+            }
+        }
         // Containers/conditionals returned early above.
-        ViewNode::Column(_) | ViewNode::Row(_) | ViewNode::Match { .. } | ViewNode::If { .. } => {
+        ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Match { .. } | ViewNode::If { .. } => {
             unreachable!()
         }
     };
@@ -404,17 +416,27 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
     }
 }
 
-/// A `column!`/`row!` with one child per line, indented.
+/// A `column!`/`row!` with one child per line, indented, plus optional
+/// `.spacing(n)`/`.padding(n)`.
 fn render_container(
     kw: &str,
     children: &[ViewNode],
     ctx: &ViewCtx,
     indent: usize,
     as_element: bool,
+    spacing: Option<u16>,
+    padding: Option<u16>,
 ) -> String {
+    let mut props = String::new();
+    if let Some(s) = spacing {
+        props.push_str(&format!(".spacing({})", s));
+    }
+    if let Some(p) = padding {
+        props.push_str(&format!(".padding({})", p));
+    }
     let tail = if as_element { ".into()" } else { "" };
     if children.is_empty() {
-        return format!("{}![]{}", kw, tail);
+        return format!("{}![]{}{}", kw, props, tail);
     }
     let inner = "    ".repeat(indent + 1);
     let pad = "    ".repeat(indent);
@@ -426,6 +448,7 @@ fn render_container(
     }
     s.push_str(&pad);
     s.push(']');
+    s.push_str(&props);
     s.push_str(tail);
     s
 }
@@ -500,7 +523,7 @@ fn render_view_if(
 fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx, indent: usize) -> String {
     match body {
         [one] => render_view(one, ctx, indent, true),
-        many => render_container("column", many, ctx, indent, true),
+        many => render_container("column", many, ctx, indent, true, None, None),
     }
 }
 
@@ -521,7 +544,7 @@ fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
 /// out `Long`/`LongLong` (i64) — point the user at `Integer`/`Single`/`Double`.
 fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     match node {
-        ViewNode::Column(children) | ViewNode::Row(children) => {
+        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
         ViewNode::Match { arms, .. } => {
@@ -636,7 +659,7 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
                     out.push(f);
                 }
             }
-            ViewNode::Column(children) | ViewNode::Row(children) => {
+            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Match { arms, .. } => {
@@ -667,14 +690,16 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         }
     }
     match node {
-        ViewNode::Column(children) => {
+        ViewNode::Column { children, .. } => {
             add(used, "column");
             children.iter().for_each(|c| collect_widgets(c, used));
         }
-        ViewNode::Row(children) => {
+        ViewNode::Row { children, .. } => {
             add(used, "row");
             children.iter().for_each(|c| collect_widgets(c, used));
         }
+        // `Space` uses a fully-qualified path, so no import needed.
+        ViewNode::Space { .. } => {}
         ViewNode::Text(_) => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
         ViewNode::TextInput { .. } => add(used, "text_input"),

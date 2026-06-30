@@ -1,0 +1,43 @@
+' Spacing between controls: `Spacing N` puts a uniform gap between a container's
+' children, `Padding N` insets the whole container, and `Space Height/Width N`
+' adds a one-off blank gap.
+Window Spaced
+    Title "Spaced"
+
+    State
+        Dim n As Integer = 0
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 20
+
+            Text "Counter"
+            Text n
+            Row
+                Spacing 8
+                Button "-"
+                    On Click Down
+                End Button
+                Button "+"
+                    On Click Up
+                End Button
+            End Row
+
+            Space Height 30
+            Text "(there is a gap above me)"
+        End Column
+    End View
+
+    Event Up
+        n += 1
+    End Event
+    Event Down
+        n -= 1
+    End Event
+End Window
+
+Function Main()
+    Spaced.Run
+End Function

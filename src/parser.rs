@@ -574,12 +574,33 @@ impl<'a> Parser<'a> {
             "column" => {
                 self.advance();
                 self.eat(&Tok::Newline);
-                Some(ViewNode::Column(self.parse_view_children("Column")?))
+                let (children, spacing, padding) = self.parse_container_body("Column")?;
+                Some(ViewNode::Column { children, spacing, padding })
             }
             "row" => {
                 self.advance();
                 self.eat(&Tok::Newline);
-                Some(ViewNode::Row(self.parse_view_children("Row")?))
+                let (children, spacing, padding) = self.parse_container_body("Row")?;
+                Some(ViewNode::Row { children, spacing, padding })
+            }
+            "space" => {
+                // `Space Height 20` / `Space Width 10` — a blank gap.
+                self.advance();
+                let dim = self.expect_ident("for `Space` — `Height` or `Width`")?;
+                let horizontal = match dim.to_ascii_lowercase().as_str() {
+                    "width" => true,
+                    "height" => false,
+                    _ => {
+                        self.diags.error(
+                            self.line(),
+                            format!("`Space` takes `Height` or `Width`, found `{}`.", dim),
+                        );
+                        return None;
+                    }
+                };
+                let amount = self.parse_array_size()? as u16;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Space { horizontal, amount })
             }
             "text" => {
                 self.advance();
@@ -972,8 +993,15 @@ impl<'a> Parser<'a> {
         Some(nodes)
     }
 
-    fn parse_view_children(&mut self, container: &str) -> Option<Vec<ViewNode>> {
+    /// A container body: optional `Spacing N` / `Padding N` property lines mixed
+    /// with the child widgets, up to `End <container>`.
+    fn parse_container_body(
+        &mut self,
+        container: &str,
+    ) -> Option<(Vec<ViewNode>, Option<u16>, Option<u16>)> {
         let mut children = Vec::new();
+        let mut spacing = None;
+        let mut padding = None;
         loop {
             self.skip_newlines();
             if matches!(self.peek(), Tok::End) {
@@ -982,9 +1010,24 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 break;
             }
+            // `Spacing N` / `Padding N` are container properties, not widgets.
+            if let Tok::Ident(w) = self.peek().clone() {
+                let prop = w.to_ascii_lowercase();
+                if prop == "spacing" || prop == "padding" {
+                    self.advance();
+                    let n = self.parse_array_size()? as u16;
+                    self.eat(&Tok::Newline);
+                    if prop == "spacing" {
+                        spacing = Some(n);
+                    } else {
+                        padding = Some(n);
+                    }
+                    continue;
+                }
+            }
             children.push(self.parse_view_node()?);
         }
-        Some(children)
+        Some((children, spacing, padding))
     }
 
     fn parse_param(&mut self) -> Option<Param> {

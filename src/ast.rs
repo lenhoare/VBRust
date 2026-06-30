@@ -102,8 +102,21 @@ pub struct StateField {
 /// A node in the view tree.
 #[derive(Debug, Clone)]
 pub enum ViewNode {
-    Column(Vec<ViewNode>),
-    Row(Vec<ViewNode>),
+    Column {
+        children: Vec<ViewNode>,
+        spacing: Option<u16>,
+        padding: Option<u16>,
+    },
+    Row {
+        children: Vec<ViewNode>,
+        spacing: Option<u16>,
+        padding: Option<u16>,
+    },
+    /// A blank gap (Iced `Space`): `Space Height 20` / `Space Width 10`.
+    Space {
+        horizontal: bool,
+        amount: u16,
+    },
     Text(Expr),
     Button {
         label: Expr,

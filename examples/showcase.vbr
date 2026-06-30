@@ -22,6 +22,8 @@ Window Panel
 
     View
         Column
+            Spacing 10
+            Padding 20
             Text "Control Panel"
 
             Row

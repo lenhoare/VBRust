@@ -130,7 +130,7 @@ fn view(state: &Panel) -> Element<'_, Message> {
         text_editor(&state.notes).on_action(Message::NotesEdited),
         button("Fetch a page").on_press(Message::Fetch),
         text(format!("{}", state.status)),
-    ].into()
+    ].spacing(10).padding(20).into()
 }
 
 fn main() -> iced::Result {

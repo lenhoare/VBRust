@@ -634,16 +634,16 @@ Maps to Iced `scrollable`.
 
 ---
 
-### 5.5 Space
+### 5.5 Space  *(BUILT — slice 8)*
 
-Adds empty space.
+Adds a one-off blank gap.
 
 ```vb
 Space Height 20
 Space Width 10
 ```
 
-Maps to Iced `space`.
+Maps to `iced::widget::Space::with_height(20)` / `::with_width(10)`.
 
 ---
 
@@ -661,6 +661,24 @@ Maps to Iced `rule`.
 ---
 
 ## 6. Common Layout Properties
+
+**`Spacing` and `Padding` are BUILT (slice 8).** Inside a `Column`/`Row`, a
+`Spacing N` line puts a uniform `N`-pixel gap between every child, and `Padding N`
+insets the whole container:
+
+```vb
+Column
+    Spacing 12
+    Padding 20
+    Text "Settings"
+    Button "OK"
+        On Click Ok
+    End Button
+End Column
+```
+
+→ `column![…].spacing(12).padding(20)`. (`Width`/`Height`/`Align`/`Center` and
+`Fill`/`Shrink` sizing are not built yet — see below.)
 
 V1 should support a small set of common layout properties.
 
