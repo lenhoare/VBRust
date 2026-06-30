@@ -30,7 +30,17 @@ fn update(state: &mut Greeter, message: Message) {
 }
 
 fn view(state: &Greeter) -> Element<'_, Message> {
-    column![text("What's your name?"), text_input("type here", &state.name).on_input(Message::Rename), { let el: Element<'_, Message> = match state.name.as_str() { "" => text("Type your name above.").into(), _ => text(format!("{}{}", format!("{}{}", "Hello, ", state.name), "!")).into(), }; el }].into()
+    column![
+        text("What's your name?"),
+        text_input("type here", &state.name).on_input(Message::Rename),
+        {
+            let el: Element<'_, Message> = match state.name.as_str() {
+                "" => text("Type your name above.").into(),
+                _ => text(format!("{}{}", format!("{}{}", "Hello, ", state.name), "!")).into(),
+            };
+            el
+        },
+    ].into()
 }
 
 fn main() -> iced::Result {

@@ -54,7 +54,11 @@ fn update(state: &mut Fetcher, message: Message) -> Task<Message> {
 }
 
 fn view(state: &Fetcher) -> Element<'_, Message> {
-    column![text_input("url", &state.url).on_input(Message::SetUrl), button("Fetch").on_press(Message::Fetch), text(format!("{}", state.status))].into()
+    column![
+        text_input("url", &state.url).on_input(Message::SetUrl),
+        button("Fetch").on_press(Message::Fetch),
+        text(format!("{}", state.status)),
+    ].into()
 }
 
 fn main() -> iced::Result {

@@ -31,7 +31,12 @@ fn update(state: &mut Counter, message: Message) {
 }
 
 fn view(state: &Counter) -> Element<'_, Message> {
-    column![text("Counter"), text(format!("{}", state.count)), button("-").on_press(Message::Decrement), button("+").on_press(Message::Increment)].into()
+    column![
+        text("Counter"),
+        text(format!("{}", state.count)),
+        button("-").on_press(Message::Decrement),
+        button("+").on_press(Message::Increment),
+    ].into()
 }
 
 fn main() -> iced::Result {

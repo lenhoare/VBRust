@@ -36,7 +36,18 @@ fn update(state: &mut Settings, message: Message) {
 }
 
 fn view(state: &Settings) -> Element<'_, Message> {
-    column![checkbox("I agree to the terms", state.agreed).on_toggle(Message::SetAgreed), text(format!("{}{}", "Volume: ", state.volume)), slider(0..=100, state.volume, Message::SetVolume), { let el: Element<'_, Message> = match state.agreed { true => text("Thanks — you're all set!").into(), false => text("Please agree to continue.").into(), }; el }].into()
+    column![
+        checkbox("I agree to the terms", state.agreed).on_toggle(Message::SetAgreed),
+        text(format!("{}{}", "Volume: ", state.volume)),
+        slider(0..=100, state.volume, Message::SetVolume),
+        {
+            let el: Element<'_, Message> = match state.agreed {
+                true => text("Thanks — you're all set!").into(),
+                false => text("Please agree to continue.").into(),
+            };
+            el
+        },
+    ].into()
 }
 
 fn main() -> iced::Result {

@@ -1,0 +1,102 @@
+' A control panel showing every VBR GUI control: Text, Button, TextInput,
+' Checkbox, Toggler, Slider, ProgressBar, Radio — plus Row layout, Match and If
+' in the view, an enum-backed radio group, and an async Await (Http) event.
+Enum Size
+    Small
+    Medium
+    Large
+End Enum
+
+Window Panel
+    Title "Control Panel"
+
+    State
+        Dim name As String = ""
+        Dim agree As Boolean = False
+        Dim dark As Boolean = False
+        Dim volume As Integer = 50
+        Dim size As Size = Size.Medium
+        Dim status As String = "ready"
+    End State
+
+    View
+        Column
+            Text "Control Panel"
+
+            Row
+                Text "Name:"
+                TextInput "your name", name
+                    On Input SetName
+                End TextInput
+            End Row
+
+            Checkbox "I agree to the terms", agree
+                On Toggle SetAgree
+            End Checkbox
+            Toggler "Dark mode", dark
+                On Toggle SetDark
+            End Toggler
+
+            Text "Volume: " & volume
+            Slider 0..=100, volume
+                On Change SetVolume
+            End Slider
+            ProgressBar 0..=100, volume
+
+            Text "Size:"
+            Radio "Small", size, Size.Small
+                On Select SetSize
+            End Radio
+            Radio "Medium", size, Size.Medium
+                On Select SetSize
+            End Radio
+            Radio "Large", size, Size.Large
+                On Select SetSize
+            End Radio
+
+            Match size
+                Size.Small => Text "compact layout"
+                Size.Medium => Text "standard layout"
+                Size.Large => Text "spacious layout"
+            End Match
+
+            If agree Then
+                Text "Thanks — you're all set!"
+            Else
+                Text "Please agree to continue."
+            End If
+
+            Button "Fetch a page"
+                On Click Fetch
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event SetName(value As String)
+        name = value
+    End Event
+    Event SetAgree(value As Boolean)
+        agree = value
+    End Event
+    Event SetDark(value As Boolean)
+        dark = value
+    End Event
+    Event SetVolume(value As Integer)
+        volume = value
+    End Event
+    Event SetSize(value As Size)
+        size = value
+    End Event
+    Event Fetch
+        status = "loading…"
+        Match Await Http.Get("https://example.com")
+            Ok(body) => status = "got " & body.len() & " bytes"
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Window
+
+Function Main()
+    Panel.Run
+End Function

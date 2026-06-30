@@ -36,7 +36,19 @@ fn update(state: &mut Panel, message: Message) {
 }
 
 fn view(state: &Panel) -> Element<'_, Message> {
-    column![toggler(state.enabled).label("Enabled").on_toggle(Message::SetEnabled), { let el: Element<'_, Message> = if state.enabled { text("Running").into() } else { text("Paused").into() }; el }, slider(0..=100, state.level, Message::SetLevel), progress_bar((0 as f32)..=(100 as f32), state.level as f32)].into()
+    column![
+        toggler(state.enabled).label("Enabled").on_toggle(Message::SetEnabled),
+        {
+            let el: Element<'_, Message> = if state.enabled {
+                text("Running").into()
+            } else {
+                text("Paused").into()
+            };
+            el
+        },
+        slider(0..=100, state.level, Message::SetLevel),
+        progress_bar((0 as f32)..=(100 as f32), state.level as f32),
+    ].into()
 }
 
 fn main() -> iced::Result {

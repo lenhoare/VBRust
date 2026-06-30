@@ -39,7 +39,19 @@ fn update(state: &mut Chooser, message: Message) {
 }
 
 fn view(state: &Chooser) -> Element<'_, Message> {
-    column![radio("Small", Size::Small, Some(state.choice), Message::Pick), radio("Medium", Size::Medium, Some(state.choice), Message::Pick), radio("Large", Size::Large, Some(state.choice), Message::Pick), { let el: Element<'_, Message> = match state.choice { Size :: Small => text("You picked small").into(), Size :: Medium => text("You picked medium").into(), Size :: Large => text("You picked large").into(), }; el }].into()
+    column![
+        radio("Small", Size::Small, Some(state.choice), Message::Pick),
+        radio("Medium", Size::Medium, Some(state.choice), Message::Pick),
+        radio("Large", Size::Large, Some(state.choice), Message::Pick),
+        {
+            let el: Element<'_, Message> = match state.choice {
+                Size :: Small => text("You picked small").into(),
+                Size :: Medium => text("You picked medium").into(),
+                Size :: Large => text("You picked large").into(),
+            };
+            el
+        },
+    ].into()
 }
 
 fn main() -> iced::Result {

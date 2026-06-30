@@ -251,7 +251,9 @@ fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> 
 
     // ── view ──
     out.push_str(&format!("fn view(state: &{}) -> Element<'_, Message> {{\n", ty));
-    out.push_str(&format!("    {}\n", render_view(&w.view, &ctx, true)));
+    out.push_str("    ");
+    out.push_str(&render_view(&w.view, &ctx, 1, true));
+    out.push('\n');
     out.push_str("}\n");
 
     out
@@ -269,12 +271,22 @@ fn render_init(init: &Expr, ty: &DeclType, enums: &HashSet<String>) -> String {
     }
 }
 
-/// Render a view node to an Iced widget expression. The root (and each `Match`
-/// arm) gets `.into()` so the `view` function returns an `Element`.
-fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
+/// Render a view node to an Iced widget expression, pretty-printed with
+/// indentation. `indent` is this node's nesting level; `as_element` appends
+/// `.into()` where an `Element` is expected (the root, container children that
+/// need it, `Match`/`If` arm bodies). Containers and conditionals break across
+/// lines; leaf widgets stay on one line.
+fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) -> String {
+    // Containers and conditionals format across multiple lines.
+    match node {
+        ViewNode::Column(children) => return render_container("column", children, ctx, indent, as_element),
+        ViewNode::Row(children) => return render_container("row", children, ctx, indent, as_element),
+        ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
+        ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
+        _ => {}
+    }
+    // Leaf widgets — a single line.
     let s = match node {
-        ViewNode::Column(children) => format!("column![{}]", render_children(children, ctx)),
-        ViewNode::Row(children) => format!("row![{}]", render_children(children, ctx)),
         ViewNode::Text(e) => render_text(e, ctx),
         ViewNode::Button { label, on_click } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
@@ -341,58 +353,115 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
                 lbl, opt, field, on_select
             )
         }
-        // A view `Match` lowers to a Rust `match` whose arms each yield an
-        // `Element` (via `.into()`). The result is pinned to `Element` with a
-        // typed binding so each arm's `.into()` has a target. A `String`
-        // scrutinee is matched as `&str`.
-        ViewNode::Match { scrutinee, arms } => {
-            let subj = render_match_scrutinee(scrutinee, ctx);
-            let mut m = format!("{{ let el: Element<'_, Message> = match {} {{ ", subj);
-            for arm in arms {
-                let guard = match &arm.guard {
-                    Some(g) => format!(" if {}", render_expr(&rewrite_expr(g.clone(), ctx.fields, ctx.enums), None)),
-                    None => String::new(),
-                };
-                m.push_str(&format!("{}{} => {}, ", arm.pattern, guard, render_arm_body(&arm.body, ctx)));
-            }
-            m.push_str("}; el }");
-            m
-        }
-        // A view `If` lowers to a Rust `if`/`else` yielding an `Element`; a missing
-        // `Else` shows nothing (a zero-size `Space`). Pinned to `Element` so each
-        // branch's `.into()` has a target.
-        ViewNode::If { branches, else_body } => {
-            let mut s = String::from("{ let el: Element<'_, Message> = ");
-            for (i, (cond, body)) in branches.iter().enumerate() {
-                let c = render_expr(&rewrite_expr(cond.clone(), ctx.fields, ctx.enums), None);
-                let kw = if i == 0 { "if" } else { " else if" };
-                s.push_str(&format!("{} {} {{ {} }}", kw, c, render_arm_body(body, ctx)));
-            }
-            let els = match else_body {
-                Some(b) => render_arm_body(b, ctx),
-                None => {
-                    "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink).into()"
-                        .to_string()
-                }
-            };
-            s.push_str(&format!(" else {{ {} }}; el }}", els));
-            s
+        // Containers/conditionals returned early above.
+        ViewNode::Column(_) | ViewNode::Row(_) | ViewNode::Match { .. } | ViewNode::If { .. } => {
+            unreachable!()
         }
     };
-    // A `match`/`if` block already evaluates to an `Element`; don't double-wrap.
-    if root && !matches!(node, ViewNode::Match { .. } | ViewNode::If { .. }) {
+    if as_element {
         format!("{}.into()", s)
     } else {
         s
     }
 }
 
-/// One view-`Match` arm body → a single `Element`: a lone widget, or several
-/// wrapped in a `column!`.
-fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx) -> String {
+/// A `column!`/`row!` with one child per line, indented.
+fn render_container(
+    kw: &str,
+    children: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let tail = if as_element { ".into()" } else { "" };
+    if children.is_empty() {
+        return format!("{}![]{}", kw, tail);
+    }
+    let inner = "    ".repeat(indent + 1);
+    let pad = "    ".repeat(indent);
+    let mut s = format!("{}![\n", kw);
+    for c in children {
+        s.push_str(&inner);
+        s.push_str(&render_view(c, ctx, indent + 1, false));
+        s.push_str(",\n");
+    }
+    s.push_str(&pad);
+    s.push(']');
+    s.push_str(tail);
+    s
+}
+
+/// A view `Match` → a typed `{ let el = match … {…}; el }` block, arms on lines.
+fn render_view_match(scrutinee: &Expr, arms: &[ViewArm], ctx: &ViewCtx, indent: usize) -> String {
+    let subj = render_match_scrutinee(scrutinee, ctx);
+    let in1 = "    ".repeat(indent + 1);
+    let in2 = "    ".repeat(indent + 2);
+    let pad = "    ".repeat(indent);
+    let mut s = String::from("{\n");
+    s.push_str(&format!("{}let el: Element<'_, Message> = match {} {{\n", in1, subj));
+    for arm in arms {
+        let guard = match &arm.guard {
+            Some(g) => format!(
+                " if {}",
+                render_expr(&rewrite_expr(g.clone(), ctx.fields, ctx.enums), None)
+            ),
+            None => String::new(),
+        };
+        s.push_str(&format!(
+            "{}{}{} => {},\n",
+            in2,
+            arm.pattern,
+            guard,
+            render_arm_body(&arm.body, ctx, indent + 2)
+        ));
+    }
+    s.push_str(&format!("{}}};\n", in1));
+    s.push_str(&format!("{}el\n", in1));
+    s.push_str(&format!("{}}}", pad));
+    s
+}
+
+/// A view `If` → a typed `{ let el = if … {…} else {…}; el }` block.
+fn render_view_if(
+    branches: &[(Expr, Vec<ViewNode>)],
+    else_body: &Option<Vec<ViewNode>>,
+    ctx: &ViewCtx,
+    indent: usize,
+) -> String {
+    let in1 = "    ".repeat(indent + 1);
+    let in2 = "    ".repeat(indent + 2);
+    let pad = "    ".repeat(indent);
+    let mut s = String::from("{\n");
+    s.push_str(&format!("{}let el: Element<'_, Message> =", in1));
+    for (i, (cond, body)) in branches.iter().enumerate() {
+        let c = render_expr(&rewrite_expr(cond.clone(), ctx.fields, ctx.enums), None);
+        let kw = if i == 0 { " if" } else { " else if" };
+        s.push_str(&format!(
+            "{} {} {{\n{}{}\n{}}}",
+            kw,
+            c,
+            in2,
+            render_arm_body(body, ctx, indent + 2),
+            in1
+        ));
+    }
+    let els = match else_body {
+        Some(b) => render_arm_body(b, ctx, indent + 2),
+        None => "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink).into()"
+            .to_string(),
+    };
+    s.push_str(&format!(" else {{\n{}{}\n{}}};\n", in2, els, in1));
+    s.push_str(&format!("{}el\n", in1));
+    s.push_str(&format!("{}}}", pad));
+    s
+}
+
+/// One arm/branch body → a single `Element`: a lone widget, or several wrapped
+/// in a `column!`.
+fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx, indent: usize) -> String {
     match body {
-        [one] => render_view(one, ctx, true),
-        many => format!("column![{}].into()", render_children(many, ctx)),
+        [one] => render_view(one, ctx, indent, true),
+        many => render_container("column", many, ctx, indent, true),
     }
 }
 
@@ -525,14 +594,6 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
             }
         }
     }
-}
-
-fn render_children(children: &[ViewNode], ctx: &ViewCtx) -> String {
-    children
-        .iter()
-        .map(|c| render_view(c, ctx, false))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// `Text` content: a string literal as-is, a concatenation as its `format!`, and
