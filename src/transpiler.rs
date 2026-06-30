@@ -139,7 +139,7 @@ pub fn transpile_module(
     out
 }
 
-fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics) {
+pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics) {
     let name = to_screaming(&c.name);
     if name != c.name {
         diags.warn(
@@ -206,7 +206,7 @@ fn emit_impl(
 
 /// Emit a simple enum: `#[derive(…)] enum Name { A, B, C }`. `Copy` so values can
 /// be matched/compared freely and used where Iced wants a `Copy` value.
-fn emit_enum(e: &EnumDef, out: &mut String) {
+pub(crate) fn emit_enum(e: &EnumDef, out: &mut String) {
     let kw = if e.public { "pub enum" } else { "enum" };
     out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
     // A variant matched-on but never constructed (defensive `Match` arms) is a
@@ -219,7 +219,7 @@ fn emit_enum(e: &EnumDef, out: &mut String) {
     out.push_str("}\n");
 }
 
-fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
+pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
     let kw = if s.public { "pub struct" } else { "struct" };
     out.push_str(&format!("{} {} {{\n", kw, s.name));
     for f in &s.fields {

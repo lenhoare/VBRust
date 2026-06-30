@@ -90,11 +90,12 @@ pub struct Window {
     pub events: Vec<GuiEvent>,
 }
 
-/// One field of a window's `State` block — a `Dim` with an initial value.
+/// One field of a window's `State` block — a `Dim` with an initial value. The
+/// type is a primitive or a user enum (`DeclType::Plain`/`Named`).
 #[derive(Debug, Clone)]
 pub struct StateField {
     pub name: String,
-    pub ty: Type,
+    pub ty: DeclType,
     pub init: Expr,
 }
 
@@ -144,6 +145,15 @@ pub enum ViewNode {
         min: Expr,
         max: Expr,
         value: String,
+    },
+    /// One radio button in a group (Iced `radio`). `value` is the bound state
+    /// field holding the selected option; `option` is *this* button's value (an
+    /// enum variant or integer — must be `Copy + Eq`). `on_select` is required.
+    Radio {
+        label: Expr,
+        value: String,
+        option: Expr,
+        on_select: String,
     },
     /// `Match <expr>` inside a view — each arm produces the widget(s) to show.
     /// Lowers to a Rust `match` whose arms each yield an `Element`.

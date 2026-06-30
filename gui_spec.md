@@ -383,21 +383,36 @@ are both boolean controls — pick by the UI intent.
 
 ---
 
-#### RadioButton
+#### Radio  *(BUILT — slice 6)*
 
-Selects one value from a small fixed set.
+Selects one value from a small fixed set. Each `Radio` offers one option;
+`On Select` fires with the chosen value. The bound field holds the selection.
 
 ```vb
-RadioButton "Small", size, "Small"
-RadioButton "Medium", size, "Medium"
-RadioButton "Large", size, "Large"
+Enum Size
+    Small
+    Medium
+    Large
+End Enum
+' …State: Dim choice As Size = Size.Small …
+
+Radio "Small", choice, Size.Small
+    On Select Pick
+End Radio
+Radio "Medium", choice, Size.Medium
+    On Select Pick
+End Radio
+
+Event Pick(value As Size)
+    choice = value
+End Event
 ```
 
-Maps to Iced `radio`.
-
-The bound state field should hold the selected value.
-
-Radio buttons are recommended when all options should be visible at once.
+Maps to `radio("Small", Size::Small, Some(state.choice), Message::Pick)`. Iced's
+`radio` needs the value to be **`Copy + Eq`**, so the bound field must be an
+**enum** (the natural fit) or an **integer** — `String` (not `Copy`) and float
+(not `Eq`) values are rejected with a friendly error. This is why enums and Radio
+came together.
 
 ---
 

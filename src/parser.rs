@@ -532,17 +532,18 @@ impl<'a> Parser<'a> {
                 return None;
             }
             match self.parse_dim()? {
+                // A primitive or a user enum, with an initial value.
                 Stmt::Dim {
                     name,
-                    ty: DeclType::Plain(t),
+                    ty: ty @ (DeclType::Plain(_) | DeclType::Named(_)),
                     init: Some(init),
                     ..
-                } => fields.push(StateField { name, ty: t, init }),
+                } => fields.push(StateField { name, ty, init }),
                 _ => {
                     self.diags.error(
                         self.line(),
-                        "A State field must be a simple typed value with an initial value, \
-                         e.g. `Dim count As Integer = 0`.",
+                        "A State field must be a simple typed value (a primitive or an enum) \
+                         with an initial value, e.g. `Dim count As Integer = 0`.",
                     );
                     return None;
                 }
@@ -786,6 +787,58 @@ impl<'a> Parser<'a> {
                 }
                 Some(ViewNode::Toggler { label, value, on_toggle })
             }
+            "radio" => {
+                self.advance();
+                let label = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after the label — `Radio \"label\", field, OptionValue`")?;
+                let value = self.expect_ident("for the bound state field")?;
+                self.expect(&Tok::Comma, "before this button's value")?;
+                let option = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                let mut on_select = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            // `Select` lexes to a keyword token (kept for the Select-Case
+                            // migration error), so match the token, not an ident.
+                            self.expect(&Tok::Select, "in `On Select`")?;
+                            on_select = Some(self.expect_ident("for the select event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Radio")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a Radio expected `On Select <event>` or `End Radio`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                let on_select = match on_select {
+                    Some(ev) => ev,
+                    None => {
+                        self.diags.error(
+                            self.line(),
+                            "A Radio needs `On Select <event>` — selecting it must report which \
+                             option was chosen.",
+                        );
+                        return None;
+                    }
+                };
+                Some(ViewNode::Radio { label, value, option, on_select })
+            }
             "progressbar" => {
                 // Display-only: a range and the bound field, on one line (no events).
                 self.advance();
@@ -802,7 +855,7 @@ impl<'a> Parser<'a> {
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
-                         Checkbox, Slider, Toggler, ProgressBar, Match, If).",
+                         Checkbox, Slider, Toggler, ProgressBar, Radio, Match, If).",
                         other
                     ),
                 );
@@ -965,13 +1018,17 @@ impl<'a> Parser<'a> {
         Some(Param { name, ty, mode })
     }
 
-    /// Parse a comma-separated parameter list, assuming the opening `(` is already
-    /// consumed, and consume the closing `)`.
+    /// Parse an event's payload parameter list (the opening `(` is already eaten).
+    /// Event params are message data, always taken **by value** — so they don't
+    /// need an explicit `ByVal`/`ByRef` even for a `String` or enum.
     fn parse_params_until_rparen(&mut self) -> Option<Vec<Param>> {
         let mut params = Vec::new();
         if !matches!(self.peek(), Tok::RParen) {
             loop {
-                params.push(self.parse_param()?);
+                let name = self.expect_ident("for the parameter")?;
+                self.expect(&Tok::As, "after the parameter name")?;
+                let ty = self.parse_decl_type()?;
+                params.push(Param { name, ty, mode: ParamMode::ByVal });
                 if !self.eat(&Tok::Comma) {
                     break;
                 }

@@ -7,7 +7,9 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::transpiler::{decltype_rust, emit_stmt, render_expr, stdlib_type, to_snake};
+use crate::transpiler::{
+    decltype_rust, emit_const, emit_enum, emit_stmt, emit_struct, render_expr, stdlib_type, to_snake,
+};
 use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs to know about a window's state: the field names
@@ -15,7 +17,8 @@ use std::collections::{HashMap, HashSet};
 /// scrutinee gets `.as_str()`).
 struct ViewCtx<'a> {
     fields: &'a HashSet<String>,
-    field_ty: &'a HashMap<String, Type>,
+    field_ty: &'a HashMap<String, DeclType>,
+    enums: &'a HashSet<String>,
 }
 
 /// Emit a complete GUI program: each window's definition, then `fn main`, which
@@ -28,8 +31,25 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
     if !program.leading_comments.is_empty() {
         out.push('\n');
     }
+    // Top-level items a GUI may define and reference (enums for Radio, etc.).
+    for c in &program.constants {
+        emit_const(c, &mut out, diags);
+    }
+    if !program.constants.is_empty() {
+        out.push('\n');
+    }
+    for s in &program.structs {
+        emit_struct(s, diags, &mut out);
+        out.push('\n');
+    }
+    for e in &program.enums {
+        emit_enum(e, &mut out);
+        out.push('\n');
+    }
+
+    let enums: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
     for w in &program.windows {
-        out.push_str(&emit_window(w, diags));
+        out.push_str(&emit_window(w, &enums, diags));
         out.push('\n');
     }
     match find_launched_window(program) {
@@ -82,13 +102,13 @@ fn find_launched_window(program: &Program) -> Option<&Window> {
 
 /// Emit one window's *definition* — the State struct, Message enum, update, and
 /// view. (`fn main` is emitted separately, from the launch in `Function Main()`.)
-fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
+fn emit_window(w: &Window, enums: &HashSet<String>, diags: &mut Diagnostics) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
     let fields: HashSet<String> = w.state.iter().map(|f| to_snake(&f.name)).collect();
-    let field_ty: HashMap<String, Type> =
-        w.state.iter().map(|f| (to_snake(&f.name), f.ty)).collect();
-    let ctx = ViewCtx { fields: &fields, field_ty: &field_ty };
+    let field_ty: HashMap<String, DeclType> =
+        w.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
+    let ctx = ViewCtx { fields: &fields, field_ty: &field_ty, enums };
     validate_view(&w.view, &field_ty, diags);
 
     // Analyse each event for `Await`: an async event splits into a kick-off arm
@@ -130,7 +150,7 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     // ── State struct ──
     out.push_str(&format!("struct {} {{\n", ty));
     for f in &w.state {
-        out.push_str(&format!("    {}: {},\n", to_snake(&f.name), f.ty.rust()));
+        out.push_str(&format!("    {}: {},\n", to_snake(&f.name), decltype_rust(&f.ty)));
     }
     out.push_str("}\n\n");
 
@@ -138,7 +158,11 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
     out.push_str(&format!("        {} {{\n", ty));
     for f in &w.state {
-        out.push_str(&format!("            {}: {},\n", to_snake(&f.name), render_init(&f.init, f.ty)));
+        out.push_str(&format!(
+            "            {}: {},\n",
+            to_snake(&f.name),
+            render_init(&f.init, &f.ty, enums)
+        ));
     }
     out.push_str("        }\n    }\n}\n\n");
 
@@ -177,7 +201,7 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
             // Synchronous event: run the body; async windows need a `Task::none()`.
             None => {
                 for stmt in &e.body {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields);
+                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
                     coerce_state_strings(&mut rewritten, &field_ty);
                     emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
                 }
@@ -188,7 +212,7 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
             // Async kick-off: pre-await body, snapshot state, then return the Task.
             Some(s) => {
                 for stmt in &s.pre {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields);
+                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
                     coerce_state_strings(&mut rewritten, &field_ty);
                     emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
                 }
@@ -215,7 +239,7 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
         if let Some(s) = split {
             out.push_str(&format!("        Message::{}Done({}) => {{\n", e.name, s.bind));
             for stmt in &s.cont {
-                let mut rewritten = rewrite_stmt(stmt.clone(), &fields);
+                let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
                     coerce_state_strings(&mut rewritten, &field_ty);
                 emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
             }
@@ -233,12 +257,16 @@ fn emit_window(w: &Window, diags: &mut Diagnostics) -> String {
     out
 }
 
-/// A `State` field initialiser: a `String` becomes owned, numbers adapt to type.
-fn render_init(init: &Expr, ty: Type) -> String {
-    if ty == Type::Text {
-        return format!("{}.to_string()", render_expr(init, None));
+/// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
+/// an enum variant (`Size.Small`) resolves to its path (`Size::Small`).
+fn render_init(init: &Expr, ty: &DeclType, enums: &HashSet<String>) -> String {
+    let empty = HashSet::new();
+    match ty {
+        DeclType::Plain(Type::Text) => format!("{}.to_string()", render_expr(init, None)),
+        DeclType::Plain(t) => render_expr(init, Some(*t)),
+        // Enum (or other named) init — rewrite `Size.Small` → `Size::Small`.
+        _ => render_expr(&rewrite_expr(init.clone(), &empty, enums), None),
     }
-    render_expr(init, Some(ty))
 }
 
 /// Render a view node to an Iced widget expression. The root (and each `Match`
@@ -249,14 +277,14 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
         ViewNode::Row(children) => format!("row![{}]", render_children(children, ctx)),
         ViewNode::Text(e) => render_text(e, ctx),
         ViewNode::Button { label, on_click } => {
-            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields), None);
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
             match on_click {
                 Some(ev) => format!("button({}).on_press(Message::{})", lbl, ev),
                 None => format!("button({})", lbl),
             }
         }
         ViewNode::TextInput { placeholder, value, on_input } => {
-            let ph = render_expr(&rewrite_expr(placeholder.clone(), ctx.fields), None);
+            let ph = render_expr(&rewrite_expr(placeholder.clone(), ctx.fields, ctx.enums), None);
             let field = to_snake(value);
             let base = format!("text_input({}, &state.{})", ph, field);
             match on_input {
@@ -265,7 +293,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
             }
         }
         ViewNode::Checkbox { label, value, on_toggle } => {
-            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields), None);
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
             let field = to_snake(value);
             // `is_checked` is a `bool` (Copy), so it's passed by value.
             let base = format!("checkbox({}, state.{})", lbl, field);
@@ -275,8 +303,8 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
             }
         }
         ViewNode::Slider { min, max, value, on_change } => {
-            let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields), None);
-            let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields), None);
+            let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields, ctx.enums), None);
+            let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields, ctx.enums), None);
             let field = to_snake(value);
             format!(
                 "slider({}..={}, state.{}, Message::{})",
@@ -284,7 +312,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
             )
         }
         ViewNode::Toggler { label, value, on_toggle } => {
-            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields), None);
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
             let field = to_snake(value);
             // `is_toggled` is a `bool` (Copy), passed by value; label via builder.
             let base = format!("toggler(state.{}).label({})", field, lbl);
@@ -294,13 +322,23 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
             }
         }
         ViewNode::ProgressBar { min, max, value } => {
-            let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields), None);
-            let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields), None);
+            let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields, ctx.enums), None);
+            let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields, ctx.enums), None);
             let field = to_snake(value);
             // Iced progress bars are `f32`; cast the bounds and value.
             format!(
                 "progress_bar(({} as f32)..=({} as f32), state.{} as f32)",
                 lo, hi, field
+            )
+        }
+        ViewNode::Radio { label, value, option, on_select } => {
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
+            let opt = render_expr(&rewrite_expr(option.clone(), ctx.fields, ctx.enums), None);
+            let field = to_snake(value);
+            // The selected value is `Some(state.field)` (Copy, so it's a copy).
+            format!(
+                "radio({}, {}, Some(state.{}), Message::{})",
+                lbl, opt, field, on_select
             )
         }
         // A view `Match` lowers to a Rust `match` whose arms each yield an
@@ -312,7 +350,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
             let mut m = format!("{{ let el: Element<'_, Message> = match {} {{ ", subj);
             for arm in arms {
                 let guard = match &arm.guard {
-                    Some(g) => format!(" if {}", render_expr(&rewrite_expr(g.clone(), ctx.fields), None)),
+                    Some(g) => format!(" if {}", render_expr(&rewrite_expr(g.clone(), ctx.fields, ctx.enums), None)),
                     None => String::new(),
                 };
                 m.push_str(&format!("{}{} => {}, ", arm.pattern, guard, render_arm_body(&arm.body, ctx)));
@@ -326,7 +364,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
         ViewNode::If { branches, else_body } => {
             let mut s = String::from("{ let el: Element<'_, Message> = ");
             for (i, (cond, body)) in branches.iter().enumerate() {
-                let c = render_expr(&rewrite_expr(cond.clone(), ctx.fields), None);
+                let c = render_expr(&rewrite_expr(cond.clone(), ctx.fields, ctx.enums), None);
                 let kw = if i == 0 { "if" } else { " else if" };
                 s.push_str(&format!("{} {} {{ {} }}", kw, c, render_arm_body(body, ctx)));
             }
@@ -361,9 +399,9 @@ fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx) -> String {
 /// The scrutinee of a view `Match`: a bare `String` state field is matched as a
 /// slice (`state.name.as_str()`) so string-literal patterns line up.
 fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
-    let rendered = render_expr(&rewrite_expr(scrutinee.clone(), ctx.fields), None);
+    let rendered = render_expr(&rewrite_expr(scrutinee.clone(), ctx.fields, ctx.enums), None);
     if let Expr::Ident(name) = scrutinee {
-        if ctx.field_ty.get(&to_snake(name)) == Some(&Type::Text) {
+        if matches!(ctx.field_ty.get(&to_snake(name)), Some(DeclType::Plain(Type::Text))) {
             return format!("{}.as_str()", rendered);
         }
     }
@@ -373,7 +411,7 @@ fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
 /// Walk the view for type mismatches we can explain better than rustc would.
 /// Currently: an Iced `Slider`'s value must be convertible to `f64`, which rules
 /// out `Long`/`LongLong` (i64) — point the user at `Integer`/`Single`/`Double`.
-fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut Diagnostics) {
+fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     match node {
         ViewNode::Column(children) | ViewNode::Row(children) => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
@@ -392,7 +430,7 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut 
             }
         }
         ViewNode::Slider { value, .. } => {
-            if matches!(field_ty.get(&to_snake(value)), Some(Type::Long | Type::LongLong)) {
+            if matches!(field_ty.get(&to_snake(value)), Some(DeclType::Plain(Type::Long | Type::LongLong))) {
                 diags.error_once(
                     &format!("slider-i64-{}", to_snake(value)),
                     format!(
@@ -405,7 +443,7 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut 
             }
         }
         ViewNode::Toggler { value, .. } => {
-            if field_ty.get(&to_snake(value)) != Some(&Type::Boolean) {
+            if !matches!(field_ty.get(&to_snake(value)), Some(DeclType::Plain(Type::Boolean))) {
                 diags.error_once(
                     &format!("toggler-bool-{}", to_snake(value)),
                     format!("A Toggler binds to a `Boolean` state field — `{}` isn't one.", value),
@@ -413,10 +451,35 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut 
             }
         }
         ViewNode::ProgressBar { value, .. } => {
-            if matches!(field_ty.get(&to_snake(value)), Some(Type::Text | Type::Boolean) | None) {
+            let numeric = matches!(
+                field_ty.get(&to_snake(value)),
+                Some(DeclType::Plain(t)) if !matches!(t, Type::Text | Type::Boolean)
+            );
+            if !numeric {
                 diags.error_once(
                     &format!("progress-num-{}", to_snake(value)),
                     format!("A ProgressBar shows a number — `{}` must be a numeric field.", value),
+                );
+            }
+        }
+        ViewNode::Radio { value, .. } => {
+            // Iced `radio` values must be `Copy + Eq` — an enum or an integer
+            // (floats aren't `Eq`; strings aren't `Copy`).
+            let ok = matches!(
+                field_ty.get(&to_snake(value)),
+                Some(DeclType::Named(_))
+                    | Some(DeclType::Plain(
+                        Type::Integer | Type::Long | Type::LongLong | Type::Byte
+                    ))
+            );
+            if !ok {
+                diags.error_once(
+                    &format!("radio-type-{}", to_snake(value)),
+                    format!(
+                        "A Radio binds to an enum or integer field (the selectable values must be \
+                         Copy and comparable) — `{}` isn't one.",
+                        value
+                    ),
                 );
             }
         }
@@ -447,6 +510,7 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Slider { .. } => add(used, "slider"),
         ViewNode::Toggler { .. } => add(used, "toggler"),
         ViewNode::ProgressBar { .. } => add(used, "progress_bar"),
+        ViewNode::Radio { .. } => add(used, "radio"),
         ViewNode::Match { arms, .. } => {
             for arm in arms {
                 arm.body.iter().for_each(|c| collect_widgets(c, used));
@@ -474,7 +538,7 @@ fn render_children(children: &[ViewNode], ctx: &ViewCtx) -> String {
 /// `Text` content: a string literal as-is, a concatenation as its `format!`, and
 /// anything else stringified with `format!("{}", …)`.
 fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
-    let rendered = render_expr(&rewrite_expr(e.clone(), ctx.fields), None);
+    let rendered = render_expr(&rewrite_expr(e.clone(), ctx.fields, ctx.enums), None);
     match e {
         Expr::Str(_) => format!("text({})", rendered),
         Expr::Binary { op: BinOp::Concat, .. } => format!("text({})", rendered),
@@ -485,11 +549,11 @@ fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
 /// Event bodies skip the resolver, so a string literal assigned to a `String`
 /// state field doesn't get its `.to_string()`. Add it here (`status = "x"` →
 /// `state.status = "x".to_string()`), recursing through `Match`/`If` bodies.
-fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, Type>) {
+fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, DeclType>) {
     match s {
         Stmt::Assign { target: Expr::Field(recv, fname), value, .. }
             if matches!(&**recv, Expr::Ident(n) if n == "state")
-                && field_ty.get(&to_snake(fname)) == Some(&Type::Text)
+                && matches!(field_ty.get(&to_snake(fname)), Some(DeclType::Plain(Type::Text)))
                 && matches!(value, Expr::Str(_)) =>
         {
             let inner = std::mem::replace(value, Expr::Int(0));
@@ -546,7 +610,7 @@ struct AwaitInfo {
 /// `Dim` (`Dim x = Await …`).
 fn await_split(
     e: &GuiEvent,
-    field_ty: &HashMap<String, Type>,
+    field_ty: &HashMap<String, DeclType>,
     diags: &mut Diagnostics,
 ) -> Option<AwaitSplit> {
     let idx = e.body.iter().position(stmt_has_await)?;
@@ -597,7 +661,7 @@ fn await_split(
 /// it (V1: a known stdlib call such as `Http.Get`).
 fn awaitable_info(
     call: &Expr,
-    field_ty: &HashMap<String, Type>,
+    field_ty: &HashMap<String, DeclType>,
     diags: &mut Diagnostics,
 ) -> Option<AwaitInfo> {
     let (recv, method, args) = match call {
@@ -648,7 +712,7 @@ fn awaitable_info(
             Expr::Ident(name) if field_ty.contains_key(&to_snake(name)) => {
                 let f = to_snake(name);
                 snapshots.push(format!("let {} = state.{}.clone();", f, f));
-                if field_ty.get(&f) == Some(&Type::Text) {
+                if matches!(field_ty.get(&f), Some(DeclType::Plain(Type::Text))) {
                     arg_src.push(format!("&{}", f));
                 } else {
                     arg_src.push(f);
@@ -890,67 +954,76 @@ fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagn
     }
 }
 
-/// Replace a bare reference to a state field with `state.field`, so an event /
-/// view expression reaches the window's state struct.
-fn rewrite_expr(e: Expr, fields: &HashSet<String>) -> Expr {
+/// Replace a bare reference to a state field with `state.field`, and an enum
+/// variant `Color.Red` with the path `Color::Red`, so an event/view expression
+/// reaches the window's state and names variants correctly.
+fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> Expr {
     match e {
+        // `Color.Red` (field on an enum name) → the path `Color::Red`.
+        Expr::Field(inner, variant) if matches!(&*inner, Expr::Ident(n) if enums.contains(n)) => {
+            match *inner {
+                Expr::Ident(n) => Expr::ConstRef(format!("{}::{}", n, variant)),
+                _ => unreachable!(),
+            }
+        }
         Expr::Ident(name) if fields.contains(&to_snake(&name)) => {
             Expr::Field(Box::new(Expr::Ident("state".to_string())), name)
         }
         Expr::Binary { op, lhs, rhs } => Expr::Binary {
             op,
-            lhs: Box::new(rewrite_expr(*lhs, fields)),
-            rhs: Box::new(rewrite_expr(*rhs, fields)),
+            lhs: Box::new(rewrite_expr(*lhs, fields, enums)),
+            rhs: Box::new(rewrite_expr(*rhs, fields, enums)),
         },
-        Expr::Not(inner) => Expr::Not(Box::new(rewrite_expr(*inner, fields))),
+        Expr::Not(inner) => Expr::Not(Box::new(rewrite_expr(*inner, fields, enums))),
         Expr::Call { name, args } => Expr::Call {
             name,
-            args: args.into_iter().map(|a| rewrite_expr(a, fields)).collect(),
+            args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
         },
         Expr::MethodCall { recv, method, args } => Expr::MethodCall {
-            recv: Box::new(rewrite_expr(*recv, fields)),
+            recv: Box::new(rewrite_expr(*recv, fields, enums)),
             method,
-            args: args.into_iter().map(|a| rewrite_expr(a, fields)).collect(),
+            args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
         },
-        Expr::Field(inner, f) => Expr::Field(Box::new(rewrite_expr(*inner, fields)), f),
+        Expr::Field(inner, f) => Expr::Field(Box::new(rewrite_expr(*inner, fields, enums)), f),
         Expr::Index(a, b) => Expr::Index(
-            Box::new(rewrite_expr(*a, fields)),
-            Box::new(rewrite_expr(*b, fields)),
+            Box::new(rewrite_expr(*a, fields, enums)),
+            Box::new(rewrite_expr(*b, fields, enums)),
         ),
-        Expr::Cast(inner, t) => Expr::Cast(Box::new(rewrite_expr(*inner, fields)), t),
+        Expr::Cast(inner, t) => Expr::Cast(Box::new(rewrite_expr(*inner, fields, enums)), t),
         other => other,
     }
 }
 
-fn rewrite_stmt(s: Stmt, fields: &HashSet<String>) -> Stmt {
+fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<String>) -> Stmt {
     match s {
         Stmt::Assign { target, value, op } => Stmt::Assign {
-            target: rewrite_expr(target, fields),
-            value: rewrite_expr(value, fields),
+            target: rewrite_expr(target, fields, enums),
+            value: rewrite_expr(value, fields, enums),
             op,
         },
-        Stmt::Print(e) => Stmt::Print(rewrite_expr(e, fields)),
-        Stmt::Expr(e) => Stmt::Expr(rewrite_expr(e, fields)),
+        Stmt::Print(e) => Stmt::Print(rewrite_expr(e, fields, enums)),
+        Stmt::Expr(e) => Stmt::Expr(rewrite_expr(e, fields, enums)),
         Stmt::If { branches, else_body } => Stmt::If {
             branches: branches
                 .into_iter()
                 .map(|(c, b)| {
                     (
-                        rewrite_expr(c, fields),
-                        b.into_iter().map(|s| rewrite_stmt(s, fields)).collect(),
+                        rewrite_expr(c, fields, enums),
+                        b.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect(),
                     )
                 })
                 .collect(),
-            else_body: else_body.map(|b| b.into_iter().map(|s| rewrite_stmt(s, fields)).collect()),
+            else_body: else_body
+                .map(|b| b.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect()),
         },
         Stmt::Match { scrutinee, arms, line } => Stmt::Match {
-            scrutinee: rewrite_expr(scrutinee, fields),
+            scrutinee: rewrite_expr(scrutinee, fields, enums),
             arms: arms
                 .into_iter()
                 .map(|a| MatchArm {
                     pattern: a.pattern,
-                    guard: a.guard.map(|g| rewrite_expr(g, fields)),
-                    body: a.body.into_iter().map(|s| rewrite_stmt(s, fields)).collect(),
+                    guard: a.guard.map(|g| rewrite_expr(g, fields, enums)),
+                    body: a.body.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect(),
                 })
                 .collect(),
             line,
@@ -958,7 +1031,7 @@ fn rewrite_stmt(s: Stmt, fields: &HashSet<String>) -> Stmt {
         Stmt::Dim { name, ty, init, line } => Stmt::Dim {
             name,
             ty,
-            init: init.map(|e| rewrite_expr(e, fields)),
+            init: init.map(|e| rewrite_expr(e, fields, enums)),
             line,
         },
         other => other,

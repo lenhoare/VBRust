@@ -1,0 +1,44 @@
+' Radio buttons backed by a simple enum: the bound field holds the selected
+' variant, each Radio offers one option, and On Select reports the choice. The
+' enum being Copy is exactly what Iced's radio needs.
+Enum Size
+    Small
+    Medium
+    Large
+End Enum
+
+Window Chooser
+    Title "Chooser"
+
+    State
+        Dim choice As Size = Size.Small
+    End State
+
+    View
+        Column
+            Radio "Small", choice, Size.Small
+                On Select Pick
+            End Radio
+            Radio "Medium", choice, Size.Medium
+                On Select Pick
+            End Radio
+            Radio "Large", choice, Size.Large
+                On Select Pick
+            End Radio
+
+            Match choice
+                Size.Small => Text "You picked small"
+                Size.Medium => Text "You picked medium"
+                Size.Large => Text "You picked large"
+            End Match
+        End Column
+    End View
+
+    Event Pick(value As Size)
+        choice = value
+    End Event
+End Window
+
+Function Main()
+    Chooser.Run
+End Function
