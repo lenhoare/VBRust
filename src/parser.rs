@@ -702,12 +702,60 @@ impl<'a> Parser<'a> {
                 };
                 Some(ViewNode::Slider { min, max, value, on_change })
             }
+            "toggler" => {
+                self.advance();
+                let label = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after the label — `Toggler \"label\", field`")?;
+                let value = self.expect_ident("for the bound state field")?;
+                self.eat(&Tok::Newline);
+                let mut on_toggle = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Toggle")?;
+                            on_toggle = Some(self.expect_ident("for the toggle event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Toggler")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a Toggler expected `On Toggle <event>` or \
+                                     `End Toggler`, found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::Toggler { label, value, on_toggle })
+            }
+            "progressbar" => {
+                // Display-only: a range and the bound field, on one line (no events).
+                self.advance();
+                let min = self.parse_expr()?;
+                self.expect(&Tok::DotDotEq, "for the progress range — `min..=max`")?;
+                let max = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after the range — `ProgressBar min..=max, field`")?;
+                let value = self.expect_ident("for the bound state field")?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::ProgressBar { min, max, value })
+            }
             other => {
                 self.diags.error(
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
-                         Checkbox, Slider, Match).",
+                         Checkbox, Slider, Toggler, ProgressBar, Match, If).",
                         other
                     ),
                 );

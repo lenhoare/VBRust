@@ -1,0 +1,41 @@
+' Toggler (an on/off switch) and ProgressBar (a read-only gauge). The slider
+' drives the progress bar, and the toggler flips a boolean shown via If.
+Window Panel
+    Title "Panel"
+
+    State
+        Dim enabled As Boolean = False
+        Dim level As Integer = 30
+    End State
+
+    View
+        Column
+            Toggler "Enabled", enabled
+                On Toggle SetEnabled
+            End Toggler
+
+            If enabled Then
+                Text "Running"
+            Else
+                Text "Paused"
+            End If
+
+            Slider 0..=100, level
+                On Change SetLevel
+            End Slider
+            ProgressBar 0..=100, level
+        End Column
+    End View
+
+    Event SetEnabled(value As Boolean)
+        enabled = value
+    End Event
+
+    Event SetLevel(value As Integer)
+        level = value
+    End Event
+End Window
+
+Function Main()
+    Panel.Run
+End Function

@@ -283,6 +283,26 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, root: bool) -> String {
                 lo, hi, field, on_change
             )
         }
+        ViewNode::Toggler { label, value, on_toggle } => {
+            let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields), None);
+            let field = to_snake(value);
+            // `is_toggled` is a `bool` (Copy), passed by value; label via builder.
+            let base = format!("toggler(state.{}).label({})", field, lbl);
+            match on_toggle {
+                Some(ev) => format!("{}.on_toggle(Message::{})", base, ev),
+                None => base,
+            }
+        }
+        ViewNode::ProgressBar { min, max, value } => {
+            let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields), None);
+            let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields), None);
+            let field = to_snake(value);
+            // Iced progress bars are `f32`; cast the bounds and value.
+            format!(
+                "progress_bar(({} as f32)..=({} as f32), state.{} as f32)",
+                lo, hi, field
+            )
+        }
         // A view `Match` lowers to a Rust `match` whose arms each yield an
         // `Element` (via `.into()`). The result is pinned to `Element` with a
         // typed binding so each arm's `.into()` has a target. A `String`
@@ -384,6 +404,22 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, Type>, diags: &mut 
                 );
             }
         }
+        ViewNode::Toggler { value, .. } => {
+            if field_ty.get(&to_snake(value)) != Some(&Type::Boolean) {
+                diags.error_once(
+                    &format!("toggler-bool-{}", to_snake(value)),
+                    format!("A Toggler binds to a `Boolean` state field — `{}` isn't one.", value),
+                );
+            }
+        }
+        ViewNode::ProgressBar { value, .. } => {
+            if matches!(field_ty.get(&to_snake(value)), Some(Type::Text | Type::Boolean) | None) {
+                diags.error_once(
+                    &format!("progress-num-{}", to_snake(value)),
+                    format!("A ProgressBar shows a number — `{}` must be a numeric field.", value),
+                );
+            }
+        }
         _ => {}
     }
 }
@@ -409,6 +445,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::TextInput { .. } => add(used, "text_input"),
         ViewNode::Checkbox { .. } => add(used, "checkbox"),
         ViewNode::Slider { .. } => add(used, "slider"),
+        ViewNode::Toggler { .. } => add(used, "toggler"),
+        ViewNode::ProgressBar { .. } => add(used, "progress_bar"),
         ViewNode::Match { arms, .. } => {
             for arm in arms {
                 arm.body.iter().for_each(|c| collect_widgets(c, used));

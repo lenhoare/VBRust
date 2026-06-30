@@ -362,19 +362,24 @@ The bound field must be a type Iced can convert to `f64` — `Integer`, `Single`
 
 ---
 
-#### Toggle
+#### Toggler  *(BUILT — slice 6)*
 
-Boolean switch control bound to a Boolean state field.
+On/off switch bound to a `Boolean` state field — like `Checkbox`, but a switch.
+`On Toggle` fires with the new `bool`.
 
 ```vb
-Toggle "Advanced mode", advancedMode
+Toggler "Advanced mode", advanced_mode
+    On Toggle SetAdvanced
+End Toggler
+
+Event SetAdvanced(value As Boolean)
+    advanced_mode = value
+End Event
 ```
 
-Maps to Iced `toggler`.
-
-Used for on/off settings.
-
-Although `CheckBox` and `Toggle` are both Boolean controls, both should exist because they express different UI intent.
+Maps to `toggler(state.advanced_mode).label("Advanced mode").on_toggle(Message::SetAdvanced)`.
+Binding to a non-`Boolean` field is a friendly error. `Checkbox` and `Toggler`
+are both boolean controls — pick by the UI intent.
 
 ---
 
@@ -430,17 +435,18 @@ V1 does not include a VB-style permanently open listbox, but we should add it to
 
 ### 4.3 Feedback Controls
 
-#### ProgressBar
+#### ProgressBar  *(BUILT — slice 6)*
 
-Displays progress through a task.
+A read-only gauge showing a numeric state field over an inclusive range. No
+events (display only), so it's a single line — `ProgressBar min..=max, field`.
 
 ```vb
-ProgressBar progress
-ProgressBar progress From 0.0 To 1.0
-ProgressBar percent From 0 To 100
+ProgressBar 0..=100, level
 ```
 
-Maps to Iced `progress_bar`.
+Maps to `progress_bar((0 as f32)..=(100 as f32), state.level as f32)` (Iced
+progress bars are `f32`, so the bounds and value are cast). Binding to a
+non-numeric field is a friendly error.
 
 Useful for file operations, compilation, downloads, AI inference, and long-running Rust tasks.
 

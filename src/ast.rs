@@ -120,6 +120,20 @@ pub enum ViewNode {
         value: String,
         on_change: String,
     },
+    /// An on/off switch bound to a `Boolean` state field (Iced `toggler`). Like a
+    /// checkbox, but a switch; `on_toggle` fires with the new `bool`.
+    Toggler {
+        label: Expr,
+        value: String,
+        on_toggle: Option<String>,
+    },
+    /// A read-only progress bar over `min..=max` showing a numeric state field
+    /// (Iced `progress_bar`). No events.
+    ProgressBar {
+        min: Expr,
+        max: Expr,
+        value: String,
+    },
     /// `Match <expr>` inside a view — each arm produces the widget(s) to show.
     /// Lowers to a Rust `match` whose arms each yield an `Element`.
     Match {
