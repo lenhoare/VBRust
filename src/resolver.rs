@@ -403,10 +403,13 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 if let Some(s) = step {
                     resolve_expr(s, ctx);
                 }
-                // The loop variable is an `i32` in scope for the body — Rust infers
-                // that from literal bounds (`for i in 1..=10`), so it must be
-                // `Integer`, not `Long` (i64), to stay consistent.
-                ctx.vars.insert(snake(var), Type::Integer);
+                // The loop variable's type is what Rust infers from the range
+                // bounds: `For i = 1 To 10` → `i32`, but `For i = 1 To count`
+                // (count a `Long`) → `i64`. Track that so body arithmetic with it
+                // doesn't pick up a needless widening cast.
+                let var_ty =
+                    rtype_to_type(join(infer(from, ctx), infer(to, ctx))).unwrap_or(Type::Integer);
+                ctx.vars.insert(snake(var), var_ty);
                 resolve_stmts(body, ctx);
             }
             Stmt::DoLoop { cond, body } => {
@@ -499,6 +502,25 @@ fn is_literal(e: &Expr) -> bool {
     matches!(e, Expr::Int(_) | Expr::Float(_))
 }
 
+/// Operators whose operands must be the same numeric type (so a width mismatch
+/// needs a widening cast). Arithmetic and comparison; not `&`/logical/`^`.
+fn is_arith_or_cmp(op: BinOp) -> bool {
+    matches!(
+        op,
+        BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Mod
+            | BinOp::Eq
+            | BinOp::Ne
+            | BinOp::Lt
+            | BinOp::Gt
+            | BinOp::Le
+            | BinOp::Ge
+    )
+}
+
 /// Can this expression be borrowed mutably (i.e. is it a place)?
 fn is_lvalue(e: &Expr) -> bool {
     matches!(
@@ -564,15 +586,24 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
                 return;
             }
+            let (lt, rt) = (infer(lhs, ctx), infer(rhs, ctx));
             // A `usize` operand (e.g. from `.Len()`) meeting a signed integer won't
             // compile; cast the usize side to the other operand's type.
-            let (lt, rt) = (infer(lhs, ctx), infer(rhs, ctx));
             if lt == RType::Usize && rt.is_numeric() && rt != RType::Usize {
                 if let Some(t) = rtype_to_type(rt) {
                     maybe_cast(lhs, t, ctx);
                 }
             } else if rt == RType::Usize && lt.is_numeric() && lt != RType::Usize {
                 if let Some(t) = rtype_to_type(lt) {
+                    maybe_cast(rhs, t, ctx);
+                }
+            } else if is_arith_or_cmp(*op) && lt.is_numeric() && rt.is_numeric() && lt != rt {
+                // Mixed numeric widths (e.g. `Long * Integer`, `Integer <= Long`):
+                // VB widens silently, but Rust needs both sides the same type — so
+                // cast the narrower up to the wider (`join`). Literals are left
+                // alone (they infer); only the narrower non-literal is cast.
+                if let Some(t) = rtype_to_type(join(lt, rt)) {
+                    maybe_cast(lhs, t, ctx);
                     maybe_cast(rhs, t, ctx);
                 }
             }
