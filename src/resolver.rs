@@ -387,7 +387,9 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     );
                 }
             }
-            Stmt::Return(None) | Stmt::Comment(_) => {}
+            // Draw commands only appear in canvas bodies, which the GUI codegen
+            // rewrites/renders directly (they never reach the resolver).
+            Stmt::Return(None) | Stmt::Comment(_) | Stmt::Draw(_) => {}
             Stmt::If { branches, else_body } => {
                 for (cond, body) in branches {
                     resolve_expr(cond, ctx);

@@ -788,6 +788,133 @@ pub(crate) fn emit_stmt(
             }
             out.push_str(&format!("{}}}\n", pad));
         }
+        Stmt::Draw(cmd) => {
+            out.push_str(&format!("{}{}\n", pad, render_draw_cmd(cmd, diags)));
+        }
+    }
+}
+
+/// A named canvas colour → its 8-bit RGB. A small, memorable palette; anything
+/// beyond it uses the explicit `Color(r, g, b)` form.
+fn named_color(name: &str) -> Option<(u8, u8, u8)> {
+    let c = match name.to_ascii_lowercase().as_str() {
+        "black" => (0, 0, 0),
+        "white" => (255, 255, 255),
+        "red" => (255, 0, 0),
+        "green" => (0, 128, 0),
+        "blue" => (0, 0, 255),
+        "gray" | "grey" => (128, 128, 128),
+        "yellow" => (255, 255, 0),
+        "orange" => (255, 165, 0),
+        "purple" => (128, 0, 128),
+        "navy" => (0, 0, 128),
+        "cyan" => (0, 255, 255),
+        "magenta" => (255, 0, 255),
+        _ => return None,
+    };
+    Some(c)
+}
+
+/// A canvas coordinate/dimension expression, cast to the `f32` Iced draws with.
+fn coord(e: &Expr) -> String {
+    format!("({}) as f32", render_expr(e, None))
+}
+
+/// A colour argument → an `iced::Color`: `Color.Red` (palette) or `Color(r,g,b)`.
+fn render_color(e: &Expr, diags: &mut Diagnostics) -> String {
+    match e {
+        Expr::Field(recv, name) if matches!(&**recv, Expr::Ident(n) if n.eq_ignore_ascii_case("Color")) => {
+            match named_color(name) {
+                Some((r, g, b)) => format!("iced::Color::from_rgb8({}, {}, {})", r, g, b),
+                None => {
+                    diags.error_once(
+                        "unknown-color",
+                        format!(
+                            "Unknown colour `Color.{}`. Named colours: Black, White, Red, Green, \
+                             Blue, Gray, Yellow, Orange, Purple, Navy, Cyan, Magenta — or use \
+                             `Color(r, g, b)`.",
+                            name
+                        ),
+                    );
+                    "iced::Color::BLACK".to_string()
+                }
+            }
+        }
+        Expr::Call { name, args } if name.eq_ignore_ascii_case("Color") && args.len() == 3 => format!(
+            "iced::Color::from_rgb8(({}) as u8, ({}) as u8, ({}) as u8)",
+            render_expr(&args[0], None),
+            render_expr(&args[1], None),
+            render_expr(&args[2], None)
+        ),
+        _ => {
+            diags.error_once(
+                "bad-color",
+                "Expected a colour: a named `Color.Red` or an explicit `Color(r, g, b)`.",
+            );
+            "iced::Color::BLACK".to_string()
+        }
+    }
+}
+
+/// A drawable shape → the Iced `Path` that draws it.
+fn render_path(shape: &Shape) -> String {
+    match shape {
+        Shape::Circle(cx, cy, r) => format!(
+            "iced::widget::canvas::Path::circle(iced::Point::new({}, {}), {})",
+            coord(cx), coord(cy), coord(r)
+        ),
+        Shape::Rect(x, y, w, h) => format!(
+            "iced::widget::canvas::Path::rectangle(iced::Point::new({}, {}), iced::Size::new({}, {}))",
+            coord(x), coord(y), coord(w), coord(h)
+        ),
+        Shape::Line(x1, y1, x2, y2) => format!(
+            "iced::widget::canvas::Path::line(iced::Point::new({}, {}), iced::Point::new({}, {}))",
+            coord(x1), coord(y1), coord(x2), coord(y2)
+        ),
+    }
+}
+
+/// A drawing verb → the Rust statement that applies it to the ambient `frame`
+/// (a `&mut Frame`, so fills/strokes and nested paint-function calls both work).
+pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String {
+    match cmd {
+        DrawCmd::Fill { shape, color } => {
+            if matches!(shape, Shape::Line(..)) {
+                diags.error_once(
+                    "fill-line",
+                    "A Line has no area to fill — draw it with `Stroke Line(...)` instead.",
+                );
+            }
+            format!("frame.fill(&{}, {});", render_path(shape), render_color(color, diags))
+        }
+        DrawCmd::Stroke { shape, color, width } => {
+            let w = width.as_ref().map(coord).unwrap_or_else(|| "1.0".to_string());
+            format!(
+                "frame.stroke(&{}, iced::widget::canvas::Stroke::default().with_color({}).with_width({}));",
+                render_path(shape),
+                render_color(color, diags),
+                w
+            )
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            let col = match color {
+                Some(c) => render_color(c, diags),
+                None => "iced::Color::BLACK".to_string(),
+            };
+            format!(
+                "frame.fill_text(iced::widget::canvas::Text {{ content: format!(\"{{}}\", {}), \
+                 position: iced::Point::new({}, {}), color: {}, ..Default::default() }});",
+                render_expr(text, None),
+                coord(x),
+                coord(y),
+                col
+            )
+        }
+        DrawCmd::Paint { name, args } => {
+            let mut a = vec!["frame".to_string()];
+            a.extend(args.iter().map(|e| render_expr(e, None)));
+            format!("{}({});", to_snake(name), a.join(", "))
+        }
     }
 }
 

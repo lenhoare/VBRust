@@ -483,74 +483,87 @@ Useful for file operations, compilation, downloads, AI inference, and long-runni
 
 ### 4.4 Drawing Controls
 
-#### Canvas
+#### Canvas  *(BUILT — slice 12; drawing only)*
 
-An interactive drawing surface.
+A 2-D drawing surface — the closest thing to a VB6 `PictureBox`. It maps to
+Iced's `canvas::Program`. A canvas is defined **at the top level** with a `Draw`
+block, and **placed in a view** with `Canvas <Name>`:
 
 ```vb
-Canvas DrawingArea
-    On Draw
-        Circle 100, 100, 50
-        Line 0, 0, mouseX, mouseY
+Window Sketch
+    State
+        Dim radius As Integer = 40
+    End State
+    View
+        Column
+            Slider 10..=120, radius
+                On Change Resize
+            End Slider
+            Canvas Face Width 300 Height 220
+        End Column
+    End View
+    Event Resize(value As Integer)
+        radius = value
+    End Event
+End Window
+
+Canvas Face
+    Draw
+        DrawGrid()
+        Fill Circle(150, 110, radius), Color.Navy
+        Stroke Circle(150, 110, radius), Color.White, 2
+        Text "radius = " & radius, 10, 16, Color.Black
     End Draw
 End Canvas
 ```
 
-Maps to Iced `canvas`.
+**The mental model (important).** Iced draws *from state*, not paint-on-demand.
+The `Draw` block runs on every repaint and describes the whole picture as a
+function of the current state — you never poke pixels from an event. To change
+what's drawn, change the **state** (e.g. in an event); the canvas repaints
+itself. This is the one real shift from VB6's immediate `Picture1.Line …`.
 
-Canvas is included in V1 because it gives VBR an immediate path to:
+**Reads state.** The `Draw` block may reference the hosting window's state
+fields directly (`radius` above); those fields are snapshotted into the canvas
+each frame.
 
-- simple graphics
-- plots
-- simulations
-- visual demos
-- educational examples
-- games
-- robot or sensor dashboards
-- custom controls
-
-Canvas should initially support a small 2D drawing API.
-
-Recommended V1 drawing primitives:
+**Drawing verbs** (valid in a `Draw` block or a paint function):
 
 ```text
-Line
-Rectangle
-Circle
-Ellipse
-Text
-Image
-Clear
+Fill   <shape>, <color>
+Stroke <shape>, <color>[, <width>]     ' width default 1
+Text   <string>, <x>, <y>[, <color>]   ' color default Black
 ```
 
-Recommended V1 drawing properties:
+**Shapes:**
 
 ```text
-StrokeColor
-FillColor
-StrokeWidth
-FontSize
+Circle(cx, cy, radius)
+Rect(x, y, width, height)
+Line(x1, y1, x2, y2)                    ' Stroke only — a Line has no area
 ```
 
-Canvas may emit mouse events:
+**Colors:** a named `Color.Red` (Black, White, Red, Green, Blue, Gray, Yellow,
+Orange, Purple, Navy, Cyan, Magenta) or an explicit `Color(r, g, b)` (0–255).
+
+**Paint functions.** You can factor drawing into ordinary functions the `Draw`
+block calls — a function that draws (or calls one that does) automatically
+receives the `frame`, so it can only be called from a `Draw` block or another
+paint function:
 
 ```vb
-Canvas DrawingArea
-    On MouseDown CanvasMouseDown
-    On MouseMove CanvasMouseMove
-    On MouseUp CanvasMouseUp
-    On Draw DrawCanvas
-End Canvas
+Function DrawGrid()
+    For x = 0 To 300 Step 30
+        Stroke Line(x, 0, x, 220), Color.Gray, 1
+    Next x
+End Function
 ```
 
-Example:
+Placing a `Canvas` auto-adds Iced's **`canvas`** feature to the project.
 
-```vb
-Event CanvasMouseDown(x As Float, y As Float)
-    lastX = x
-    lastY = y
-End Event
-```
+**Deferred:** interaction (mouse/keyboard → messages), gradients, per-shape
+transforms, `Clear`/caching. Those are the `Program::update` half of Iced's
+canvas — a different event model — and are the next step if canvases grow up.
 
 ---
 
@@ -1029,56 +1042,63 @@ End Window
 
 ---
 
-## 13. Example: Canvas
+## 13. Example: Canvas  *(BUILT — see `examples/canvas.vbr`)*
+
+A slider resizes a circle drawn on a canvas over a grid drawn by a paint
+function. Drawing is state-driven: the event changes `radius`, and the canvas
+repaints from it.
 
 ```vb
-Window CanvasDemo
-
-    Title = "Canvas Demo"
+Window Sketch
+    Title "Canvas"
 
     State
-        Dim mouseX As Float = 0
-        Dim mouseY As Float = 0
-        Dim isDrawing As Boolean = False
+        Dim radius As Integer = 40
     End State
 
     View
         Column
-            Text "Move the mouse over the canvas"
-
-            Canvas DrawingArea
-                Width Fill
-                Height 300
-
-                On Draw DrawCanvas
-                On MouseMove CanvasMouseMove
-                On MouseDown CanvasMouseDown
-                On MouseUp CanvasMouseUp
-            End Canvas
+            Spacing 10
+            Padding 10
+            Text "Drag the slider to resize the circle"
+            Slider 10..=120, radius
+                On Change Resize
+            End Slider
+            Canvas Face Width 300 Height 220
         End Column
     End View
 
-    Event DrawCanvas
-        Clear "White"
-        Circle mouseX, mouseY, 20
-        Text "Mouse: " & mouseX & ", " & mouseY, 10, 10
+    Event Resize(value As Integer)
+        radius = value
     End Event
-
-    Event CanvasMouseMove(x As Float, y As Float)
-        mouseX = x
-        mouseY = y
-    End Event
-
-    Event CanvasMouseDown(x As Float, y As Float)
-        isDrawing = True
-    End Event
-
-    Event CanvasMouseUp(x As Float, y As Float)
-        isDrawing = False
-    End Event
-
 End Window
+
+Canvas Face
+    Draw
+        DrawGrid()
+        Fill Circle(150, 110, radius), Color.Navy
+        Stroke Circle(150, 110, radius), Color.White, 2
+        Text "radius = " & radius, 10, 16, Color.Black
+    End Draw
+End Canvas
+
+Function DrawGrid()
+    For x = 0 To 300 Step 30
+        Stroke Line(x, 0, x, 220), Color.Gray, 1
+    Next x
+    For y = 0 To 220 Step 30
+        Stroke Line(0, y, 300, y), Color.Gray, 1
+    Next y
+End Function
+
+Function Main()
+    Sketch.Run
+End Function
 ```
+
+> **Note.** Mouse/keyboard *interaction* (the `On MouseMove` / `On Draw` event
+> style once sketched here) is **deferred** — see §4.4. V1 canvases are
+> drawing-only and repaint from state.
 
 ---
 

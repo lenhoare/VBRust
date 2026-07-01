@@ -21,6 +21,9 @@ struct ViewCtx<'a> {
     fields: &'a HashSet<String>,
     field_ty: &'a HashMap<String, DeclType>,
     enums: &'a HashSet<String>,
+    /// For each canvas placed in this view, the state fields its `Draw` block
+    /// reads — snapshotted into the canvas Program when it's constructed.
+    canvas_snaps: &'a HashMap<String, Vec<String>>,
 }
 
 /// Emit a complete GUI program: each window's definition, then `fn main`, which
@@ -76,14 +79,22 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
         emit_impl(recv, program, &fns, &methods, &consts, &modules, &enums, diags, &mut out);
         out.push('\n');
     }
+    // Paint functions (those that issue drawing verbs) are emitted specially —
+    // they take an extra `frame` and their draw commands lower to `frame.*` calls.
+    let paint_fns = paint_fn_set(program);
+
     // Free functions, except `Main`.
     for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
-        emit_fn(f, &fns, &methods, &consts, &modules, &enums, diags, &mut out, 0, None);
+        if paint_fns.contains(&to_snake(&f.name)) {
+            emit_paint_fn(f, &enums, &paint_fns, diags, &mut out);
+        } else {
+            emit_fn(f, &fns, &methods, &consts, &modules, &enums, diags, &mut out, 0, None);
+        }
         out.push('\n');
     }
 
     for w in &program.windows {
-        out.push_str(&emit_window(w, &enums, &fns, diags));
+        out.push_str(&emit_window(w, &enums, &fns, &program.canvases, &paint_fns, diags));
         out.push('\n');
     }
     match find_launched_window(program) {
@@ -166,6 +177,8 @@ fn emit_window(
     w: &Window,
     enums: &HashSet<String>,
     fns: &resolver::FnTable,
+    canvases: &[CanvasDef],
+    paint_fns: &HashSet<String>,
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -173,7 +186,31 @@ fn emit_window(
     let fields: HashSet<String> = w.state.iter().map(|f| to_snake(&f.name)).collect();
     let field_ty: HashMap<String, DeclType> =
         w.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
-    let ctx = ViewCtx { fields: &fields, field_ty: &field_ty, enums };
+
+    // Canvases placed in this view: resolve each to its definition, and work out
+    // which state fields its `Draw` block reads (snapshotted into the Program).
+    let used_canvases = collect_canvases(&w.view);
+    let mut canvas_snaps: HashMap<String, Vec<String>> = HashMap::new();
+    for cname in &used_canvases {
+        match canvases.iter().find(|c| c.name.eq_ignore_ascii_case(cname)) {
+            Some(cv) => {
+                let idents = canvas_idents(&cv.body);
+                let snap: Vec<String> = w
+                    .state
+                    .iter()
+                    .map(|f| to_snake(&f.name))
+                    .filter(|f| idents.contains(f))
+                    .collect();
+                canvas_snaps.insert(cname.clone(), snap);
+            }
+            None => diags.error_once(
+                &format!("unknown-canvas-{}", to_snake(cname)),
+                format!("The view places a `Canvas {}`, but there's no `Canvas {}` defined.", cname, cname),
+            ),
+        }
+    }
+
+    let ctx = ViewCtx { fields: &fields, field_ty: &field_ty, enums, canvas_snaps: &canvas_snaps };
     validate_view(&w.view, &field_ty, diags);
     if let Some(t) = &w.theme {
         if canonical_theme(t).is_none() {
@@ -372,7 +409,103 @@ fn emit_window(
     out.push('\n');
     out.push_str("}\n");
 
+    // ── canvas Program(s) used by this view ──
+    for cname in &used_canvases {
+        if let (Some(cv), Some(snap)) = (
+            canvases.iter().find(|c| c.name.eq_ignore_ascii_case(cname)),
+            canvas_snaps.get(cname),
+        ) {
+            out.push('\n');
+            emit_canvas_program(cv, snap, &fields, &field_ty, enums, paint_fns, diags, &mut out);
+        }
+    }
+
     out
+}
+
+/// Emit a canvas's Iced `Program` — the snapshot struct plus a `draw` method that
+/// runs the `Draw` block against a `frame`. State fields the block reads become
+/// `self.field`; calls to paint functions thread the shared `frame` through.
+fn emit_canvas_program(
+    cv: &CanvasDef,
+    snap: &[String],
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+    paint_fns: &HashSet<String>,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    let struct_name = format!("{}Canvas", cv.name);
+    // The snapshot struct: a copy of just the state the drawing reads.
+    out.push_str(&format!("struct {} {{\n", struct_name));
+    for f in snap {
+        let ty = field_ty.get(f).map(decltype_rust).unwrap_or_else(|| "i32".to_string());
+        out.push_str(&format!("    {}: {},\n", f, ty));
+    }
+    out.push_str("}\n\n");
+
+    out.push_str(&format!(
+        "impl<Message> iced::widget::canvas::Program<Message> for {} {{\n",
+        struct_name
+    ));
+    out.push_str("    type State = ();\n");
+    out.push_str(
+        "    fn draw(\n        &self,\n        _state: &Self::State,\n        \
+         renderer: &iced::Renderer,\n        _theme: &iced::Theme,\n        \
+         bounds: iced::Rectangle,\n        _cursor: iced::mouse::Cursor,\n    ) \
+         -> Vec<iced::widget::canvas::Geometry> {\n",
+    );
+    out.push_str(
+        "        let mut frame = iced::widget::canvas::Frame::new(renderer, bounds.size());\n",
+    );
+    // A `&mut Frame` shadow, so draw verbs and paint-function calls are uniform.
+    out.push_str("        {\n            let frame = &mut frame;\n            let _ = &frame;\n");
+    let empty: HashSet<String> = HashSet::new();
+    for stmt in &cv.body {
+        let mut rewritten = rewrite_canvas_stmt(stmt.clone(), fields, enums, paint_fns);
+        coerce_state_strings(&mut rewritten, field_ty);
+        emit_stmt(&rewritten, &empty, &empty, 3, diags, out);
+    }
+    out.push_str("        }\n");
+    out.push_str("        vec![frame.into_geometry()]\n");
+    out.push_str("    }\n}\n");
+}
+
+/// Emit a paint function: an ordinary function that draws, so it gains a leading
+/// `frame: &mut Frame` and its draw verbs / nested paint calls lower against it.
+fn emit_paint_fn(
+    func: &Function,
+    enums: &HashSet<String>,
+    paint_fns: &HashSet<String>,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    let name = to_snake(&func.name);
+    let vis = if func.public { "pub " } else { "" };
+    let mut params = vec!["frame: &mut iced::widget::canvas::Frame".to_string()];
+    for p in &func.params {
+        params.push(render_paint_param(p));
+    }
+    out.push_str(&format!("{}fn {}({}) {{\n", vis, name, params.join(", ")));
+    let empty: HashSet<String> = HashSet::new();
+    // Paint functions read no window state (they take values as params); only the
+    // paint-call and enum rewrites apply.
+    for stmt in &func.body {
+        let rewritten = rewrite_canvas_stmt(stmt.clone(), &empty, enums, paint_fns);
+        emit_stmt(&rewritten, &empty, &empty, 1, diags, out);
+    }
+    out.push_str("}\n");
+}
+
+/// A paint-function parameter — numeric/bool by value, `&str` for text.
+fn render_paint_param(p: &Param) -> String {
+    let ty = match &p.ty {
+        DeclType::Plain(Type::Text) => "&str".to_string(),
+        DeclType::Plain(t) => t.rust().to_string(),
+        other => decltype_rust(other),
+    };
+    format!("{}: {}", to_snake(&p.name), ty)
 }
 
 /// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
@@ -499,6 +632,29 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
                 Expr::Str(_) => format!("iced::widget::image({})", p),
                 _ => format!("iced::widget::image({}.clone())", p),
             }
+        }
+        // A drawing surface: build the canvas Program, snapshotting the state its
+        // `Draw` block reads, then apply any fixed size.
+        ViewNode::Canvas { name, width, height } => {
+            let snap = ctx.canvas_snaps.get(name).cloned().unwrap_or_default();
+            let inits: Vec<String> = snap
+                .iter()
+                .map(|f| {
+                    if matches!(ctx.field_ty.get(f), Some(DeclType::Plain(Type::Text))) {
+                        format!("{}: state.{}.clone()", f, f)
+                    } else {
+                        format!("{}: state.{}", f, f)
+                    }
+                })
+                .collect();
+            let mut s = format!("iced::widget::Canvas::new({}Canvas {{ {} }})", name, inits.join(", "));
+            if let Some(w) = width {
+                s.push_str(&format!(".width(iced::Length::Fixed({}.0))", w));
+            }
+            if let Some(h) = height {
+                s.push_str(&format!(".height(iced::Length::Fixed({}.0))", h));
+            }
+            s
         }
         // Containers/conditionals returned early above.
         ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Match { .. } | ViewNode::If { .. } => {
@@ -794,8 +950,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
             add(used, "row");
             children.iter().for_each(|c| collect_widgets(c, used));
         }
-        // `Space`/`Image` use fully-qualified paths, so no import needed.
-        ViewNode::Space { .. } | ViewNode::Image { .. } => {}
+        // `Space`/`Image`/`Canvas` use fully-qualified paths, so no import needed.
+        ViewNode::Space { .. } | ViewNode::Image { .. } | ViewNode::Canvas { .. } => {}
         ViewNode::Text(_) => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
         ViewNode::TextInput { .. } => add(used, "text_input"),
@@ -1281,6 +1437,18 @@ fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagn
 /// variant `Color.Red` with the path `Color::Red`, so an event/view expression
 /// reaches the window's state and names variants correctly.
 fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> Expr {
+    rewrite_expr_with(e, "state", fields, enums)
+}
+
+/// The general form: a bare state-field reference becomes `<recv>.field` — `state`
+/// in a window's view/events, `self` inside a canvas `Draw` block.
+fn rewrite_expr_with(
+    e: Expr,
+    recv: &'static str,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+) -> Expr {
+    let go = |e: Expr| rewrite_expr_with(e, recv, fields, enums);
     match e {
         // `Color.Red` (field on an enum name) → the path `Color::Red`.
         Expr::Field(inner, variant) if matches!(&*inner, Expr::Ident(n) if enums.contains(n)) => {
@@ -1290,40 +1458,37 @@ fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> E
             }
         }
         Expr::Ident(name) if fields.contains(&to_snake(&name)) => {
-            Expr::Field(Box::new(Expr::Ident("state".to_string())), name)
+            Expr::Field(Box::new(Expr::Ident(recv.to_string())), name)
         }
         Expr::Binary { op, lhs, rhs } => Expr::Binary {
             op,
-            lhs: Box::new(rewrite_expr(*lhs, fields, enums)),
-            rhs: Box::new(rewrite_expr(*rhs, fields, enums)),
+            lhs: Box::new(go(*lhs)),
+            rhs: Box::new(go(*rhs)),
         },
-        Expr::Not(inner) => Expr::Not(Box::new(rewrite_expr(*inner, fields, enums))),
+        Expr::Not(inner) => Expr::Not(Box::new(go(*inner))),
         Expr::Call { name, args } => Expr::Call {
             name,
-            args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
+            args: args.into_iter().map(go).collect(),
         },
         // `Shape.Circle(r)` on an enum → the variant constructor `Shape::Circle(r)`.
-        Expr::MethodCall { recv, method, args } if matches!(&*recv, Expr::Ident(e) if enums.contains(e)) => {
-            let e = match *recv {
+        Expr::MethodCall { recv: r, method, args } if matches!(&*r, Expr::Ident(e) if enums.contains(e)) => {
+            let e = match *r {
                 Expr::Ident(n) => n,
                 _ => unreachable!(),
             };
             Expr::Call {
                 name: format!("{}::{}", e, method),
-                args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
+                args: args.into_iter().map(go).collect(),
             }
         }
-        Expr::MethodCall { recv, method, args } => Expr::MethodCall {
-            recv: Box::new(rewrite_expr(*recv, fields, enums)),
+        Expr::MethodCall { recv: r, method, args } => Expr::MethodCall {
+            recv: Box::new(go(*r)),
             method,
-            args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
+            args: args.into_iter().map(go).collect(),
         },
-        Expr::Field(inner, f) => Expr::Field(Box::new(rewrite_expr(*inner, fields, enums)), f),
-        Expr::Index(a, b) => Expr::Index(
-            Box::new(rewrite_expr(*a, fields, enums)),
-            Box::new(rewrite_expr(*b, fields, enums)),
-        ),
-        Expr::Cast(inner, t) => Expr::Cast(Box::new(rewrite_expr(*inner, fields, enums)), t),
+        Expr::Field(inner, f) => Expr::Field(Box::new(go(*inner)), f),
+        Expr::Index(a, b) => Expr::Index(Box::new(go(*a)), Box::new(go(*b))),
+        Expr::Cast(inner, t) => Expr::Cast(Box::new(go(*inner)), t),
         other => other,
     }
 }
@@ -1369,5 +1534,296 @@ fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<String>) -> S
             line,
         },
         other => other,
+    }
+}
+
+// ── Canvas support ──────────────────────────────────────────────────────────
+
+/// The set of *paint functions*: those that draw. A function draws if its body
+/// contains a drawing verb, or (transitively) calls a function that does. These
+/// are emitted with a leading `frame` parameter instead of the normal way.
+fn paint_fn_set(program: &Program) -> HashSet<String> {
+    let mut set: HashSet<String> = program
+        .functions
+        .iter()
+        .filter(|f| f.receiver.is_none() && body_has_draw(&f.body))
+        .map(|f| to_snake(&f.name))
+        .collect();
+    loop {
+        let mut changed = false;
+        for f in &program.functions {
+            if f.receiver.is_some() {
+                continue;
+            }
+            let n = to_snake(&f.name);
+            if !set.contains(&n) && body_calls_any(&f.body, &set) {
+                set.insert(n);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    set
+}
+
+fn body_has_draw(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_has_draw)
+}
+
+fn stmt_has_draw(s: &Stmt) -> bool {
+    match s {
+        Stmt::Draw(_) => true,
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| body_has_draw(b))
+                || else_body.as_ref().map_or(false, |b| body_has_draw(b))
+        }
+        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            body_has_draw(body)
+        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| body_has_draw(&a.body)),
+        _ => false,
+    }
+}
+
+fn body_calls_any(stmts: &[Stmt], set: &HashSet<String>) -> bool {
+    stmts.iter().any(|s| stmt_calls_any(s, set))
+}
+
+fn stmt_calls_any(s: &Stmt, set: &HashSet<String>) -> bool {
+    match s {
+        Stmt::Expr(Expr::Call { name, .. }) => set.contains(&to_snake(name)),
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| body_calls_any(b, set))
+                || else_body.as_ref().map_or(false, |b| body_calls_any(b, set))
+        }
+        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            body_calls_any(body, set)
+        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| body_calls_any(&a.body, set)),
+        _ => false,
+    }
+}
+
+/// The canvas names placed in a view (`Canvas Board`), in first-seen order.
+fn collect_canvases(node: &ViewNode) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(node: &ViewNode, out: &mut Vec<String>) {
+        match node {
+            ViewNode::Canvas { name, .. } => {
+                if !out.iter().any(|n: &String| n.eq_ignore_ascii_case(name)) {
+                    out.push(name.clone());
+                }
+            }
+            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, &mut out);
+    out
+}
+
+/// The snake-cased identifiers a canvas `Draw` block mentions — used to work out
+/// which window state fields to snapshot into the Program.
+fn canvas_idents(body: &[Stmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in body {
+        collect_stmt_idents(s, &mut out);
+    }
+    out
+}
+
+fn collect_stmt_idents(s: &Stmt, out: &mut HashSet<String>) {
+    match s {
+        Stmt::Draw(cmd) => collect_drawcmd_idents(cmd, out),
+        Stmt::Dim { init: Some(e), .. } => collect_expr_idents(e, out),
+        Stmt::Assign { target, value, .. } => {
+            collect_expr_idents(target, out);
+            collect_expr_idents(value, out);
+        }
+        Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => collect_expr_idents(e, out),
+        Stmt::If { branches, else_body } => {
+            for (c, b) in branches {
+                collect_expr_idents(c, out);
+                b.iter().for_each(|s| collect_stmt_idents(s, out));
+            }
+            if let Some(b) = else_body {
+                b.iter().for_each(|s| collect_stmt_idents(s, out));
+            }
+        }
+        Stmt::For { from, to, step, body, .. } => {
+            collect_expr_idents(from, out);
+            collect_expr_idents(to, out);
+            if let Some(st) = step {
+                collect_expr_idents(st, out);
+            }
+            body.iter().for_each(|s| collect_stmt_idents(s, out));
+        }
+        Stmt::ForEach { iter, body, .. } => {
+            collect_expr_idents(iter, out);
+            body.iter().for_each(|s| collect_stmt_idents(s, out));
+        }
+        Stmt::DoLoop { body, .. } => body.iter().for_each(|s| collect_stmt_idents(s, out)),
+        Stmt::Match { scrutinee, arms, .. } => {
+            collect_expr_idents(scrutinee, out);
+            for a in arms {
+                a.body.iter().for_each(|s| collect_stmt_idents(s, out));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
+    let shape = |sh: &Shape, out: &mut HashSet<String>| match sh {
+        Shape::Circle(a, b, c) => {
+            [a, b, c].iter().for_each(|e| collect_expr_idents(e, out));
+        }
+        Shape::Rect(a, b, c, d) | Shape::Line(a, b, c, d) => {
+            [a, b, c, d].iter().for_each(|e| collect_expr_idents(e, out));
+        }
+    };
+    match cmd {
+        DrawCmd::Fill { shape: sh, color } => {
+            shape(sh, out);
+            collect_expr_idents(color, out);
+        }
+        DrawCmd::Stroke { shape: sh, color, width } => {
+            shape(sh, out);
+            collect_expr_idents(color, out);
+            if let Some(w) = width {
+                collect_expr_idents(w, out);
+            }
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            collect_expr_idents(text, out);
+            collect_expr_idents(x, out);
+            collect_expr_idents(y, out);
+            if let Some(c) = color {
+                collect_expr_idents(c, out);
+            }
+        }
+        DrawCmd::Paint { args, .. } => args.iter().for_each(|e| collect_expr_idents(e, out)),
+    }
+}
+
+fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
+    match e {
+        Expr::Ident(n) => {
+            out.insert(to_snake(n));
+        }
+        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+            collect_expr_idents(lhs, out);
+            collect_expr_idents(rhs, out);
+        }
+        Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
+        | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _) | Expr::Closure { body: i, .. } => {
+            collect_expr_idents(i, out)
+        }
+        Expr::MethodCall { recv, args, .. } => {
+            collect_expr_idents(recv, out);
+            args.iter().for_each(|a| collect_expr_idents(a, out));
+        }
+        Expr::Call { args, .. } => args.iter().for_each(|a| collect_expr_idents(a, out)),
+        Expr::Tuple(es) => es.iter().for_each(|e| collect_expr_idents(e, out)),
+        Expr::StructLit { fields, .. } => fields.iter().for_each(|(_, v)| collect_expr_idents(v, out)),
+        _ => {}
+    }
+}
+
+/// Rewrite a statement in a canvas `Draw` block / paint function: state fields
+/// become `self.field`, enum variants get their path, and a call to a paint
+/// function becomes a `Paint` draw command (so the shared `frame` is threaded).
+fn rewrite_canvas_stmt(
+    s: Stmt,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+    paint_fns: &HashSet<String>,
+) -> Stmt {
+    let re = |e: Expr| rewrite_expr_with(e, "self", fields, enums);
+    let rec = |s: Stmt| rewrite_canvas_stmt(s, fields, enums, paint_fns);
+    match s {
+        Stmt::Expr(Expr::Call { name, args }) if paint_fns.contains(&to_snake(&name)) => {
+            Stmt::Draw(DrawCmd::Paint { name, args: args.into_iter().map(re).collect() })
+        }
+        Stmt::Draw(cmd) => Stmt::Draw(rewrite_draw_cmd(cmd, fields, enums)),
+        Stmt::Expr(e) => Stmt::Expr(re(e)),
+        Stmt::Print(e) => Stmt::Print(re(e)),
+        Stmt::Assign { target, value, op } => Stmt::Assign { target: re(target), value: re(value), op },
+        Stmt::Dim { name, ty, init, line } => Stmt::Dim { name, ty, init: init.map(re), line },
+        Stmt::If { branches, else_body } => Stmt::If {
+            branches: branches
+                .into_iter()
+                .map(|(c, b)| (re(c), b.into_iter().map(rec).collect()))
+                .collect(),
+            else_body: else_body.map(|b| b.into_iter().map(rec).collect()),
+        },
+        Stmt::For { var, from, to, step, body } => Stmt::For {
+            var,
+            from: re(from),
+            to: re(to),
+            step: step.map(re),
+            body: body.into_iter().map(rec).collect(),
+        },
+        Stmt::ForEach { var1, var2, iter, body } => Stmt::ForEach {
+            var1,
+            var2,
+            iter: re(iter),
+            body: body.into_iter().map(rec).collect(),
+        },
+        Stmt::Match { scrutinee, arms, line } => Stmt::Match {
+            scrutinee: re(scrutinee),
+            arms: arms
+                .into_iter()
+                .map(|a| MatchArm {
+                    pattern: a.pattern,
+                    guard: a.guard.map(re),
+                    body: a.body.into_iter().map(rec).collect(),
+                })
+                .collect(),
+            line,
+        },
+        Stmt::DoLoop { cond, body } => Stmt::DoLoop { cond, body: body.into_iter().map(rec).collect() },
+        other => other,
+    }
+}
+
+fn rewrite_draw_cmd(cmd: DrawCmd, fields: &HashSet<String>, enums: &HashSet<String>) -> DrawCmd {
+    let re = |e: Expr| rewrite_expr_with(e, "self", fields, enums);
+    let rs = |sh: Shape| rewrite_shape(sh, fields, enums);
+    match cmd {
+        DrawCmd::Fill { shape, color } => DrawCmd::Fill { shape: rs(shape), color: re(color) },
+        DrawCmd::Stroke { shape, color, width } => {
+            DrawCmd::Stroke { shape: rs(shape), color: re(color), width: width.map(re) }
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            DrawCmd::Text { text: re(text), x: re(x), y: re(y), color: color.map(re) }
+        }
+        DrawCmd::Paint { name, args } => DrawCmd::Paint { name, args: args.into_iter().map(re).collect() },
+    }
+}
+
+fn rewrite_shape(sh: Shape, fields: &HashSet<String>, enums: &HashSet<String>) -> Shape {
+    let re = |e: Expr| rewrite_expr_with(e, "self", fields, enums);
+    match sh {
+        Shape::Circle(a, b, c) => Shape::Circle(re(a), re(b), re(c)),
+        Shape::Rect(a, b, c, d) => Shape::Rect(re(a), re(b), re(c), re(d)),
+        Shape::Line(a, b, c, d) => Shape::Line(re(a), re(b), re(c), re(d)),
     }
 }

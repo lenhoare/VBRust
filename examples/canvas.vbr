@@ -1,0 +1,45 @@
+Window Sketch
+    Title "Canvas"
+
+    State
+        Dim radius As Integer = 40
+    End State
+
+    View
+        Column
+            Spacing 10
+            Padding 10
+            Text "Drag the slider to resize the circle"
+            Slider 10..=120, radius
+                On Change Resize
+            End Slider
+            Canvas Face Width 300 Height 220
+        End Column
+    End View
+
+    Event Resize(value As Integer)
+        radius = value
+    End Event
+End Window
+
+Canvas Face
+    Draw
+        DrawGrid()
+        Fill Circle(150, 110, radius), Color.Navy
+        Stroke Circle(150, 110, radius), Color.White, 2
+        Text "radius = " & radius, 10, 16, Color.Black
+    End Draw
+End Canvas
+
+Function DrawGrid()
+    For x = 0 To 300 Step 30
+        Stroke Line(x, 0, x, 220), Color.Gray, 1
+    Next x
+    For y = 0 To 220 Step 30
+        Stroke Line(0, y, 300, y), Color.Gray, 1
+    Next y
+End Function
+
+Function Main()
+    Sketch.Run
+End Function

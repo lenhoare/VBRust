@@ -285,6 +285,7 @@ fn generate_project(entry: &Path) -> PathBuf {
     // needs its `tokio` feature; an `Image` needs Iced's `image` feature.
     let async_gui = entry_compiled.rust.contains("spawn_blocking");
     let uses_image = entry_compiled.rust.contains("iced::widget::image(");
+    let uses_canvas = entry_compiled.rust.contains("iced::widget::Canvas::new(");
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
     let mut stdlib_ns: Vec<String> = entry_compiled.stdlib_used.clone();
 
@@ -372,6 +373,9 @@ fn generate_project(entry: &Path) -> PathBuf {
             }
             if uses_image {
                 feats.push("\"image\"");
+            }
+            if uses_canvas {
+                feats.push("\"canvas\"");
             }
             cargo.push_str(&format!(
                 "iced = {{ version = \"{}\", default-features = false, features = [{}] }}\n",

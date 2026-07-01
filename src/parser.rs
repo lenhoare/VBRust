@@ -88,6 +88,7 @@ impl<'a> Parser<'a> {
         let mut constants = Vec::new();
         let mut uses = Vec::new();
         let mut windows = Vec::new();
+        let mut canvases = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -169,6 +170,13 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Canvas") => {
+                    if let Some(cv) = self.parse_canvas() {
+                        canvases.push(cv);
+                    } else {
+                        break;
+                    }
+                }
                 Tok::Ident(w) if w == "Option" => {
                     self.diags.error(
                         self.line(),
@@ -199,6 +207,7 @@ impl<'a> Parser<'a> {
             enums,
             functions,
             windows,
+            canvases,
         }
     }
 
@@ -546,6 +555,156 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `Canvas Name` … `Draw` … `End Draw` … `End Canvas` — a drawing surface.
+    fn parse_canvas(&mut self) -> Option<CanvasDef> {
+        self.advance(); // `Canvas`
+        let name = self.expect_ident("for the canvas name")?;
+        self.expect(&Tok::Newline, "after the canvas name")?;
+
+        let mut body = None;
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident("Canvas")?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Draw") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `Draw`")?;
+                    body = Some(self.parse_block()?);
+                    self.expect(&Tok::End, "to close `Draw`")?;
+                    self.expect_kw_ident("Draw")?;
+                    self.eat(&Tok::Newline);
+                }
+                other => {
+                    self.diags.error(
+                        self.line(),
+                        format!(
+                            "Inside a Canvas expected a `Draw` block or `End Canvas`, found {:?}.",
+                            other
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+
+        let body = match body {
+            Some(b) => b,
+            None => {
+                self.diags
+                    .error(self.line(), "A Canvas needs a `Draw` block.");
+                return None;
+            }
+        };
+        Some(CanvasDef { name, body })
+    }
+
+    /// Peek the token one past the cursor (for small look-ahead decisions).
+    fn peek2(&self) -> &Tok {
+        let i = (self.pos + 1).min(self.toks.len() - 1);
+        &self.toks[i].tok
+    }
+
+    /// A drawing verb statement: `Fill`/`Stroke`/`Text` followed by its operands.
+    /// Valid inside a `Draw` block or a paint function; the AST is shared, and the
+    /// canvas codegen threads the `frame` through.
+    fn parse_draw_cmd(&mut self, verb: &str) -> Option<Stmt> {
+        self.advance(); // the verb ident
+        let cmd = match verb.to_ascii_lowercase().as_str() {
+            "fill" => {
+                let shape = self.parse_shape()?;
+                self.expect(&Tok::Comma, "after the shape — `Fill <shape>, <color>`")?;
+                let color = self.parse_expr()?;
+                DrawCmd::Fill { shape, color }
+            }
+            "stroke" => {
+                let shape = self.parse_shape()?;
+                self.expect(&Tok::Comma, "after the shape — `Stroke <shape>, <color>`")?;
+                let color = self.parse_expr()?;
+                let width = if self.eat(&Tok::Comma) {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                DrawCmd::Stroke { shape, color, width }
+            }
+            "text" => {
+                let text = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after the text — `Text <string>, <x>, <y>`")?;
+                let x = self.parse_expr()?;
+                self.expect(&Tok::Comma, "between x and y — `Text <string>, <x>, <y>`")?;
+                let y = self.parse_expr()?;
+                let color = if self.eat(&Tok::Comma) {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                DrawCmd::Text { text, x, y, color }
+            }
+            _ => unreachable!(),
+        };
+        Some(Stmt::Draw(cmd))
+    }
+
+    /// A drawing shape: `Circle(cx, cy, r)`, `Rect(x, y, w, h)`, `Line(x1, y1, x2, y2)`.
+    fn parse_shape(&mut self) -> Option<Shape> {
+        let kind = self.expect_ident("for the shape — Circle, Rect, or Line")?;
+        self.expect(&Tok::LParen, "after the shape name")?;
+        let mut args = vec![self.parse_expr()?];
+        while self.eat(&Tok::Comma) {
+            args.push(self.parse_expr()?);
+        }
+        self.expect(&Tok::RParen, "to close the shape")?;
+        let mut it = args.into_iter();
+        macro_rules! next_arg {
+            ($what:literal) => {
+                match it.next() {
+                    Some(e) => e,
+                    None => {
+                        self.diags.error(self.line(), $what);
+                        return None;
+                    }
+                }
+            };
+        }
+        let shape = match kind.to_ascii_lowercase().as_str() {
+            "circle" => Shape::Circle(
+                next_arg!("Circle needs (cx, cy, radius)."),
+                next_arg!("Circle needs (cx, cy, radius)."),
+                next_arg!("Circle needs (cx, cy, radius)."),
+            ),
+            "rect" => Shape::Rect(
+                next_arg!("Rect needs (x, y, width, height)."),
+                next_arg!("Rect needs (x, y, width, height)."),
+                next_arg!("Rect needs (x, y, width, height)."),
+                next_arg!("Rect needs (x, y, width, height)."),
+            ),
+            "line" => Shape::Line(
+                next_arg!("Line needs (x1, y1, x2, y2)."),
+                next_arg!("Line needs (x1, y1, x2, y2)."),
+                next_arg!("Line needs (x1, y1, x2, y2)."),
+                next_arg!("Line needs (x1, y1, x2, y2)."),
+            ),
+            other => {
+                self.diags.error(
+                    self.line(),
+                    format!("Unknown shape `{}` — use Circle, Rect, or Line.", other),
+                );
+                return None;
+            }
+        };
+        if it.next().is_some() {
+            self.diags
+                .error(self.line(), "Too many arguments for this shape.");
+            return None;
+        }
+        Some(shape)
+    }
+
     fn parse_state_block(&mut self) -> Option<Vec<StateField>> {
         let mut fields = Vec::new();
         loop {
@@ -643,6 +802,28 @@ impl<'a> Parser<'a> {
                 let path = self.parse_expr()?;
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Image { path })
+            }
+            "canvas" => {
+                // `Canvas Board [Width 300] [Height 200]` — a drawing surface.
+                self.advance();
+                let name = self.expect_ident("for the canvas name")?;
+                let mut width = None;
+                let mut height = None;
+                loop {
+                    match self.peek().clone() {
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Width") => {
+                            self.advance();
+                            width = Some(self.parse_array_size()? as u16);
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Height") => {
+                            self.advance();
+                            height = Some(self.parse_array_size()? as u16);
+                        }
+                        _ => break,
+                    }
+                }
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Canvas { name, width, height })
             }
             "button" => {
                 self.advance();
@@ -920,7 +1101,8 @@ impl<'a> Parser<'a> {
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
-                         Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Match, If).",
+                         Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
+                         Match, If).",
                         other
                     ),
                 );
@@ -1562,6 +1744,21 @@ impl<'a> Parser<'a> {
 
     /// An identifier at statement start is either `Debug.Print expr` or `name = expr`.
     fn parse_ident_stmt(&mut self, name: String) -> Option<Stmt> {
+        // Drawing verbs (only meaningful in a `Draw` block / paint function). We
+        // treat them as draw commands when they lead an operand rather than an
+        // assignment, so a variable named `Text`/`Fill`/`Stroke` still assigns.
+        let is_draw_verb = matches!(
+            name.to_ascii_lowercase().as_str(),
+            "fill" | "stroke" | "text"
+        ) && !matches!(
+            self.peek2(),
+            Tok::Eq | Tok::PlusEq | Tok::MinusEq | Tok::StarEq | Tok::SlashEq | Tok::Dot
+                | Tok::LParen | Tok::Newline | Tok::Eof
+        );
+        if is_draw_verb {
+            return self.parse_draw_cmd(&name);
+        }
+
         if name.eq_ignore_ascii_case("Debug") {
             self.advance(); // Debug
             self.expect(&Tok::Dot, "after `Debug`")?;

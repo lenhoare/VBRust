@@ -67,6 +67,44 @@ pub struct Program {
     pub enums: Vec<EnumDef>,
     pub functions: Vec<Function>,
     pub windows: Vec<Window>,
+    pub canvases: Vec<CanvasDef>,
+}
+
+/// A `Canvas Name … Draw … End Draw … End Canvas` definition — imperative 2-D
+/// drawing (Iced's `canvas::Program`), the closest thing to a VB6 PictureBox.
+/// The `Draw` block runs on every repaint and describes the whole picture as a
+/// function of state; it may read the hosting window's state fields and call
+/// *paint functions* (ordinary functions that themselves issue drawing verbs).
+/// Placed in a view with `Canvas Name` (see `ViewNode::Canvas`). V1 is
+/// drawing-only — no mouse/keyboard interaction.
+#[derive(Debug, Clone)]
+pub struct CanvasDef {
+    pub name: String,
+    /// The `Draw` block: draw commands plus ordinary `For`/`If`/`Dim` statements.
+    pub body: Vec<Stmt>,
+}
+
+/// One drawing verb inside a `Draw` block or a paint function.
+#[derive(Debug, Clone)]
+pub enum DrawCmd {
+    /// `Fill <shape>, <color>` — fill a shape's area (not valid for a `Line`).
+    Fill { shape: Shape, color: Expr },
+    /// `Stroke <shape>, <color>[, <width>]` — outline a shape (width default 1).
+    Stroke { shape: Shape, color: Expr, width: Option<Expr> },
+    /// `Text <string>, <x>, <y>[, <color>]` — draw text at a point.
+    Text { text: Expr, x: Expr, y: Expr, color: Option<Expr> },
+    /// A call to a paint function — *not* produced by the parser; the canvas
+    /// codegen rewrites a plain call to a paint function into this so the shared
+    /// `frame` is threaded through (`draw_grid(frame, …)`).
+    Paint { name: String, args: Vec<Expr> },
+}
+
+/// A drawable shape (coordinates are any numeric expression; codegen casts to f32).
+#[derive(Debug, Clone)]
+pub enum Shape {
+    Circle(Expr, Expr, Expr),        // (cx, cy, radius)
+    Rect(Expr, Expr, Expr, Expr),    // (x, y, width, height)
+    Line(Expr, Expr, Expr, Expr),    // (x1, y1, x2, y2)
 }
 
 /// A simple (C-like) enum: a named set of unit variants. Maps to a Rust
@@ -131,6 +169,13 @@ pub enum ViewNode {
     /// An image from a path (Iced `image`): `Image "logo.png"` or `Image field`.
     Image {
         path: Expr,
+    },
+    /// A drawing surface (Iced `Canvas`): `Canvas Board [Width 300] [Height 200]`.
+    /// `name` refers to a top-level `CanvasDef`; optional fixed pixel dimensions.
+    Canvas {
+        name: String,
+        width: Option<u16>,
+        height: Option<u16>,
     },
     Text(Expr),
     Button {
@@ -373,6 +418,8 @@ pub enum Stmt {
         arms: Vec<MatchArm>,
         line: usize,
     },
+    /// A drawing verb inside a `Draw` block / paint function (canvas codegen).
+    Draw(DrawCmd),
     Comment(String),
 }
 
