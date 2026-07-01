@@ -1,5 +1,5 @@
 use ratatui::widgets::{Block, Paragraph};
-use ratatui::text::Line;
+use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 
 struct Counter {
@@ -15,14 +15,15 @@ impl Default for Counter {
 }
 
 fn view(state: &Counter, frame: &mut Frame) {
-    let lines: Vec<Line> = vec![
-        Line::from("A VBR terminal app"),
-        Line::from(format!("{}{}", "Count: ", state.count)),
-        Line::from(""),
-        Line::from("Press + / - to change, q to quit"),
-    ];
     let block = Block::bordered().title("VBR Terminal Counter");
-    frame.render_widget(Paragraph::new(lines).block(block), frame.area());
+    let area = frame.area();
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).split(inner);
+    frame.render_widget(Paragraph::new("A VBR terminal app"), chunks_0[0]);
+    frame.render_widget(Paragraph::new(format!("{}{}", "Count: ", state.count)), chunks_0[1]);
+    frame.render_widget(Paragraph::new(""), chunks_0[2]);
+    frame.render_widget(Paragraph::new("Press + / - to change, q to quit"), chunks_0[3]);
 }
 
 fn main() -> std::io::Result<()> {

@@ -1350,6 +1350,9 @@ impl<'a> Parser<'a> {
         let mut children = Vec::new();
         let mut spacing = None;
         let mut padding = None;
+        // A size line (`Length 3` / `Fill` / `Percent 40` / `Min 5`) applies to the
+        // next child (a TUI layout constraint).
+        let mut pending: Option<SizeConstraint> = None;
         loop {
             self.skip_newlines();
             if matches!(self.peek(), Tok::End) {
@@ -1358,22 +1361,52 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 break;
             }
-            // `Spacing N` / `Padding N` are container properties, not widgets.
+            // Container/child properties are lines, not widgets.
             if let Tok::Ident(w) = self.peek().clone() {
                 let prop = w.to_ascii_lowercase();
-                if prop == "spacing" || prop == "padding" {
-                    self.advance();
-                    let n = self.parse_array_size()? as u16;
-                    self.eat(&Tok::Newline);
-                    if prop == "spacing" {
-                        spacing = Some(n);
-                    } else {
-                        padding = Some(n);
+                match prop.as_str() {
+                    "spacing" | "padding" => {
+                        self.advance();
+                        let n = self.parse_array_size()? as u16;
+                        self.eat(&Tok::Newline);
+                        if prop == "spacing" {
+                            spacing = Some(n);
+                        } else {
+                            padding = Some(n);
+                        }
+                        continue;
                     }
-                    continue;
+                    "length" | "percent" | "min" => {
+                        self.advance();
+                        let n = self.parse_array_size()? as u16;
+                        self.eat(&Tok::Newline);
+                        pending = Some(match prop.as_str() {
+                            "length" => SizeConstraint::Length(n),
+                            "percent" => SizeConstraint::Percent(n),
+                            _ => SizeConstraint::Min(n),
+                        });
+                        continue;
+                    }
+                    "fill" => {
+                        // `Fill` (=1) or `Fill N` (weighted).
+                        self.advance();
+                        let n = if matches!(self.peek(), Tok::Int(_)) {
+                            self.parse_array_size()? as u16
+                        } else {
+                            1
+                        };
+                        self.eat(&Tok::Newline);
+                        pending = Some(SizeConstraint::Fill(n));
+                        continue;
+                    }
+                    _ => {}
                 }
             }
-            children.push(self.parse_view_node()?);
+            let child = self.parse_view_node()?;
+            children.push(match pending.take() {
+                Some(size) => ViewNode::Constrained { size, child: Box::new(child) },
+                None => child,
+            });
         }
         Some((children, spacing, padding))
     }

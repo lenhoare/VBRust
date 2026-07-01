@@ -1,0 +1,55 @@
+Screen Dashboard
+    Title "VBR TUI Layout"
+
+    State
+        Dim tab As Integer = 1
+    End State
+
+    View
+        Column
+            Length 1
+            Text "  Dashboard — press 1/2/3 to switch tab, q to quit"
+
+            Fill
+            Row
+                Spacing 1
+                Percent 30
+                Column
+                    Text " Sidebar"
+                    Text " - Overview"
+                    Text " - Details"
+                    Text " - Settings"
+                End Column
+
+                Fill
+                Column
+                    Text " Main panel"
+                    Text ""
+                    Text "Active tab: " & tab
+                End Column
+            End Row
+
+            Length 1
+            Text "  status: ok"
+        End Column
+    End View
+
+    On Key "1" ShowOne
+    On Key "2" ShowTwo
+    On Key "3" ShowThree
+    On Key "q" Quit
+
+    Event ShowOne
+        tab = 1
+    End Event
+    Event ShowTwo
+        tab = 2
+    End Event
+    Event ShowThree
+        tab = 3
+    End Event
+End Screen
+
+Function Main()
+    Dashboard.Run
+End Function

@@ -121,23 +121,11 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     let ty = &sc.name;
     let field_ty: HashMap<String, DeclType> =
         sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
-
-    // The View: slice 1 is a Column (or single Text) of Text lines.
-    let lines = match collect_lines(&sc.view) {
-        Some(l) => l,
-        None => {
-            diags.error_once(
-                "tui-view-shape",
-                "A Screen's View currently supports a `Column` of `Text` lines (richer TUI \
-                 layout — List, Chart, Row splits — is coming). ",
-            );
-            Vec::new()
-        }
-    };
+    let fields: HashSet<String> = field_ty.keys().cloned().collect();
 
     // ── imports ──
     out.push_str("use ratatui::widgets::{Block, Paragraph};\n");
-    out.push_str("use ratatui::text::Line;\n");
+    out.push_str("use ratatui::layout::{Constraint, Layout};\n");
     out.push_str("use ratatui::Frame;\n\n");
 
     // ── State struct ──
@@ -160,24 +148,121 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     out.push_str("        }\n    }\n}\n\n");
 
     // ── view ──
-    let fields: HashSet<String> = field_ty.keys().cloned().collect();
+    // Render the body first (into `inner`, the area within the titled border), so
+    // we can name the `state` param `_state` when nothing reads it.
     let title = sc.title.clone().unwrap_or_else(|| sc.name.clone());
-    // A stateless screen never reads `state` — underscore it so it won't warn.
-    let state_param = if sc.state.is_empty() { "_state" } else { "state" };
+    let mut body = String::new();
+    let mut counter = 0usize;
+    render_view_node(&sc.view, "inner", &fields, enums, &mut counter, 1, &mut body, diags);
+    let state_param = if body.contains("state.") { "state" } else { "_state" };
     out.push_str(&format!("fn view({}: &{}, frame: &mut Frame) {{\n", state_param, ty));
-    out.push_str("    let lines: Vec<Line> = vec![\n");
-    for e in &lines {
-        out.push_str(&format!("        {},\n", render_line(e, &fields, enums)));
-    }
-    out.push_str("    ];\n");
-    out.push_str(&format!(
-        "    let block = Block::bordered().title({:?});\n",
-        title
-    ));
-    out.push_str("    frame.render_widget(Paragraph::new(lines).block(block), frame.area());\n");
+    out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+    out.push_str("    let area = frame.area();\n");
+    out.push_str("    let inner = block.inner(area);\n");
+    out.push_str("    frame.render_widget(block, area);\n");
+    out.push_str(&body);
     out.push_str("}\n");
 
     out
+}
+
+/// Recursively emit the render statements for a view node into `area` (a Rust
+/// expression naming the ratatui `Rect` to draw into). Containers split their
+/// area with a `Layout`; leaves render a widget.
+fn render_view_node(
+    node: &ViewNode,
+    area: &str,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+    counter: &mut usize,
+    indent: usize,
+    out: &mut String,
+    diags: &mut Diagnostics,
+) {
+    let pad = "    ".repeat(indent);
+    match node {
+        // A constraint is consumed by the parent container; render the child.
+        ViewNode::Constrained { child, .. } => {
+            render_view_node(child, area, fields, enums, counter, indent, out, diags)
+        }
+        ViewNode::Text(e) => {
+            out.push_str(&format!(
+                "{}frame.render_widget(Paragraph::new({}), {});\n",
+                pad,
+                text_content(e, fields, enums),
+                area
+            ));
+        }
+        ViewNode::Column { children, spacing, padding }
+        | ViewNode::Row { children, spacing, padding } => {
+            let vertical = matches!(node, ViewNode::Column { .. });
+            let id = *counter;
+            *counter += 1;
+            let ctor = if vertical { "vertical" } else { "horizontal" };
+            let cons: Vec<String> = children.iter().map(|c| child_constraint(c)).collect();
+            let mut builder = format!("Layout::{}([{}])", ctor, cons.join(", "));
+            if let Some(s) = spacing {
+                builder.push_str(&format!(".spacing({})", s));
+            }
+            if let Some(p) = padding {
+                builder.push_str(&format!(".margin({})", p));
+            }
+            out.push_str(&format!("{}let chunks_{} = {}.split({});\n", pad, id, builder, area));
+            for (i, child) in children.iter().enumerate() {
+                let sub = format!("chunks_{}[{}]", id, i);
+                render_view_node(child, &sub, fields, enums, counter, indent, out, diags);
+            }
+        }
+        other => {
+            diags.error_once(
+                "tui-widget-unsupported",
+                format!(
+                    "That widget isn't supported in a Screen yet ({}). TUI slice 2 supports \
+                     Column, Row, and Text with layout sizing; List/Chart/etc. are coming.",
+                    tui_node_name(other)
+                ),
+            );
+        }
+    }
+}
+
+/// The ratatui `Constraint` for a child — its explicit size, or a sensible
+/// default (a nested container fills leftover space; a leaf takes one line).
+fn child_constraint(node: &ViewNode) -> String {
+    match node {
+        ViewNode::Constrained { size, .. } => constraint_expr(*size),
+        ViewNode::Column { .. } | ViewNode::Row { .. } => "Constraint::Fill(1)".to_string(),
+        _ => "Constraint::Length(1)".to_string(),
+    }
+}
+
+fn constraint_expr(size: SizeConstraint) -> String {
+    match size {
+        SizeConstraint::Length(n) => format!("Constraint::Length({})", n),
+        SizeConstraint::Percent(n) => format!("Constraint::Percentage({})", n),
+        SizeConstraint::Fill(n) => format!("Constraint::Fill({})", n),
+        SizeConstraint::Min(n) => format!("Constraint::Min({})", n),
+    }
+}
+
+/// A short name for an unsupported node, for the diagnostic.
+fn tui_node_name(node: &ViewNode) -> &'static str {
+    match node {
+        ViewNode::Button { .. } => "Button",
+        ViewNode::TextInput { .. } => "TextInput",
+        ViewNode::TextArea { .. } => "TextArea",
+        ViewNode::Checkbox { .. } => "Checkbox",
+        ViewNode::Slider { .. } => "Slider",
+        ViewNode::Toggler { .. } => "Toggler",
+        ViewNode::ProgressBar { .. } => "ProgressBar",
+        ViewNode::Radio { .. } => "Radio",
+        ViewNode::Image { .. } => "Image",
+        ViewNode::Canvas { .. } => "Canvas",
+        ViewNode::Space { .. } => "Space",
+        ViewNode::Match { .. } => "Match",
+        ViewNode::If { .. } => "If",
+        _ => "widget",
+    }
 }
 
 /// `fn main`: the crossterm event loop. Redraw from state, read a key, dispatch
@@ -251,33 +336,13 @@ fn key_pattern(key: &str) -> String {
     }
 }
 
-/// A `Text` node → a `Line::from(...)`: a literal as-is, a concatenation as its
-/// `format!`, anything else stringified.
-fn render_line(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> String {
+/// A `Text` node → the `Paragraph` content: a literal as-is, a concatenation as
+/// its `format!`, anything else stringified. State fields become `state.field`.
+fn text_content(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> String {
     let rewritten = crate::gui::rewrite_expr(e.clone(), fields, enums);
-    let content = match e {
+    match e {
         Expr::Str(_) => render_expr(&rewritten, None),
         Expr::Binary { op: BinOp::Concat, .. } => render_expr(&rewritten, None),
         _ => format!("format!(\"{{}}\", {})", render_expr(&rewritten, None)),
-    };
-    format!("Line::from({})", content)
-}
-
-/// Flatten a slice-1 View into its `Text` lines: a `Column` of `Text`, or a lone
-/// `Text`. Anything else → `None` (unsupported for now).
-fn collect_lines(view: &ViewNode) -> Option<Vec<Expr>> {
-    match view {
-        ViewNode::Text(e) => Some(vec![e.clone()]),
-        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
-            let mut out = Vec::new();
-            for c in children {
-                match c {
-                    ViewNode::Text(e) => out.push(e.clone()),
-                    _ => return None,
-                }
-            }
-            Some(out)
-        }
-        _ => None,
     }
 }

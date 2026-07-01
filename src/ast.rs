@@ -175,9 +175,25 @@ pub struct StateField {
     pub init: Option<Expr>,
 }
 
+/// A size constraint for a child of a `Column`/`Row` in a TUI layout — maps to a
+/// ratatui `Constraint`. `Fill(n)` shares leftover space weighted by `n`.
+#[derive(Debug, Clone, Copy)]
+pub enum SizeConstraint {
+    Length(u16),  // exactly N rows/cols
+    Percent(u16), // N% of the container
+    Fill(u16),    // share of leftover space, weighted by N
+    Min(u16),     // at least N
+}
+
 /// A node in the view tree.
 #[derive(Debug, Clone)]
 pub enum ViewNode {
+    /// A child given an explicit layout size (`Length 3` / `Fill` before a child
+    /// inside a `Column`/`Row`). TUI-only; other backends just render the child.
+    Constrained {
+        size: SizeConstraint,
+        child: Box<ViewNode>,
+    },
     Column {
         children: Vec<ViewNode>,
         spacing: Option<u16>,

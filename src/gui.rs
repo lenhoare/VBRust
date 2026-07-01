@@ -539,6 +539,8 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
+        // Layout size constraints are a TUI concept; the GUI ignores them.
+        ViewNode::Constrained { child, .. } => return render_view(child, ctx, indent, as_element),
         _ => {}
     }
     // Leaf widgets — a single line.
@@ -665,8 +667,9 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             }
             s
         }
-        // Containers/conditionals returned early above.
-        ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Match { .. } | ViewNode::If { .. } => {
+        // Containers/conditionals/constrained returned early above.
+        ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Match { .. }
+        | ViewNode::If { .. } | ViewNode::Constrained { .. } => {
             unreachable!()
         }
     };
@@ -805,6 +808,7 @@ fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
 /// out `Long`/`LongLong` (i64) — point the user at `Integer`/`Single`/`Double`.
 fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     match node {
+        ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
         ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
@@ -914,6 +918,7 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
     let mut out = Vec::new();
     fn walk(node: &ViewNode, out: &mut Vec<String>) {
         match node {
+            ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::TextArea { value } => {
                 let f = to_snake(value);
                 if !out.contains(&f) {
@@ -951,6 +956,7 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         }
     }
     match node {
+        ViewNode::Constrained { child, .. } => collect_widgets(child, used),
         ViewNode::Column { children, .. } => {
             add(used, "column");
             children.iter().for_each(|c| collect_widgets(c, used));
@@ -1620,6 +1626,7 @@ fn collect_canvases(node: &ViewNode) -> Vec<String> {
     let mut out = Vec::new();
     fn walk(node: &ViewNode, out: &mut Vec<String>) {
         match node {
+            ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::Canvas { name, .. } => {
                 if !out.iter().any(|n: &String| n.eq_ignore_ascii_case(name)) {
                     out.push(name.clone());
