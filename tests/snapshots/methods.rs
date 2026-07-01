@@ -1,5 +1,6 @@
 // Struct methods — impl, Me/self, and &self vs &mut self
 
+#[derive(Debug, Clone)]
 struct Person {
     pub name: String,
     pub age: i64,

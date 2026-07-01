@@ -1,0 +1,52 @@
+Type Bar
+    Public x As Integer
+    Public h As Integer
+End Type
+
+Window Chart
+    Title "Bar Chart"
+
+    State
+        Dim bars As Vec<Bar> = MakeBars(3)
+        Dim seed As Integer = 3
+    End State
+
+    View
+        Column
+            Spacing 10
+            Padding 10
+            Text "A chart drawn from a Vec of data points"
+            Button "Regenerate"
+                On Click Regenerate
+            End Button
+            Canvas Plot Width 340 Height 200
+        End Column
+    End View
+
+    Event Regenerate
+        seed += 1
+        bars = MakeBars(seed)
+    End Event
+End Window
+
+Canvas Plot
+    Draw
+        Stroke Line(10, 180, 330, 180), Color.Gray, 1
+        For Each b In bars
+            Fill Rect(b.x, 180 - b.h, 18, b.h), Color.Navy
+        Next b
+    End Draw
+End Canvas
+
+Function MakeBars(ByVal seed As Integer) As Vec<Bar>
+    Dim result As Vec<Bar>
+    For i = 0 To 9
+        Dim h As Integer = ((i * seed + 7) Mod 15) * 10 + 20
+        result.Push(Bar { x: i * 32 + 14, h: h })
+    Next i
+    Return result
+End Function
+
+Function Main()
+    Chart.Run
+End Function

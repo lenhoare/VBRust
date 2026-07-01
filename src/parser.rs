@@ -721,18 +721,24 @@ impl<'a> Parser<'a> {
                 return None;
             }
             match self.parse_dim()? {
-                // A primitive or a user enum, with an initial value.
+                // A primitive or user enum needs an initial value.
                 Stmt::Dim {
                     name,
                     ty: ty @ (DeclType::Plain(_) | DeclType::Named(_)),
                     init: Some(init),
                     ..
-                } => fields.push(StateField { name, ty, init }),
+                } => fields.push(StateField { name, ty, init: Some(init) }),
+                // A `Vec` collection may start empty (init optional) — the dynamic
+                // dataset behind charts/plots. (Map/fixed arrays can follow later.)
+                Stmt::Dim { name, ty: ty @ DeclType::Vec(_), init, .. } => {
+                    fields.push(StateField { name, ty, init })
+                }
                 _ => {
                     self.diags.error(
                         self.line(),
-                        "A State field must be a simple typed value (a primitive or an enum) \
-                         with an initial value, e.g. `Dim count As Integer = 0`.",
+                        "A State field must be a typed value with an initial value \
+                         (`Dim count As Integer = 0`), or a collection that may start empty \
+                         (`Dim data As Vec<Double>`).",
                     );
                     return None;
                 }

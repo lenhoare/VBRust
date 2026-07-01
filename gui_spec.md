@@ -527,6 +527,31 @@ itself. This is the one real shift from VB6's immediate `Picture1.Line …`.
 fields directly (`radius` above); those fields are snapshotted into the canvas
 each frame.
 
+**Data-driven drawing (charts/plots).** State fields may be **`Vec` collections**
+(`Dim bars As Vec<Bar>`, which may start empty), so a canvas can plot a dataset.
+Fill the `Vec` in an event (`bars = MakeBars(seed)` / `bars.Push(...)`) and iterate
+it in `Draw` with `For Each`; change the data and the chart repaints. See
+`examples/plot.vbr`:
+
+```vb
+State
+    Dim bars As Vec<Bar> = MakeBars(3)
+End State
+...
+Canvas Plot
+    Draw
+        For Each b In bars
+            Fill Rect(b.x, 180 - b.h, 18, b.h), Color.Navy
+        Next b
+    End Draw
+End Canvas
+```
+
+> Note: canvas bodies don't run the resolver, so iterate with **`For Each`**
+> (which borrows correctly) rather than iterator adapters (`.map`/`.filter`)
+> or `.Count()`-style index loops. Compute heavy data in an *event* (off-thread
+> with `Await` if slow) and store it in state; keep `Draw` to rendering.
+
 **Drawing verbs** (valid in a `Draw` block or a paint function):
 
 ```text

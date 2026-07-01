@@ -1,5 +1,6 @@
 // Structs — Type/End Type, construction, and field access
 
+#[derive(Debug, Clone)]
 struct Person {
     pub name: String,
     pub age: i64,

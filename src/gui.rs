@@ -282,12 +282,10 @@ fn emit_window(
     out.push_str(&format!("        {} {{\n", ty));
     for f in &w.state {
         let init = if is_textarea(&f.ty) {
-            format!(
-                "iced::widget::text_editor::Content::with_text({})",
-                render_expr(&f.init, None)
-            )
+            let text = f.init.as_ref().map(|e| render_expr(e, None)).unwrap_or_else(|| "\"\"".to_string());
+            format!("iced::widget::text_editor::Content::with_text({})", text)
         } else {
-            render_init(&f.init, &f.ty, enums)
+            render_init(f.init.as_ref(), &f.ty, enums)
         };
         out.push_str(&format!("            {}: {},\n", to_snake(&f.name), init));
     }
@@ -509,14 +507,19 @@ fn render_paint_param(p: &Param) -> String {
 }
 
 /// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
-/// an enum variant (`Size.Small`) resolves to its path (`Size::Small`).
-fn render_init(init: &Expr, ty: &DeclType, enums: &HashSet<String>) -> String {
+/// an enum variant (`Size.Small`) resolves to its path (`Size::Small`), and a
+/// `Vec` with no initialiser starts empty.
+fn render_init(init: Option<&Expr>, ty: &DeclType, enums: &HashSet<String>) -> String {
     let empty = HashSet::new();
-    match ty {
-        DeclType::Plain(Type::Text) => format!("{}.to_string()", render_expr(init, None)),
-        DeclType::Plain(t) => render_expr(init, Some(*t)),
-        // Enum (or other named) init — rewrite `Size.Small` → `Size::Small`.
-        _ => render_expr(&rewrite_expr(init.clone(), &empty, enums), None),
+    match (ty, init) {
+        (DeclType::Vec(_), None) => "Vec::new()".to_string(),
+        (DeclType::Plain(Type::Text), Some(e)) => format!("{}.to_string()", render_expr(e, None)),
+        (DeclType::Plain(t), Some(e)) => render_expr(e, Some(*t)),
+        // Enum / Vec-with-initialiser / other — rewrite `Size.Small` → `Size::Small`.
+        (_, Some(e)) => render_expr(&rewrite_expr(e.clone(), &empty, enums), None),
+        // A non-collection field without an initialiser shouldn't reach here (the
+        // parser requires one); fall back to Default.
+        (_, None) => "Default::default()".to_string(),
     }
 }
 
@@ -640,10 +643,16 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             let inits: Vec<String> = snap
                 .iter()
                 .map(|f| {
-                    if matches!(ctx.field_ty.get(f), Some(DeclType::Plain(Type::Text))) {
-                        format!("{}: state.{}.clone()", f, f)
-                    } else {
+                    // Copy scalars move freely; anything else (String, Vec, struct)
+                    // is cloned so the canvas owns its snapshot.
+                    let is_copy = matches!(
+                        ctx.field_ty.get(f),
+                        Some(DeclType::Plain(t)) if !matches!(t, Type::Text)
+                    );
+                    if is_copy {
                         format!("{}: state.{}", f, f)
+                    } else {
+                        format!("{}: state.{}.clone()", f, f)
                     }
                 })
                 .collect();

@@ -1,0 +1,1 @@
+⚠ [line 41] Function 'MakeBars' renamed to 'make_bars' — Rust uses snake_case for functions.

@@ -253,6 +253,10 @@ fn enum_derives(e: &EnumDef) -> String {
 
 pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
     let kw = if s.public { "pub struct" } else { "struct" };
+    // Debug + Clone are safe for every VBR field type (primitives, String,
+    // collections, other structs) and let structs be printed and copied — e.g.
+    // a `Vec<Struct>` state field snapshotted into a canvas.
+    out.push_str("#[derive(Debug, Clone)]\n");
     out.push_str(&format!("{} {} {{\n", kw, s.name));
     for f in &s.fields {
         let fname = to_snake(&f.name);

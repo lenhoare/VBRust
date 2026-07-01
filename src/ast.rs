@@ -145,7 +145,9 @@ pub struct Window {
 pub struct StateField {
     pub name: String,
     pub ty: DeclType,
-    pub init: Expr,
+    /// The initial value. Collections (`Vec`/`Map`) and fixed arrays may omit it
+    /// (they start empty / zeroed), so it is optional.
+    pub init: Option<Expr>,
 }
 
 /// A node in the view tree.
