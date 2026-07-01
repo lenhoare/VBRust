@@ -186,13 +186,16 @@ fn cmd_project(args: &[String], run: bool) {
     // `target/` already exists. So whenever Iced is a dependency, give the
     // heads-up; otherwise a long compile looks like a hang. (On a cached rebuild
     // it's instant, and the note is harmless.)
-    let uses_iced = fs::read_to_string(build.join("Cargo.toml"))
-        .map(|c| c.contains("iced"))
-        .unwrap_or(false);
-    if uses_iced {
+    let cargo_toml = fs::read_to_string(build.join("Cargo.toml")).unwrap_or_default();
+    if cargo_toml.contains("iced") {
         eprintln!(
             "→ Building the GUI — compiling Iced can take ~30s the first time \
              (instant once cached). The window opens when it finishes."
+        );
+    } else if cargo_toml.contains("ratatui") {
+        eprintln!(
+            "→ Building the TUI — compiling ratatui takes a few seconds the first time \
+             (instant once cached). The app takes over the terminal when it starts."
         );
     }
 

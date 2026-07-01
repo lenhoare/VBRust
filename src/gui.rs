@@ -509,7 +509,7 @@ fn render_paint_param(p: &Param) -> String {
 /// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
 /// an enum variant (`Size.Small`) resolves to its path (`Size::Small`), and a
 /// `Vec` with no initialiser starts empty.
-fn render_init(init: Option<&Expr>, ty: &DeclType, enums: &HashSet<String>) -> String {
+pub(crate) fn render_init(init: Option<&Expr>, ty: &DeclType, enums: &HashSet<String>) -> String {
     let empty = HashSet::new();
     match (ty, init) {
         (DeclType::Vec(_), None) => "Vec::new()".to_string(),
@@ -1000,7 +1000,7 @@ fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
 /// Event bodies skip the resolver, so a string literal assigned to a `String`
 /// state field doesn't get its `.to_string()`. Add it here (`status = "x"` →
 /// `state.status = "x".to_string()`), recursing through `Match`/`If` bodies.
-fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, DeclType>) {
+pub(crate) fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, DeclType>) {
     match s {
         Stmt::Assign { target: Expr::Field(recv, fname), value, .. }
             if matches!(&**recv, Expr::Ident(n) if n == "state")
@@ -1445,7 +1445,7 @@ fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagn
 /// Replace a bare reference to a state field with `state.field`, and an enum
 /// variant `Color.Red` with the path `Color::Red`, so an event/view expression
 /// reaches the window's state and names variants correctly.
-fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> Expr {
+pub(crate) fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> Expr {
     rewrite_expr_with(e, "state", fields, enums)
 }
 
@@ -1502,7 +1502,7 @@ fn rewrite_expr_with(
     }
 }
 
-fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<String>) -> Stmt {
+pub(crate) fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<String>) -> Stmt {
     match s {
         Stmt::Assign { target, value, op } => Stmt::Assign {
             target: rewrite_expr(target, fields, enums),

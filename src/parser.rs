@@ -89,6 +89,7 @@ impl<'a> Parser<'a> {
         let mut uses = Vec::new();
         let mut windows = Vec::new();
         let mut canvases = Vec::new();
+        let mut screens = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -177,6 +178,13 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Screen") => {
+                    if let Some(sc) = self.parse_screen() {
+                        screens.push(sc);
+                    } else {
+                        break;
+                    }
+                }
                 Tok::Ident(w) if w == "Option" => {
                     self.diags.error(
                         self.line(),
@@ -208,6 +216,7 @@ impl<'a> Parser<'a> {
             functions,
             windows,
             canvases,
+            screens,
         }
     }
 
@@ -553,6 +562,121 @@ impl<'a> Parser<'a> {
             view,
             events,
         })
+    }
+
+    /// `Screen Name` … `End Screen` — a ratatui terminal app. Same State/View/
+    /// Event blocks as a Window, but events are bound by a keymap: `On Key "q" Quit`.
+    fn parse_screen(&mut self) -> Option<Screen> {
+        self.advance(); // `Screen`
+        let name = self.expect_ident("for the screen name")?;
+        self.expect(&Tok::Newline, "after the screen name")?;
+
+        let mut title = None;
+        let mut state = Vec::new();
+        let mut view = None;
+        let mut keys = Vec::new();
+        let mut events = Vec::new();
+
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident("Screen")?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
+                    self.advance();
+                    title = Some(self.expect_string("after `Title`")?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("State") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `State`")?;
+                    state = self.parse_state_block()?;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("View") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `View`")?;
+                    view = Some(self.parse_view_node()?);
+                    self.skip_newlines();
+                    self.expect(&Tok::End, "to close `View`")?;
+                    self.expect_kw_ident("View")?;
+                    self.eat(&Tok::Newline);
+                }
+                // `On Key "q" Handler` — a keymap binding.
+                Tok::On => {
+                    self.advance();
+                    self.expect_kw_ident("Key")?;
+                    let key = self.parse_key_spec()?;
+                    let handler = self.expect_ident("for the key's handler event")?;
+                    self.eat(&Tok::Newline);
+                    keys.push(KeyBinding { key, handler });
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Event") => {
+                    self.advance();
+                    let ev_name = self.expect_ident("for the event name")?;
+                    let params = if self.eat(&Tok::LParen) {
+                        self.parse_params_until_rparen()?
+                    } else {
+                        Vec::new()
+                    };
+                    self.expect(&Tok::Newline, "after the event name")?;
+                    let body = self.parse_block()?;
+                    self.expect(&Tok::End, "to close the event")?;
+                    self.expect_kw_ident("Event")?;
+                    self.eat(&Tok::Newline);
+                    events.push(GuiEvent { name: ev_name, params, body });
+                }
+                other => {
+                    self.diags.error(
+                        self.line(),
+                        format!(
+                            "Unexpected {:?} inside a Screen — expected Title, State, View, \
+                             `On Key`, Event, or `End Screen`.",
+                            other
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+
+        let view = match view {
+            Some(v) => v,
+            None => {
+                self.diags.error(self.line(), "A Screen needs a `View` block.");
+                return None;
+            }
+        };
+        Some(Screen { name, title, state, view, keys, events })
+    }
+
+    /// A key spec after `On Key`: a string literal for a character (`"q"`, `"+"`)
+    /// or an identifier for a named key (`Up`, `Down`, `Enter`, `Esc`, `Tab`).
+    fn parse_key_spec(&mut self) -> Option<String> {
+        match self.peek().clone() {
+            Tok::Str(s) => {
+                self.advance();
+                Some(s)
+            }
+            Tok::Ident(name) => {
+                self.advance();
+                Some(name)
+            }
+            other => {
+                self.diags.error(
+                    self.line(),
+                    format!(
+                        "Expected a key after `On Key` — a character like \"q\" or a named key \
+                         (Up, Down, Enter, Esc), found {:?}.",
+                        other
+                    ),
+                );
+                None
+            }
+        }
     }
 
     /// `Canvas Name` … `Draw` … `End Draw` … `End Canvas` — a drawing surface.

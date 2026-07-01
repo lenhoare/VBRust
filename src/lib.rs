@@ -10,6 +10,7 @@ pub mod lexer;
 pub mod parser;
 pub mod resolver;
 pub mod transpiler;
+pub mod tui;
 
 use diagnostics::Diagnostics;
 
@@ -49,6 +50,10 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
     // A GUI program needs Iced (a project build, like the stdlib/crate cases).
     if !program.windows.is_empty() {
         dependencies.push(("iced".to_string(), "0.13".to_string()));
+    }
+    // A TUI program (a `Screen`) needs ratatui (crossterm comes with it).
+    if !program.screens.is_empty() {
+        dependencies.push(("ratatui".to_string(), "0.29".to_string()));
     }
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
     let stdlib_used = transpiler::stdlib_used(&diags);

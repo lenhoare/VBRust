@@ -41,6 +41,10 @@ pub fn transpile_module(
     if !program.windows.is_empty() {
         return crate::gui::emit_gui_program(program, diags);
     }
+    // A TUI program (one with a `Screen`) compiles to a ratatui application.
+    if !program.screens.is_empty() {
+        return crate::tui::emit_tui_program(program, diags);
+    }
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
     for func in &program.functions {

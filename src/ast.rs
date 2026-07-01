@@ -68,6 +68,31 @@ pub struct Program {
     pub functions: Vec<Function>,
     pub windows: Vec<Window>,
     pub canvases: Vec<CanvasDef>,
+    pub screens: Vec<Screen>,
+}
+
+/// A terminal UI app: the same State/View/Events model as a `Window`, but
+/// rendered with **ratatui** instead of Iced. Input is keyboard-driven — a
+/// keymap (`On Key "q" Quit`) binds keys to event handlers. Compiles to a
+/// crossterm event loop that redraws from state each keystroke. (TUI slice 1.)
+#[derive(Debug, Clone)]
+pub struct Screen {
+    pub name: String,
+    pub title: Option<String>,
+    pub state: Vec<StateField>,
+    pub view: ViewNode,
+    /// Key→handler bindings (`On Key "+" Increment`).
+    pub keys: Vec<KeyBinding>,
+    pub events: Vec<GuiEvent>,
+}
+
+/// One `On Key <key> <handler>` binding. `key` is a single character (`"+"`,
+/// `"q"`) or a named key (`Up`, `Enter`, `Esc`); `handler` is an event name, or
+/// the built-in `Quit` (exits the loop).
+#[derive(Debug, Clone)]
+pub struct KeyBinding {
+    pub key: String,
+    pub handler: String,
 }
 
 /// A `Canvas Name … Draw … End Draw … End Canvas` definition — imperative 2-D
