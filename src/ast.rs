@@ -213,6 +213,13 @@ pub enum ViewNode {
     Image {
         path: Expr,
     },
+    /// A single-line text input bound to a `String` state field (ratatui, TUI).
+    /// Printable keys type into it, Backspace deletes; `on_submit` fires on Enter.
+    /// Focusable — Tab cycles among inputs/lists/tables. TUI-only.
+    Input {
+        field: String,
+        on_submit: Option<String>,
+    },
     /// A selectable list (ratatui `List` + `ListState`) bound to a `Vec<String>`
     /// state field. Navigated with Up/Down (and Tab between lists); `on_select`
     /// fires on Enter with the selected item. TUI-only (a `Screen` widget).

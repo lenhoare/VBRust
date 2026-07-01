@@ -1,0 +1,49 @@
+Screen Notes
+    Title "Notes"
+
+    State
+        Dim entry As String = ""
+        Dim notes As Vec<String> = Seed()
+        Dim status As String = "type a note, Enter to add"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " Tab: switch • type in the box • Enter: add/select • Esc: quit"
+            Length 3
+            Input entry
+                On Submit Add
+            End Input
+            Fill
+            List notes
+                On Select Pick
+            End List
+            Length 1
+            Text " " & status
+        End Column
+    End View
+
+    On Key Esc Quit
+
+    Event Add(text As String)
+        status = "added: " & text
+        notes.Push(text)
+        entry = ""
+    End Event
+
+    Event Pick(item As String)
+        status = "selected: " & item
+    End Event
+End Screen
+
+Function Seed() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("buy milk")
+    v.Push("call Ada")
+    Return v
+End Function
+
+Function Main()
+    Notes.Run
+End Function

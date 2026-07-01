@@ -667,9 +667,9 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             }
             s
         }
-        // `List`/`Table` are Screen (TUI) widgets — invalid in a Window;
+        // `Input`/`List`/`Table` are Screen (TUI) widgets — invalid in a Window;
         // `validate_view` reports it, so this placeholder is never compiled.
-        ViewNode::List { .. } | ViewNode::Table { .. } => {
+        ViewNode::Input { .. } | ViewNode::List { .. } | ViewNode::Table { .. } => {
             "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink)".to_string()
         }
         // Containers/conditionals/constrained returned early above.
@@ -814,10 +814,10 @@ fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
 fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     match node {
         ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
-        ViewNode::List { .. } | ViewNode::Table { .. } => diags.error_once(
-            "list-in-window",
-            "`List`/`Table` are Screen (TUI) widgets — they aren't available in a Window (GUI). \
-             For a selectable list in a GUI, compose one from a Column of buttons for now.",
+        ViewNode::Input { .. } | ViewNode::List { .. } | ViewNode::Table { .. } => diags.error_once(
+            "tui-widget-in-window",
+            "`Input`/`List`/`Table` are Screen (TUI) widgets — they aren't available in a Window \
+             (GUI). Use `TextInput` for text entry in a GUI.",
         ),
         ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
@@ -967,7 +967,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
     }
     match node {
         ViewNode::Constrained { child, .. } => collect_widgets(child, used),
-        ViewNode::List { .. } | ViewNode::Table { .. } => {} // TUI-only; rejected by validate_view.
+        // TUI-only; rejected by validate_view.
+        ViewNode::Input { .. } | ViewNode::List { .. } | ViewNode::Table { .. } => {}
         ViewNode::Column { children, .. } => {
             add(used, "column");
             children.iter().for_each(|c| collect_widgets(c, used));

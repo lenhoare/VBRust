@@ -132,14 +132,18 @@ fn emit_screen(
         sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
     let fields: HashSet<String> = field_ty.keys().cloned().collect();
 
-    // Selectable widgets (List/Table) get a runtime `ListState`/`TableState`
-    // field (and, for >1, a shared focus index), like TextArea's Content in GUI.
-    let sels = collect_selectables(&sc.view);
-    let has_sel = !sels.is_empty();
-    let multi = sels.len() > 1;
-    for s in &sels {
-        validate_selectable(s, &field_ty, structs, diags);
+    // Focusable widgets — Input (types into a String), List/Table (select over a
+    // Vec). List/Table need a runtime `ListState`/`TableState`; >1 focusable adds
+    // a shared focus index (Tab cycles). Only List/Table make the view `&mut`.
+    let focusables = collect_focusables(&sc.view);
+    let multi = focusables.len() > 1;
+    let has_stateful = focusables.iter().any(Focusable::selectable);
+    for fo in &focusables {
+        validate_focusable(fo, &field_ty, structs, diags);
     }
+    // field → focus index (an Input shows a cursor only when it is focused).
+    let focus_map: HashMap<String, usize> =
+        focusables.iter().enumerate().map(|(i, f)| (f.field.clone(), i)).collect();
 
     // ── imports ──
     out.push_str("use ratatui::widgets::{Block, Paragraph};\n");
@@ -151,8 +155,10 @@ fn emit_screen(
     for f in &sc.state {
         out.push_str(&format!("    {}: {},\n", to_snake(&f.name), decltype_rust(&f.ty)));
     }
-    for s in &sels {
-        out.push_str(&format!("    {}_state: ratatui::widgets::{},\n", s.field, s.state_ty()));
+    for fo in &focusables {
+        if let Some(st) = fo.state_ty() {
+            out.push_str(&format!("    {}_state: ratatui::widgets::{},\n", fo.field, st));
+        }
     }
     if multi {
         out.push_str("    focus_index: usize,\n");
@@ -169,12 +175,13 @@ fn emit_screen(
             render_init(f.init.as_ref(), &f.ty, enums)
         ));
     }
-    for s in &sels {
-        out.push_str(&format!(
-            "            {}_state: ratatui::widgets::{}::default().with_selected(Some(0)),\n",
-            s.field,
-            s.state_ty()
-        ));
+    for fo in &focusables {
+        if let Some(st) = fo.state_ty() {
+            out.push_str(&format!(
+                "            {}_state: ratatui::widgets::{}::default().with_selected(Some(0)),\n",
+                fo.field, st
+            ));
+        }
     }
     if multi {
         out.push_str("            focus_index: 0,\n");
@@ -183,13 +190,14 @@ fn emit_screen(
 
     // ── view ──
     // Render the body first (into `inner`, the area within the titled border), so
-    // we can name the `state` param `_state` when nothing reads it. A screen with
-    // a selectable widget needs `&mut` (its state mutates when rendered).
+    // we can name the `state` param `_state` when nothing reads it. A list/table
+    // makes the view `&mut` (its state mutates when rendered); an input alone
+    // reads state immutably (typing happens in the event loop).
     let title = sc.title.clone().unwrap_or_else(|| sc.name.clone());
     let mut body = String::new();
     let mut counter = 0usize;
-    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, &mut counter, 1, &mut body, diags);
-    let (param_name, param_ty) = if has_sel {
+    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, &focus_map, multi, &mut counter, 1, &mut body, diags);
+    let (param_name, param_ty) = if has_stateful {
         ("state".to_string(), format!("&mut {}", ty))
     } else if body.contains("state.") {
         ("state".to_string(), format!("&{}", ty))
@@ -207,35 +215,50 @@ fn emit_screen(
     out
 }
 
-/// A selectable widget (List or Table) — both use the same navigation/focus/Enter
-/// machinery over a `Vec` state field; only the widget and its state type differ.
-struct Selectable {
-    field: String,
-    on_select: Option<String>,
-    table: bool,
+/// A focusable widget — Input, List, or Table. All three join the focus ring
+/// (Tab cycles); the kind decides the widget, its optional runtime state type,
+/// and which keys apply. `handler` is the `On Submit`/`On Select` event, if any.
+#[derive(Clone, Copy, PartialEq)]
+enum FocusKind {
+    Input,
+    List,
+    Table,
 }
 
-impl Selectable {
-    fn state_ty(&self) -> &'static str {
-        if self.table { "TableState" } else { "ListState" }
+struct Focusable {
+    field: String,
+    handler: Option<String>,
+    kind: FocusKind,
+}
+
+impl Focusable {
+    /// The runtime widget-state type (List/Table); an Input needs none.
+    fn state_ty(&self) -> Option<&'static str> {
+        match self.kind {
+            FocusKind::List => Some("ListState"),
+            FocusKind::Table => Some("TableState"),
+            FocusKind::Input => None,
+        }
+    }
+    fn selectable(&self) -> bool {
+        matches!(self.kind, FocusKind::List | FocusKind::Table)
+    }
+    fn is_input(&self) -> bool {
+        matches!(self.kind, FocusKind::Input)
     }
 }
 
-/// The selectable widgets in a view, in first-seen order.
-fn collect_selectables(view: &ViewNode) -> Vec<Selectable> {
+/// The focusable widgets in a view, in first-seen (Tab) order.
+fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
     let mut out = Vec::new();
-    fn walk(node: &ViewNode, out: &mut Vec<Selectable>) {
+    fn walk(node: &ViewNode, out: &mut Vec<Focusable>) {
+        let push = |out: &mut Vec<Focusable>, field: &str, handler: &Option<String>, kind| {
+            out.push(Focusable { field: to_snake(field), handler: handler.clone(), kind });
+        };
         match node {
-            ViewNode::List { field, on_select } => out.push(Selectable {
-                field: to_snake(field),
-                on_select: on_select.clone(),
-                table: false,
-            }),
-            ViewNode::Table { field, on_select } => out.push(Selectable {
-                field: to_snake(field),
-                on_select: on_select.clone(),
-                table: true,
-            }),
+            ViewNode::Input { field, on_submit } => push(out, field, on_submit, FocusKind::Input),
+            ViewNode::List { field, on_select } => push(out, field, on_select, FocusKind::List),
+            ViewNode::Table { field, on_select } => push(out, field, on_select, FocusKind::Table),
             ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
                 children.iter().for_each(|c| walk(c, out))
@@ -247,36 +270,47 @@ fn collect_selectables(view: &ViewNode) -> Vec<Selectable> {
     out
 }
 
-/// A List binds to `Vec<String>`; a Table binds to `Vec<Struct>`.
-fn validate_selectable(
-    s: &Selectable,
+/// An Input binds to `String`; a List to `Vec<String>`; a Table to `Vec<Struct>`.
+fn validate_focusable(
+    fo: &Focusable,
     field_ty: &HashMap<String, DeclType>,
     structs: &HashMap<String, &StructDef>,
     diags: &mut Diagnostics,
 ) {
-    if s.table {
-        let ok = matches!(
-            field_ty.get(&s.field),
-            Some(DeclType::Vec(inner))
-                if matches!(&**inner, DeclType::Named(n) if structs.get(n).is_some_and(|sd| !sd.fields.is_empty()))
-        );
-        if !ok {
-            diags.error_once(
-                &format!("table-field-{}", s.field),
-                format!(
-                    "A Table binds to a `Vec<Struct>` state field (its columns come from the \
-                     struct's fields) — `{}` isn't one.",
-                    s.field
-                ),
-            );
+    match fo.kind {
+        FocusKind::Input => {
+            if !matches!(field_ty.get(&fo.field), Some(DeclType::Plain(Type::Text))) {
+                diags.error_once(
+                    &format!("input-field-{}", fo.field),
+                    format!("An Input binds to a `String` state field — `{}` isn't one.", fo.field),
+                );
+            }
         }
-    } else {
-        let ok = matches!(field_ty.get(&s.field), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(Type::Text)));
-        if !ok {
-            diags.error_once(
-                &format!("list-field-{}", s.field),
-                format!("A List binds to a `Vec<String>` state field — `{}` isn't one.", s.field),
+        FocusKind::Table => {
+            let ok = matches!(
+                field_ty.get(&fo.field),
+                Some(DeclType::Vec(inner))
+                    if matches!(&**inner, DeclType::Named(n) if structs.get(n).is_some_and(|sd| !sd.fields.is_empty()))
             );
+            if !ok {
+                diags.error_once(
+                    &format!("table-field-{}", fo.field),
+                    format!(
+                        "A Table binds to a `Vec<Struct>` state field (its columns come from the \
+                         struct's fields) — `{}` isn't one.",
+                        fo.field
+                    ),
+                );
+            }
+        }
+        FocusKind::List => {
+            let ok = matches!(field_ty.get(&fo.field), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(Type::Text)));
+            if !ok {
+                diags.error_once(
+                    &format!("list-field-{}", fo.field),
+                    format!("A List binds to a `Vec<String>` state field — `{}` isn't one.", fo.field),
+                );
+            }
         }
     }
 }
@@ -291,6 +325,8 @@ fn render_view_node(
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
     structs: &HashMap<String, &StructDef>,
+    focus_map: &HashMap<String, usize>,
+    multi: bool,
     counter: &mut usize,
     indent: usize,
     out: &mut String,
@@ -299,9 +335,10 @@ fn render_view_node(
     let pad = "    ".repeat(indent);
     match node {
         // A constraint is consumed by the parent container; render the child.
-        ViewNode::Constrained { child, .. } => {
-            render_view_node(child, area, fields, field_ty, enums, structs, counter, indent, out, diags)
-        }
+        ViewNode::Constrained { child, .. } => render_view_node(
+            child, area, fields, field_ty, enums, structs, focus_map, multi, counter, indent, out,
+            diags,
+        ),
         ViewNode::Text(e) => {
             out.push_str(&format!(
                 "{}frame.render_widget(Paragraph::new({}), {});\n",
@@ -327,7 +364,32 @@ fn render_view_node(
             out.push_str(&format!("{}let chunks_{} = {}.split({});\n", pad, id, builder, area));
             for (i, child) in children.iter().enumerate() {
                 let sub = format!("chunks_{}[{}]", id, i);
-                render_view_node(child, &sub, fields, field_ty, enums, structs, counter, indent, out, diags);
+                render_view_node(
+                    child, &sub, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    indent, out, diags,
+                );
+            }
+        }
+        ViewNode::Input { field, .. } => {
+            let f = to_snake(field);
+            out.push_str(&format!(
+                "{}frame.render_widget(Paragraph::new(state.{}.as_str())\
+                 .block(Block::bordered().title({:?})), {});\n",
+                pad, f, field, area
+            ));
+            // Place the terminal cursor at the end of the text when focused.
+            let idx = focus_map.get(&f).copied().unwrap_or(0);
+            let set_cursor = format!(
+                "frame.set_cursor_position(({}.x + 1 + state.{}.chars().count() as u16, {}.y + 1));",
+                area, f, area
+            );
+            if multi {
+                out.push_str(&format!(
+                    "{}if state.focus_index == {} {{ {} }}\n",
+                    pad, idx, set_cursor
+                ));
+            } else {
+                out.push_str(&format!("{}{}\n", pad, set_cursor));
             }
         }
         ViewNode::List { field, .. } => {
@@ -461,19 +523,22 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
 
-    let sels = collect_selectables(&sc.view);
-    let has_sel = !sels.is_empty();
-    let multi = sels.len() > 1;
-    // Keys the user bound explicitly — their bindings win over the built-in list
+    let focusables = collect_focusables(&sc.view);
+    let has_focus = !focusables.is_empty();
+    let has_sel = focusables.iter().any(Focusable::selectable);
+    let has_input = focusables.iter().any(Focusable::is_input);
+    let multi = focusables.len() > 1;
+    // Keys the user bound explicitly — their bindings win over the built-in
     // navigation (so we skip a built-in arm whose key they've taken).
     let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
 
     let mut out = String::new();
-    // `state` needs `mut` if a key runs an event that changes it, or a selectable
-    // widget's selection can move (a stateful widget mutates its state on render).
+    // `state` needs `mut` if a key runs an event that changes it, or a focusable
+    // widget mutates it (typing into an input, moving a list selection).
     let mutates =
-        has_sel || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
+        has_focus || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
     let let_state = if mutates { "let mut state" } else { "let state" };
+    // Only a list/table makes the view `&mut` (its state mutates on render).
     let draw_arg = if has_sel { "&mut state" } else { "&state" };
     out.push_str("fn main() -> std::io::Result<()> {\n");
     out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
@@ -498,30 +563,39 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
         }
         out.push_str("                    }\n");
     }
-    // Built-in list/table navigation (only for keys the user hasn't bound).
-    if has_sel {
-        if !user_keys.contains("KeyCode::Down") {
-            out.push_str("                    KeyCode::Down => {\n");
-            out.push_str(&nav_dispatch(&sels, multi, "select_next"));
-            out.push_str("                    }\n");
-        }
-        if !user_keys.contains("KeyCode::Up") {
-            out.push_str("                    KeyCode::Up => {\n");
-            out.push_str(&nav_dispatch(&sels, multi, "select_previous"));
-            out.push_str("                    }\n");
-        }
-        if multi && !user_keys.contains("KeyCode::Tab") {
-            out.push_str(&format!(
-                "                    KeyCode::Tab => {{\n                        \
-                 state.focus_index = (state.focus_index + 1) % {};\n                    }}\n",
-                sels.len()
-            ));
-        }
-        if !user_keys.contains("KeyCode::Enter") {
-            out.push_str("                    KeyCode::Enter => {\n");
-            out.push_str(&enter_dispatch(&sels, multi, &events, &fields, &field_ty, enums));
-            out.push_str("                    }\n");
-        }
+    // Built-in focus navigation (only for keys the user hasn't bound). Order
+    // matters: specific user `Char('x')` arms above, general `Char(c)` typing last.
+    if has_sel && !user_keys.contains("KeyCode::Down") {
+        out.push_str("                    KeyCode::Down => {\n");
+        out.push_str(&nav_dispatch(&focusables, multi, "select_next"));
+        out.push_str("                    }\n");
+    }
+    if has_sel && !user_keys.contains("KeyCode::Up") {
+        out.push_str("                    KeyCode::Up => {\n");
+        out.push_str(&nav_dispatch(&focusables, multi, "select_previous"));
+        out.push_str("                    }\n");
+    }
+    if multi && !user_keys.contains("KeyCode::Tab") {
+        out.push_str(&format!(
+            "                    KeyCode::Tab => {{\n                        \
+             state.focus_index = (state.focus_index + 1) % {};\n                    }}\n",
+            focusables.len()
+        ));
+    }
+    if has_focus && !user_keys.contains("KeyCode::Enter") {
+        out.push_str("                    KeyCode::Enter => {\n");
+        out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, enums));
+        out.push_str("                    }\n");
+    }
+    if has_input && !user_keys.contains("KeyCode::Backspace") {
+        out.push_str("                    KeyCode::Backspace => {\n");
+        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.pop();", f)));
+        out.push_str("                    }\n");
+    }
+    if has_input {
+        out.push_str("                    KeyCode::Char(c) => {\n");
+        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.push(c);", f)));
+        out.push_str("                    }\n");
     }
     out.push_str("                    _ => {}\n");
     out.push_str("                }\n");
@@ -534,74 +608,105 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     out
 }
 
-/// Call a state method on the focused list/table — direct for one, routed by
-/// `focus_index` for several. (`ListState` and `TableState` share these methods.)
-fn nav_dispatch(sels: &[Selectable], multi: bool, method: &str) -> String {
-    let mut out = String::new();
+/// Up/Down on the focused list/table — direct for one focusable, routed by
+/// `focus_index` for several (inputs fall through to `_`).
+fn nav_dispatch(focusables: &[Focusable], multi: bool, method: &str) -> String {
+    let sel: Vec<(usize, &Focusable)> =
+        focusables.iter().enumerate().filter(|(_, f)| f.selectable()).collect();
     if !multi {
-        out.push_str(&format!("                        state.{}_state.{}();\n", sels[0].field, method));
-    } else {
-        out.push_str("                        match state.focus_index {\n");
-        for (i, s) in sels.iter().enumerate() {
-            out.push_str(&format!(
-                "                            {} => state.{}_state.{}(),\n",
-                i, s.field, method
-            ));
-        }
-        out.push_str("                            _ => {}\n");
-        out.push_str("                        }\n");
+        return format!("                        state.{}_state.{}();\n", sel[0].1.field, method);
     }
+    let mut out = String::from("                        match state.focus_index {\n");
+    for (i, f) in &sel {
+        out.push_str(&format!(
+            "                            {} => state.{}_state.{}(),\n",
+            i, f.field, method
+        ));
+    }
+    out.push_str("                            _ => {}\n");
+    out.push_str("                        }\n");
     out
 }
 
-/// Enter on the focused list/table → run its `On Select` handler with the
-/// selected row (item String for a List, the struct for a Table).
+/// Enter on the focused widget → its handler: an Input's `On Submit` (reading the
+/// bound field from state), or a List/Table's `On Select` (with the selected row).
 fn enter_dispatch(
-    sels: &[Selectable],
+    focusables: &[Focusable],
     multi: bool,
     events: &HashMap<String, &GuiEvent>,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
 ) -> String {
-    let mut out = String::new();
-    let one = |f: &str, on_select: &Option<String>, indent: usize| -> String {
+    let body = |fo: &Focusable, indent: usize| -> String {
         let pad = "    ".repeat(indent);
         let mut s = String::new();
-        let ev = on_select.as_ref().and_then(|h| events.get(&h.to_ascii_lowercase()));
-        let Some(ev) = ev else { return s };
-        s.push_str(&format!("{}if let Some(i) = state.{}_state.selected() {{\n", pad, f));
-        // Bind the selected item to the handler's parameter (if it takes one).
-        match ev.params.first() {
-            Some(p) => s.push_str(&format!(
-                "{}    let {} = state.{}[i].clone();\n",
-                pad,
-                to_snake(&p.name),
-                f
-            )),
-            None => s.push_str(&format!("{}    let _ = i;\n", pad)),
-        }
+        let Some(ev) = fo.handler.as_ref().and_then(|h| events.get(&h.to_ascii_lowercase())) else {
+            return s;
+        };
         let mut dummy = Diagnostics::new();
-        for stmt in &ev.body {
-            let mut rewritten = rewrite_stmt(stmt.clone(), fields, enums);
-            coerce_state_strings(&mut rewritten, field_ty);
-            emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), indent + 1, &mut dummy, &mut s);
+        let mut emit_body = |s: &mut String, extra: usize| {
+            for stmt in &ev.body {
+                let mut rewritten = rewrite_stmt(stmt.clone(), fields, enums);
+                coerce_state_strings(&mut rewritten, field_ty);
+                emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), indent + extra, &mut dummy, s);
+            }
+        };
+        if fo.is_input() {
+            // Submit: bind the handler's parameter to a clone of the typed text
+            // (so `list.Push(text)` moves the local, not the state field).
+            if let Some(p) = ev.params.first() {
+                s.push_str(&format!("{}let {} = state.{}.clone();\n", pad, to_snake(&p.name), fo.field));
+            }
+            emit_body(&mut s, 0);
+        } else {
+            s.push_str(&format!("{}if let Some(i) = state.{}_state.selected() {{\n", pad, fo.field));
+            match ev.params.first() {
+                Some(p) => s.push_str(&format!(
+                    "{}    let {} = state.{}[i].clone();\n",
+                    pad,
+                    to_snake(&p.name),
+                    fo.field
+                )),
+                None => s.push_str(&format!("{}    let _ = i;\n", pad)),
+            }
+            emit_body(&mut s, 1);
+            s.push_str(&format!("{}}}\n", pad));
         }
-        s.push_str(&format!("{}}}\n", pad));
         s
     };
     if !multi {
-        out.push_str(&one(&sels[0].field, &sels[0].on_select, 6));
-    } else {
-        out.push_str("                        match state.focus_index {\n");
-        for (i, s) in sels.iter().enumerate() {
-            out.push_str(&format!("                            {} => {{\n", i));
-            out.push_str(&one(&s.field, &s.on_select, 8));
-            out.push_str("                            }\n");
-        }
-        out.push_str("                            _ => {}\n");
-        out.push_str("                        }\n");
+        return body(&focusables[0], 6);
     }
+    let mut out = String::from("                        match state.focus_index {\n");
+    for (i, fo) in focusables.iter().enumerate() {
+        let arm = body(fo, 8);
+        if arm.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("                            {} => {{\n", i));
+        out.push_str(&arm);
+        out.push_str("                            }\n");
+    }
+    out.push_str("                            _ => {}\n");
+    out.push_str("                        }\n");
+    out
+}
+
+/// A key that edits the focused input (Backspace/typing) → `action(field)` on the
+/// focused input; direct for one focusable, routed by `focus_index` otherwise.
+fn input_dispatch(focusables: &[Focusable], multi: bool, action: &dyn Fn(&str) -> String) -> String {
+    let inputs: Vec<(usize, &Focusable)> =
+        focusables.iter().enumerate().filter(|(_, f)| f.is_input()).collect();
+    if !multi {
+        return format!("                        {}\n", action(&inputs[0].1.field));
+    }
+    let mut out = String::from("                        match state.focus_index {\n");
+    for (i, f) in &inputs {
+        out.push_str(&format!("                            {} => {{ {} }}\n", i, action(&f.field)));
+    }
+    out.push_str("                            _ => {}\n");
+    out.push_str("                        }\n");
     out
 }
 

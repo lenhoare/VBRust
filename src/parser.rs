@@ -933,6 +933,42 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Image { path })
             }
+            "input" => {
+                // `Input field` + optional `On Submit <Event>` — a text entry line.
+                self.advance();
+                let field = self.expect_ident("for the input's bound String field")?;
+                self.eat(&Tok::Newline);
+                let mut on_submit = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Submit")?;
+                            on_submit = Some(self.expect_ident("for the submit event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Input")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside an Input expected `On Submit <event>` or `End Input`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::Input { field, on_submit })
+            }
             "list" => {
                 // `List field` + optional `On Select <Event>` — a selectable list.
                 self.advance();
@@ -1305,7 +1341,7 @@ impl<'a> Parser<'a> {
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
                          Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         List, Table, Match, If).",
+                         Input, List, Table, Match, If).",
                         other
                     ),
                 );
