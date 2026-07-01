@@ -461,12 +461,55 @@ fn render_view_node(
                 pad, id, area, f
             ));
         }
+        // `Match <expr>` in the view → a Rust `match` whose arm renders its
+        // widget(s) into the same area.
+        ViewNode::Match { scrutinee, arms } => {
+            let subj = match_subject(scrutinee, fields, field_ty, enums);
+            out.push_str(&format!("{}match {} {{\n", pad, subj));
+            for arm in arms {
+                let guard = match &arm.guard {
+                    Some(g) => format!(
+                        " if {}",
+                        render_expr(&crate::gui::rewrite_expr(g.clone(), fields, enums), None)
+                    ),
+                    None => String::new(),
+                };
+                out.push_str(&format!("{}    {}{} => {{\n", pad, arm.pattern, guard));
+                render_body_nodes(
+                    &arm.body, area, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    indent + 2, out, diags,
+                );
+                out.push_str(&format!("{}    }}\n", pad));
+            }
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        // `If <cond> Then … [ElseIf …] [Else …]` in the view → a Rust `if`/`else`
+        // that renders the chosen branch's widget(s) into the area.
+        ViewNode::If { branches, else_body } => {
+            for (i, (cond, body)) in branches.iter().enumerate() {
+                let c = render_expr(&crate::gui::rewrite_expr(cond.clone(), fields, enums), None);
+                let kw = if i == 0 { "if" } else { "} else if" };
+                out.push_str(&format!("{}{} {} {{\n", pad, kw, c));
+                render_body_nodes(
+                    body, area, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    indent + 1, out, diags,
+                );
+            }
+            if let Some(b) = else_body {
+                out.push_str(&format!("{}}} else {{\n", pad));
+                render_body_nodes(
+                    b, area, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    indent + 1, out, diags,
+                );
+            }
+            out.push_str(&format!("{}}}\n", pad));
+        }
         other => {
             diags.error_once(
                 "tui-widget-unsupported",
                 format!(
-                    "That widget isn't supported in a Screen yet ({}). A Screen supports \
-                     Column, Row, Text (with layout sizing), List, and Table; Chart is coming.",
+                    "That widget isn't supported in a Screen yet ({}). A Screen supports Column, \
+                     Row, Text, Input, List, Table, Match, and If (with layout sizing); Chart is coming.",
                     tui_node_name(other)
                 ),
             );
@@ -474,12 +517,69 @@ fn render_view_node(
     }
 }
 
+/// Render an arm/branch body (a list of view nodes) into `area`: one node fills
+/// the area; several stack vertically (an implicit Column).
+#[allow(clippy::too_many_arguments)]
+fn render_body_nodes(
+    body: &[ViewNode],
+    area: &str,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+    structs: &HashMap<String, &StructDef>,
+    focus_map: &HashMap<String, usize>,
+    multi: bool,
+    counter: &mut usize,
+    indent: usize,
+    out: &mut String,
+    diags: &mut Diagnostics,
+) {
+    match body {
+        [] => {}
+        [one] => render_view_node(
+            one, area, fields, field_ty, enums, structs, focus_map, multi, counter, indent, out,
+            diags,
+        ),
+        many => {
+            let col = ViewNode::Column { children: many.to_vec(), spacing: None, padding: None };
+            render_view_node(
+                &col, area, fields, field_ty, enums, structs, focus_map, multi, counter, indent,
+                out, diags,
+            );
+        }
+    }
+}
+
+/// The subject of a view `Match`: a bare `String` state field is matched as a
+/// slice (`state.name.as_str()`) so string-literal patterns line up.
+fn match_subject(
+    scrutinee: &Expr,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+) -> String {
+    let rendered = render_expr(&crate::gui::rewrite_expr(scrutinee.clone(), fields, enums), None);
+    if let Expr::Ident(name) = scrutinee {
+        if matches!(field_ty.get(&to_snake(name)), Some(DeclType::Plain(Type::Text))) {
+            return format!("{}.as_str()", rendered);
+        }
+    }
+    rendered
+}
+
 /// The ratatui `Constraint` for a child — its explicit size, or a sensible
-/// default (a nested container fills leftover space; a leaf takes one line).
+/// default: containers/conditionals/scrollables fill leftover space, an input is
+/// a bordered line (3 rows), a `Text` takes one line.
 fn child_constraint(node: &ViewNode) -> String {
     match node {
         ViewNode::Constrained { size, .. } => constraint_expr(*size),
-        ViewNode::Column { .. } | ViewNode::Row { .. } => "Constraint::Fill(1)".to_string(),
+        ViewNode::Column { .. }
+        | ViewNode::Row { .. }
+        | ViewNode::Match { .. }
+        | ViewNode::If { .. }
+        | ViewNode::List { .. }
+        | ViewNode::Table { .. } => "Constraint::Fill(1)".to_string(),
+        ViewNode::Input { .. } => "Constraint::Length(3)".to_string(),
         _ => "Constraint::Length(1)".to_string(),
     }
 }

@@ -1,0 +1,62 @@
+Screen Tabs
+    Title "Tabs"
+
+    State
+        Dim tab As Integer = 1
+        Dim busy As Boolean = False
+    End State
+
+    View
+        Column
+            Length 1
+            Text " 1/2/3 switch tab • b toggles busy • q quits"
+            Length 1
+            If busy Then
+                Text " ● working…"
+            Else
+                Text " ○ idle"
+            End If
+            Fill
+            Match tab
+                1 =>
+                    Column
+                        Text "── Overview ──"
+                        Text "Welcome to tab one."
+                    End Column
+                2 =>
+                    Column
+                        Text "── Details ──"
+                        Text "Tab two has the details."
+                    End Column
+                _ =>
+                    Text "── Settings (tab 3) ──"
+            End Match
+        End Column
+    End View
+
+    On Key "1" One
+    On Key "2" Two
+    On Key "3" Three
+    On Key "b" ToggleBusy
+    On Key "q" Quit
+
+    Event One
+        tab = 1
+    End Event
+
+    Event Two
+        tab = 2
+    End Event
+
+    Event Three
+        tab = 3
+    End Event
+
+    Event ToggleBusy
+        busy = Not busy
+    End Event
+End Screen
+
+Function Main()
+    Tabs.Run
+End Function
