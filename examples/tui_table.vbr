@@ -1,0 +1,45 @@
+Type Person
+    Public name As String
+    Public age As Integer
+    Public city As String
+End Type
+
+Screen People
+    Title "People — Up/Down, Enter, q to quit"
+
+    State
+        Dim people As Vec<Person> = Roster()
+        Dim status As String = "(select a row)"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " Up/Down to move, Enter to select, q to quit"
+            Fill
+            Table people
+                On Select Show
+            End Table
+            Length 1
+            Text " " & status
+        End Column
+    End View
+
+    On Key "q" Quit
+
+    Event Show(who As Person)
+        status = who.name & " is " & who.age & ", from " & who.city
+    End Event
+End Screen
+
+Function Roster() As Vec<Person>
+    Dim v As Vec<Person>
+    v.Push(Person { name: "Ada", age: 36, city: "London" })
+    v.Push(Person { name: "Bjarne", age: 60, city: "Aarhus" })
+    v.Push(Person { name: "Grace", age: 79, city: "New York" })
+    Return v
+End Function
+
+Function Main()
+    People.Run
+End Function

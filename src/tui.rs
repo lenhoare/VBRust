@@ -76,8 +76,12 @@ pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
         out.push('\n');
     }
 
+    // Struct definitions by name — a `Table` reads its element struct's fields.
+    let structs: HashMap<String, &StructDef> =
+        program.structs.iter().map(|s| (s.name.clone(), s)).collect();
+
     for sc in &program.screens {
-        out.push_str(&emit_screen(sc, &enums, diags));
+        out.push_str(&emit_screen(sc, &enums, &structs, diags));
         out.push('\n');
     }
     match find_launched_screen(program) {
@@ -116,26 +120,25 @@ fn find_launched_screen(program: &Program) -> Option<&Screen> {
 
 /// Emit one screen: the State struct + Default, the `view` fn, and (later) any
 /// helpers. The event loop lives in `fn main` (emitted separately).
-fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) -> String {
+fn emit_screen(
+    sc: &Screen,
+    enums: &HashSet<String>,
+    structs: &HashMap<String, &StructDef>,
+    diags: &mut Diagnostics,
+) -> String {
     let mut out = String::new();
     let ty = &sc.name;
     let field_ty: HashMap<String, DeclType> =
         sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
     let fields: HashSet<String> = field_ty.keys().cloned().collect();
 
-    // Selectable lists get a runtime `ListState` field (and, for >1 list, a
-    // shared focus index), like TextArea's Content in the GUI backend.
-    let lists = collect_lists(&sc.view);
-    let has_lists = !lists.is_empty();
-    let multi = lists.len() > 1;
-    for (f, _) in &lists {
-        let ok = matches!(field_ty.get(f), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(Type::Text)));
-        if !ok {
-            diags.error_once(
-                &format!("list-field-{}", f),
-                format!("A List binds to a `Vec<String>` state field — `{}` isn't one.", f),
-            );
-        }
+    // Selectable widgets (List/Table) get a runtime `ListState`/`TableState`
+    // field (and, for >1, a shared focus index), like TextArea's Content in GUI.
+    let sels = collect_selectables(&sc.view);
+    let has_sel = !sels.is_empty();
+    let multi = sels.len() > 1;
+    for s in &sels {
+        validate_selectable(s, &field_ty, structs, diags);
     }
 
     // ── imports ──
@@ -148,8 +151,8 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     for f in &sc.state {
         out.push_str(&format!("    {}: {},\n", to_snake(&f.name), decltype_rust(&f.ty)));
     }
-    for (f, _) in &lists {
-        out.push_str(&format!("    {}_state: ratatui::widgets::ListState,\n", f));
+    for s in &sels {
+        out.push_str(&format!("    {}_state: ratatui::widgets::{},\n", s.field, s.state_ty()));
     }
     if multi {
         out.push_str("    focus_index: usize,\n");
@@ -166,10 +169,11 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
             render_init(f.init.as_ref(), &f.ty, enums)
         ));
     }
-    for (f, _) in &lists {
+    for s in &sels {
         out.push_str(&format!(
-            "            {}_state: ratatui::widgets::ListState::default().with_selected(Some(0)),\n",
-            f
+            "            {}_state: ratatui::widgets::{}::default().with_selected(Some(0)),\n",
+            s.field,
+            s.state_ty()
         ));
     }
     if multi {
@@ -180,12 +184,12 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     // ── view ──
     // Render the body first (into `inner`, the area within the titled border), so
     // we can name the `state` param `_state` when nothing reads it. A screen with
-    // a list needs `&mut` (stateful widgets mutate their ListState on render).
+    // a selectable widget needs `&mut` (its state mutates when rendered).
     let title = sc.title.clone().unwrap_or_else(|| sc.name.clone());
     let mut body = String::new();
     let mut counter = 0usize;
-    render_view_node(&sc.view, "inner", &fields, enums, &mut counter, 1, &mut body, diags);
-    let (param_name, param_ty) = if has_lists {
+    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, &mut counter, 1, &mut body, diags);
+    let (param_name, param_ty) = if has_sel {
         ("state".to_string(), format!("&mut {}", ty))
     } else if body.contains("state.") {
         ("state".to_string(), format!("&{}", ty))
@@ -203,12 +207,35 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     out
 }
 
-/// The lists placed in a view, in first-seen order: `(field_snake, on_select)`.
-fn collect_lists(view: &ViewNode) -> Vec<(String, Option<String>)> {
+/// A selectable widget (List or Table) — both use the same navigation/focus/Enter
+/// machinery over a `Vec` state field; only the widget and its state type differ.
+struct Selectable {
+    field: String,
+    on_select: Option<String>,
+    table: bool,
+}
+
+impl Selectable {
+    fn state_ty(&self) -> &'static str {
+        if self.table { "TableState" } else { "ListState" }
+    }
+}
+
+/// The selectable widgets in a view, in first-seen order.
+fn collect_selectables(view: &ViewNode) -> Vec<Selectable> {
     let mut out = Vec::new();
-    fn walk(node: &ViewNode, out: &mut Vec<(String, Option<String>)>) {
+    fn walk(node: &ViewNode, out: &mut Vec<Selectable>) {
         match node {
-            ViewNode::List { field, on_select } => out.push((to_snake(field), on_select.clone())),
+            ViewNode::List { field, on_select } => out.push(Selectable {
+                field: to_snake(field),
+                on_select: on_select.clone(),
+                table: false,
+            }),
+            ViewNode::Table { field, on_select } => out.push(Selectable {
+                field: to_snake(field),
+                on_select: on_select.clone(),
+                table: true,
+            }),
             ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
                 children.iter().for_each(|c| walk(c, out))
@@ -220,6 +247,40 @@ fn collect_lists(view: &ViewNode) -> Vec<(String, Option<String>)> {
     out
 }
 
+/// A List binds to `Vec<String>`; a Table binds to `Vec<Struct>`.
+fn validate_selectable(
+    s: &Selectable,
+    field_ty: &HashMap<String, DeclType>,
+    structs: &HashMap<String, &StructDef>,
+    diags: &mut Diagnostics,
+) {
+    if s.table {
+        let ok = matches!(
+            field_ty.get(&s.field),
+            Some(DeclType::Vec(inner))
+                if matches!(&**inner, DeclType::Named(n) if structs.get(n).is_some_and(|sd| !sd.fields.is_empty()))
+        );
+        if !ok {
+            diags.error_once(
+                &format!("table-field-{}", s.field),
+                format!(
+                    "A Table binds to a `Vec<Struct>` state field (its columns come from the \
+                     struct's fields) — `{}` isn't one.",
+                    s.field
+                ),
+            );
+        }
+    } else {
+        let ok = matches!(field_ty.get(&s.field), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(Type::Text)));
+        if !ok {
+            diags.error_once(
+                &format!("list-field-{}", s.field),
+                format!("A List binds to a `Vec<String>` state field — `{}` isn't one.", s.field),
+            );
+        }
+    }
+}
+
 /// Recursively emit the render statements for a view node into `area` (a Rust
 /// expression naming the ratatui `Rect` to draw into). Containers split their
 /// area with a `Layout`; leaves render a widget.
@@ -227,7 +288,9 @@ fn render_view_node(
     node: &ViewNode,
     area: &str,
     fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
+    structs: &HashMap<String, &StructDef>,
     counter: &mut usize,
     indent: usize,
     out: &mut String,
@@ -237,7 +300,7 @@ fn render_view_node(
     match node {
         // A constraint is consumed by the parent container; render the child.
         ViewNode::Constrained { child, .. } => {
-            render_view_node(child, area, fields, enums, counter, indent, out, diags)
+            render_view_node(child, area, fields, field_ty, enums, structs, counter, indent, out, diags)
         }
         ViewNode::Text(e) => {
             out.push_str(&format!(
@@ -264,7 +327,7 @@ fn render_view_node(
             out.push_str(&format!("{}let chunks_{} = {}.split({});\n", pad, id, builder, area));
             for (i, child) in children.iter().enumerate() {
                 let sub = format!("chunks_{}[{}]", id, i);
-                render_view_node(child, &sub, fields, enums, counter, indent, out, diags);
+                render_view_node(child, &sub, fields, field_ty, enums, structs, counter, indent, out, diags);
             }
         }
         ViewNode::List { field, .. } => {
@@ -286,12 +349,62 @@ fn render_view_node(
                 pad, id, area, f
             ));
         }
+        ViewNode::Table { field, .. } => {
+            let f = to_snake(field);
+            let id = *counter;
+            *counter += 1;
+            // Columns come from the element struct's fields (validated earlier).
+            let cols: &[Field] = match field_ty.get(&f) {
+                Some(DeclType::Vec(inner)) => match &**inner {
+                    DeclType::Named(n) => structs.get(n).map(|s| s.fields.as_slice()).unwrap_or(&[]),
+                    _ => &[],
+                },
+                _ => &[],
+            };
+            // Each row: one cell per struct field (owned String).
+            let cells: Vec<String> = cols
+                .iter()
+                .map(|c| {
+                    let acc = format!("row.{}", to_snake(&c.name));
+                    match &c.ty {
+                        DeclType::Plain(Type::Text) => format!("{}.clone()", acc),
+                        _ => format!("{}.to_string()", acc),
+                    }
+                })
+                .collect();
+            let headers: Vec<String> = cols.iter().map(|c| format!("{:?}", c.name)).collect();
+            let widths: Vec<&str> = cols.iter().map(|_| "Constraint::Fill(1)").collect();
+            out.push_str(&format!(
+                "{}let rows_{}: Vec<ratatui::widgets::Row> = state.{}.iter()\
+                 .map(|row| ratatui::widgets::Row::new(vec![{}])).collect();\n",
+                pad, id, f, cells.join(", ")
+            ));
+            out.push_str(&format!(
+                "{}let table_{} = ratatui::widgets::Table::new(rows_{}, [{}])\n",
+                pad, id, id, widths.join(", ")
+            ));
+            out.push_str(&format!(
+                "{}    .header(ratatui::widgets::Row::new(vec![{}])\
+                 .style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::BOLD)))\n",
+                pad,
+                headers.join(", ")
+            ));
+            out.push_str(&format!(
+                "{}    .row_highlight_style(ratatui::style::Style::new()\
+                 .add_modifier(ratatui::style::Modifier::REVERSED)).highlight_symbol(\"\u{bb} \");\n",
+                pad
+            ));
+            out.push_str(&format!(
+                "{}frame.render_stateful_widget(table_{}, {}, &mut state.{}_state);\n",
+                pad, id, area, f
+            ));
+        }
         other => {
             diags.error_once(
                 "tui-widget-unsupported",
                 format!(
                     "That widget isn't supported in a Screen yet ({}). A Screen supports \
-                     Column, Row, Text (with layout sizing), and List; Table/Chart are coming.",
+                     Column, Row, Text (with layout sizing), List, and Table; Chart is coming.",
                     tui_node_name(other)
                 ),
             );
@@ -348,20 +461,20 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
 
-    let lists = collect_lists(&sc.view);
-    let has_lists = !lists.is_empty();
-    let multi = lists.len() > 1;
-    // Keys the user bound explicitly — their bindings win over the built-in
-    // list navigation (so we skip a built-in arm whose key they've taken).
+    let sels = collect_selectables(&sc.view);
+    let has_sel = !sels.is_empty();
+    let multi = sels.len() > 1;
+    // Keys the user bound explicitly — their bindings win over the built-in list
+    // navigation (so we skip a built-in arm whose key they've taken).
     let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
 
     let mut out = String::new();
-    // `state` needs `mut` if a key runs an event that changes it, or a list's
-    // selection can move (a stateful widget mutates its ListState).
+    // `state` needs `mut` if a key runs an event that changes it, or a selectable
+    // widget's selection can move (a stateful widget mutates its state on render).
     let mutates =
-        has_lists || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
+        has_sel || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
     let let_state = if mutates { "let mut state" } else { "let state" };
-    let draw_arg = if has_lists { "&mut state" } else { "&state" };
+    let draw_arg = if has_sel { "&mut state" } else { "&state" };
     out.push_str("fn main() -> std::io::Result<()> {\n");
     out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
     out.push_str(&format!("    {} = {}::default();\n", let_state, ty));
@@ -385,28 +498,28 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
         }
         out.push_str("                    }\n");
     }
-    // Built-in list navigation (only for keys the user hasn't bound).
-    if has_lists {
+    // Built-in list/table navigation (only for keys the user hasn't bound).
+    if has_sel {
         if !user_keys.contains("KeyCode::Down") {
             out.push_str("                    KeyCode::Down => {\n");
-            out.push_str(&nav_dispatch(&lists, multi, "select_next"));
+            out.push_str(&nav_dispatch(&sels, multi, "select_next"));
             out.push_str("                    }\n");
         }
         if !user_keys.contains("KeyCode::Up") {
             out.push_str("                    KeyCode::Up => {\n");
-            out.push_str(&nav_dispatch(&lists, multi, "select_previous"));
+            out.push_str(&nav_dispatch(&sels, multi, "select_previous"));
             out.push_str("                    }\n");
         }
         if multi && !user_keys.contains("KeyCode::Tab") {
             out.push_str(&format!(
                 "                    KeyCode::Tab => {{\n                        \
                  state.focus_index = (state.focus_index + 1) % {};\n                    }}\n",
-                lists.len()
+                sels.len()
             ));
         }
         if !user_keys.contains("KeyCode::Enter") {
             out.push_str("                    KeyCode::Enter => {\n");
-            out.push_str(&enter_dispatch(&lists, multi, &events, &fields, &field_ty, enums));
+            out.push_str(&enter_dispatch(&sels, multi, &events, &fields, &field_ty, enums));
             out.push_str("                    }\n");
         }
     }
@@ -421,18 +534,18 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     out
 }
 
-/// Call a `ListState` method on the focused list — direct for one list, routed by
-/// `focus_index` for several.
-fn nav_dispatch(lists: &[(String, Option<String>)], multi: bool, method: &str) -> String {
+/// Call a state method on the focused list/table — direct for one, routed by
+/// `focus_index` for several. (`ListState` and `TableState` share these methods.)
+fn nav_dispatch(sels: &[Selectable], multi: bool, method: &str) -> String {
     let mut out = String::new();
     if !multi {
-        out.push_str(&format!("                        state.{}_state.{}();\n", lists[0].0, method));
+        out.push_str(&format!("                        state.{}_state.{}();\n", sels[0].field, method));
     } else {
         out.push_str("                        match state.focus_index {\n");
-        for (i, (f, _)) in lists.iter().enumerate() {
+        for (i, s) in sels.iter().enumerate() {
             out.push_str(&format!(
                 "                            {} => state.{}_state.{}(),\n",
-                i, f, method
+                i, s.field, method
             ));
         }
         out.push_str("                            _ => {}\n");
@@ -441,9 +554,10 @@ fn nav_dispatch(lists: &[(String, Option<String>)], multi: bool, method: &str) -
     out
 }
 
-/// Enter on the focused list → run its `On Select` handler with the selected item.
+/// Enter on the focused list/table → run its `On Select` handler with the
+/// selected row (item String for a List, the struct for a Table).
 fn enter_dispatch(
-    lists: &[(String, Option<String>)],
+    sels: &[Selectable],
     multi: bool,
     events: &HashMap<String, &GuiEvent>,
     fields: &HashSet<String>,
@@ -477,12 +591,12 @@ fn enter_dispatch(
         s
     };
     if !multi {
-        out.push_str(&one(&lists[0].0, &lists[0].1, 6));
+        out.push_str(&one(&sels[0].field, &sels[0].on_select, 6));
     } else {
         out.push_str("                        match state.focus_index {\n");
-        for (i, (f, on_select)) in lists.iter().enumerate() {
+        for (i, s) in sels.iter().enumerate() {
             out.push_str(&format!("                            {} => {{\n", i));
-            out.push_str(&one(f, on_select, 8));
+            out.push_str(&one(&s.field, &s.on_select, 8));
             out.push_str("                            }\n");
         }
         out.push_str("                            _ => {}\n");

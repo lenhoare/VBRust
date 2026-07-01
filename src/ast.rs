@@ -220,6 +220,14 @@ pub enum ViewNode {
         field: String,
         on_select: Option<String>,
     },
+    /// A selectable table (ratatui `Table` + `TableState`) bound to a `Vec<T>`
+    /// state field where `T` is a struct — one column per struct field, the field
+    /// names as the header. Navigated like a `List`; `on_select` fires on Enter
+    /// with the selected row (the struct). TUI-only.
+    Table {
+        field: String,
+        on_select: Option<String>,
+    },
     /// A drawing surface (Iced `Canvas`): `Canvas Board [Width 300] [Height 200]`.
     /// `name` refers to a top-level `CanvasDef`; optional fixed pixel dimensions.
     Canvas {

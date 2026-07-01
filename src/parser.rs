@@ -970,6 +970,42 @@ impl<'a> Parser<'a> {
                 }
                 Some(ViewNode::List { field, on_select })
             }
+            "table" => {
+                // `Table field` + optional `On Select <Event>` — a row-selectable table.
+                self.advance();
+                let field = self.expect_ident("for the table's rows field")?;
+                self.eat(&Tok::Newline);
+                let mut on_select = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect(&Tok::Select, "in `On Select`")?;
+                            on_select = Some(self.expect_ident("for the select event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Table")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a Table expected `On Select <event>` or `End Table`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::Table { field, on_select })
+            }
             "canvas" => {
                 // `Canvas Board [Width 300] [Height 200]` — a drawing surface.
                 self.advance();
@@ -1269,7 +1305,7 @@ impl<'a> Parser<'a> {
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
                          Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         List, Match, If).",
+                         List, Table, Match, If).",
                         other
                     ),
                 );
