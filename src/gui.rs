@@ -284,7 +284,17 @@ fn emit_window(
     //    its continuation runs the post-await handling. ──
     let empty: HashSet<String> = HashSet::new();
     let ret = if any_async { " -> Task<Message>" } else { "" };
-    out.push_str(&format!("fn update(state: &mut {}, message: Message){} {{\n", ty, ret));
+    // With no events and no text areas, nothing touches `state` — underscore it
+    // so a display-only window (e.g. just an Image) compiles warning-free.
+    let state_param = if w.events.is_empty() && textareas.is_empty() {
+        "_state"
+    } else {
+        "state"
+    };
+    out.push_str(&format!(
+        "fn update({}: &mut {}, message: Message){} {{\n",
+        state_param, ty, ret
+    ));
     out.push_str("    match message {\n");
     for (e, split) in w.events.iter().zip(&splits) {
         // The triggering variant's arm header.
@@ -479,6 +489,15 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
                 format!("iced::widget::Space::with_width({})", amount)
             } else {
                 format!("iced::widget::Space::with_height({})", amount)
+            }
+        }
+        // An image from a path. Fully-qualified so no import is needed; a String
+        // path from state is cloned to own it (the handle takes it by value).
+        ViewNode::Image { path } => {
+            let p = render_expr(&rewrite_expr(path.clone(), ctx.fields, ctx.enums), None);
+            match path {
+                Expr::Str(_) => format!("iced::widget::image({})", p),
+                _ => format!("iced::widget::image({}.clone())", p),
             }
         }
         // Containers/conditionals returned early above.
@@ -775,8 +794,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
             add(used, "row");
             children.iter().for_each(|c| collect_widgets(c, used));
         }
-        // `Space` uses a fully-qualified path, so no import needed.
-        ViewNode::Space { .. } => {}
+        // `Space`/`Image` use fully-qualified paths, so no import needed.
+        ViewNode::Space { .. } | ViewNode::Image { .. } => {}
         ViewNode::Text(_) => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
         ViewNode::TextInput { .. } => add(used, "text_input"),

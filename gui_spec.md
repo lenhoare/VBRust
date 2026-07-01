@@ -238,18 +238,18 @@ Maps to Iced `text`.
 
 ---
 
-#### Image
+#### Image  *(BUILT — slice 11)*
 
-Displays an image from a file path, resource, or image handle.
+Displays an image from a file path (a literal, or a `String` state field).
 
 ```vb
 Image "assets/logo.png"
 Image profilePicture
 ```
 
-Maps to Iced `image`.
-
-V1 should support at least PNG and JPEG if supported by the backend configuration.
+Maps to `iced::widget::image(...)` (a `String` field is cloned to own the path).
+Using `Image` auto-adds Iced's **`image`** feature to the project (so PNG/JPEG
+decode). A display-only window (no events) still compiles warning-free.
 
 ---
 

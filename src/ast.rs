@@ -128,6 +128,10 @@ pub enum ViewNode {
         horizontal: bool,
         amount: u16,
     },
+    /// An image from a path (Iced `image`): `Image "logo.png"` or `Image field`.
+    Image {
+        path: Expr,
+    },
     Text(Expr),
     Button {
         label: Expr,

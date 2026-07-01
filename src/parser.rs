@@ -638,6 +638,12 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Text(e))
             }
+            "image" => {
+                self.advance();
+                let path = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Image { path })
+            }
             "button" => {
                 self.advance();
                 let label = self.parse_expr()?;
@@ -914,7 +920,7 @@ impl<'a> Parser<'a> {
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
-                         Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Match, If).",
+                         Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Match, If).",
                         other
                     ),
                 );

@@ -282,8 +282,9 @@ fn generate_project(entry: &Path) -> PathBuf {
     }
     let mut any_stdlib = needs_project(&entry_compiled.rust);
     // An async GUI (an event with `Await`) runs blocking work via tokio, so Iced
-    // needs its `tokio` feature.
+    // needs its `tokio` feature; an `Image` needs Iced's `image` feature.
     let async_gui = entry_compiled.rust.contains("spawn_blocking");
+    let uses_image = entry_compiled.rust.contains("iced::widget::image(");
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
     let mut stdlib_ns: Vec<String> = entry_compiled.stdlib_used.clone();
 
@@ -363,15 +364,19 @@ fn generate_project(entry: &Path) -> PathBuf {
             // VBR GUIs render in software (tiny-skia) rather than wgpu: it builds
             // far faster and runs everywhere (WSL2, modest/no GPU) — the right
             // trade for a teaching tool, since forms don't need GPU acceleration.
-            // An async GUI also needs `tokio` (it runs blocking work via spawn_blocking).
-            let feats = if async_gui {
-                "\"tiny-skia\", \"tokio\""
-            } else {
-                "\"tiny-skia\""
-            };
+            // An async GUI also needs `tokio` (blocking work via spawn_blocking);
+            // an `Image` needs the `image` feature.
+            let mut feats = vec!["\"tiny-skia\""];
+            if async_gui {
+                feats.push("\"tokio\"");
+            }
+            if uses_image {
+                feats.push("\"image\"");
+            }
             cargo.push_str(&format!(
                 "iced = {{ version = \"{}\", default-features = false, features = [{}] }}\n",
-                version, feats
+                version,
+                feats.join(", ")
             ));
         } else {
             cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
