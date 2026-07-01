@@ -352,7 +352,24 @@ End Enum
   `Match s / Suit.Hearts => …`.
 - Values are `Copy` and compare with `=` (`If s = Suit.Spades Then …`), pair with
   `Match`, and work as a `Dim`/parameter/return type (`Dim s As Suit = …`).
-- Variants holding data (`Circle(Double)` — Rust sum types) are a future feature.
+
+A variant may carry a **tuple payload**, making it a Rust **sum type** — the same
+shape as `Option`/`Result`, but your own:
+
+```
+Enum Shape
+    Circle(Double)
+    Rectangle(Double, Double)
+    Empty
+End Enum
+```
+- Build one with `Shape.Circle(2.0)`; read the data back by **matching** (the only
+  way — like Rust): `Match s / Shape.Circle(r) => … / Shape.Rectangle(w, h) => …`.
+- Derives are computed from the payloads: `Debug`/`Clone`/`PartialEq` always,
+  `Copy` unless a `String` payload, `Eq` unless a float payload.
+- V1: payloads are **primitives or `String`**, and enums are **non-recursive**
+  (a variant can't hold its own enum). Richer payloads (structs, `Vec`, nested
+  enums) and recursion (auto-`Box`) come later.
 
 ---
 

@@ -310,16 +310,39 @@ impl<'a> Parser<'a> {
             if matches!(self.peek(), Tok::End) {
                 break;
             }
-            // One variant name per line (PascalCase, kept as written).
-            variants.push(self.expect_ident("for an enum variant")?);
+            // A variant name (PascalCase, kept as written), with an optional tuple
+            // payload: `Circle(Double)`, `Move(Long, Long)`.
+            let vname = self.expect_ident("for an enum variant")?;
+            let mut payload = Vec::new();
+            if self.eat(&Tok::LParen) {
+                if !matches!(self.peek(), Tok::RParen) {
+                    loop {
+                        let ty = self.parse_decl_type()?;
+                        // V1: variant payloads are primitives or String (their
+                        // traits are known, so derives are safe). Richer payloads
+                        // (structs, Vec, nested enums) come later.
+                        if !matches!(ty, DeclType::Plain(_)) {
+                            self.diags.error(
+                                self.line(),
+                                "For now an enum variant payload must be a primitive or String \
+                                 (e.g. `Circle(Double)`, `Named(String)`). Structs/Vec/nested \
+                                 enums as payloads are a future addition.",
+                            );
+                            return None;
+                        }
+                        payload.push(ty);
+                        if !self.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&Tok::RParen, "to close the variant payload")?;
+            }
+            variants.push(EnumVariant { name: vname, payload });
             if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !matches!(self.peek(), Tok::End) {
                 self.diags.error(
                     self.line(),
-                    format!(
-                        "Expected one variant name per line, found {:?}. (Simple enums hold no \
-                         data — `Circle(Double)`-style variants are a future feature.)",
-                        self.peek()
-                    ),
+                    format!("Expected end of line after the variant, found {:?}.", self.peek()),
                 );
                 return None;
             }

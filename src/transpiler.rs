@@ -208,15 +208,47 @@ pub(crate) fn emit_impl(
 /// be matched/compared freely and used where Iced wants a `Copy` value.
 pub(crate) fn emit_enum(e: &EnumDef, out: &mut String) {
     let kw = if e.public { "pub enum" } else { "enum" };
-    out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
+    out.push_str(&format!("#[derive({})]\n", enum_derives(e)));
     // A variant matched-on but never constructed (defensive `Match` arms) is a
     // normal, legitimate pattern — don't warn about it.
     out.push_str("#[allow(dead_code)]\n");
     out.push_str(&format!("{} {} {{\n", kw, e.name));
     for v in &e.variants {
-        out.push_str(&format!("    {},\n", v));
+        if v.payload.is_empty() {
+            out.push_str(&format!("    {},\n", v.name));
+        } else {
+            let types: Vec<String> = v.payload.iter().map(decltype_rust).collect();
+            out.push_str(&format!("    {}({}),\n", v.name, types.join(", ")));
+        }
     }
     out.push_str("}\n");
+}
+
+/// The derive set for an enum, computed from its variant payloads (all primitives
+/// or `String` in V1): `Debug`/`Clone`/`PartialEq` always; `Copy` unless a
+/// `String` payload; `Eq` unless a float payload. An all-unit enum gets the full
+/// set (same as a simple enum).
+fn enum_derives(e: &EnumDef) -> String {
+    let payloads: Vec<&Type> = e
+        .variants
+        .iter()
+        .flat_map(|v| &v.payload)
+        .filter_map(|t| match t {
+            DeclType::Plain(p) => Some(p),
+            _ => None,
+        })
+        .collect();
+    let copy = payloads.iter().all(|p| !matches!(p, Type::Text));
+    let eq = payloads.iter().all(|p| !matches!(p, Type::Single | Type::Double));
+    let mut d = vec!["Debug", "Clone"];
+    if copy {
+        d.push("Copy");
+    }
+    d.push("PartialEq");
+    if eq {
+        d.push("Eq");
+    }
+    d.join(", ")
 }
 
 pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {

@@ -1,0 +1,24 @@
+' Data-carrying enums (sum types): each variant carries its own data. Build one
+' with `Shape.Circle(r)`; pull the data back out by matching. This is the same
+' shape as Option/Result — now you can define your own.
+Enum Shape
+    Circle(Double)
+    Rectangle(Double, Double)
+    Empty
+End Enum
+
+Function Area(ByVal s As Shape) As Double
+    Match s
+        Shape.Circle(r) => Return 3.14159 * r * r
+        Shape.Rectangle(w, h) => Return w * h
+        Shape.Empty => Return 0.0
+    End Match
+End Function
+
+Function Main()
+    Dim c As Shape = Shape.Circle(2.0)
+    Dim r As Shape = Shape.Rectangle(3.0, 4.0)
+    Debug.Print "circle area = " & Area(c)
+    Debug.Print "rect area   = " & Area(r)
+    Debug.Print "empty area  = " & Area(Shape.Empty)
+End Function

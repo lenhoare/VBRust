@@ -70,13 +70,22 @@ pub struct Program {
 }
 
 /// A simple (C-like) enum: a named set of unit variants. Maps to a Rust
-/// `#[derive(…)] enum Name { … }` (Copy, so it works as a Radio value, etc.).
+/// `#[derive(…)] enum Name { … }`. Variants may carry a tuple payload
+/// (`Circle(Double)`), making it a Rust sum type; derives are computed from the
+/// payload types (e.g. no `Copy` with a `String`, no `Eq` with a float).
 #[derive(Debug, Clone)]
 pub struct EnumDef {
     pub name: String,
     pub public: bool,
-    /// Variant names, kept PascalCase (Rust convention — not snake-cased).
-    pub variants: Vec<String>,
+    pub variants: Vec<EnumVariant>,
+}
+
+/// One enum variant: a PascalCase name and an optional tuple payload (empty for
+/// a unit variant).
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub payload: Vec<DeclType>,
 }
 
 /// A GUI window: state (the source of truth), a view derived from it, and events

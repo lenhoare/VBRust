@@ -669,11 +669,14 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
-            // `Utils.DoThing(x)` on another project module → `crate::utils::do_thing(x)`.
+            // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`;
+            // `Shape.Circle(r)` on an enum → the variant constructor `Shape::Circle(r)`
+            // (variant kept PascalCase, not snake-cased).
             let qualified = match &**recv {
                 Expr::Ident(m) if ctx.modules.contains(&snake(m)) => {
                     Some(format!("crate::{}::{}", snake(m), snake(method)))
                 }
+                Expr::Ident(m) if ctx.enums.contains(m) => Some(format!("{}::{}", m, method)),
                 _ => None,
             };
             if let Some(path) = qualified {

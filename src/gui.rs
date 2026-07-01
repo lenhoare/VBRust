@@ -1283,6 +1283,17 @@ fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> E
             name,
             args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
         },
+        // `Shape.Circle(r)` on an enum → the variant constructor `Shape::Circle(r)`.
+        Expr::MethodCall { recv, method, args } if matches!(&*recv, Expr::Ident(e) if enums.contains(e)) => {
+            let e = match *recv {
+                Expr::Ident(n) => n,
+                _ => unreachable!(),
+            };
+            Expr::Call {
+                name: format!("{}::{}", e, method),
+                args: args.into_iter().map(|a| rewrite_expr(a, fields, enums)).collect(),
+            }
+        }
         Expr::MethodCall { recv, method, args } => Expr::MethodCall {
             recv: Box::new(rewrite_expr(*recv, fields, enums)),
             method,

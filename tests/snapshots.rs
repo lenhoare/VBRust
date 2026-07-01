@@ -37,6 +37,7 @@ const HAPPY: &[&str] = &[
     "doloop",
     "structs",
     "enums",
+    "sum_types",
     "methods",
     "constants",
     "iterators",
