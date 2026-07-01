@@ -123,6 +123,21 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
         sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
     let fields: HashSet<String> = field_ty.keys().cloned().collect();
 
+    // Selectable lists get a runtime `ListState` field (and, for >1 list, a
+    // shared focus index), like TextArea's Content in the GUI backend.
+    let lists = collect_lists(&sc.view);
+    let has_lists = !lists.is_empty();
+    let multi = lists.len() > 1;
+    for (f, _) in &lists {
+        let ok = matches!(field_ty.get(f), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(Type::Text)));
+        if !ok {
+            diags.error_once(
+                &format!("list-field-{}", f),
+                format!("A List binds to a `Vec<String>` state field — `{}` isn't one.", f),
+            );
+        }
+    }
+
     // ── imports ──
     out.push_str("use ratatui::widgets::{Block, Paragraph};\n");
     out.push_str("use ratatui::layout::{Constraint, Layout};\n");
@@ -132,6 +147,12 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     out.push_str(&format!("struct {} {{\n", ty));
     for f in &sc.state {
         out.push_str(&format!("    {}: {},\n", to_snake(&f.name), decltype_rust(&f.ty)));
+    }
+    for (f, _) in &lists {
+        out.push_str(&format!("    {}_state: ratatui::widgets::ListState,\n", f));
+    }
+    if multi {
+        out.push_str("    focus_index: usize,\n");
     }
     out.push_str("}\n\n");
 
@@ -145,17 +166,33 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
             render_init(f.init.as_ref(), &f.ty, enums)
         ));
     }
+    for (f, _) in &lists {
+        out.push_str(&format!(
+            "            {}_state: ratatui::widgets::ListState::default().with_selected(Some(0)),\n",
+            f
+        ));
+    }
+    if multi {
+        out.push_str("            focus_index: 0,\n");
+    }
     out.push_str("        }\n    }\n}\n\n");
 
     // ── view ──
     // Render the body first (into `inner`, the area within the titled border), so
-    // we can name the `state` param `_state` when nothing reads it.
+    // we can name the `state` param `_state` when nothing reads it. A screen with
+    // a list needs `&mut` (stateful widgets mutate their ListState on render).
     let title = sc.title.clone().unwrap_or_else(|| sc.name.clone());
     let mut body = String::new();
     let mut counter = 0usize;
     render_view_node(&sc.view, "inner", &fields, enums, &mut counter, 1, &mut body, diags);
-    let state_param = if body.contains("state.") { "state" } else { "_state" };
-    out.push_str(&format!("fn view({}: &{}, frame: &mut Frame) {{\n", state_param, ty));
+    let (param_name, param_ty) = if has_lists {
+        ("state".to_string(), format!("&mut {}", ty))
+    } else if body.contains("state.") {
+        ("state".to_string(), format!("&{}", ty))
+    } else {
+        ("_state".to_string(), format!("&{}", ty))
+    };
+    out.push_str(&format!("fn view({}: {}, frame: &mut Frame) {{\n", param_name, param_ty));
     out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
     out.push_str("    let area = frame.area();\n");
     out.push_str("    let inner = block.inner(area);\n");
@@ -163,6 +200,23 @@ fn emit_screen(sc: &Screen, enums: &HashSet<String>, diags: &mut Diagnostics) ->
     out.push_str(&body);
     out.push_str("}\n");
 
+    out
+}
+
+/// The lists placed in a view, in first-seen order: `(field_snake, on_select)`.
+fn collect_lists(view: &ViewNode) -> Vec<(String, Option<String>)> {
+    let mut out = Vec::new();
+    fn walk(node: &ViewNode, out: &mut Vec<(String, Option<String>)>) {
+        match node {
+            ViewNode::List { field, on_select } => out.push((to_snake(field), on_select.clone())),
+            ViewNode::Constrained { child, .. } => walk(child, out),
+            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+                children.iter().for_each(|c| walk(c, out))
+            }
+            _ => {}
+        }
+    }
+    walk(view, &mut out);
     out
 }
 
@@ -213,12 +267,31 @@ fn render_view_node(
                 render_view_node(child, &sub, fields, enums, counter, indent, out, diags);
             }
         }
+        ViewNode::List { field, .. } => {
+            let f = to_snake(field);
+            let id = *counter;
+            *counter += 1;
+            out.push_str(&format!(
+                "{}let items_{}: Vec<ratatui::widgets::ListItem> = \
+                 state.{}.iter().map(|s| ratatui::widgets::ListItem::new(s.clone())).collect();\n",
+                pad, id, f
+            ));
+            out.push_str(&format!(
+                "{}let list_{} = ratatui::widgets::List::new(items_{}).highlight_symbol(\"\u{bb} \")\
+                 .highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));\n",
+                pad, id, id
+            ));
+            out.push_str(&format!(
+                "{}frame.render_stateful_widget(list_{}, {}, &mut state.{}_state);\n",
+                pad, id, area, f
+            ));
+        }
         other => {
             diags.error_once(
                 "tui-widget-unsupported",
                 format!(
-                    "That widget isn't supported in a Screen yet ({}). TUI slice 2 supports \
-                     Column, Row, and Text with layout sizing; List/Chart/etc. are coming.",
+                    "That widget isn't supported in a Screen yet ({}). A Screen supports \
+                     Column, Row, Text (with layout sizing), and List; Table/Chart are coming.",
                     tui_node_name(other)
                 ),
             );
@@ -275,16 +348,26 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
 
+    let lists = collect_lists(&sc.view);
+    let has_lists = !lists.is_empty();
+    let multi = lists.len() > 1;
+    // Keys the user bound explicitly — their bindings win over the built-in
+    // list navigation (so we skip a built-in arm whose key they've taken).
+    let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
+
     let mut out = String::new();
-    // `state` needs `mut` only if some key runs an event that changes it.
-    let mutates = sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
+    // `state` needs `mut` if a key runs an event that changes it, or a list's
+    // selection can move (a stateful widget mutates its ListState).
+    let mutates =
+        has_lists || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
     let let_state = if mutates { "let mut state" } else { "let state" };
+    let draw_arg = if has_lists { "&mut state" } else { "&state" };
     out.push_str("fn main() -> std::io::Result<()> {\n");
     out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
     out.push_str(&format!("    {} = {}::default();\n", let_state, ty));
     out.push_str("    let mut terminal = ratatui::init();\n");
     out.push_str("    loop {\n");
-    out.push_str("        terminal.draw(|frame| view(&state, frame))?;\n");
+    out.push_str(&format!("        terminal.draw(|frame| view({}, frame))?;\n", draw_arg));
     out.push_str("        if let Event::Key(key) = event::read()? {\n");
     out.push_str("            if key.kind == KeyEventKind::Press {\n");
     out.push_str("                match key.code {\n");
@@ -302,6 +385,31 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
         }
         out.push_str("                    }\n");
     }
+    // Built-in list navigation (only for keys the user hasn't bound).
+    if has_lists {
+        if !user_keys.contains("KeyCode::Down") {
+            out.push_str("                    KeyCode::Down => {\n");
+            out.push_str(&nav_dispatch(&lists, multi, "select_next"));
+            out.push_str("                    }\n");
+        }
+        if !user_keys.contains("KeyCode::Up") {
+            out.push_str("                    KeyCode::Up => {\n");
+            out.push_str(&nav_dispatch(&lists, multi, "select_previous"));
+            out.push_str("                    }\n");
+        }
+        if multi && !user_keys.contains("KeyCode::Tab") {
+            out.push_str(&format!(
+                "                    KeyCode::Tab => {{\n                        \
+                 state.focus_index = (state.focus_index + 1) % {};\n                    }}\n",
+                lists.len()
+            ));
+        }
+        if !user_keys.contains("KeyCode::Enter") {
+            out.push_str("                    KeyCode::Enter => {\n");
+            out.push_str(&enter_dispatch(&lists, multi, &events, &fields, &field_ty, enums));
+            out.push_str("                    }\n");
+        }
+    }
     out.push_str("                    _ => {}\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
@@ -310,6 +418,76 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     out.push_str("    ratatui::restore();\n");
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
+    out
+}
+
+/// Call a `ListState` method on the focused list — direct for one list, routed by
+/// `focus_index` for several.
+fn nav_dispatch(lists: &[(String, Option<String>)], multi: bool, method: &str) -> String {
+    let mut out = String::new();
+    if !multi {
+        out.push_str(&format!("                        state.{}_state.{}();\n", lists[0].0, method));
+    } else {
+        out.push_str("                        match state.focus_index {\n");
+        for (i, (f, _)) in lists.iter().enumerate() {
+            out.push_str(&format!(
+                "                            {} => state.{}_state.{}(),\n",
+                i, f, method
+            ));
+        }
+        out.push_str("                            _ => {}\n");
+        out.push_str("                        }\n");
+    }
+    out
+}
+
+/// Enter on the focused list → run its `On Select` handler with the selected item.
+fn enter_dispatch(
+    lists: &[(String, Option<String>)],
+    multi: bool,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+) -> String {
+    let mut out = String::new();
+    let one = |f: &str, on_select: &Option<String>, indent: usize| -> String {
+        let pad = "    ".repeat(indent);
+        let mut s = String::new();
+        let ev = on_select.as_ref().and_then(|h| events.get(&h.to_ascii_lowercase()));
+        let Some(ev) = ev else { return s };
+        s.push_str(&format!("{}if let Some(i) = state.{}_state.selected() {{\n", pad, f));
+        // Bind the selected item to the handler's parameter (if it takes one).
+        match ev.params.first() {
+            Some(p) => s.push_str(&format!(
+                "{}    let {} = state.{}[i].clone();\n",
+                pad,
+                to_snake(&p.name),
+                f
+            )),
+            None => s.push_str(&format!("{}    let _ = i;\n", pad)),
+        }
+        let mut dummy = Diagnostics::new();
+        for stmt in &ev.body {
+            let mut rewritten = rewrite_stmt(stmt.clone(), fields, enums);
+            coerce_state_strings(&mut rewritten, field_ty);
+            emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), indent + 1, &mut dummy, &mut s);
+        }
+        s.push_str(&format!("{}}}\n", pad));
+        s
+    };
+    if !multi {
+        out.push_str(&one(&lists[0].0, &lists[0].1, 6));
+    } else {
+        out.push_str("                        match state.focus_index {\n");
+        for (i, (f, on_select)) in lists.iter().enumerate() {
+            out.push_str(&format!("                            {} => {{\n", i));
+            out.push_str(&one(f, on_select, 8));
+            out.push_str("                            }\n");
+        }
+        out.push_str("                            _ => {}\n");
+        out.push_str("                        }\n");
+    }
     out
 }
 

@@ -933,6 +933,43 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Image { path })
             }
+            "list" => {
+                // `List field` + optional `On Select <Event>` — a selectable list.
+                self.advance();
+                let field = self.expect_ident("for the list's items field")?;
+                self.eat(&Tok::Newline);
+                let mut on_select = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            // `Select` lexes to a keyword token (Select-Case migration).
+                            self.expect(&Tok::Select, "in `On Select`")?;
+                            on_select = Some(self.expect_ident("for the select event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("List")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error(
+                                self.line(),
+                                format!(
+                                    "Inside a List expected `On Select <event>` or `End List`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::List { field, on_select })
+            }
             "canvas" => {
                 // `Canvas Board [Width 300] [Height 200]` — a drawing surface.
                 self.advance();
@@ -1232,7 +1269,7 @@ impl<'a> Parser<'a> {
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
                          Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         Match, If).",
+                         List, Match, If).",
                         other
                     ),
                 );

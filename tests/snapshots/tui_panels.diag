@@ -1,0 +1,2 @@
+⚠ [line 42] Function 'LeftItems' renamed to 'left_items' — Rust uses snake_case for functions.
+⚠ [line 50] Function 'RightItems' renamed to 'right_items' — Rust uses snake_case for functions.

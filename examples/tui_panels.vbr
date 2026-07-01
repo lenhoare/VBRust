@@ -1,0 +1,60 @@
+Screen Panels
+    Title "Two Lists — Tab to switch"
+
+    State
+        Dim left As Vec<String> = LeftItems()
+        Dim right As Vec<String> = RightItems()
+        Dim log As String = "(nothing picked yet)"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " Tab switches list, Up/Down move, Enter picks, q quits"
+            Fill
+            Row
+                Spacing 2
+                Fill
+                List left
+                    On Select PickLeft
+                End List
+                Fill
+                List right
+                    On Select PickRight
+                End List
+            End Row
+            Length 1
+            Text " Last pick: " & log
+        End Column
+    End View
+
+    On Key "q" Quit
+
+    Event PickLeft(item As String)
+        log = "left / " & item
+    End Event
+
+    Event PickRight(item As String)
+        log = "right / " & item
+    End Event
+End Screen
+
+Function LeftItems() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("Alpha")
+    v.Push("Beta")
+    v.Push("Gamma")
+    Return v
+End Function
+
+Function RightItems() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("One")
+    v.Push("Two")
+    v.Push("Three")
+    Return v
+End Function
+
+Function Main()
+    Panels.Run
+End Function

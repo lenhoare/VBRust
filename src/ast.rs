@@ -213,6 +213,13 @@ pub enum ViewNode {
     Image {
         path: Expr,
     },
+    /// A selectable list (ratatui `List` + `ListState`) bound to a `Vec<String>`
+    /// state field. Navigated with Up/Down (and Tab between lists); `on_select`
+    /// fires on Enter with the selected item. TUI-only (a `Screen` widget).
+    List {
+        field: String,
+        on_select: Option<String>,
+    },
     /// A drawing surface (Iced `Canvas`): `Canvas Board [Width 300] [Height 200]`.
     /// `name` refers to a top-level `CanvasDef`; optional fixed pixel dimensions.
     Canvas {
