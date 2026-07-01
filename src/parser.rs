@@ -1401,7 +1401,7 @@ impl<'a> Parser<'a> {
                 }
             }
             // A collection may take an initialiser (e.g. an iterator `.collect()`).
-            DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(_) | DeclType::Option(_) => {
+            DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(..) | DeclType::Option(_) => {
                 if self.eat(&Tok::Eq) {
                     Some(self.parse_expr()?)
                 } else {
@@ -1495,8 +1495,14 @@ impl<'a> Parser<'a> {
                     self.advance();
                     self.expect(&Tok::Lt, "before the type, e.g. Result<Long>")?;
                     let t = self.parse_decl_type()?;
+                    // `Result<T, E>` — full form; `Result<T>` — E defaults to String.
+                    let e = if self.eat(&Tok::Comma) {
+                        self.parse_decl_type()?
+                    } else {
+                        DeclType::Plain(Type::Text)
+                    };
                     self.expect(&Tok::Gt, "to close `Result<...>`")?;
-                    Some(DeclType::Result(Box::new(t)))
+                    Some(DeclType::Result(Box::new(t), Box::new(e)))
                 }
                 "Option" => {
                     self.advance();

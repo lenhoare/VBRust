@@ -273,7 +273,8 @@ pub enum DeclType {
     Named(String), // a user struct/stdlib type, e.g. Person, Json
     Vec(Box<DeclType>),
     Map(Box<DeclType>, Box<DeclType>),
-    Result(Box<DeclType>), // → Result<T, String>
+    /// `Result<T, E>`. `Result<T>` is shorthand: the parser fills `E` with `String`.
+    Result(Box<DeclType>, Box<DeclType>),
     Option(Box<DeclType>), // → Option<T>
     Tuple(Vec<DeclType>),
     Array(Type, usize),          // Dim x(N)      → [T; N]

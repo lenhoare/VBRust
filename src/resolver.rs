@@ -533,7 +533,7 @@ fn is_lvalue(e: &Expr) -> bool {
 fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
     if let Expr::Call { name, .. } = e {
         match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
-            Some(DeclType::Result(_)) => return Some("Result"),
+            Some(DeclType::Result(..)) => return Some("Result"),
             Some(DeclType::Option(_)) => return Some("Option"),
             _ => {}
         }
@@ -669,14 +669,27 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
-            // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`;
-            // `Shape.Circle(r)` on an enum → the variant constructor `Shape::Circle(r)`
-            // (variant kept PascalCase, not snake-cased).
+            // `Shape.Circle(r)` on an enum → the variant constructor
+            // `Shape::Circle(r)` (variant kept PascalCase). A string payload is
+            // owned — VBR enum text payloads are `String`, never `&str`.
+            if let Expr::Ident(m) = &**recv {
+                if ctx.enums.contains(m) {
+                    let path = format!("{}::{}", m, method);
+                    for arg in args.iter_mut() {
+                        if infer(arg, ctx) == RType::Str {
+                            to_owned_string(arg);
+                        }
+                    }
+                    let taken = std::mem::take(args);
+                    *e = Expr::Call { name: path, args: taken };
+                    return;
+                }
+            }
+            // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`.
             let qualified = match &**recv {
                 Expr::Ident(m) if ctx.modules.contains(&snake(m)) => {
                     Some(format!("crate::{}::{}", snake(m), snake(method)))
                 }
-                Expr::Ident(m) if ctx.enums.contains(m) => Some(format!("{}::{}", m, method)),
                 _ => None,
             };
             if let Some(path) = qualified {
@@ -699,9 +712,11 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             for a in args.iter_mut() {
                 resolve_expr(a, ctx);
             }
-            // `Ok(s)` / `Some(s)` of a `&str` need an owned String payload
-            // (VBR's `Result<String>`/`Option<String>` own their value).
-            if matches!(name.as_str(), "Ok" | "Some") && args.len() == 1
+            // `Ok(s)` / `Err(s)` / `Some(s)` of a `&str` need an owned `String`
+            // payload. For `Err` this only fires when the payload is a string —
+            // i.e. the error type is `String`; a typed error (`Err(MyErr.X)`)
+            // isn't a `&str`, so it's left alone.
+            if matches!(name.as_str(), "Ok" | "Err" | "Some") && args.len() == 1
                 && infer(&args[0], ctx) == RType::Str
             {
                 to_owned_string(&mut args[0]);

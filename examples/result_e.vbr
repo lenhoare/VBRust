@@ -1,0 +1,39 @@
+' Result<T, E> with a real, typed error enum — including a message-carrying
+' variant. Build errors with Err(MathError.…); read them back by matching. `?`
+' works when the error types line up.
+Enum MathError
+    DivByZero
+    Custom(String)
+End Enum
+
+Function SafeDiv(ByVal a As Integer, ByVal b As Integer) As Result<Integer, MathError>
+    If b = 0 Then
+        Return Err(MathError.DivByZero)
+    End If
+    If b < 0 Then
+        Return Err(MathError.Custom("negative divisor"))
+    End If
+    Return Ok(a / b)
+End Function
+
+Function DoubleDiv(ByVal a As Integer, ByVal b As Integer) As Result<Integer, MathError>
+    Dim q As Integer = SafeDiv(a, b)?
+    Return Ok(q * 2)
+End Function
+
+Function Main()
+    Match DoubleDiv(10, 2)
+        Ok(v) => Debug.Print "ok: " & v
+        Err(MathError.DivByZero) => Debug.Print "div by zero"
+        Err(MathError.Custom(msg)) => Debug.Print "error: " & msg
+    End Match
+    Match DoubleDiv(10, 0)
+        Ok(v) => Debug.Print "ok: " & v
+        Err(_) => Debug.Print "failed"
+    End Match
+    Match DoubleDiv(10, -2)
+        Ok(v) => Debug.Print "ok: " & v
+        Err(MathError.DivByZero) => Debug.Print "div by zero"
+        Err(MathError.Custom(msg)) => Debug.Print "error: " & msg
+    End Match
+End Function

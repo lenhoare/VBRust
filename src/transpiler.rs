@@ -280,7 +280,7 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
         }
         DeclType::Vec(t) => format!("Vec<{}>", decltype_rust(t)),
         DeclType::Map(k, v) => format!("HashMap<{}, {}>", decltype_rust(k), decltype_rust(v)),
-        DeclType::Result(t) => format!("Result<{}, String>", decltype_rust(t)),
+        DeclType::Result(t, e) => format!("Result<{}, {}>", decltype_rust(t), decltype_rust(e)),
         DeclType::Option(t) => format!("Option<{}>", decltype_rust(t)),
         DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
         DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
@@ -353,7 +353,7 @@ pub(crate) fn emit_fn(
     // `?` is only valid when this function can itself fail (returns Result/Option).
     let can_propagate = matches!(
         func.ret,
-        Some(DeclType::Result(_)) | Some(DeclType::Option(_))
+        Some(DeclType::Result(..)) | Some(DeclType::Option(_))
     );
     let passed_by_ref = resolver::resolve_body(
         &mut body,
@@ -386,7 +386,7 @@ fn render_param(p: &Param) -> String {
         (ParamMode::ByVal, DeclType::Tuple(_)) => decltype_rust(&p.ty),
         // ByVal Result/Option: taken by value (owned) — they carry an outcome to
         // consume, not a container to read through a borrow.
-        (ParamMode::ByVal, dt @ (DeclType::Result(_) | DeclType::Option(_))) => decltype_rust(dt),
+        (ParamMode::ByVal, dt @ (DeclType::Result(..) | DeclType::Option(_))) => decltype_rust(dt),
         // ByVal struct/collection (incl. Vec/HashMap): immutable borrow.
         (ParamMode::ByVal, dt) => format!("&{}", decltype_rust(dt)),
         // ByRef: a mutable borrow of whatever it is.
@@ -515,7 +515,7 @@ pub(crate) fn emit_stmt(
                 // initialiser (e.g. an iterator `.collect()`).
                 // Collections start empty unless given an initialiser; `Result`/
                 // `Option` always carry one (there's no meaningful empty value).
-                DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(_) | DeclType::Option(_) => {
+                DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(..) | DeclType::Option(_) => {
                     let kw = let_kw(mutated.contains(&var));
                     let empty = match ty {
                         DeclType::Vec(_) => "Vec::new()",
@@ -1423,12 +1423,14 @@ fn render_closure(params: &[String], body: &Expr, deref_params: bool) -> String 
     format!("|{}| {}", ps.join(", "), render_expr(body, None))
 }
 
-/// Lower the Result/Option constructors. `Err` wraps its message in `.to_string()`.
+/// Lower the Result/Option constructors. The `&str`→`String` coercion for a
+/// `String` error type is done by the resolver (E-aware), so `Err` renders its
+/// payload as-is here.
 fn lower_constructor(name: &str, args: &[Expr]) -> Option<String> {
     match (name, args.len()) {
         ("Ok", 1) => Some(format!("Ok({})", render_expr(&args[0], None))),
         ("Some", 1) => Some(format!("Some({})", render_expr(&args[0], None))),
-        ("Err", 1) => Some(format!("Err({}.to_string())", render_expr(&args[0], None))),
+        ("Err", 1) => Some(format!("Err({})", render_expr(&args[0], None))),
         _ => None,
     }
 }
@@ -1685,8 +1687,10 @@ fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
     fn mark_decltype(dt: &DeclType, diags: &mut Diagnostics) {
         match dt {
             DeclType::Named(n) => mark_name(n, diags),
-            DeclType::Vec(t) | DeclType::Result(t) | DeclType::Option(t) => {
-                mark_decltype(t, diags)
+            DeclType::Vec(t) | DeclType::Option(t) => mark_decltype(t, diags),
+            DeclType::Result(t, e) => {
+                mark_decltype(t, diags);
+                mark_decltype(e, diags);
             }
             DeclType::Map(k, v) => {
                 mark_decltype(k, diags);

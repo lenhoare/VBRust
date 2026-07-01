@@ -376,10 +376,21 @@ End Enum
 ## 8. Error model
 
 VBR has no `On Error` — no exceptions, no jumps. **Failure is a value.** A
-fallible function declares `As Result<T>` and returns `Ok(v)` on success or
-`Err("…")` on failure. The caller receives that `Result` — a value that is
+fallible function declares `As Result<T, E>` and returns `Ok(v)` on success or
+`Err(e)` on failure. The caller receives that `Result` — a value that is
 *either* `Ok` or `Err`, not a bare `T` — and **cannot silently ignore it**.
 `As Option<T>` (`Some`/`None`) is the same idea for "a value, or nothing."
+
+`Result<T, E>` is a real generic type — the error is a **typed value**, exactly
+as in Rust. `E` can be a `String`, or your own enum (`Result<User, ParseError>`),
+etc. **`Result<T>` is shorthand for `Result<T, String>`** — the easy path for
+beginners, no lie about Rust. `Err("…")` coerces the string literal to `String`
+when `E` is `String`; with a typed `E` you construct the variant: `Err(ParseError.TooLong)`.
+
+> `?` note: Rust's `?` converts the error via `From`, which VBR can't generate.
+> So `?` works when the inner error type **matches** the enclosing function's `E`
+> (or both are `String`). Mixing different typed errors with `?` isn't supported
+> yet — handle those with `Match`.
 
 A `Result` at the call site must be **handled**, **propagated**, or
 **unwrapped**:
