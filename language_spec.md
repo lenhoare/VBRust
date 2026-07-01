@@ -386,6 +386,8 @@ as in Rust. `E` can be a `String`, or your own enum (`Result<User, ParseError>`)
 etc. **`Result<T>` is shorthand for `Result<T, String>`** — the easy path for
 beginners, no lie about Rust. `Err("…")` coerces the string literal to `String`
 when `E` is `String`; with a typed `E` you construct the variant: `Err(ParseError.TooLong)`.
+A fallible action that returns *nothing* on success uses `Result<()>` with
+`Return Ok(())` (`()` is the unit value).
 
 > `?` note: Rust's `?` converts the error via `From`, which VBR can't generate.
 > So `?` works when the inner error type **matches** the enclosing function's `E`

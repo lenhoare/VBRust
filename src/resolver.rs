@@ -405,10 +405,13 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
                 // The loop variable's type is what Rust infers from the range
                 // bounds: `For i = 1 To 10` → `i32`, but `For i = 1 To count`
-                // (count a `Long`) → `i64`. Track that so body arithmetic with it
-                // doesn't pick up a needless widening cast.
+                // (count a `Long`) → `i64`. Cast both bounds to that common type so
+                // a mixed-width range (`For i = lo To hi`, different widths) still
+                // compiles, and track the var type for body arithmetic.
                 let var_ty =
                     rtype_to_type(join(infer(from, ctx), infer(to, ctx))).unwrap_or(Type::Integer);
+                maybe_cast(from, var_ty, ctx);
+                maybe_cast(to, var_ty, ctx);
                 ctx.vars.insert(snake(var), var_ty);
                 resolve_stmts(body, ctx);
             }

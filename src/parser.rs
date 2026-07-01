@@ -2140,6 +2140,11 @@ impl<'a> Parser<'a> {
             }
             Tok::LParen => {
                 self.advance();
+                // `()` — the unit value (e.g. `Ok(())` in a `Result<()>` function).
+                if matches!(self.peek(), Tok::RParen) {
+                    self.advance();
+                    return Some(Expr::Tuple(Vec::new()));
+                }
                 let first = self.parse_expr()?;
                 if matches!(self.peek(), Tok::Comma) {
                     // A tuple: (a, b, …)
