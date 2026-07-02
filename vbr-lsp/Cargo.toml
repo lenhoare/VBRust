@@ -1,0 +1,12 @@
+[package]
+name = "vbr-lsp"
+version = "0.1.0"
+edition = "2021"
+description = "Language server for VBR — live diagnostics in the editor (proof of concept)."
+
+# A separate crate so the transpiler (`vbr`) stays dependency-free; the LSP pulls
+# in tower-lsp/tokio and reuses the `vbr` library as its compiler front-end.
+[dependencies]
+vbr = { path = ".." }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "macros"] }

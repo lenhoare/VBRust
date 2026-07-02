@@ -1,0 +1,45 @@
+{
+  "name": "vbr-lsp",
+  "displayName": "VBR Language Support",
+  "description": "Language assistance for VBR — live diagnostics (proof of concept).",
+  "version": "0.0.1",
+  "publisher": "vbr",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:vbr"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "vbr",
+        "aliases": [
+          "VBR",
+          "vbr"
+        ],
+        "extensions": [
+          ".vbr"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "VBR",
+      "properties": {
+        "vbr.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the vbr-lsp server binary. If empty, the extension looks for it at ../../vbr-lsp/target/release/vbr-lsp (and honours the VBR_LSP_SERVER environment variable)."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

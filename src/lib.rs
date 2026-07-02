@@ -27,6 +27,9 @@ pub struct Compiled {
     /// Stdlib namespaces used (e.g. `Json`, `Http`) → which `vbr_stdlib`
     /// features to enable.
     pub stdlib_used: Vec<String>,
+    /// The structured diagnostics (level, message, line) — for tools like the
+    /// language server that need more than the pre-rendered strings.
+    pub diagnostic_items: Vec<diagnostics::Diagnostic>,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -70,6 +73,7 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         has_errors: diags.has_errors(),
         dependencies,
         stdlib_used,
+        diagnostic_items: diags.items().to_vec(),
     }
 }
 
