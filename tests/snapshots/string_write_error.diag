@@ -1,2 +1,2 @@
-⚠ [line 2] Function 'Append' renamed to 'append' — Rust uses snake_case for functions.
+⚠ [line 2] Function 'Append' is 'append' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
 ✘ 's' is passed read-only (ByVal), so it can't be changed here. To modify the caller's string, declare it `ByRef s As String`.

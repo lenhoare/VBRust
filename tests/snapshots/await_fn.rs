@@ -2,7 +2,7 @@
 // via Await, and its Result comes back in the generated continuation. No stdlib
 // needed — VBR knows the function's return type, so it can build the message.
 
-fn sum_to(n: i32) -> Result<i32, String> {
+fn sumto(n: i32) -> Result<i32, String> {
     if n < 0 {
         return Err("negative input".to_string());
     }
@@ -49,7 +49,7 @@ fn update(state: &mut Worker, message: Message) -> Task<Message> {
         Message::Compute => {
             state.status = "working…".to_string();
             let input = state.input.clone();
-            Task::perform(async move { tokio::task::spawn_blocking(move || sum_to(input)).await.unwrap() }, Message::ComputeDone)
+            Task::perform(async move { tokio::task::spawn_blocking(move || sumto(input)).await.unwrap() }, Message::ComputeDone)
         }
         Message::ComputeDone(result) => {
             match result {

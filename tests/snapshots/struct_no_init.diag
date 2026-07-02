@@ -1,2 +1,2 @@
 ✘ [line 8] A struct must be fully initialised at creation — `Dim p As Person = Person { name: "...", age: ... }`. You cannot declare it empty and fill fields in later.
-⚠ Struct fields use snake_case in Rust — VBR renames PascalCase fields for you.
+⚠ Struct field names are lowercased for Rust (`FirstName` → `firstname`).

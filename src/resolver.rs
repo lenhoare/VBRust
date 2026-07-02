@@ -13,7 +13,7 @@
 //! Doing this as AST rewrites keeps the rendering code a plain tree walk.
 //!
 //! Everything known about a name lives in one environment (`name → Binding`),
-//! keyed by the emitted snake_case name: the declared `DeclType`, whether the
+//! keyed by the emitted (lowercased) name: the declared `DeclType`, whether the
 //! generated Rust already holds it as a borrow, or — for an opaque handle —
 //! the honest admission that only Rust knows its type.
 
@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::transpiler::to_snake as snake;
+use crate::transpiler::rust_name as snake;
 use crate::transpiler::{stdlib_type, to_screaming};
 
 /// One user function's signature — enough to fix up its call sites.

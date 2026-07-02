@@ -1,4 +1,4 @@
-fn draw_grid(frame: &mut iced::widget::canvas::Frame) {
+fn drawgrid(frame: &mut iced::widget::canvas::Frame) {
     for x in (0..=300).step_by(30) {
         frame.stroke(&iced::widget::canvas::Path::line(iced::Point::new((x) as f32, (0) as f32), iced::Point::new((x) as f32, (220) as f32)), iced::widget::canvas::Stroke::default().with_color(iced::Color::from_rgb8(128, 128, 128)).with_width((1) as f32));
     }
@@ -61,7 +61,7 @@ impl<Message> iced::widget::canvas::Program<Message> for FaceCanvas {
         {
             let frame = &mut frame;
             let _ = &frame;
-            draw_grid(frame);
+            drawgrid(frame);
             frame.fill(&iced::widget::canvas::Path::circle(iced::Point::new((150) as f32, (110) as f32), (self.radius) as f32), iced::Color::from_rgb8(0, 0, 128));
             frame.stroke(&iced::widget::canvas::Path::circle(iced::Point::new((150) as f32, (110) as f32), (self.radius) as f32), iced::widget::canvas::Stroke::default().with_color(iced::Color::from_rgb8(255, 255, 255)).with_width((2) as f32));
             frame.fill_text(iced::widget::canvas::Text { content: format!("{}", format!("radius = {}", self.radius)), position: iced::Point::new((10) as f32, (16) as f32), color: iced::Color::from_rgb8(0, 0, 0), ..Default::default() });

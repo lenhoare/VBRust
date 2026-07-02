@@ -1,2 +1,2 @@
-⚠ [line 2] Function 'Risky' renamed to 'risky' — Rust uses snake_case for functions.
+⚠ [line 2] Function 'Risky' is 'risky' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
 ✘ This Result is being thrown away. Handle it: `?` to propagate, `Match` over Ok/Err (or Some/None), or assign it with `Dim`.

@@ -1,2 +1,2 @@
-⚠ [line 42] Function 'LeftItems' renamed to 'left_items' — Rust uses snake_case for functions.
-⚠ [line 50] Function 'RightItems' renamed to 'right_items' — Rust uses snake_case for functions.
+⚠ [line 42] Function 'LeftItems' is 'leftitems' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+⚠ [line 50] Function 'RightItems' is 'rightitems' on the Rust side — one rule: a VBR name is its lowercase self in Rust.

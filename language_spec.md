@@ -15,12 +15,15 @@ semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rule
 - Source files use the `.vbr` extension; UTF-8.
 - **Statements** are newline-terminated. There is no statement separator.
 - **Keywords are case-insensitive** (`Dim`, `dim`, `DIM`).
-- **Identifiers are effectively case-insensitive** (as in VB). Each is re-cased
-  for Rust idiom — procedures, variables, parameters, and fields → `snake_case`;
-  `Const` names → `SCREAMING_SNAKE_CASE`; `Type` (struct) names kept as written
-  (expected PascalCase) — so names differing only in case collapse to the same
-  identifier (`Total` and `total` both become `total`). Use one consistent
-  spelling per name. A rename emits a one-time `ℹ`/`⚠` note.
+- **Identifiers are effectively case-insensitive** (as in VB). The Rust spelling
+  of a name is simply its **lowercase** self — procedures, variables, parameters,
+  and fields are lowercased (`myTotal` → `mytotal`); `Const` names are uppercased
+  (`MaxSize` → `MAXSIZE`); `Type` (struct) and `Enum` names are kept as written
+  (expected PascalCase). Underscores you write are kept (`my_total` stays
+  `my_total`), so one rule covers everything: *a VBR name is its lowercase self
+  on the Rust side.* Names differing only in case collapse to the same
+  identifier — use one consistent spelling per name. A re-spelling emits a
+  one-time `ℹ`/`⚠` note.
 - **Comments:** `'` to end of line. Emitted as `//` in the output.
 - **String literals:** `"…"`. A doubled quote `""` inside a literal denotes one
   `"` (VBA escaping). No backslash escapes.
@@ -131,7 +134,7 @@ End Function
   not declare `As T` (it returns nothing).
 - `Return expr` yields a value; bare `Return` exits early. The transpiler lowers
   a trailing `Return` to a Rust tail expression where possible.
-- Procedure names are emitted `snake_case`.
+- Procedure names are emitted lowercase (`DoThing` → `dothing`).
 - **`Public`** makes a function visible to other modules (emitted `pub fn`); bare
   or `Private` functions are file-local (§13). The same applies to `Type` and
   `Const`.
@@ -298,8 +301,8 @@ End Match
 - **Exhaustiveness is rustc's job**: there is no forced catch-all. For a `Result`,
   covering `Ok`/`Err` is complete; a missing case is a compile error that names
   exactly what you left out.
-- Name bindings should be written snake_case (the Rust convention) — that's how
-  the body refers to them.
+- Name bindings should be written lowercase — that's how the body refers to
+  them (the pattern is verbatim Rust; the body lowercases names).
 
 ### Loops
 ```
@@ -349,7 +352,7 @@ End Enum
 ```
 - A simple (C-like) enum: a named set of unit variants. Emitted as a Rust
   `#[derive(Debug, Clone, Copy, PartialEq, Eq)] enum`. Variant names keep their
-  PascalCase (not snake-cased), as in Rust.
+  PascalCase (not lowercased), as in Rust.
 - Reference a variant with a dot — `Suit.Hearts` → `Suit::Hearts` (a *name path*,
   not a value access; see §1). The same dot-to-`::` applies in `Match` patterns:
   `Match s / Suit.Hearts => …`.
@@ -444,8 +447,8 @@ Dim x As T = Rust
     <raw Rust>
 End Rust
 ```
-- **Inputs:** in-scope VBR variables are available by their emitted (snake_case)
-  Rust name. No declaration needed.
+- **Inputs:** in-scope VBR variables are available by their emitted (lowercase)
+  Rust name — `myTotal` is `mytotal`. No declaration needed.
 - **Output:** the block's value is its last line **without** a semicolon (Rust
   tail expression). A trailing `;` discards the value.
 - **Multiple outputs:** return a tuple; bind with `Dim a, b = Rust … End Rust`.
@@ -581,10 +584,10 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
 
 - The file with `Function Main()` (default `main.vbr`) is the **entry** → crate
   root `main.rs`, which declares the others with `mod <name>;`.
-- Every other `<File>.vbr` becomes a module named `to_snake(File)`
-  (`MyHelpers.vbr` → module `my_helpers`).
+- Every other `<File>.vbr` becomes a module named by lowercasing the filename
+  (`MyHelpers.vbr` → module `myhelpers`).
 - **Cross-module calls are qualified:** `Shapes.CircleArea(r)` →
-  `crate::shapes::circle_area(r)`. The callee must be `Public`.
+  `crate::shapes::circlearea(r)`. The callee must be `Public`.
 - A sibling **`.rs` file is a hand-written module**, included **verbatim** (it
   skips transpilation) and called with the same qualified syntax —
   `Text.Shout(s)` → `crate::text::shout(s)`. This is the in-project "wrapper"

@@ -36,7 +36,8 @@ so the Rust compiler checks your block against it.
 1. **Passing IN is automatic.** The block is spliced into the same function, so
    every VBR variable you've declared is already in scope — just write its name.
    No `pass` keyword, no re-declaration. (One catch: inside the block you use the
-   *Rust* spelling, so VBR `myValue` is `my_value` — you're writing Rust there.)
+   *Rust* spelling — a VBR name is simply its lowercase self, so `myValue` is
+   `myvalue` — you're writing Rust there.)
 
 2. **Passing OUT is the last line with no semicolon.** In Rust, a block's value
    is its final expression *when you leave the semicolon off*:

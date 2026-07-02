@@ -6,7 +6,7 @@ fn validate(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-fn first_char(text: &str) -> String {
+fn firstchar(text: &str) -> String {
     (&text[0..1]).to_string()
 }
 
@@ -21,7 +21,7 @@ fn main() {
     current = "reset".to_string();
     println!("current     : {}", current);
     let ch: String = (&"hello"[1..2]).to_string();
-    println!("first char  : {}", first_char("world"));
+    println!("first char  : {}", firstchar("world"));
     println!("ch          : {}", ch);
     println!("names count : {}", names.len());
     match validate("Ada") {

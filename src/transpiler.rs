@@ -168,7 +168,7 @@ pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics
         diags.warn(
             c.line,
             format!(
-                "Constant '{}' renamed to '{}' — Rust uses SCREAMING_SNAKE_CASE for constants.",
+                "Constant '{}' is '{}' on the Rust side — constants are uppercased.",
                 c.name, name
             ),
         );
@@ -219,7 +219,7 @@ pub(crate) fn emit_impl(
         }
         first = false;
         let mutates = methods
-            .get(&(recv.to_string(), to_snake(&f.name)))
+            .get(&(recv.to_string(), rust_name(&f.name)))
             .copied()
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
@@ -284,11 +284,11 @@ pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut Stri
     out.push_str("#[derive(Debug, Clone)]\n");
     out.push_str(&format!("{} {} {{\n", kw, s.name));
     for f in &s.fields {
-        let fname = to_snake(&f.name);
+        let fname = rust_name(&f.name);
         if fname != f.name {
             diags.warn_once_global(
-                "struct-field-snake",
-                "Struct fields use snake_case in Rust — VBR renames PascalCase fields for you.",
+                "struct-field-case",
+                "Struct field names are lowercased for Rust (`FirstName` → `firstname`).",
             );
         }
         let vis = if f.public { "pub " } else { "" };
@@ -380,7 +380,7 @@ pub(crate) fn emit_fn(
         .params
         .iter()
         .filter(|p| p.mode == ParamMode::ByRef)
-        .map(|p| to_snake(&p.name))
+        .map(|p| rust_name(&p.name))
         .collect();
 
     // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
@@ -429,7 +429,7 @@ fn render_param(p: &Param) -> String {
         // ByRef: a mutable borrow of whatever it is.
         (ParamMode::ByRef, dt) => format!("&mut {}", decltype_rust(dt)),
     };
-    format!("{}: {}", to_snake(&p.name), ty)
+    format!("{}: {}", rust_name(&p.name), ty)
 }
 
 /// Emit a function body, rendering a trailing `Return value` as an idiomatic
@@ -477,7 +477,7 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
                 target: Expr::Ident(name),
                 value,
                 op: None,
-            } if to_snake(name) == fn_name => {
+            } if rust_name(name) == fn_name => {
                 *stmt = Stmt::Return(Some(value.clone()));
             }
             Stmt::If {
@@ -541,7 +541,7 @@ pub(crate) fn emit_stmt(
             init,
             line,
         } => {
-            let var = to_snake(name);
+            let var = rust_name(name);
             // `Dim x As T = Rust … End Rust` — the block's value, typed by `As T`.
             if let Some(Expr::InlineRust(raw)) = init {
                 let kw = let_kw(mutated.contains(&var));
@@ -670,7 +670,7 @@ pub(crate) fn emit_stmt(
                 "`Set` borrows instead of copying — the new name points at the same value, \
                  so no copy is made. `Set Mut` borrows mutably, letting you change the original.",
             );
-            let var = to_snake(name);
+            let var = rust_name(name);
             let borrow = if *mutable { "&mut " } else { "&" };
             out.push_str(&format!(
                 "{}let {} = {}{};\n",
@@ -684,7 +684,7 @@ pub(crate) fn emit_stmt(
             let lhs = match target {
                 // Assigning through a ByRef parameter writes to the pointee: `*p = …`.
                 Expr::Ident(name) => {
-                    let var = to_snake(name);
+                    let var = rust_name(name);
                     if byref.contains(&var) {
                         format!("*{}", var)
                     } else {
@@ -712,7 +712,7 @@ pub(crate) fn emit_stmt(
             let pat: Vec<String> = names
                 .iter()
                 .map(|n| {
-                    let v = to_snake(n);
+                    let v = rust_name(n);
                     if mutated.contains(&v) {
                         format!("mut {}", v)
                     } else {
@@ -739,7 +739,7 @@ pub(crate) fn emit_stmt(
             // An opaque handle: Rust infers the type (no annotation). We can't see
             // whether later blocks mutate it (`.next()` vs a `&self` call), so we
             // bind it `mut` and allow the case where that mut goes unused.
-            let var = to_snake(name);
+            let var = rust_name(name);
             out.push_str(&format!(
                 "{}#[allow(unused_mut)]\n{}let mut {} = {};\n",
                 pad,
@@ -805,7 +805,7 @@ pub(crate) fn emit_stmt(
             step,
             body,
         } => {
-            let loop_var = to_snake(var);
+            let loop_var = rust_name(var);
             let range = render_range(from, to, step.as_ref(), diags);
             out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
             emit_block(body, mutated, byref, indent + 1, diags, out);
@@ -852,8 +852,8 @@ pub(crate) fn emit_stmt(
         } => {
             // Iterate by shared reference — no copy, the collection stays usable.
             let pattern = match var2 {
-                Some(v2) => format!("({}, {})", to_snake(var1), to_snake(v2)),
-                None => to_snake(var1),
+                Some(v2) => format!("({}, {})", rust_name(var1), rust_name(v2)),
+                None => rust_name(var1),
             };
             out.push_str(&format!(
                 "{}for {} in &{} {{\n",
@@ -1007,7 +1007,7 @@ pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String 
         DrawCmd::Paint { name, args } => {
             let mut a = vec!["frame".to_string()];
             a.extend(args.iter().map(|e| render_expr(e, None)));
-            format!("{}({});", to_snake(name), a.join(", "))
+            format!("{}({});", rust_name(name), a.join(", "))
         }
     }
 }
@@ -1242,9 +1242,9 @@ pub(crate) fn is_mutating_method(m: &str) -> bool {
 fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
     match e {
         Expr::MethodCall { recv, method, args } => {
-            if is_mutating_method(&to_snake(method)) {
+            if is_mutating_method(&rust_name(method)) {
                 if let Expr::Ident(v) = &**recv {
-                    set.insert(to_snake(v));
+                    set.insert(rust_name(v));
                 }
             }
             mark_mutating_calls(recv, set);
@@ -1281,7 +1281,7 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
 /// or `grid` in `grid[r][c]`. `None` when there's no plain local at the root.
 fn lvalue_root(target: &Expr) -> Option<String> {
     match target {
-        Expr::Ident(name) => Some(to_snake(name)),
+        Expr::Ident(name) => Some(rust_name(name)),
         Expr::Field(inner, _) | Expr::Index(inner, _) => lvalue_root(inner),
         _ => None,
     }
@@ -1357,7 +1357,7 @@ fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, inde
             "{p}    ns.set_item(\"{key}\", &{var})?;\n",
             p = pad,
             key = name,
-            var = to_snake(name),
+            var = rust_name(name),
         ));
     }
     // A handle unbinds the value (GIL-independent); a scalar extracts it.
@@ -1518,7 +1518,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Ident(name) if name == "None" => "None".to_string(),
         // `Me` is the method receiver.
         Expr::Ident(name) if name == "Me" => "self".to_string(),
-        Expr::Ident(name) => to_snake(name),
+        Expr::Ident(name) => rust_name(name),
         Expr::Binary { op, .. } if *op == BinOp::Concat => {
             // `&` concatenation becomes one flat format!, sidestepping ownership:
             // the whole chain is collected in order and string literals fold into
@@ -1584,7 +1584,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 let cols: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                 return format!("{}.select(&[{}])", render_recv(recv), cols.join(", "));
             }
-            let m = to_snake(method);
+            let m = rust_name(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
             if let Expr::Ident(name) = &**recv {
                 if let Some(canon) = stdlib_type(name) {
@@ -1670,11 +1670,11 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             } else {
                 // An ordinary call to a user function.
                 let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
-                format!("{}({})", to_snake(name), rendered.join(", "))
+                format!("{}({})", rust_name(name), rendered.join(", "))
             }
         }
         Expr::Try(inner) => format!("{}?", render_prec(inner, None, 9, false)),
-        Expr::Field(inner, field) => format!("{}.{}", render_recv(inner), to_snake(field)),
+        Expr::Field(inner, field) => format!("{}.{}", render_recv(inner), rust_name(field)),
         // Already the verbatim SCREAMING_SNAKE name from the resolver.
         Expr::ConstRef(name) => name.clone(),
         Expr::StructLit { name, fields } => {
@@ -1686,7 +1686,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                         Expr::Str(s) => format!("\"{}\".to_string()", escape(s)),
                         other => render_expr(other, None),
                     };
-                    format!("{}: {}", to_snake(fname), value)
+                    format!("{}: {}", rust_name(fname), value)
                 })
                 .collect();
             if parts.is_empty() {
@@ -1719,7 +1719,7 @@ fn is_iter_method(m: &str) -> bool {
 }
 
 fn recv_is_iter(e: &Expr) -> bool {
-    matches!(e, Expr::MethodCall { method, .. } if is_iter_method(&to_snake(method)))
+    matches!(e, Expr::MethodCall { method, .. } if is_iter_method(&rust_name(method)))
 }
 
 /// Render an iterator-adapter call. The chain starts with `.iter().copied()`
@@ -1746,7 +1746,7 @@ fn render_closure(params: &[String], body: &Expr, deref_params: bool) -> String 
     let prefix = if deref_params { "&" } else { "" };
     let ps: Vec<String> = params
         .iter()
-        .map(|p| format!("{}{}", prefix, to_snake(p)))
+        .map(|p| format!("{}{}", prefix, rust_name(p)))
         .collect();
     format!("|{}| {}", ps.join(", "), render_expr(body, None))
 }
@@ -1958,7 +1958,7 @@ fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                 value: Expr::Ident(n),
                 ..
             } => {
-                set.insert(to_snake(n));
+                set.insert(rust_name(n));
             }
             Stmt::If {
                 branches,
@@ -1988,22 +1988,24 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
     if name == "Main" {
         return "main".to_string();
     }
-    let snake = to_snake(name);
-    if snake != name {
+    let lowered = rust_name(name);
+    if lowered != name {
         diags.warn(
             line,
             format!(
-                "Function '{}' renamed to '{}' — Rust uses snake_case for functions.",
-                name, snake
+                "Function '{}' is '{}' on the Rust side — one rule: a VBR name is \
+                 its lowercase self in Rust.",
+                name, lowered
             ),
         );
     }
-    snake
+    lowered
 }
 
-/// SCREAMING_SNAKE_CASE for constants.
+/// The Rust spelling of a constant: simply uppercased — the same one-rule
+/// mapping as `rust_name`, in the constants' case convention.
 pub(crate) fn to_screaming(name: &str) -> String {
-    to_snake(name).to_uppercase()
+    name.to_uppercase()
 }
 
 /// The canonical name of a vbr_stdlib namespace, if `name` is one. Stdlib calls
@@ -2103,23 +2105,13 @@ fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
     }
 }
 
-/// Convert PascalCase / camelCase to snake_case. Already-snake names pass through.
-pub(crate) fn to_snake(name: &str) -> String {
-    let chars: Vec<char> = name.chars().collect();
-    let mut out = String::new();
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_uppercase() {
-            let prev_lower = i > 0 && (chars[i - 1].is_lowercase() || chars[i - 1].is_ascii_digit());
-            let next_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
-            if i > 0 && (prev_lower || next_lower) {
-                out.push('_');
-            }
-            for lc in c.to_lowercase() {
-                out.push(lc);
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
+/// The Rust spelling of a VBR name: simply lowercased. VBR identifiers are
+/// case-insensitive (VB style), so lowercase is the one canonical form — and
+/// it makes the mapping trivially predictable: inside a `Rust … End Rust`
+/// block or a `Match` pattern, `myTotal` is `mytotal`, never a guess about
+/// where underscores landed. Underscores the user writes are kept, so
+/// already-snake_case names (and Rust method names like `push_str`) pass
+/// through unchanged.
+pub(crate) fn rust_name(name: &str) -> String {
+    name.to_lowercase()
 }

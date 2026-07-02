@@ -9,7 +9,7 @@ enum MathError {
     Custom(String),
 }
 
-fn safe_div(a: i32, b: i32) -> Result<i32, MathError> {
+fn safediv(a: i32, b: i32) -> Result<i32, MathError> {
     if b == 0 {
         return Err(MathError::DivByZero);
     }
@@ -19,13 +19,13 @@ fn safe_div(a: i32, b: i32) -> Result<i32, MathError> {
     Ok(a / b)
 }
 
-fn double_div(a: i32, b: i32) -> Result<i32, MathError> {
-    let q: i32 = safe_div(a, b)?;
+fn doublediv(a: i32, b: i32) -> Result<i32, MathError> {
+    let q: i32 = safediv(a, b)?;
     Ok(q * 2)
 }
 
 fn main() {
-    match double_div(10, 2) {
+    match doublediv(10, 2) {
         Ok ( v ) => {
             println!("ok: {}", v);
         }
@@ -36,7 +36,7 @@ fn main() {
             println!("error: {}", msg);
         }
     }
-    match double_div(10, 0) {
+    match doublediv(10, 0) {
         Ok ( v ) => {
             println!("ok: {}", v);
         }
@@ -44,7 +44,7 @@ fn main() {
             println!("failed");
         }
     }
-    match double_div(10, -2) {
+    match doublediv(10, -2) {
         Ok ( v ) => {
             println!("ok: {}", v);
         }

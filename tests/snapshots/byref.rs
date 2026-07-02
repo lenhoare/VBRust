@@ -3,11 +3,11 @@
 
 fn main() {
     let mut total: i64 = 0;
-    add_to(&mut total, 5);
-    add_to(&mut total, 10);
+    addto(&mut total, 5);
+    addto(&mut total, 10);
     println!("total = {}", total);
 }
 
-fn add_to(target: &mut i64, amount: i64) {
+fn addto(target: &mut i64, amount: i64) {
     *target = *target + amount;
 }

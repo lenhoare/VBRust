@@ -19,7 +19,7 @@ use crate::gui::{
 use crate::resolver;
 use crate::transpiler::{
     decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, note_builtins, render_expr,
-    emit_struct, to_snake,
+    emit_struct, rust_name,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -139,7 +139,7 @@ fn emit_screen(
     let mut out = String::new();
     let ty = &sc.name;
     let field_ty: HashMap<String, DeclType> =
-        sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
+        sc.state.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
     let fields: HashSet<String> = field_ty.keys().cloned().collect();
 
     // Focusable widgets — Input (types into a String), List/Table (select over a
@@ -175,7 +175,7 @@ fn emit_screen(
     // ── State struct ──
     out.push_str(&format!("struct {} {{\n", ty));
     for f in &sc.state {
-        out.push_str(&format!("    {}: {},\n", to_snake(&f.name), decltype_rust(&f.ty)));
+        out.push_str(&format!("    {}: {},\n", rust_name(&f.name), decltype_rust(&f.ty)));
     }
     for fo in &focusables {
         if let Some(st) = fo.state_ty() {
@@ -193,7 +193,7 @@ fn emit_screen(
     for f in &sc.state {
         out.push_str(&format!(
             "            {}: {},\n",
-            to_snake(&f.name),
+            rust_name(&f.name),
             render_init(f.init.as_ref(), &f.ty, enums)
         ));
     }
@@ -271,7 +271,7 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
     let mut out = Vec::new();
     fn walk(node: &ViewNode, out: &mut Vec<Focusable>) {
         let push = |out: &mut Vec<Focusable>, field: &str, handler: &Option<String>, kind| {
-            out.push(Focusable { field: to_snake(field), handler: handler.clone(), kind });
+            out.push(Focusable { field: rust_name(field), handler: handler.clone(), kind });
         };
         match node {
             ViewNode::Input { field, on_submit } => push(out, field, on_submit, FocusKind::Input),
@@ -389,7 +389,7 @@ fn render_view_node(
             }
         }
         ViewNode::Input { field, .. } => {
-            let f = to_snake(field);
+            let f = rust_name(field);
             out.push_str(&format!(
                 "{}frame.render_widget(Paragraph::new(state.{}.as_str())\
                  .block(Block::bordered().title({:?})), {});\n",
@@ -411,7 +411,7 @@ fn render_view_node(
             }
         }
         ViewNode::List { field, .. } => {
-            let f = to_snake(field);
+            let f = rust_name(field);
             let id = *counter;
             *counter += 1;
             out.push_str(&format!(
@@ -430,7 +430,7 @@ fn render_view_node(
             ));
         }
         ViewNode::Table { field, .. } => {
-            let f = to_snake(field);
+            let f = rust_name(field);
             let id = *counter;
             *counter += 1;
             // Columns come from the element struct's fields (validated earlier).
@@ -445,7 +445,7 @@ fn render_view_node(
             let cells: Vec<String> = cols
                 .iter()
                 .map(|c| {
-                    let acc = format!("row.{}", to_snake(&c.name));
+                    let acc = format!("row.{}", rust_name(&c.name));
                     match &c.ty {
                         DeclType::Plain(Type::Text) => format!("{}.clone()", acc),
                         _ => format!("{}.to_string()", acc),
@@ -481,7 +481,7 @@ fn render_view_node(
         }
         // A progress gauge over min..=max (ratatui `Gauge`, clamped to 0..=1).
         ViewNode::Gauge { min, max, value } => {
-            let f = to_snake(value);
+            let f = rust_name(value);
             if !matches!(field_ty.get(&f), Some(DeclType::Plain(t)) if !matches!(t, Type::Text | Type::Boolean)) {
                 diags.error_once(
                     &format!("gauge-field-{}", f),
@@ -504,7 +504,7 @@ fn render_view_node(
         }
         // A trend line over a Vec of numbers (ratatui `Sparkline`).
         ViewNode::Sparkline { field } => {
-            let f = to_snake(field);
+            let f = rust_name(field);
             if !matches!(field_ty.get(&f), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean))) {
                 diags.error_once(
                     &format!("sparkline-field-{}", f),
@@ -525,7 +525,7 @@ fn render_view_node(
         }
         // Bars over a Vec<Struct>: first String field labels, first number heights.
         ViewNode::BarChart { field } => {
-            let f = to_snake(field);
+            let f = rust_name(field);
             match barchart_columns(&f, field_ty, structs) {
                 Some((label, val)) => {
                     let id = *counter;
@@ -556,7 +556,7 @@ fn render_view_node(
         // auto-computed across all series (fallback 0..1 when empty).
         ViewNode::Chart { fields: series, scatter, x_bounds, y_bounds } => {
             let cols: Option<Vec<(String, String)>> =
-                series.iter().map(|f| chart_xy_columns(&to_snake(f), field_ty, structs)).collect();
+                series.iter().map(|f| chart_xy_columns(&rust_name(f), field_ty, structs)).collect();
             let Some(cols) = cols else {
                 diags.error_once(
                     "chart-field",
@@ -573,7 +573,7 @@ fn render_view_node(
             for (k, (f, (xf, yf))) in series.iter().zip(&cols).enumerate() {
                 out.push_str(&format!(
                     "{}let pts_{}_{}: Vec<(f64, f64)> = state.{}.iter().map(|p| (p.{} as f64, p.{} as f64)).collect();\n",
-                    pad, id, k, to_snake(f), xf, yf
+                    pad, id, k, rust_name(f), xf, yf
                 ));
             }
             // The iterator over every series' points (for auto bounds).
@@ -734,7 +734,7 @@ fn match_subject(
 ) -> String {
     let rendered = render_expr(&crate::gui::rewrite_expr(scrutinee.clone(), fields, enums), None);
     if let Expr::Ident(name) = scrutinee {
-        if matches!(field_ty.get(&to_snake(name)), Some(DeclType::Plain(Type::Text))) {
+        if matches!(field_ty.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) {
             return format!("{}.as_str()", rendered);
         }
     }
@@ -780,7 +780,7 @@ fn chart_xy_columns(
         .fields
         .iter()
         .filter(|f| matches!(f.ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
-        .map(|f| to_snake(&f.name));
+        .map(|f| rust_name(&f.name));
     Some((nums.next()?, nums.next()?))
 }
 
@@ -803,12 +803,12 @@ fn barchart_columns(
         .fields
         .iter()
         .find(|f| matches!(f.ty, DeclType::Plain(Type::Text)))
-        .map(|f| to_snake(&f.name))?;
+        .map(|f| rust_name(&f.name))?;
     let value = sd
         .fields
         .iter()
         .find(|f| matches!(f.ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
-        .map(|f| to_snake(&f.name))?;
+        .map(|f| rust_name(&f.name))?;
     Some((label, value))
 }
 
@@ -851,7 +851,7 @@ fn emit_main(
 ) -> String {
     let ty = &sc.name;
     let field_ty: HashMap<String, DeclType> =
-        sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
+        sc.state.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
     let fields: HashSet<String> = field_ty.keys().cloned().collect();
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
@@ -1122,7 +1122,7 @@ fn enter_dispatch(
             // Submit: bind the handler's parameter to a clone of the typed text
             // (so `list.Push(text)` moves the local, not the state field).
             if let Some(p) = ev.params.first() {
-                s.push_str(&format!("{}let {} = state.{}.clone();\n", pad, to_snake(&p.name), fo.field));
+                s.push_str(&format!("{}let {} = state.{}.clone();\n", pad, rust_name(&p.name), fo.field));
             }
             emit_body(&mut s, 0);
         } else {
@@ -1131,7 +1131,7 @@ fn enter_dispatch(
                 Some(p) => s.push_str(&format!(
                     "{}    let {} = state.{}[i].clone();\n",
                     pad,
-                    to_snake(&p.name),
+                    rust_name(&p.name),
                     fo.field
                 )),
                 None => s.push_str(&format!("{}    let _ = i;\n", pad)),

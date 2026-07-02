@@ -11,8 +11,8 @@ A **VBR project is a folder of `.vbr` files.**
 
 - `main.vbr` (the file with `Function Main()`) is the **entry point**.
 - Every other `.vbr` file is a **module**, named by the file:
-  `utils.vbr` → module `utils`, `MyHelpers.vbr` → module `my_helpers`
-  (filename snake-cased, like every other name).
+  `utils.vbr` → module `utils`, `MyHelpers.vbr` → module `myhelpers`
+  (filename lowercased, like every other name).
 - **Public** items (`Public Function`, `Public Type`, `Public Const`) are
   visible across modules. Bare/`Private` items stay file-local.
 - A lone `hello.vbr` is just the **degenerate one-file project** — the same model
@@ -22,7 +22,7 @@ A **VBR project is a folder of `.vbr` files.**
 
 ```vb
 Utils.DoThing()      →   utils::do_thing()
-MyHelpers.Format(x)  →   my_helpers::format(x)
+MyHelpers.Format(x)  →   myhelpers::format(x)
 ```
 
 This reuses the exact `.`→`::` translation built for the stdlib — the transpiler

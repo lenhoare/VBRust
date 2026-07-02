@@ -1,1 +1,1 @@
-⚠ [line 41] Function 'SumTo' renamed to 'sum_to' — Rust uses snake_case for functions.
+⚠ [line 41] Function 'SumTo' is 'sumto' on the Rust side — one rule: a VBR name is its lowercase self in Rust.

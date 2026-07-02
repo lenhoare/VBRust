@@ -120,10 +120,11 @@ inferred**: a binding that is later assigned or modified is emitted `let mut`,
 otherwise plain `let`. You never write `mut` yourself.
 
 Identifiers are **case-insensitive**, as in VB — `total` and `Total` are the same
-name — because each is recoined in Rust's house style on the way out: variables,
-parameters, and functions become `snake_case`, constants `SCREAMING_SNAKE_CASE`,
-and type names are left as written (PascalCase by convention). Keep one spelling
-per name and you will never notice.
+name. On the way out to Rust there is exactly one spelling rule: **a name is its
+lowercase self** — variables, parameters, and functions are lowercased (`myTotal`
+→ `mytotal`), constants are uppercased (`MaxSize` → `MAXSIZE`), and type names
+are left as written (PascalCase by convention). Underscores you write are kept.
+Keep one spelling per name and you will never notice.
 
 Constants are declared at the top level and are immutable:
 
@@ -230,9 +231,8 @@ Match n
 End Match
 ```
 
-Bindings are written snake_case (Rust's convention) — that's how the body refers to
-them. `Match` over `Ok`/`Err` and `Some`/`None` is where it earns its keep, and is
-covered in §8.
+Bindings are written lowercase — that's how the body refers to them. `Match` over
+`Ok`/`Err` and `Some`/`None` is where it earns its keep, and is covered in §8.
 
 ### Loops
 
@@ -627,7 +627,8 @@ End Rust
 ```
 
 A `Rust … End Rust` block is a Rust *expression*. Your VBR variables are already
-in scope inside it by their snake-cased names — no passing required — and the
+in scope inside it by their lowercased names (`myValue` is `myvalue`) — no
+passing required — and the
 block's value is its last line written **without** a semicolon, exactly as a Rust
 block returns its tail expression. The declared type (`As Long` here) says what the
 block must produce, and that value flows back into VBR. For several results, return

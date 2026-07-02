@@ -19,7 +19,7 @@ fn main() {
         }
     }
     // A function that uses ? to propagate failure
-    match double_quotient(20, 4) {
+    match doublequotient(20, 4) {
         Ok ( value ) => {
             println!("double of 20 / 4 = {}", value);
         }
@@ -39,7 +39,7 @@ fn divide(numerator: i64, denominator: i64) -> Result<i64, String> {
     Ok(numerator / denominator)
 }
 
-fn double_quotient(a: i64, b: i64) -> Result<i64, String> {
+fn doublequotient(a: i64, b: i64) -> Result<i64, String> {
     let q: i64 = divide(a, b)?;
     Ok(q * 2)
 }

@@ -4,9 +4,9 @@
 // A nested wrapper: Result<Vec<String>>.
 
 fn main() {
-    let evens: Vec<i64> = evens_up_to(10);
+    let evens: Vec<i64> = evensupto(10);
     println!("evens count = {}", evens.len());
-    match first_word("hello world") {
+    match firstword("hello world") {
         Some ( w ) => {
             println!("first word = {}", w);
         }
@@ -24,7 +24,7 @@ fn main() {
     }
 }
 
-fn evens_up_to(limit: i64) -> Vec<i64> {
+fn evensupto(limit: i64) -> Vec<i64> {
     let mut result: Vec<i64> = Vec::new();
     let mut n: i64 = 0;
     while n <= limit {
@@ -34,7 +34,7 @@ fn evens_up_to(limit: i64) -> Vec<i64> {
     result
 }
 
-fn first_word(text: &str) -> Option<String> {
+fn firstword(text: &str) -> Option<String> {
     if (text.len() as i32) == 0 {
         return None;
     }

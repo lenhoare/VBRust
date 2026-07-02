@@ -1,2 +1,2 @@
-⚠ [line 25] Function 'Curve' renamed to 'curve' — Rust uses snake_case for functions.
+⚠ [line 25] Function 'Curve' is 'curve' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
 ℹ VB converts between number types silently; Rust wants it spelled out, so VBR inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float to an integer) can lose data.

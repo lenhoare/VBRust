@@ -6,7 +6,7 @@ fn square(n: i64) -> i64 {
     n.pow((2) as u32)
 }
 
-fn sum_and_first(nums: &Vec<i64>) -> i64 {
+fn sumandfirst(nums: &Vec<i64>) -> i64 {
     let mut total: i64 = 0;
     for x in &*nums {
         total += *x;
@@ -25,6 +25,6 @@ fn dup(s: &str) -> String {
 fn main() {
     let v: Vec<i64> = { vec![10, 20, 30] };
     println!("square(3)  = {}", square(3));
-    println!("sum+first  = {}", sum_and_first(&v));
+    println!("sum+first  = {}", sumandfirst(&v));
     println!("dup        = {}", dup("hi"));
 }

@@ -1,4 +1,4 @@
-fn left_items() -> Vec<String> {
+fn leftitems() -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
     v.push("Alpha".to_string());
     v.push("Beta".to_string());
@@ -6,7 +6,7 @@ fn left_items() -> Vec<String> {
     v
 }
 
-fn right_items() -> Vec<String> {
+fn rightitems() -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
     v.push("One".to_string());
     v.push("Two".to_string());
@@ -30,8 +30,8 @@ struct Panels {
 impl Default for Panels {
     fn default() -> Self {
         Panels {
-            left: left_items(),
-            right: right_items(),
+            left: leftitems(),
+            right: rightitems(),
             log: "(nothing picked yet)".to_string(),
             left_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             right_state: ratatui::widgets::ListState::default().with_selected(Some(0)),

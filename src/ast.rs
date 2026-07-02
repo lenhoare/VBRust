@@ -540,7 +540,8 @@ pub enum Stmt {
 pub struct MatchArm {
     /// The pattern, captured as raw Rust text and emitted verbatim — so the full
     /// pattern grammar (`Ok(n)`, `1 | 2`, `1..=10`, `Point { x, y }`, `_`) is
-    /// available. Name bindings should be written snake_case (Rust style).
+    /// available. Name bindings should be written lowercase (the body refers
+    /// to them by their lowercased spelling).
     pub pattern: String,
     /// An optional `If` guard: `n If n < 0 =>` → `n if n < 0 =>`.
     pub guard: Option<Expr>,

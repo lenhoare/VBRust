@@ -1,1 +1,1 @@
-⚠ [line 40] Function 'Seed' renamed to 'seed' — Rust uses snake_case for functions.
+⚠ [line 40] Function 'Seed' is 'seed' on the Rust side — one rule: a VBR name is its lowercase self in Rust.

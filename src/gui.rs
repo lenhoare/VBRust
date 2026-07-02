@@ -10,7 +10,7 @@ use crate::diagnostics::Diagnostics;
 use crate::resolver;
 use crate::transpiler::{
     decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, emit_struct, note_builtins,
-    render_expr, stdlib_type, to_snake,
+    render_expr, stdlib_type, rust_name,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -89,7 +89,7 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
 
     // Free functions, except `Main`.
     for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
-        if paint_fns.contains(&to_snake(&f.name)) {
+        if paint_fns.contains(&rust_name(&f.name)) {
             emit_paint_fn(f, &enums, &paint_fns, diags, &mut out);
         } else {
             emit_fn(
@@ -190,9 +190,9 @@ fn emit_window(
 ) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
-    let fields: HashSet<String> = w.state.iter().map(|f| to_snake(&f.name)).collect();
+    let fields: HashSet<String> = w.state.iter().map(|f| rust_name(&f.name)).collect();
     let field_ty: HashMap<String, DeclType> =
-        w.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
+        w.state.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
 
     // Canvases placed in this view: resolve each to its definition, and work out
     // which state fields its `Draw` block reads (snapshotted into the Program).
@@ -205,13 +205,13 @@ fn emit_window(
                 let snap: Vec<String> = w
                     .state
                     .iter()
-                    .map(|f| to_snake(&f.name))
+                    .map(|f| rust_name(&f.name))
                     .filter(|f| idents.contains(f))
                     .collect();
                 canvas_snaps.insert(cname.clone(), snap);
             }
             None => diags.error_once(
-                &format!("unknown-canvas-{}", to_snake(cname)),
+                &format!("unknown-canvas-{}", rust_name(cname)),
                 format!("The view places a `Canvas {}`, but there's no `Canvas {}` defined.", cname, cname),
             ),
         }
@@ -280,7 +280,7 @@ fn emit_window(
         } else {
             decltype_rust(&f.ty)
         };
-        out.push_str(&format!("    {}: {},\n", to_snake(&f.name), fty));
+        out.push_str(&format!("    {}: {},\n", rust_name(&f.name), fty));
     }
     out.push_str("}\n\n");
 
@@ -294,7 +294,7 @@ fn emit_window(
         } else {
             render_init(f.init.as_ref(), &f.ty, enums)
         };
-        out.push_str(&format!("            {}: {},\n", to_snake(&f.name), init));
+        out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));
     }
     out.push_str("        }\n    }\n}\n\n");
 
@@ -343,7 +343,7 @@ fn emit_window(
         if e.params.is_empty() {
             out.push_str(&format!("        Message::{} => {{\n", e.name));
         } else {
-            let binds: Vec<String> = e.params.iter().map(|p| to_snake(&p.name)).collect();
+            let binds: Vec<String> = e.params.iter().map(|p| rust_name(&p.name)).collect();
             out.push_str(&format!("        Message::{}({}) => {{\n", e.name, binds.join(", ")));
         }
         match split {
@@ -486,7 +486,7 @@ fn emit_paint_fn(
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
-    let name = to_snake(&func.name);
+    let name = rust_name(&func.name);
     let vis = if func.public { "pub " } else { "" };
     let mut params = vec!["frame: &mut iced::widget::canvas::Frame".to_string()];
     for p in &func.params {
@@ -510,7 +510,7 @@ fn render_paint_param(p: &Param) -> String {
         DeclType::Plain(t) => t.rust().to_string(),
         other => decltype_rust(other),
     };
-    format!("{}: {}", to_snake(&p.name), ty)
+    format!("{}: {}", rust_name(&p.name), ty)
 }
 
 /// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
@@ -562,7 +562,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         }
         ViewNode::TextInput { placeholder, value, on_input } => {
             let ph = render_expr(&rewrite_expr(placeholder.clone(), ctx.fields, ctx.enums), None);
-            let field = to_snake(value);
+            let field = rust_name(value);
             let base = format!("text_input({}, &state.{})", ph, field);
             match on_input {
                 Some(ev) => format!("{}.on_input(Message::{})", base, ev),
@@ -571,7 +571,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         }
         ViewNode::Checkbox { label, value, on_toggle } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
-            let field = to_snake(value);
+            let field = rust_name(value);
             // `is_checked` is a `bool` (Copy), so it's passed by value.
             let base = format!("checkbox({}, state.{})", lbl, field);
             match on_toggle {
@@ -582,7 +582,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::Slider { min, max, value, on_change } => {
             let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields, ctx.enums), None);
             let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields, ctx.enums), None);
-            let field = to_snake(value);
+            let field = rust_name(value);
             format!(
                 "slider({}..={}, state.{}, Message::{})",
                 lo, hi, field, on_change
@@ -590,7 +590,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         }
         ViewNode::Toggler { label, value, on_toggle } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
-            let field = to_snake(value);
+            let field = rust_name(value);
             // `is_toggled` is a `bool` (Copy), passed by value; label via builder.
             let base = format!("toggler(state.{}).label({})", field, lbl);
             match on_toggle {
@@ -601,7 +601,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::ProgressBar { min, max, value } => {
             let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields, ctx.enums), None);
             let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields, ctx.enums), None);
-            let field = to_snake(value);
+            let field = rust_name(value);
             // Iced progress bars are `f32`; cast the bounds and value.
             format!(
                 "progress_bar(({} as f32)..=({} as f32), state.{} as f32)",
@@ -611,7 +611,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::Radio { label, value, option, on_select } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
             let opt = render_expr(&rewrite_expr(option.clone(), ctx.fields, ctx.enums), None);
-            let field = to_snake(value);
+            let field = rust_name(value);
             // The selected value is `Some(state.field)` (Copy, so it's a copy).
             format!(
                 "radio({}, {}, Some(state.{}), Message::{})",
@@ -619,7 +619,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             )
         }
         ViewNode::TextArea { value } => {
-            let field = to_snake(value);
+            let field = rust_name(value);
             // Edits flow through an Action applied to the editor's Content (the
             // `<Field>Edited` message is generated for you).
             format!(
@@ -840,7 +840,7 @@ fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx, indent: usize) -> String {
 fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
     let rendered = render_expr(&rewrite_expr(scrutinee.clone(), ctx.fields, ctx.enums), None);
     if let Expr::Ident(name) = scrutinee {
-        if matches!(ctx.field_ty.get(&to_snake(name)), Some(DeclType::Plain(Type::Text))) {
+        if matches!(ctx.field_ty.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) {
             return format!("{}.as_str()", rendered);
         }
     }
@@ -890,9 +890,9 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             }
         }
         ViewNode::Slider { value, .. } => {
-            if matches!(field_ty.get(&to_snake(value)), Some(DeclType::Plain(Type::Long | Type::LongLong))) {
+            if matches!(field_ty.get(&rust_name(value)), Some(DeclType::Plain(Type::Long | Type::LongLong))) {
                 diags.error_once(
-                    &format!("slider-i64-{}", to_snake(value)),
+                    &format!("slider-i64-{}", rust_name(value)),
                     format!(
                         "A Slider can't bind to `{}` because it's a `Long` (64-bit), which Iced \
                          sliders don't support. Use `Integer`, `Single`, or `Double` for the \
@@ -903,29 +903,29 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             }
         }
         ViewNode::Toggler { value, .. } => {
-            if !matches!(field_ty.get(&to_snake(value)), Some(DeclType::Plain(Type::Boolean))) {
+            if !matches!(field_ty.get(&rust_name(value)), Some(DeclType::Plain(Type::Boolean))) {
                 diags.error_once(
-                    &format!("toggler-bool-{}", to_snake(value)),
+                    &format!("toggler-bool-{}", rust_name(value)),
                     format!("A Toggler binds to a `Boolean` state field — `{}` isn't one.", value),
                 );
             }
         }
         ViewNode::ProgressBar { value, .. } => {
             let numeric = matches!(
-                field_ty.get(&to_snake(value)),
+                field_ty.get(&rust_name(value)),
                 Some(DeclType::Plain(t)) if !matches!(t, Type::Text | Type::Boolean)
             );
             if !numeric {
                 diags.error_once(
-                    &format!("progress-num-{}", to_snake(value)),
+                    &format!("progress-num-{}", rust_name(value)),
                     format!("A ProgressBar shows a number — `{}` must be a numeric field.", value),
                 );
             }
         }
         ViewNode::TextArea { value } => {
-            if !matches!(field_ty.get(&to_snake(value)), Some(DeclType::Named(n)) if n == "TextArea") {
+            if !matches!(field_ty.get(&rust_name(value)), Some(DeclType::Named(n)) if n == "TextArea") {
                 diags.error_once(
-                    &format!("textarea-type-{}", to_snake(value)),
+                    &format!("textarea-type-{}", rust_name(value)),
                     format!(
                         "A TextArea binds to a field declared `As TextArea` — `{}` isn't one.",
                         value
@@ -937,7 +937,7 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             // Iced `radio` values must be `Copy + Eq` — an enum or an integer
             // (floats aren't `Eq`; strings aren't `Copy`).
             let ok = matches!(
-                field_ty.get(&to_snake(value)),
+                field_ty.get(&rust_name(value)),
                 Some(DeclType::Named(_))
                     | Some(DeclType::Plain(
                         Type::Integer | Type::Long | Type::LongLong | Type::Byte
@@ -945,7 +945,7 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             );
             if !ok {
                 diags.error_once(
-                    &format!("radio-type-{}", to_snake(value)),
+                    &format!("radio-type-{}", rust_name(value)),
                     format!(
                         "A Radio binds to an enum or integer field (the selectable values must be \
                          Copy and comparable) — `{}` isn't one.",
@@ -984,7 +984,7 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
         match node {
             ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::TextArea { value } => {
-                let f = to_snake(value);
+                let f = rust_name(value);
                 if !out.contains(&f) {
                     out.push(f);
                 }
@@ -1082,7 +1082,7 @@ pub(crate) fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, Decl
     match s {
         Stmt::Assign { target: Expr::Field(recv, fname), value, .. }
             if matches!(&**recv, Expr::Ident(n) if n == "state")
-                && matches!(field_ty.get(&to_snake(fname)), Some(DeclType::Plain(Type::Text)))
+                && matches!(field_ty.get(&rust_name(fname)), Some(DeclType::Plain(Type::Text)))
                 && matches!(value, Expr::Str(_)) =>
         {
             let inner = std::mem::replace(value, Expr::Int(0));
@@ -1172,7 +1172,7 @@ pub(crate) fn await_split(
                 call_src: info.call_src,
                 ret_type: info.ret_type,
                 blocking: info.blocking,
-                bind: to_snake(name),
+                bind: rust_name(name),
                 cont: e.body[idx + 1..].to_vec(),
             })
         }
@@ -1198,8 +1198,8 @@ fn snapshot_args(
     let mut arg_src = Vec::new();
     for a in args {
         match a {
-            Expr::Ident(name) if field_ty.contains_key(&to_snake(name)) => {
-                let f = to_snake(name);
+            Expr::Ident(name) if field_ty.contains_key(&rust_name(name)) => {
+                let f = rust_name(name);
                 snapshots.push(format!("let {} = state.{}.clone();", f, f));
                 if matches!(field_ty.get(&f), Some(DeclType::Plain(Type::Text))) {
                     arg_src.push(format!("&{}", f));
@@ -1236,7 +1236,7 @@ fn awaitable_info(
                 );
                 return None;
             };
-            let m = to_snake(method);
+            let m = rust_name(method);
             let (ret_type, blocking) = match (canon, m.as_str()) {
                 ("Http", "get") => ("Result<String, String>".to_string(), true),
                 _ => {
@@ -1259,7 +1259,7 @@ fn awaitable_info(
         // One of the program's own functions — its return type comes from the
         // FnTable; it's synchronous Rust, so run it via `spawn_blocking`.
         Expr::Call { name, args } => {
-            let Some(sig) = fns.get(&to_snake(name)) else {
+            let Some(sig) = fns.get(&rust_name(name)) else {
                 diags.error_once(
                     "await-unknown-fn",
                     format!("`Await {}(…)` — there's no function `{}` to await.", name, name),
@@ -1278,7 +1278,7 @@ fn awaitable_info(
             };
             let ret_type = decltype_rust(dt);
             let (snapshots, arg_src) = snapshot_args(args, field_ty);
-            let call_src = format!("{}({})", to_snake(name), arg_src.join(", "));
+            let call_src = format!("{}({})", rust_name(name), arg_src.join(", "));
             Some(AwaitInfo { snapshots, call_src, ret_type, blocking: true })
         }
         _ => {
@@ -1297,7 +1297,7 @@ fn is_blocking_stdlib_call(e: &Expr) -> bool {
     if let Expr::MethodCall { recv, method, .. } = e {
         if let Expr::Ident(r) = &**recv {
             if let Some(c) = stdlib_type(r) {
-                return matches!((c, to_snake(method).as_str()), ("Http", "get"));
+                return matches!((c, rust_name(method).as_str()), ("Http", "get"));
             }
         }
     }
@@ -1544,7 +1544,7 @@ fn rewrite_expr_with(
                 _ => unreachable!(),
             }
         }
-        Expr::Ident(name) if fields.contains(&to_snake(&name)) => {
+        Expr::Ident(name) if fields.contains(&rust_name(&name)) => {
             Expr::Field(Box::new(Expr::Ident(recv.to_string())), name)
         }
         Expr::Binary { op, lhs, rhs } => Expr::Binary {
@@ -1634,7 +1634,7 @@ fn paint_fn_set(program: &Program) -> HashSet<String> {
         .functions
         .iter()
         .filter(|f| f.receiver.is_none() && body_has_draw(&f.body))
-        .map(|f| to_snake(&f.name))
+        .map(|f| rust_name(&f.name))
         .collect();
     loop {
         let mut changed = false;
@@ -1642,7 +1642,7 @@ fn paint_fn_set(program: &Program) -> HashSet<String> {
             if f.receiver.is_some() {
                 continue;
             }
-            let n = to_snake(&f.name);
+            let n = rust_name(&f.name);
             if !set.contains(&n) && body_calls_any(&f.body, &set) {
                 set.insert(n);
                 changed = true;
@@ -1680,7 +1680,7 @@ fn body_calls_any(stmts: &[Stmt], set: &HashSet<String>) -> bool {
 
 fn stmt_calls_any(s: &Stmt, set: &HashSet<String>) -> bool {
     match s {
-        Stmt::Expr(Expr::Call { name, .. }) => set.contains(&to_snake(name)),
+        Stmt::Expr(Expr::Call { name, .. }) => set.contains(&rust_name(name)),
         Stmt::If { branches, else_body } => {
             branches.iter().any(|(_, b)| body_calls_any(b, set))
                 || else_body.as_ref().map_or(false, |b| body_calls_any(b, set))
@@ -1814,7 +1814,7 @@ fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
 fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
     match e {
         Expr::Ident(n) => {
-            out.insert(to_snake(n));
+            out.insert(rust_name(n));
         }
         Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
             collect_expr_idents(lhs, out);
@@ -1847,7 +1847,7 @@ fn rewrite_canvas_stmt(
     let re = |e: Expr| rewrite_expr_with(e, "self", fields, enums);
     let rec = |s: Stmt| rewrite_canvas_stmt(s, fields, enums, paint_fns);
     match s {
-        Stmt::Expr(Expr::Call { name, args }) if paint_fns.contains(&to_snake(&name)) => {
+        Stmt::Expr(Expr::Call { name, args }) if paint_fns.contains(&rust_name(&name)) => {
             Stmt::Draw(DrawCmd::Paint { name, args: args.into_iter().map(re).collect() })
         }
         Stmt::Draw(cmd) => Stmt::Draw(rewrite_draw_cmd(cmd, fields, enums)),

@@ -1,7 +1,7 @@
 // A GUI calling its own function: the Celsius→Fahrenheit conversion lives in a
 // helper that the slider's event calls.
 
-fn to_fahrenheit(c: i32) -> i32 {
+fn tofahrenheit(c: i32) -> i32 {
     c * 9 / 5 + 32
 }
 
@@ -31,7 +31,7 @@ fn update(state: &mut Converter, message: Message) {
     match message {
         Message::SetCelsius(value) => {
             state.celsius = value;
-            state.fahrenheit = to_fahrenheit(value);
+            state.fahrenheit = tofahrenheit(value);
         }
     }
 }

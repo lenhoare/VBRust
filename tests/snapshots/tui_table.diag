@@ -1,1 +1,1 @@
-⚠ [line 35] Function 'Roster' renamed to 'roster' — Rust uses snake_case for functions.
+⚠ [line 35] Function 'Roster' is 'roster' on the Rust side — one rule: a VBR name is its lowercase self in Rust.

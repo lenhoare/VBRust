@@ -43,7 +43,7 @@ pub fn compile(source: &str) -> Compiled {
 }
 
 /// Compile one file of a multifile project. `modules` are the other project
-/// module names (snake-cased file stems), used to qualify cross-module calls;
+/// module names (lowercased file stems), used to qualify cross-module calls;
 /// `is_entry` marks the crate root (gets `mod <name>;` declarations and `fn main`).
 pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compiled {
     let mut diags = Diagnostics::new();
@@ -83,8 +83,8 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
     }
 }
 
-/// The Rust module name for a project file stem (`MyHelpers` → `my_helpers`),
-/// matching how identifiers are snake-cased everywhere else.
+/// The Rust module name for a project file stem (`MyHelpers` → `myhelpers`),
+/// matching how identifiers are lowercased everywhere else.
 pub fn module_name(stem: &str) -> String {
-    transpiler::to_snake(stem)
+    transpiler::rust_name(stem)
 }

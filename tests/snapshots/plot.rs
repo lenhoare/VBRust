@@ -4,7 +4,7 @@ struct Bar {
     pub h: i32,
 }
 
-fn make_bars(seed: i32) -> Vec<Bar> {
+fn makebars(seed: i32) -> Vec<Bar> {
     let mut result: Vec<Bar> = Vec::new();
     for i in 0..=9 {
         let h: i32 = (i * seed + 7) % 15 * 10 + 20;
@@ -24,7 +24,7 @@ struct Chart {
 impl Default for Chart {
     fn default() -> Self {
         Chart {
-            bars: make_bars(3),
+            bars: makebars(3),
             seed: 3,
         }
     }
@@ -39,7 +39,7 @@ fn update(state: &mut Chart, message: Message) {
     match message {
         Message::Regenerate => {
             state.seed += 1;
-            state.bars = make_bars(state.seed);
+            state.bars = makebars(state.seed);
         }
     }
 }

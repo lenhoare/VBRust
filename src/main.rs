@@ -474,7 +474,7 @@ const STDLIB_FEATURES: &[(&str, &str)] = &[
     ("DataFrame", "dataframe"),
 ];
 
-/// The raw file stem (`http.rs` → `http`), before snake-casing.
+/// The raw file stem (`http.rs` → `http`), before lowercasing.
 fn stem_name(p: &Path) -> String {
     p.file_stem().and_then(|s| s.to_str()).unwrap_or("module").to_string()
 }
@@ -624,13 +624,12 @@ fn teaching_hint(code: &str) -> Option<&'static str> {
         }
         "E0425" => {
             "Rust can't find that name. Inside `Rust … End Rust` blocks and `Match` \
-             patterns you're writing real Rust, so use the snake_case spelling — VBR's \
-             `myTotal` is `my_total` there."
+             patterns you're writing real Rust, so use the lowercase spelling — VBR's \
+             `myTotal` is `mytotal` there."
         }
         "E0599" => {
             "No method with that name on this type. Method calls pass straight through \
-             to Rust — check the name against Rust's String/Vec docs (VBR lowers it to \
-             snake_case)."
+             to Rust — check the name against Rust's String/Vec docs (VBR lowercases it)."
         }
         _ => return None,
     })
