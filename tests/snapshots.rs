@@ -65,7 +65,7 @@ const HAPPY: &[&str] = &[
 /// here — they need a feature not yet built, or an external crate (vbr_stdlib)
 /// that our rustc-only compile check can't link.
 const TRANSPILE_ONLY: &[&str] =
-    &["string_options", "stdlib", "datetime_json", "counter", "greeting", "settings", "fetch", "view_if", "toggle_progress", "radio_choice", "notes", "spacing", "dracula", "converter", "await_fn", "logo", "canvas", "plot", "showcase", "tui_counter", "tui_layout", "tui_list", "tui_panels", "tui_table", "tui_input", "tui_tabs"];
+    &["string_options", "stdlib", "datetime_json", "counter", "greeting", "settings", "fetch", "view_if", "toggle_progress", "radio_choice", "notes", "spacing", "dracula", "converter", "await_fn", "logo", "canvas", "plot", "showcase", "tui_counter", "tui_layout", "tui_list", "tui_panels", "tui_table", "tui_input", "tui_tabs", "tui_dashboard"];
 
 /// Files that are meant to fail, exercising the teaching diagnostics.
 const ERRORS: &[&str] = &[

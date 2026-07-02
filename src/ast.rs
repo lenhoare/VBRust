@@ -213,6 +213,24 @@ pub enum ViewNode {
     Image {
         path: Expr,
     },
+    /// A progress gauge over `min..=max` showing a numeric state field (ratatui
+    /// `Gauge`). Display-only. TUI-only.
+    Gauge {
+        min: Expr,
+        max: Expr,
+        value: String,
+    },
+    /// A compact trend line of a `Vec` of numbers (ratatui `Sparkline`).
+    /// Display-only. TUI-only.
+    Sparkline {
+        field: String,
+    },
+    /// A bar chart over a `Vec<Struct>`: the struct's first `String` field labels
+    /// each bar, its first numeric field is the bar height (ratatui `BarChart`).
+    /// Display-only. TUI-only.
+    BarChart {
+        field: String,
+    },
     /// A single-line text input bound to a `String` state field (ratatui, TUI).
     /// Printable keys type into it, Backspace deletes; `on_submit` fires on Enter.
     /// Focusable — Tab cycles among inputs/lists/tables. TUI-only.

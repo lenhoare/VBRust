@@ -145,9 +145,21 @@ fn emit_screen(
     let focus_map: HashMap<String, usize> =
         focusables.iter().enumerate().map(|(i, f)| (f.field.clone(), i)).collect();
 
-    // ── imports ──
-    out.push_str("use ratatui::widgets::{Block, Paragraph};\n");
-    out.push_str("use ratatui::layout::{Constraint, Layout};\n");
+    // Render the view body up front (into `inner`) — this decides which imports
+    // are needed and whether the view reads `state`.
+    let mut body = String::new();
+    let mut counter = 0usize;
+    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, &focus_map, multi, &mut counter, 1, &mut body, diags);
+
+    // ── imports (only what the body uses, so it stays warning-free) ──
+    let mut widgets = vec!["Block"];
+    if body.contains("Paragraph::new(") {
+        widgets.push("Paragraph");
+    }
+    out.push_str(&format!("use ratatui::widgets::{{{}}};\n", widgets.join(", ")));
+    if body.contains("Layout::") {
+        out.push_str("use ratatui::layout::{Constraint, Layout};\n");
+    }
     out.push_str("use ratatui::Frame;\n\n");
 
     // ── State struct ──
@@ -189,14 +201,10 @@ fn emit_screen(
     out.push_str("        }\n    }\n}\n\n");
 
     // ── view ──
-    // Render the body first (into `inner`, the area within the titled border), so
-    // we can name the `state` param `_state` when nothing reads it. A list/table
-    // makes the view `&mut` (its state mutates when rendered); an input alone
-    // reads state immutably (typing happens in the event loop).
+    // `state` is `_state` when nothing reads it. A list/table makes the view
+    // `&mut` (its state mutates when rendered); an input alone reads immutably
+    // (typing happens in the event loop).
     let title = sc.title.clone().unwrap_or_else(|| sc.name.clone());
-    let mut body = String::new();
-    let mut counter = 0usize;
-    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, &focus_map, multi, &mut counter, 1, &mut body, diags);
     let (param_name, param_ty) = if has_stateful {
         ("state".to_string(), format!("&mut {}", ty))
     } else if body.contains("state.") {
@@ -461,6 +469,78 @@ fn render_view_node(
                 pad, id, area, f
             ));
         }
+        // A progress gauge over min..=max (ratatui `Gauge`, clamped to 0..=1).
+        ViewNode::Gauge { min, max, value } => {
+            let f = to_snake(value);
+            if !matches!(field_ty.get(&f), Some(DeclType::Plain(t)) if !matches!(t, Type::Text | Type::Boolean)) {
+                diags.error_once(
+                    &format!("gauge-field-{}", f),
+                    format!("A Gauge shows a number — `{}` must be a numeric field.", value),
+                );
+            }
+            let lo = render_expr(&crate::gui::rewrite_expr(min.clone(), fields, enums), None);
+            let hi = render_expr(&crate::gui::rewrite_expr(max.clone(), fields, enums), None);
+            let id = *counter;
+            *counter += 1;
+            out.push_str(&format!(
+                "{}let ratio_{} = ((state.{} as f64 - {} as f64) / ({} as f64 - {} as f64)).clamp(0.0, 1.0);\n",
+                pad, id, f, lo, hi, lo
+            ));
+            out.push_str(&format!(
+                "{}frame.render_widget(ratatui::widgets::Gauge::default()\
+                 .block(Block::bordered().title({:?})).ratio(ratio_{}), {});\n",
+                pad, value, id, area
+            ));
+        }
+        // A trend line over a Vec of numbers (ratatui `Sparkline`).
+        ViewNode::Sparkline { field } => {
+            let f = to_snake(field);
+            if !matches!(field_ty.get(&f), Some(DeclType::Vec(inner)) if matches!(**inner, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean))) {
+                diags.error_once(
+                    &format!("sparkline-field-{}", f),
+                    format!("A Sparkline shows a `Vec` of numbers — `{}` isn't one.", field),
+                );
+            }
+            let id = *counter;
+            *counter += 1;
+            out.push_str(&format!(
+                "{}let spark_{}: Vec<u64> = state.{}.iter().map(|&v| v as u64).collect();\n",
+                pad, id, f
+            ));
+            out.push_str(&format!(
+                "{}frame.render_widget(ratatui::widgets::Sparkline::default()\
+                 .block(Block::bordered().title({:?})).data(&spark_{}), {});\n",
+                pad, field, id, area
+            ));
+        }
+        // Bars over a Vec<Struct>: first String field labels, first number heights.
+        ViewNode::BarChart { field } => {
+            let f = to_snake(field);
+            match barchart_columns(&f, field_ty, structs) {
+                Some((label, val)) => {
+                    let id = *counter;
+                    *counter += 1;
+                    out.push_str(&format!(
+                        "{}let bars_{}: Vec<(&str, u64)> = state.{}.iter()\
+                         .map(|it| (it.{}.as_str(), it.{} as u64)).collect();\n",
+                        pad, id, f, label, val
+                    ));
+                    out.push_str(&format!(
+                        "{}frame.render_widget(ratatui::widgets::BarChart::default()\
+                         .block(Block::bordered().title({:?})).data(&bars_{}).bar_width(7), {});\n",
+                        pad, field, id, area
+                    ));
+                }
+                None => diags.error_once(
+                    &format!("barchart-field-{}", f),
+                    format!(
+                        "A BarChart binds to a `Vec<Struct>` whose struct has a `String` field \
+                         (the bar label) and a numeric field (the bar height) — `{}` isn't one.",
+                        field
+                    ),
+                ),
+            }
+        }
         // `Match <expr>` in the view → a Rust `match` whose arm renders its
         // widget(s) into the same area.
         ViewNode::Match { scrutinee, arms } => {
@@ -579,9 +659,38 @@ fn child_constraint(node: &ViewNode) -> String {
         | ViewNode::If { .. }
         | ViewNode::List { .. }
         | ViewNode::Table { .. } => "Constraint::Fill(1)".to_string(),
-        ViewNode::Input { .. } => "Constraint::Length(3)".to_string(),
+        ViewNode::Input { .. } | ViewNode::Gauge { .. } => "Constraint::Length(3)".to_string(),
+        ViewNode::Sparkline { .. } | ViewNode::BarChart { .. } => "Constraint::Fill(1)".to_string(),
         _ => "Constraint::Length(1)".to_string(),
     }
+}
+
+/// For a `BarChart` field (a `Vec<Struct>`), the struct's first `String` field
+/// (the bar label) and first numeric field (the bar height), snake-cased.
+fn barchart_columns(
+    field: &str,
+    field_ty: &HashMap<String, DeclType>,
+    structs: &HashMap<String, &StructDef>,
+) -> Option<(String, String)> {
+    let struct_name = match field_ty.get(field) {
+        Some(DeclType::Vec(inner)) => match &**inner {
+            DeclType::Named(n) => n,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let sd = structs.get(struct_name)?;
+    let label = sd
+        .fields
+        .iter()
+        .find(|f| matches!(f.ty, DeclType::Plain(Type::Text)))
+        .map(|f| to_snake(&f.name))?;
+    let value = sd
+        .fields
+        .iter()
+        .find(|f| matches!(f.ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
+        .map(|f| to_snake(&f.name))?;
+    Some((label, value))
 }
 
 fn constraint_expr(size: SizeConstraint) -> String {

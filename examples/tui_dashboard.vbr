@@ -1,0 +1,52 @@
+Type Bar
+    Public label As String
+    Public value As Integer
+End Type
+
+Screen Dash
+    Title "Dashboard"
+
+    State
+        Dim cpu As Integer = 62
+        Dim history As Vec<Integer> = History()
+        Dim sales As Vec<Bar> = Sales()
+    End State
+
+    View
+        Column
+            Spacing 1
+            Gauge 0..=100, cpu
+            Length 8
+            Sparkline history
+            Fill
+            BarChart sales
+        End Column
+    End View
+
+    On Key Esc Quit
+End Screen
+
+Function History() As Vec<Integer>
+    Dim v As Vec<Integer>
+    v.Push(3)
+    v.Push(7)
+    v.Push(4)
+    v.Push(9)
+    v.Push(6)
+    v.Push(8)
+    v.Push(5)
+    Return v
+End Function
+
+Function Sales() As Vec<Bar>
+    Dim v As Vec<Bar>
+    v.Push(Bar { label: "Jan", value: 12 })
+    v.Push(Bar { label: "Feb", value: 19 })
+    v.Push(Bar { label: "Mar", value: 8 })
+    v.Push(Bar { label: "Apr", value: 15 })
+    Return v
+End Function
+
+Function Main()
+    Dash.Run
+End Function

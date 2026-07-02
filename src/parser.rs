@@ -933,6 +933,31 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Image { path })
             }
+            "gauge" => {
+                // `Gauge min..=max, field` — a progress gauge (display-only).
+                self.advance();
+                let min = self.parse_expr()?;
+                self.expect(&Tok::DotDotEq, "for the gauge range — `min..=max`")?;
+                let max = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after the range — `Gauge min..=max, field`")?;
+                let value = self.expect_ident("for the bound numeric field")?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Gauge { min, max, value })
+            }
+            "sparkline" => {
+                // `Sparkline field` — a trend line over a Vec of numbers.
+                self.advance();
+                let field = self.expect_ident("for the Sparkline's numeric Vec field")?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Sparkline { field })
+            }
+            "barchart" => {
+                // `BarChart field` — bars over a Vec of structs (label + value).
+                self.advance();
+                let field = self.expect_ident("for the BarChart's Vec<Struct> field")?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::BarChart { field })
+            }
             "input" => {
                 // `Input field` + optional `On Submit <Event>` — a text entry line.
                 self.advance();
@@ -1341,7 +1366,7 @@ impl<'a> Parser<'a> {
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
                          Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         Input, List, Table, Match, If).",
+                         Input, List, Table, Gauge, Sparkline, BarChart, Match, If).",
                         other
                     ),
                 );
