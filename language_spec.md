@@ -358,18 +358,26 @@ shape as `Option`/`Result`, but your own:
 
 ```
 Enum Shape
+    Dot(Point)                ' a struct payload
+    Segment(Point, Point)     ' several values
+    Blob(Vec<Point>)          ' a collection (also lets an enum hold many things)
     Circle(Double)
-    Rectangle(Double, Double)
     Empty
 End Enum
 ```
 - Build one with `Shape.Circle(2.0)`; read the data back by **matching** (the only
-  way — like Rust): `Match s / Shape.Circle(r) => … / Shape.Rectangle(w, h) => …`.
-- Derives are computed from the payloads: `Debug`/`Clone`/`PartialEq` always,
-  `Copy` unless a `String` payload, `Eq` unless a float payload.
-- V1: payloads are **primitives or `String`**, and enums are **non-recursive**
-  (a variant can't hold its own enum). Richer payloads (structs, `Vec`, nested
-  enums) and recursion (auto-`Box`) come later.
+  way — like Rust): `Match s / Shape.Circle(r) => … / Shape.Dot(p) => … p.x …`.
+- A payload can be **any type** — primitives, `String`, structs, `Vec<T>`, nested
+  enums, tuples.
+- Derives are computed from the payloads so the enum always compiles:
+  `Debug`/`Clone` always; `Copy` only when every payload is a `Copy` primitive
+  (not `String`/`Vec`/a struct); `PartialEq`/`Eq` only when every payload is a
+  primitive or `String` (a struct payload derives neither, so they're dropped;
+  `Eq` also drops on a float).
+- **Recursion:** a variant can hold its enum *through* a `Vec`/`Option`
+  (`Blob(Vec<Shape>)` — a tree) but not *directly* (`Node(Shape)` would be
+  infinitely sized; auto-`Box` is a future addition). Named-field variants
+  (`Circle(radius As Double)`) are also future — payloads are tuple-style for now.
 
 ---
 

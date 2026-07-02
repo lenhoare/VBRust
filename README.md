@@ -6,6 +6,9 @@ and the generated Rust is always there to read.
 
 - **`language_reference.md`** — the readable guide (start here).
 - **`language_spec.md`** — the terse, normative reference.
+- **`gui_spec.md`** — graphical apps: a `Window` → an Iced application.
+- **`tui_spec.md`** — terminal apps: a `Screen` → a ratatui application.
+- **`stdlib_spec.md`** — the standard library.
 
 ## Building
 

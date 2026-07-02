@@ -56,10 +56,14 @@ State
     Dim count As Integer = 0
     Dim name As String = ""
     Dim enabled As Boolean = False
+    Dim points As Vec<Point>       ' a collection — may start empty
 End State
 ```
 
-State fields are the authoritative data for the window.
+State fields are the authoritative data for the window. A field may be a
+primitive, an enum, a `TextArea` (a multi-line editor), or a **`Vec<T>`
+collection** (fill it in an event and iterate it in the view — the basis for
+charts/plots). `Map` and fixed arrays are not yet supported as state fields.
 
 Controls should not normally be mutated directly. Instead, controls display and update state.
 
@@ -723,57 +727,37 @@ Column
 End Column
 ```
 
-→ `column![…].spacing(12).padding(20)`. (`Width`/`Height`/`Align`/`Center` and
-`Fill`/`Shrink` sizing are not built yet — see below.)
+→ `column![…].spacing(12).padding(20)`.
 
-V1 should support a small set of common layout properties.
+### Child sizing  *(BUILT — 2026-07-03)*
 
-Recommended properties:
-
-```text
-Width
-Height
-Padding
-Spacing
-Align
-Center
-```
-
-Possible values:
-
-```text
-Fill
-Shrink
-Pixels(n)
-```
-
-Suggested syntax:
+A **size line before a child** sizes that child along the container's **main
+axis** — height in a `Column`, width in a `Row` — the same syntax the TUI uses:
 
 ```vb
 Column
-    Spacing 10
-    Padding 20
-
-    Text "Settings"
-
-    TextBox name
+    Length 40
+    Text "Header — fixed 40px tall"
+    Fill
+    Text "Body fills the remaining space"
+    Length 30
+    Button "Footer"
+        On Click Save
+    End Button
 End Column
 ```
 
-Container example:
+- **`Length N`** → a fixed `N` pixels (`iced::Length::Fixed`).
+- **`Fill`** / **`Fill N`** → fill the leftover space, weighted by `N`
+  (`iced::Length::Fill` / `FillPortion(N)`).
 
-```vb
-Container
-    Width Fill
-    Height Fill
-    Padding 20
-    Center
+Each sized child is wrapped in an Iced `container` with the length applied on the
+main axis. `Percent`/`Min` are **Screen (TUI) only** — the GUI reports a friendly
+error and asks for `Length`/`Fill`.
 
-    Text "Hello"
-End Container
-```
-
-Absolute positioning is deliberately excluded from V1.
+**Not yet built:** cross-axis sizing (e.g. "fill the column's width"), container
+`Align`/`Center` alignment, and `Shrink`. Absolute positioning is deliberately
+excluded.
 
 ---
 
