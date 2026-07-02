@@ -39,11 +39,17 @@ pub fn transpile_module(
     // window definitions plus a `fn main` that launches the one `Function Main()`
     // names with `<Window>.Run`.
     if !program.windows.is_empty() {
-        return crate::gui::emit_gui_program(program, diags);
+        let rust = crate::gui::emit_gui_program(program, diags);
+        // The GUI emitter assembles sections out of order, so its line
+        // checkpoints would mislead — drop them rather than lie.
+        diags.clear_line_map();
+        return rust;
     }
     // A TUI program (one with a `Screen`) compiles to a ratatui application.
     if !program.screens.is_empty() {
-        return crate::tui::emit_tui_program(program, diags);
+        let rust = crate::tui::emit_tui_program(program, diags);
+        diags.clear_line_map();
+        return rust;
     }
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
@@ -361,6 +367,8 @@ pub(crate) fn emit_fn(
     };
     // `Public Function` → `pub fn`, so other modules can call it.
     let vis = if func.public { "pub " } else { "" };
+    // Checkpoint the header too, so signature-level rustc errors map back.
+    diags.map_line(out.matches('\n').count() + 1, func.line);
     out.push_str(&format!("{}{}fn {}({}){} {{\n", pad, vis, name, params.join(", "), ret));
 
     // `FunctionName = value` is really a return — rewrite it before emitting.
@@ -436,9 +444,12 @@ fn emit_fn_body(
     indent: usize,
 ) {
     let pad = "    ".repeat(indent);
-    // The tail expression is the last *non-comment* statement, so a trailing
-    // inline comment doesn't rob a `Return` of its idiomatic tail form.
-    let last_real = stmts.iter().rposition(|s| !matches!(s, Stmt::Comment(_)));
+    // The tail expression is the last *non-comment* statement (line marks
+    // don't count either), so a trailing inline comment doesn't rob a
+    // `Return` of its idiomatic tail form.
+    let last_real = stmts
+        .iter()
+        .rposition(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_)));
     if let Some(l) = last_real {
         if let Stmt::Return(Some(e)) = &stmts[l] {
             for stmt in &stmts[..l] {
@@ -516,6 +527,11 @@ pub(crate) fn emit_stmt(
 ) {
     let pad = "    ".repeat(indent);
     match stmt {
+        Stmt::LineMark(vbr_line) => {
+            // Emits nothing: records that the next generated line came from
+            // this VBR source line (for translating rustc errors back).
+            diags.map_line(out.matches('\n').count() + 1, *vbr_line);
+        }
         Stmt::Comment(text) => {
             out.push_str(&format!("{}// {}\n", pad, text));
         }

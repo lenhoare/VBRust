@@ -11,3 +11,8 @@ path = "src/lib.rs"
 [[bin]]
 name = "vbr"
 path = "src/main.rs"
+
+[dependencies]
+# Parses rustc/cargo `--error-format=json` output, so `vbr run`/`runproject`
+# can translate Rust errors back to .vbr source lines.
+serde_json = "1"

@@ -30,6 +30,10 @@ pub struct Compiled {
     /// The structured diagnostics (level, message, line) — for tools like the
     /// language server that need more than the pre-rendered strings.
     pub diagnostic_items: Vec<diagnostics::Diagnostic>,
+    /// (generated-Rust line, VBR source line) checkpoints, ascending — used to
+    /// translate rustc errors back to the `.vbr` source. Empty for GUI/TUI
+    /// programs (their emitters don't keep line order yet).
+    pub line_map: Vec<(usize, usize)>,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -66,6 +70,7 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         dependencies.push(("pyo3".to_string(), "0.23".to_string()));
     }
     let stdlib_used = transpiler::stdlib_used(&diags);
+    let line_map = diags.take_line_map();
 
     Compiled {
         rust,
@@ -74,6 +79,7 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         dependencies,
         stdlib_used,
         diagnostic_items: diags.items().to_vec(),
+        line_map,
     }
 }
 

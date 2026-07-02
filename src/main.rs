@@ -142,15 +142,17 @@ fn cmd_run(args: &[String]) {
 
     eprintln!("→ rustc {}", input.display());
     let compiled = Command::new("rustc")
-        .args(["--edition", "2021"])
+        .args(["--edition", "2021", "--error-format", "json"])
         .arg(&rs)
         .arg("-o")
         .arg(&bin)
-        .status();
+        .output();
     match compiled {
-        Ok(s) if s.success() => {}
-        Ok(_) => {
-            eprintln!("✘ rustc rejected the generated Rust.");
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            let errors = parse_rustc_json(stderr.lines());
+            report_errors(&errors, |_| Some((input.clone(), result.line_map.clone())));
             exit(1);
         }
         Err(e) => {
@@ -174,7 +176,7 @@ fn cmd_project(args: &[String], run: bool) {
         Some(e) => e,
         None => exit(1),
     };
-    let build = generate_project(&entry);
+    let (build, file_maps) = generate_project(&entry);
     eprintln!("→ project: {}", build.display());
 
     if !run {
@@ -202,6 +204,33 @@ fn cmd_project(args: &[String], run: bool) {
             "→ Building with dataframes — compiling polars takes a minute or so the \
              first time (instant once cached)."
         );
+    }
+
+    // Build first with JSON diagnostics, so a failure can be translated back
+    // to .vbr lines; the run afterwards reuses the cached build instantly.
+    let built = Command::new("cargo")
+        .args(["build", "--message-format", "json", "--quiet"])
+        .current_dir(&build)
+        .output();
+    match built {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let errors = parse_cargo_json(&stdout);
+            report_errors(&errors, |e| {
+                // Match the error's file ("src/main.rs") to the .vbr it came from.
+                let name = e.file.as_deref()?;
+                file_maps
+                    .iter()
+                    .find(|m| name.ends_with(&m.rs_name))
+                    .map(|m| (m.source.clone(), m.map.clone()))
+            });
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("✘ Could not run cargo (is it installed?): {}", e);
+            exit(1);
+        }
     }
 
     eprintln!("→ cargo run\n");
@@ -237,8 +266,17 @@ fn resolve_entry(arg: &str) -> Option<PathBuf> {
     }
 }
 
-/// Generate the cargo project under `<project>/build/` and return its path.
-fn generate_project(entry: &Path) -> PathBuf {
+/// Translation info for one generated file: its path under the build dir, the
+/// `.vbr` it came from, and the (rust line → vbr line) map.
+struct FileMap {
+    rs_name: String,
+    source: PathBuf,
+    map: Vec<(usize, usize)>,
+}
+
+/// Generate the cargo project under `<project>/build/` and return its path
+/// plus the per-file line maps (for translating build errors).
+fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
 
     // A multi-module project is a folder whose entry is `main.vbr`; its siblings
@@ -283,11 +321,17 @@ fn generate_project(entry: &Path) -> PathBuf {
     }
 
     // Entry → main.rs (crate root: `mod` declarations + `fn main`).
+    let mut file_maps: Vec<FileMap> = Vec::new();
     let entry_compiled = compile_path(entry, &module_names, true);
     if let Err(e) = fs::write(src.join("main.rs"), &entry_compiled.rust) {
         eprintln!("✘ Could not write main.rs: {}", e);
         exit(1);
     }
+    file_maps.push(FileMap {
+        rs_name: "src/main.rs".to_string(),
+        source: entry.to_path_buf(),
+        map: entry_compiled.line_map.clone(),
+    });
     let mut any_stdlib = needs_project(&entry_compiled.rust);
     // An async GUI (an event with `Await`) runs blocking work via tokio, so Iced
     // needs its `tokio` feature; an `Image` needs Iced's `image` feature.
@@ -305,6 +349,11 @@ fn generate_project(entry: &Path) -> PathBuf {
             eprintln!("✘ Could not write {}: {}", path.display(), e);
             exit(1);
         }
+        file_maps.push(FileMap {
+            rs_name: format!("src/{}.rs", name),
+            source: file.clone(),
+            map: compiled.line_map.clone(),
+        });
         any_stdlib |= needs_project(&compiled.rust);
         deps.extend(compiled.dependencies);
         stdlib_ns.extend(compiled.stdlib_used);
@@ -412,7 +461,7 @@ fn generate_project(entry: &Path) -> PathBuf {
         exit(1);
     }
 
-    build
+    (build, file_maps)
 }
 
 /// Stdlib namespaces that map to a `vbr_stdlib` Cargo feature. `FileSystem` is
@@ -479,6 +528,160 @@ fn pkg_name(entry: &Path) -> String {
         name = format!("app_{}", name);
     }
     name
+}
+
+// ── Translating rustc errors back to .vbr lines ─────────────────────────────
+//
+// The transpiler records (generated-Rust line → VBR line) checkpoints as it
+// emits. rustc runs with `--error-format=json`; each error's primary span is
+// mapped through the checkpoints back to the .vbr source, quoted, and — for
+// the classic Rust stumbling blocks — given a teaching hint. The raw rustc
+// output (against the generated Rust) is available with VBR_RUSTC_RAW=1.
+
+/// One rustc diagnostic, reduced to what the translation needs.
+struct RustcError {
+    message: String,
+    code: Option<String>,
+    /// Primary-span file (cargo mode; a bare `rustc` run has only one file).
+    file: Option<String>,
+    /// Primary-span 1-based line in the generated Rust.
+    line: Option<usize>,
+    label: Option<String>,
+    /// rustc's own pretty rendering — the fallback when we can't map.
+    rendered: String,
+}
+
+/// Parse `rustc --error-format=json` output (one JSON object per line).
+fn parse_rustc_json<'a>(lines: impl Iterator<Item = &'a str>) -> Vec<RustcError> {
+    lines
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| error_from_json(&v))
+        .collect()
+}
+
+/// Parse `cargo build --message-format=json` output: the rustc diagnostic is
+/// nested inside each `compiler-message`.
+fn parse_cargo_json(stdout: &str) -> Vec<RustcError> {
+    stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["reason"] == "compiler-message")
+        .filter_map(|v| error_from_json(&v["message"]))
+        .collect()
+}
+
+fn error_from_json(v: &serde_json::Value) -> Option<RustcError> {
+    if v["level"].as_str() != Some("error") {
+        return None;
+    }
+    let message = v["message"].as_str()?.to_string();
+    // The trailing summary ("aborting due to N errors") carries no span.
+    if message.starts_with("aborting due to") {
+        return None;
+    }
+    let primary = v["spans"]
+        .as_array()
+        .and_then(|s| s.iter().find(|sp| sp["is_primary"].as_bool() == Some(true)));
+    Some(RustcError {
+        code: v["code"]["code"].as_str().map(String::from),
+        file: primary.and_then(|sp| sp["file_name"].as_str()).map(String::from),
+        line: primary
+            .and_then(|sp| sp["line_start"].as_u64())
+            .map(|n| n as usize),
+        label: primary
+            .and_then(|sp| sp["label"].as_str())
+            .map(String::from),
+        rendered: v["rendered"].as_str().unwrap_or("").to_string(),
+        message,
+    })
+}
+
+/// The VBR line a generated-Rust line came from: the last checkpoint at or
+/// before it (checkpoints are recorded in ascending emission order).
+fn vbr_line_for(map: &[(usize, usize)], rust_line: usize) -> Option<usize> {
+    map.iter()
+        .take_while(|(r, _)| *r <= rust_line)
+        .last()
+        .map(|(_, v)| *v)
+}
+
+/// A hint for the Rust errors a VB programmer meets first. Deliberately short —
+/// the goal is orientation, not a lecture.
+fn teaching_hint(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "E0308" => {
+            "Rust never converts between types silently — check the declared `As` type \
+             against what the right-hand side actually produces."
+        }
+        "E0382" => {
+            "The value was *moved*: a String/struct/Vec has one owner, and ownership \
+             changed hands earlier. Use `Set` to borrow it instead, or `.clone()` for a \
+             real (costed) copy."
+        }
+        "E0502" | "E0499" => {
+            "Two borrows clash: a value may have many readers or one writer, never both \
+             at once. Finish using the borrow (`Set`) before changing the original."
+        }
+        "E0425" => {
+            "Rust can't find that name. Inside `Rust … End Rust` blocks and `Match` \
+             patterns you're writing real Rust, so use the snake_case spelling — VBR's \
+             `myTotal` is `my_total` there."
+        }
+        "E0599" => {
+            "No method with that name on this type. Method calls pass straight through \
+             to Rust — check the name against Rust's String/Vec docs (VBR lowers it to \
+             snake_case)."
+        }
+        _ => return None,
+    })
+}
+
+/// Print translated errors. `locate` finds the (.vbr path, line map) for an
+/// error; anything it can't place falls back to rustc's own rendering.
+fn report_errors(errors: &[RustcError], locate: impl Fn(&RustcError) -> Option<(PathBuf, Vec<(usize, usize)>)>) {
+    if errors.is_empty() {
+        eprintln!("✘ rustc rejected the generated Rust (and produced no diagnostics VBR could read).");
+        return;
+    }
+    if std::env::var_os("VBR_RUSTC_RAW").is_some() {
+        for e in errors {
+            eprint!("{}", e.rendered);
+        }
+        return;
+    }
+    // Source files, read once each for quoting.
+    let mut sources: std::collections::HashMap<PathBuf, String> = std::collections::HashMap::new();
+    let mut any_mapped = false;
+    for e in errors {
+        let located = locate(e).and_then(|(path, map)| {
+            let vl = e.line.and_then(|l| vbr_line_for(&map, l))?;
+            Some((path, vl))
+        });
+        match located {
+            Some((path, vl)) => {
+                any_mapped = true;
+                eprintln!("✘ [line {}] {}", vl, e.message);
+                let src = sources
+                    .entry(path.clone())
+                    .or_insert_with(|| fs::read_to_string(&path).unwrap_or_default());
+                if let Some(text) = src.lines().nth(vl.saturating_sub(1)) {
+                    eprintln!("  {:>4} | {}", vl, text.trim_end());
+                }
+                if let Some(label) = &e.label {
+                    eprintln!("       ({})", label);
+                }
+                if let Some(hint) = e.code.as_deref().and_then(teaching_hint) {
+                    eprintln!("  ℹ {}", hint);
+                }
+                eprintln!();
+            }
+            None => eprint!("{}", e.rendered),
+        }
+    }
+    if any_mapped {
+        eprintln!("✘ The generated Rust didn't compile — the errors above point at your .vbr lines.");
+        eprintln!("  (Set VBR_RUSTC_RAW=1 to see rustc's original output against the generated Rust.)");
+    }
 }
 
 /// Where `vbr_stdlib` lives: `$VBR_STDLIB_PATH`, else the compile-time default.

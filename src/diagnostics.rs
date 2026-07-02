@@ -46,6 +46,11 @@ pub struct Diagnostics {
     items: Vec<Diagnostic>,
     seen_notes: HashSet<String>,
     marks: HashSet<String>,
+    /// (generated-Rust line, VBR source line) checkpoints, in emission order —
+    /// the map `vbr run`/`runproject` use to point rustc errors back at the
+    /// `.vbr` source. Lives here because the whole emission pipeline already
+    /// threads `Diagnostics` through.
+    line_map: Vec<(usize, usize)>,
 }
 
 impl Diagnostics {
@@ -128,5 +133,21 @@ impl Diagnostics {
 
     pub fn items(&self) -> &[Diagnostic] {
         &self.items
+    }
+
+    /// Record that generated-Rust line `rust_line` came from VBR line `vbr_line`.
+    pub fn map_line(&mut self, rust_line: usize, vbr_line: usize) {
+        self.line_map.push((rust_line, vbr_line));
+    }
+
+    /// Take the finished line map (leaves an empty one behind).
+    pub fn take_line_map(&mut self) -> Vec<(usize, usize)> {
+        std::mem::take(&mut self.line_map)
+    }
+
+    /// Drop the map — for emitters (GUI/TUI) that assemble output out of
+    /// order, where the checkpoints would mislead rather than help.
+    pub fn clear_line_map(&mut self) {
+        self.line_map.clear();
     }
 }

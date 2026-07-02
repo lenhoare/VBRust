@@ -1752,6 +1752,10 @@ impl<'a> Parser<'a> {
             if self.at_block_end() {
                 break;
             }
+            // Record the statement's source line (comments don't need one).
+            if !matches!(self.peek(), Tok::Comment(_)) {
+                stmts.push(Stmt::LineMark(self.line()));
+            }
             let s = self.parse_stmt()?;
             stmts.push(s);
 
@@ -2311,7 +2315,7 @@ impl<'a> Parser<'a> {
             let body = if matches!(self.peek(), Tok::Newline | Tok::Eof) {
                 self.parse_arm_body()?
             } else {
-                vec![self.parse_stmt()?]
+                vec![Stmt::LineMark(self.line()), self.parse_stmt()?]
             };
             arms.push(MatchArm { pattern, guard, body });
         }
@@ -2350,6 +2354,9 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
             if matches!(self.peek(), Tok::End | Tok::Eof) || self.line_has_fat_arrow() {
                 break;
+            }
+            if !matches!(self.peek(), Tok::Comment(_)) {
+                stmts.push(Stmt::LineMark(self.line()));
             }
             stmts.push(self.parse_stmt()?);
             if let Tok::Comment(text) = self.peek().clone() {

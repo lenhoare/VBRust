@@ -528,6 +528,12 @@ pub enum Stmt {
     /// A drawing verb inside a `Draw` block / paint function (canvas codegen).
     Draw(DrawCmd),
     Comment(String),
+    /// Not a statement: marks that whatever is emitted next came from this VBR
+    /// source line. The parser drops one before each statement; the emitter
+    /// turns them into (generated-Rust line → VBR line) checkpoints, which is
+    /// how `vbr run` points rustc errors back at the `.vbr` source. Emits
+    /// nothing, so generated output is unchanged.
+    LineMark(usize),
 }
 
 #[derive(Debug, Clone)]
