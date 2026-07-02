@@ -37,7 +37,7 @@ fn view(state: &mut Menu, frame: &mut Frame) {
     let items_1: Vec<ratatui::widgets::ListItem> = state.fruits.iter().map(|s| ratatui::widgets::ListItem::new(s.clone())).collect();
     let list_1 = ratatui::widgets::List::new(items_1).highlight_symbol("» ").highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));
     frame.render_stateful_widget(list_1, chunks_0[1], &mut state.fruits_state);
-    frame.render_widget(Paragraph::new(format!("{}{}", " You picked: ", state.choice)), chunks_0[2]);
+    frame.render_widget(Paragraph::new(format!(" You picked: {}", state.choice)), chunks_0[2]);
 }
 
 fn main() -> std::io::Result<()> {

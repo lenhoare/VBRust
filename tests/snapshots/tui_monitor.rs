@@ -24,7 +24,7 @@ fn view(state: &Monitor, frame: &mut Frame) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1)]).split(inner);
-    frame.render_widget(Paragraph::new(format!("{}{}", format!("{}{}", "Uptime: ", state.seconds), "s")), chunks_0[0]);
+    frame.render_widget(Paragraph::new(format!("Uptime: {}s", state.seconds)), chunks_0[0]);
     frame.render_widget(Paragraph::new(format!("{}", state.status)), chunks_0[1]);
     frame.render_widget(Paragraph::new("ticks every 1s, refreshes every 5s • q to quit"), chunks_0[2]);
 }
@@ -49,10 +49,10 @@ fn main() -> std::io::Result<()> {
                 Message::PollDone(result) => {
                     match result {
                         Ok ( _ ) => {
-                            state.status = format!("{}{}", format!("{}{}", "ok at ", state.seconds), "s");
+                            state.status = format!("ok at {}s", state.seconds);
                         }
                         Err ( e ) => {
-                            state.status = format!("{}{}", "error: ", e);
+                            state.status = format!("error: {}", e);
                         }
                     }
                 }

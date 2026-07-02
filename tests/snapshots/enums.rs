@@ -29,9 +29,9 @@ fn color(s: &Suit) -> String {
 
 fn main() {
     let s: Suit = Suit::Spades;
-    println!("{}", format!("{}{}", "Spades are ", color(&s)));
-    println!("{}", format!("{}{}", "Hearts are ", color(&Suit::Hearts)));
+    println!("Spades are {}", color(&s));
+    println!("Hearts are {}", color(&Suit::Hearts));
     if s == Suit::Spades {
-        println!("{}", "yes, spades");
+        println!("yes, spades");
     }
 }

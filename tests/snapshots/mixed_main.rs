@@ -3,6 +3,6 @@
 mod text;
 
 fn main() {
-    println!("{}", format!("{}{}", "shout:  ", crate::text::shout("hello")));
-    println!("{}", format!("{}{}", "repeat: ", crate::text::repeat("ab", 3)));
+    println!("shout:  {}", crate::text::shout("hello"));
+    println!("repeat: {}", crate::text::repeat("ab", 3));
 }

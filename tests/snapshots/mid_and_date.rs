@@ -5,8 +5,8 @@ fn main() {
     let s: String = "hello world".to_string();
     let start: i64 = 7;
     let length: i64 = 5;
-    println!("{}", format!("{}{}", "mid(7,5)  : ", &s[((start - 1) as usize)..((start - 1 + length) as usize)]));
-    println!("{}", format!("{}{}", "from(7)   : ", &s[((start - 1) as usize)..]));
+    println!("mid(7,5)  : {}", &s[((start - 1) as usize)..((start - 1 + length) as usize)]);
+    println!("from(7)   : {}", &s[((start - 1) as usize)..]);
     let date: String = "2026-06-25".to_string();
-    println!("{}", format!("{}{}", "date      : ", date));
+    println!("date      : {}", date);
 }

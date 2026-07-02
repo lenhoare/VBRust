@@ -41,7 +41,7 @@ fn view(state: &mut Notes, frame: &mut Frame) {
     let items_1: Vec<ratatui::widgets::ListItem> = state.notes.iter().map(|s| ratatui::widgets::ListItem::new(s.clone())).collect();
     let list_1 = ratatui::widgets::List::new(items_1).highlight_symbol("» ").highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));
     frame.render_stateful_widget(list_1, chunks_0[2], &mut state.notes_state);
-    frame.render_widget(Paragraph::new(format!("{}{}", " ", state.status)), chunks_0[3]);
+    frame.render_widget(Paragraph::new(format!(" {}", state.status)), chunks_0[3]);
 }
 
 fn main() -> std::io::Result<()> {
@@ -75,14 +75,14 @@ fn main() -> std::io::Result<()> {
                         match state.focus_index {
                             0 => {
                                 let text = state.entry.clone();
-                                state.status = format!("{}{}", "added: ", text);
+                                state.status = format!("added: {}", text);
                                 state.notes.push(text);
                                 state.entry = "".to_string();
                             }
                             1 => {
                                 if let Some(i) = state.notes_state.selected() {
                                     let item = state.notes[i].clone();
-                                    state.status = format!("{}{}", "selected: ", item);
+                                    state.status = format!("selected: {}", item);
                                 }
                             }
                             _ => {}

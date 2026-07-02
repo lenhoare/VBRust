@@ -6,5 +6,5 @@ fn main() {
         use rand::Rng;
         rand::thread_rng().gen_range(1..=6)
     };
-    println!("{}", format!("{}{}", "you rolled a ", roll));
+    println!("you rolled a {}", roll);
 }

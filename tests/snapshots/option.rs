@@ -3,18 +3,18 @@
 fn main() {
     match halve(10) {
         Some ( value ) => {
-            println!("{}", format!("{}{}", "half of 10 = ", value));
+            println!("half of 10 = {}", value);
         }
         None => {
-            println!("{}", "10 is odd, no exact half");
+            println!("10 is odd, no exact half");
         }
     }
     match halve(7) {
         Some ( value ) => {
-            println!("{}", format!("{}{}", "half of 7 = ", value));
+            println!("half of 7 = {}", value);
         }
         None => {
-            println!("{}", "7 is odd, no exact half");
+            println!("7 is odd, no exact half");
         }
     }
 }

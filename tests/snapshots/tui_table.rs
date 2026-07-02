@@ -45,7 +45,7 @@ fn view(state: &mut People, frame: &mut Frame) {
         .header(ratatui::widgets::Row::new(vec!["name", "age", "city"]).style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::BOLD)))
         .row_highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)).highlight_symbol("» ");
     frame.render_stateful_widget(table_1, chunks_0[1], &mut state.people_state);
-    frame.render_widget(Paragraph::new(format!("{}{}", " ", state.status)), chunks_0[2]);
+    frame.render_widget(Paragraph::new(format!(" {}", state.status)), chunks_0[2]);
 }
 
 fn main() -> std::io::Result<()> {
@@ -69,7 +69,7 @@ fn main() -> std::io::Result<()> {
                     KeyCode::Enter => {
                         if let Some(i) = state.people_state.selected() {
                             let who = state.people[i].clone();
-                            state.status = format!("{}{}", format!("{}{}", format!("{}{}", format!("{}{}", who.name, " is "), who.age), ", from "), who.city);
+                            state.status = format!("{} is {}, from {}", who.name, who.age, who.city);
                         }
                     }
                     _ => {}

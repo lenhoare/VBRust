@@ -1,0 +1,36 @@
+' Struct fields, collection elements, and Me carry their declared types:
+' mixed-width arithmetic through them gets the same automatic widening casts
+' as plain variables, and a method that mutates Me only through a mutating
+' method call (Push) still takes &mut self.
+Type Basket
+    label As String
+    rate As Double
+    qty As Integer
+    weights As Vec<Long>
+End Type
+
+Function Basket.AddWeight(w As Long)
+    Me.weights.Push(w)
+End Function
+
+Function Basket.TotalWeight() As Long
+    Dim sum As Long = 0
+    For Each w In Me.weights
+        sum += w
+    Next
+    Return sum
+End Function
+
+Function Main()
+    Dim start As Vec<Long>
+    Dim b As Basket = Basket { label: "box", rate: 2.5, qty: 3, weights: start }
+    b.AddWeight(10)
+    b.AddWeight(32)
+
+    ' A Double field times an Integer field — widened automatically.
+    Dim cost As Double = b.rate * b.qty
+    ' An Integer field meets a Long variable the same way.
+    Dim n As Long = 100
+    Dim scaled As Long = b.qty * n
+    Debug.Print b.label & " cost " & cost & ", scaled " & scaled & ", weight " & b.TotalWeight()
+End Function

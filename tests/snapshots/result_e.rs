@@ -27,32 +27,32 @@ fn double_div(a: i32, b: i32) -> Result<i32, MathError> {
 fn main() {
     match double_div(10, 2) {
         Ok ( v ) => {
-            println!("{}", format!("{}{}", "ok: ", v));
+            println!("ok: {}", v);
         }
         Err ( MathError :: DivByZero ) => {
-            println!("{}", "div by zero");
+            println!("div by zero");
         }
         Err ( MathError :: Custom ( msg ) ) => {
-            println!("{}", format!("{}{}", "error: ", msg));
+            println!("error: {}", msg);
         }
     }
     match double_div(10, 0) {
         Ok ( v ) => {
-            println!("{}", format!("{}{}", "ok: ", v));
+            println!("ok: {}", v);
         }
         Err ( _ ) => {
-            println!("{}", "failed");
+            println!("failed");
         }
     }
     match double_div(10, -2) {
         Ok ( v ) => {
-            println!("{}", format!("{}{}", "ok: ", v));
+            println!("ok: {}", v);
         }
         Err ( MathError :: DivByZero ) => {
-            println!("{}", "div by zero");
+            println!("div by zero");
         }
         Err ( MathError :: Custom ( msg ) ) => {
-            println!("{}", format!("{}{}", "error: ", msg));
+            println!("error: {}", msg);
         }
     }
 }

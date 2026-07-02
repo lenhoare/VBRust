@@ -23,7 +23,7 @@ fn move_right(p: &mut Point, by: i64) {
 fn main() {
     let mut p: Point = Point { x: 3, y: 4 };
     let o: Point = origin();
-    println!("{}", format!("{}{}", "dist squared = ", distance_squared(&p, &o)));
+    println!("dist squared = {}", distance_squared(&p, &o));
     move_right(&mut p, 10);
-    println!("{}", format!("{}{}", "after move, x = ", p.x));
+    println!("after move, x = {}", p.x);
 }

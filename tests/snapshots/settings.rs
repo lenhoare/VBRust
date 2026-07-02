@@ -38,7 +38,7 @@ fn update(state: &mut Settings, message: Message) {
 fn view(state: &Settings) -> Element<'_, Message> {
     column![
         checkbox("I agree to the terms", state.agreed).on_toggle(Message::SetAgreed),
-        text(format!("{}{}", "Volume: ", state.volume)),
+        text(format!("Volume: {}", state.volume)),
         slider(0..=100, state.volume, Message::SetVolume),
         {
             let el: Element<'_, Message> = match state.agreed {

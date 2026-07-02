@@ -9,30 +9,30 @@ fn main() {
     nums.push(2);
     match nums.first() {
         Some ( v ) => {
-            println!("{}", format!("{}{}", "first  = ", v));
+            println!("first  = {}", v);
         }
         None => {
-            println!("{}", "empty");
+            println!("empty");
         }
     }
     match nums.get(5) {
         Some ( v ) => {
-            println!("{}", format!("{}{}", "at 5   = ", v));
+            println!("at 5   = {}", v);
         }
         None => {
-            println!("{}", "no index 5");
+            println!("no index 5");
         }
     }
     // len() is a usize; assigning to a Long inserts the cast for you.
     let count: i64 = nums.len() as i64;
-    println!("{}", format!("{}{}", "count  = ", count));
+    println!("count  = {}", count);
     // contains takes &T on a Vec — the borrow is added for you.
     if nums.contains(&2) {
-        println!("{}", "has 2");
+        println!("has 2");
     }
     // join builds a String from a Vec<String>.
     let mut words: Vec<String> = Vec::new();
     words.push("Ada".to_string());
     words.push("Grace".to_string());
-    println!("{}", format!("{}{}", "names  = ", words.join(" & ")));
+    println!("names  = {}", words.join(" & "));
 }

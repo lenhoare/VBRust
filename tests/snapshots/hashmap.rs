@@ -6,10 +6,10 @@ fn main() {
     let mut ages: HashMap<String, i64> = HashMap::new();
     ages.insert("Alice".to_string(), 30);
     ages.insert("Bob".to_string(), 25);
-    println!("{}", format!("{}{}", "Alice is ", ages.get("Alice").unwrap()));
-    println!("{}", format!("{}{}", "has Bob?   ", ages.contains_key("Bob")));
-    println!("{}", format!("{}{}", "has Carol? ", ages.contains_key("Carol")));
+    println!("Alice is {}", ages.get("Alice").unwrap());
+    println!("has Bob?   {}", ages.contains_key("Bob"));
+    println!("has Carol? {}", ages.contains_key("Carol"));
     for (name, age) in &ages {
-        println!("{}", format!("{}{}", format!("{}{}", *name, " is "), *age));
+        println!("{} is {}", *name, *age);
     }
 }

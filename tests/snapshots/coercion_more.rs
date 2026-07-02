@@ -7,7 +7,7 @@ fn string_length(s: &str) -> i64 {
 
 fn main() {
     let n: i64 = 9;
-    println!("{}", format!("{}{}", "sqrt of 9 = ", (n as f64).sqrt()));
+    println!("sqrt of 9 = {}", (n as f64).sqrt());
     // (n as f64).sqrt()
-    println!("{}", format!("{}{}", "len of hello = ", string_length("hello")));
+    println!("len of hello = {}", string_length("hello"));
 }

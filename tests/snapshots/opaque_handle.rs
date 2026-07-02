@@ -8,6 +8,6 @@ fn main() {
     // The handle persists between blocks; each .next() advances the same one.
     let first: String = { words.next().unwrap().to_string() };
     let second: String = { words.next().unwrap().to_string() };
-    println!("{}", format!("{}{}", "first:  ", first));
-    println!("{}", format!("{}{}", "second: ", second));
+    println!("first:  {}", first);
+    println!("second: {}", second);
 }

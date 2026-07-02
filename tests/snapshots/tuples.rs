@@ -2,19 +2,19 @@
 
 fn main() {
     let pair: (i64, i64) = (3, 7);
-    println!("{}", format!("{}{}", "first = ", pair.0));
-    println!("{}", format!("{}{}", "sum   = ", pair.0 + pair.1));
+    println!("first = {}", pair.0);
+    println!("sum   = {}", pair.0 + pair.1);
     let (lo, hi) = min_max(10, 4);
-    println!("{}", format!("{}{}", format!("{}{}", format!("{}{}", "min = ", lo), ", max = "), hi));
+    println!("min = {}, max = {}", lo, hi);
     match classify(0, 5) {
         ( 0 , y ) => {
-            println!("{}", format!("{}{}", "on the y-axis at ", y));
+            println!("on the y-axis at {}", y);
         }
         ( x , 0 ) => {
-            println!("{}", format!("{}{}", "on the x-axis at ", x));
+            println!("on the x-axis at {}", x);
         }
         _ => {
-            println!("{}", "off both axes");
+            println!("off both axes");
         }
     }
 }

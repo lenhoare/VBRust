@@ -19,8 +19,8 @@ fn describe(n: i64) -> String {
 }
 
 fn main() {
-    println!("{}", format!("{}{}", "-3 is ", describe(-3)));
-    println!("{}", format!("{}{}", "0 is ", describe(0)));
-    println!("{}", format!("{}{}", "42 is ", describe(42)));
-    println!("{}", format!("{}{}", "500 is ", describe(500)));
+    println!("-3 is {}", describe(-3));
+    println!("0 is {}", describe(0));
+    println!("42 is {}", describe(42));
+    println!("500 is {}", describe(500));
 }

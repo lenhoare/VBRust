@@ -1,7 +1,7 @@
 // `Sub` is sugar for a `Function` with no return value — both become a Rust `fn`.
 
 fn greet(name: &str) {
-    println!("{}", format!("{}{}", "Hello, ", name));
+    println!("Hello, {}", name);
 }
 
 fn main() {

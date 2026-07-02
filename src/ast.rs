@@ -420,7 +420,7 @@ pub struct Function {
 /// field, parameter, and return. `Result`/`Option`/`Vec`/`Map`/`Tuple` nest
 /// freely (e.g. `Result<Vec<String>>`). Arrays stay special: fixed size with a
 /// primitive element, as they always were in VB.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DeclType {
     Plain(Type),
     Named(String), // a user struct/stdlib type, e.g. Person, Json

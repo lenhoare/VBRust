@@ -18,7 +18,7 @@ _vbr_result = np.array([1, 2, 3, 4]).mean()
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", "mean is ", mean));
+    println!("mean is {}", mean);
     // A multi-line block — real Python, sealed inside; last line is the value.
     let greeting: String = {
         use pyo3::prelude::*;
@@ -48,5 +48,5 @@ _vbr_result = 6 * 7
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", "the answer is ", answer));
+    println!("the answer is {}", answer);
 }

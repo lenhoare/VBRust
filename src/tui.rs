@@ -56,6 +56,7 @@ pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
     let fns = resolver::build_fn_table(program);
     let methods = resolver::build_method_table(program);
     let consts = resolver::build_const_map(program);
+    let struct_table = resolver::build_struct_table(program);
     let is_main = |f: &Function| f.receiver.is_none() && f.name.eq_ignore_ascii_case("Main");
     for f in &program.functions {
         if !is_main(f) {
@@ -71,11 +72,17 @@ pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
         }
     }
     for recv in receivers {
-        emit_impl(recv, program, &fns, &methods, &consts, &modules, &enums, diags, &mut out);
+        emit_impl(
+            recv, program, &fns, &methods, &consts, &modules, &enums, &struct_table, diags,
+            &mut out,
+        );
         out.push('\n');
     }
     for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
-        emit_fn(f, &fns, &methods, &consts, &modules, &enums, diags, &mut out, 0, None);
+        emit_fn(
+            f, &fns, &methods, &consts, &modules, &enums, &struct_table, diags, &mut out, 0,
+            None,
+        );
         out.push('\n');
     }
 

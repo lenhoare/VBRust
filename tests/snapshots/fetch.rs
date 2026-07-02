@@ -42,10 +42,10 @@ fn update(state: &mut Fetcher, message: Message) -> Task<Message> {
         Message::FetchDone(result) => {
             match result {
                 Ok ( body ) => {
-                    state.status = format!("{}{}", format!("{}{}", "got ", body.len()), " bytes");
+                    state.status = format!("got {} bytes", body.len());
                 }
                 Err ( e ) => {
-                    state.status = format!("{}{}", "error: ", e);
+                    state.status = format!("error: {}", e);
                 }
             }
             Task::none()

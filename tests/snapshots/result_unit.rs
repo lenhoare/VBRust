@@ -11,18 +11,18 @@ fn save(ok: bool) -> Result<(), String> {
 fn main() {
     match save(true) {
         Ok ( _ ) => {
-            println!("{}", "saved");
+            println!("saved");
         }
         Err ( e ) => {
-            println!("{}", format!("{}{}", "error: ", e));
+            println!("error: {}", e);
         }
     }
     match save(false) {
         Ok ( _ ) => {
-            println!("{}", "saved");
+            println!("saved");
         }
         Err ( e ) => {
-            println!("{}", format!("{}{}", "error: ", e));
+            println!("error: {}", e);
         }
     }
 }

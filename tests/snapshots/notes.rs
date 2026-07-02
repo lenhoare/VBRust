@@ -27,7 +27,7 @@ enum Message {
 fn update(state: &mut Notes, message: Message) {
     match message {
         Message::Count => {
-            state.status = format!("{}{}", format!("{}{}", "you typed ", state.notes.text().len()), " characters");
+            state.status = format!("you typed {} characters", state.notes.text().len());
         }
         Message::NotesEdited(action) => {
             state.notes.perform(action);

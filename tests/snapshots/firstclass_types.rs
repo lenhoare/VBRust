@@ -5,21 +5,21 @@
 
 fn main() {
     let evens: Vec<i64> = evens_up_to(10);
-    println!("{}", format!("{}{}", "evens count = ", evens.len()));
+    println!("evens count = {}", evens.len());
     match first_word("hello world") {
         Some ( w ) => {
-            println!("{}", format!("{}{}", "first word = ", w));
+            println!("first word = {}", w);
         }
         None => {
-            println!("{}", "no words");
+            println!("no words");
         }
     }
     match lines("a,b,c") {
         Ok ( parts ) => {
-            println!("{}", format!("{}{}", "parts = ", parts.len()));
+            println!("parts = {}", parts.len());
         }
         Err ( message ) => {
-            println!("{}", format!("{}{}", "error: ", message));
+            println!("error: {}", message);
         }
     }
 }

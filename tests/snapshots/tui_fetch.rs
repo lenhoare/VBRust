@@ -22,7 +22,7 @@ fn view(state: &Fetcher, frame: &mut Frame) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1)]).split(inner);
-    frame.render_widget(Paragraph::new(format!("{}{}", " URL: ", state.url)), chunks_0[0]);
+    frame.render_widget(Paragraph::new(format!(" URL: {}", state.url)), chunks_0[0]);
     frame.render_widget(Paragraph::new(" Press r to fetch, q to quit"), chunks_0[1]);
     frame.render_widget(Paragraph::new(format!("{}", state.status)), chunks_0[2]);
 }
@@ -48,7 +48,7 @@ fn main() -> std::io::Result<()> {
                             state.status = "ok — page fetched".to_string();
                         }
                         Err ( e ) => {
-                            state.status = format!("{}{}", "error: ", e);
+                            state.status = format!("error: {}", e);
                         }
                     }
                 }

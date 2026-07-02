@@ -3,14 +3,14 @@
 fn main() {
     let mut i: i64 = 1;
     while i <= 3 {
-        println!("{}", format!("{}{}", "while ", i));
+        println!("while {}", i);
         i = i + 1;
     }
     let mut j: i64 = 10;
     while !(j == 0) {
         j = j - 2;
     }
-    println!("{}", format!("{}{}", "j ended at ", j));
+    println!("j ended at {}", j);
     let mut n: i64 = 0;
     loop {
         n = n + 1;
@@ -18,7 +18,7 @@ fn main() {
             break;
         }
     }
-    println!("{}", format!("{}{}", "n = ", n));
+    println!("n = {}", n);
     for k in 1..=6 {
         if k == 4 {
             break;
@@ -26,6 +26,6 @@ fn main() {
         if k == 2 {
             continue;
         }
-        println!("{}", format!("{}{}", "k = ", k));
+        println!("k = {}", k);
     }
 }

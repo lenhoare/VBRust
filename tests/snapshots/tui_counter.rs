@@ -21,7 +21,7 @@ fn view(state: &Counter, frame: &mut Frame) {
     frame.render_widget(block, area);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(Paragraph::new("A VBR terminal app"), chunks_0[0]);
-    frame.render_widget(Paragraph::new(format!("{}{}", "Count: ", state.count)), chunks_0[1]);
+    frame.render_widget(Paragraph::new(format!("Count: {}", state.count)), chunks_0[1]);
     frame.render_widget(Paragraph::new(""), chunks_0[2]);
     frame.render_widget(Paragraph::new("Press + / - to change, q to quit"), chunks_0[3]);
 }

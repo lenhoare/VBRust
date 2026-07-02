@@ -11,6 +11,6 @@ fn input_box(prompt: &str) -> String {
 
 fn main() {
     let name: String = input_box("What is your name? ");
-    println!("{}", format!("{}{}", format!("{}{}", "Hello, ", name), "!"));
-    println!("{}", "Nice to meet you.");
+    println!("Hello, {}!", name);
+    println!("Nice to meet you.");
 }

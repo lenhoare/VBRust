@@ -10,6 +10,6 @@ fn main() {
     // owned String  -> shout(&name)
     println!("{}", shout("bob"));
     // literal &str   -> shout("bob")
-    println!("{}", shout(&format!("{}{}", name, "!")));
+    println!("{}", shout(&format!("{}!", name)));
     // concat String  -> shout(&format!(...))
 }

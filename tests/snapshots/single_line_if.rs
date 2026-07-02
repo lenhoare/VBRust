@@ -15,11 +15,11 @@ fn sign(n: i64) -> String {
 fn main() {
     let x: i64 = 5;
     if x > 3 {
-        println!("{}", "big");
+        println!("big");
     } else {
-        println!("{}", "small");
+        println!("small");
     }
-    println!("{}", format!("{}{}", "-2 -> ", sign(-2)));
-    println!("{}", format!("{}{}", " 0 -> ", sign(0)));
-    println!("{}", format!("{}{}", " 7 -> ", sign(7)));
+    println!("-2 -> {}", sign(-2));
+    println!(" 0 -> {}", sign(0));
+    println!(" 7 -> {}", sign(7));
 }

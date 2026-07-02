@@ -7,8 +7,8 @@ pub const VERSION: f64 = 1.5;
 fn main() {
     let mut i: i64 = 0;
     while i < MAX_RETRIES {
-        println!("{}", format!("{}{}", format!("{}{}", GREETING, ", attempt "), i + 1));
+        println!("{}, attempt {}", GREETING, i + 1);
         i = i + 1;
     }
-    println!("{}", format!("{}{}", "version ", VERSION));
+    println!("version {}", VERSION);
 }

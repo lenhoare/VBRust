@@ -7,7 +7,7 @@ fn main() {
     // Long  -> Double
     let small: i32 = length as i32;
     // Long  -> Integer (may narrow)
-    println!("{}", format!("{}{}", "length = ", length));
-    println!("{}", format!("{}{}", "ratio  = ", ratio));
-    println!("{}", format!("{}{}", "small  = ", small));
+    println!("length = {}", length);
+    println!("ratio  = {}", ratio);
+    println!("small  = {}", small);
 }

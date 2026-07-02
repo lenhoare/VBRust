@@ -5,19 +5,19 @@ fn main() {
     let score: i64 = 75;
     match score {
         100 => {
-            println!("{}", "perfect");
+            println!("perfect");
         }
         90 ..= 99 => {
-            println!("{}", "excellent");
+            println!("excellent");
         }
         70 ..= 89 => {
-            println!("{}", "good");
+            println!("good");
         }
         0 | 1 | 2 => {
-            println!("{}", "very low");
+            println!("very low");
         }
         _ => {
-            println!("{}", "somewhere in between");
+            println!("somewhere in between");
         }
     }
 }

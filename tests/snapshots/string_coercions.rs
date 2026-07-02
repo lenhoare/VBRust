@@ -15,21 +15,21 @@ fn main() {
     names.push("Alice".to_string());
     names.push("Bob".to_string());
     let mut current: String = "start".to_string();
-    println!("{}", format!("{}{}", "current     : ", current));
+    println!("current     : {}", current);
     current = "".to_string();
-    println!("{}", format!("{}{}", format!("{}{}", "cleared     : [", current), "]"));
+    println!("cleared     : [{}]", current);
     current = "reset".to_string();
-    println!("{}", format!("{}{}", "current     : ", current));
+    println!("current     : {}", current);
     let ch: String = (&"hello"[1..2]).to_string();
-    println!("{}", format!("{}{}", "first char  : ", first_char("world")));
-    println!("{}", format!("{}{}", "ch          : ", ch));
-    println!("{}", format!("{}{}", "names count : ", names.len()));
+    println!("first char  : {}", first_char("world"));
+    println!("ch          : {}", ch);
+    println!("names count : {}", names.len());
     match validate("Ada") {
         Ok ( v ) => {
-            println!("{}", format!("{}{}", "validated   : ", v));
+            println!("validated   : {}", v);
         }
         Err ( e ) => {
-            println!("{}", format!("{}{}", "err         : ", e));
+            println!("err         : {}", e);
         }
     }
 }

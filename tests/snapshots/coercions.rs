@@ -24,7 +24,7 @@ fn dup(s: &str) -> String {
 
 fn main() {
     let v: Vec<i64> = { vec![10, 20, 30] };
-    println!("{}", format!("{}{}", "square(3)  = ", square(3)));
-    println!("{}", format!("{}{}", "sum+first  = ", sum_and_first(&v)));
-    println!("{}", format!("{}{}", "dup        = ", dup("hi")));
+    println!("square(3)  = {}", square(3));
+    println!("sum+first  = {}", sum_and_first(&v));
+    println!("dup        = {}", dup("hi"));
 }

@@ -5,10 +5,10 @@ fn main() {
     nums.push(10);
     nums.push(20);
     nums.push(30);
-    println!("{}", format!("{}{}", "count = ", nums.len()));
+    println!("count = {}", nums.len());
     let mut total: i64 = 0;
     for n in &nums {
         total = total + *n;
     }
-    println!("{}", format!("{}{}", "total = ", total));
+    println!("total = {}", total);
 }

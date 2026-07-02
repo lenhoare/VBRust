@@ -11,13 +11,13 @@ fn main() {
     let doubled: Vec<i64> = nums.iter().copied().map(|x| x * 2).collect();
     let total: i64 = nums.iter().copied().sum();
     let has_big: bool = nums.iter().copied().any(|x| x > 4);
-    println!("{}", format!("{}{}", "count:   ", nums.iter().copied().count()));
-    println!("{}", format!("{}{}", "total:   ", total));
-    println!("{}", format!("{}{}", "has big: ", has_big));
+    println!("count:   {}", nums.iter().copied().count());
+    println!("total:   {}", total);
+    println!("has big: {}", has_big);
     for n in &big {
-        println!("{}", format!("{}{}", "big:     ", *n));
+        println!("big:     {}", *n);
     }
     for n in &doubled {
-        println!("{}", format!("{}{}", "doubled: ", *n));
+        println!("doubled: {}", *n);
     }
 }

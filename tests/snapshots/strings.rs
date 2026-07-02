@@ -5,7 +5,7 @@ fn main() {
     // a literal is a fixed-size &str
     let view = &greeting;
     // borrow — no copy is made
-    let combined: String = format!("{}{}", greeting, ", World");
+    let combined: String = format!("{}, World", greeting);
     // concat makes an owned String
     let copy: String = combined.clone();
     // explicit owned copy

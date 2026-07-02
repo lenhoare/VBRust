@@ -9,7 +9,7 @@ use vbr_stdlib::dataframe::{col, lit, when};
 fn main() {
     let mut df: DataFrame = DataFrame::read_csv("people.csv");
     let (rows, cols): (i64, i64) = df.shape();
-    println!("{}", format!("{}{}", format!("{}{}", format!("{}{}", format!("{}{}", "loaded ", rows), " rows, "), cols), " columns"));
+    println!("loaded {} rows, {} columns", rows, cols);
     // Column formulas: arithmetic across whole columns, and an IIf band.
     df = df.with_column("total", col("price") * col("qty"));
     df = df.with_column("band", when(col("age").gt_eq(lit(18))).then(lit("adult")).otherwise(lit("minor")));
@@ -19,7 +19,7 @@ fn main() {
     df = df.select(&["name", "band", "total"]);
     df.print();
     let names: Vec<String> = df.column("name");
-    println!("{}", format!("{}{}", "first kept: ", names[0]));
+    println!("first kept: {}", names[0]);
     df.write_csv("out.csv");
-    println!("{}", "wrote out.csv");
+    println!("wrote out.csv");
 }

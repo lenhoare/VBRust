@@ -1,6 +1,6 @@
 //! Type-resolution pass.
 //!
-//! Builds a table of user-function signatures and a per-function variable-type
+//! Builds a table of user-function signatures and a per-function typed
 //! environment, then rewrites each function body so calling conventions and
 //! number-type conversions become correct Rust:
 //!
@@ -11,6 +11,11 @@
 //!   * locals passed to a `ByRef` parameter are reported so they become `let mut`.
 //!
 //! Doing this as AST rewrites keeps the rendering code a plain tree walk.
+//!
+//! Everything known about a name lives in one environment (`name → Binding`),
+//! keyed by the emitted snake_case name: the declared `DeclType`, whether the
+//! generated Rust already holds it as a borrow, or — for an opaque handle —
+//! the honest admission that only Rust knows its type.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,6 +35,26 @@ pub type FnTable = HashMap<String, FnSig>;
 
 /// `(struct name, method snake name)` → does it take `&mut self`?
 pub type MethodTable = HashMap<(String, String), bool>;
+
+/// Struct name → (field snake name → field type). Lets `infer` see through a
+/// `p.field` access, so field values get the same coercions variables do.
+pub type StructTable = HashMap<String, HashMap<String, DeclType>>;
+
+pub fn build_struct_table(program: &Program) -> StructTable {
+    program
+        .structs
+        .iter()
+        .map(|s| {
+            (
+                s.name.clone(),
+                s.fields
+                    .iter()
+                    .map(|f| (snake(&f.name), f.ty.clone()))
+                    .collect(),
+            )
+        })
+        .collect()
+}
 
 /// Module-constant original name → its SCREAMING_SNAKE_CASE Rust name.
 pub fn build_const_map(program: &Program) -> HashMap<String, String> {
@@ -53,10 +78,12 @@ pub fn build_method_table(program: &Program) -> MethodTable {
         .collect()
 }
 
-/// Does this method body assign to a `Me` field (so it needs `&mut self`)?
+/// Does this method body mutate `Me` — assign to one of its fields, or call a
+/// mutating method (`push`, `sort`, …) on one — so it needs `&mut self`?
 pub fn method_mutates_self(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::Assign { target, .. } => is_me_field(target),
+        Stmt::Expr(e) => expr_mutates_me(e),
         Stmt::If { branches, else_body } => {
             branches.iter().any(|(_, b)| method_mutates_self(b))
                 || else_body.as_ref().map_or(false, |b| method_mutates_self(b))
@@ -72,6 +99,28 @@ pub fn method_mutates_self(stmts: &[Stmt]) -> bool {
 fn is_me_field(e: &Expr) -> bool {
     match e {
         Expr::Field(inner, _) => matches!(&**inner, Expr::Ident(n) if n == "Me") || is_me_field(inner),
+        _ => false,
+    }
+}
+
+/// Does this expression call a mutating method on `Me` or a place rooted in it
+/// (`Me.items.Push(x)`, `Me.grid(r).sort()`)?
+fn expr_mutates_me(e: &Expr) -> bool {
+    match e {
+        Expr::MethodCall { recv, method, args } => {
+            (crate::transpiler::is_mutating_method(&snake(method)) && is_me_rooted(recv))
+                || expr_mutates_me(recv)
+                || args.iter().any(expr_mutates_me)
+        }
+        _ => false,
+    }
+}
+
+/// Is this place expression `Me` itself or reached through it?
+fn is_me_rooted(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(n) => n == "Me",
+        Expr::Field(inner, _) | Expr::Index(inner, _) => is_me_rooted(inner),
         _ => false,
     }
 }
@@ -94,32 +143,126 @@ pub fn build_fn_table(program: &Program) -> FnTable {
         .collect()
 }
 
-/// A resolved expression type — a superset of `ast::Type` (it can also be
-/// `usize`, a string slice, or simply unknown).
-#[derive(Clone, Copy, PartialEq)]
-enum RType {
+// ---- The typed environment ------------------------------------------------------
+
+/// Everything the resolver knows about one name in scope.
+#[derive(Clone, Debug)]
+struct Binding {
+    /// The declared type. `None` for an opaque `Dim h = Rust …` handle, whose
+    /// type lives only inside Rust.
+    ty: Option<DeclType>,
+    /// A ByVal parameter the generated Rust holds as a borrow (`&str` for a
+    /// String, `&Vec`/`&HashMap` for a collection) — already a reference, so
+    /// uses of it must not borrow it a second time.
+    borrowed: bool,
+}
+
+/// A resolved expression type: a full `DeclType` where we know it, plus the
+/// two Rust-only cases coercion cares about (`&str` slices and `usize`
+/// lengths), and honest ignorance. Callers only act on what they recognise —
+/// anything `Unknown` passes through untouched, with rustc as the backstop.
+#[derive(Clone, Debug, PartialEq)]
+enum VType {
+    Decl(DeclType),
+    /// A borrowed `&str` slice (a literal, a ByVal String param, `Trim(..)`).
+    Str,
+    /// A `usize` length/count (`.len()`, `.count()`).
+    Usize,
+    Unknown,
+}
+
+/// Shorthand for a plain scalar `VType`.
+fn vt(t: Type) -> VType {
+    VType::Decl(DeclType::Plain(t))
+}
+
+impl VType {
+    /// The plain scalar type, if that's what this is.
+    fn plain(&self) -> Option<Type> {
+        match self {
+            VType::Decl(DeclType::Plain(t)) => Some(*t),
+            _ => None,
+        }
+    }
+
+    /// An owned `String` value (needs `&` to feed a `&str` parameter).
+    fn is_owned_string(&self) -> bool {
+        self.plain() == Some(Type::Text)
+    }
+}
+
+/// The Rust numeric representation of a `VType`, for cast/widening decisions.
+/// `Long` and `LongLong` are both `i64` — the same repr never needs a cast.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum NumTy {
     I32,
     I64,
     U8,
     Usize,
     F32,
     F64,
-    Bool,
-    Str,
-    Strng,
-    Unknown,
 }
 
-impl RType {
-    fn is_numeric(self) -> bool {
-        matches!(
-            self,
-            RType::I32 | RType::I64 | RType::U8 | RType::Usize | RType::F32 | RType::F64
-        )
-    }
-
+impl NumTy {
     fn is_float(self) -> bool {
-        matches!(self, RType::F32 | RType::F64)
+        matches!(self, NumTy::F32 | NumTy::F64)
+    }
+}
+
+/// The numeric repr of a value type, or `None` if it isn't numeric.
+fn num_ty(v: &VType) -> Option<NumTy> {
+    match v {
+        VType::Usize => Some(NumTy::Usize),
+        VType::Decl(DeclType::Plain(t)) => num_of_type(*t),
+        _ => None,
+    }
+}
+
+/// The numeric repr of a VB scalar type, or `None` (Boolean/String aren't).
+fn num_of_type(t: Type) -> Option<NumTy> {
+    Some(match t {
+        Type::Integer => NumTy::I32,
+        Type::Long | Type::LongLong => NumTy::I64,
+        Type::Byte => NumTy::U8,
+        Type::Single => NumTy::F32,
+        Type::Double => NumTy::F64,
+        Type::Boolean | Type::Text => return None,
+    })
+}
+
+/// The VB type a numeric repr casts to (for inserting `as` casts). `usize` has
+/// no VB-type target, so it never becomes a cast target itself.
+fn type_of_num(n: NumTy) -> Option<Type> {
+    Some(match n {
+        NumTy::I32 => Type::Integer,
+        NumTy::I64 => Type::Long,
+        NumTy::U8 => Type::Byte,
+        NumTy::F32 => Type::Single,
+        NumTy::F64 => Type::Double,
+        NumTy::Usize => return None,
+    })
+}
+
+/// The widened type of arithmetic between two numeric reprs — the VB type both
+/// operands should be cast up to. Floats beat integers, `f64` beats `f32`,
+/// `i64` beats `usize` beats the 32-bit-and-under tier.
+fn widen(a: NumTy, b: NumTy) -> Option<Type> {
+    fn rank(n: NumTy) -> u8 {
+        match n {
+            NumTy::F64 => 6,
+            NumTy::F32 => 5,
+            NumTy::I64 => 4,
+            NumTy::Usize => 3,
+            NumTy::I32 | NumTy::U8 => 2,
+        }
+    }
+    let top = if rank(a) >= rank(b) { a } else { b };
+    match rank(top) {
+        6 => Some(Type::Double),
+        5 => Some(Type::Single),
+        4 => Some(Type::Long),
+        3 => None, // usize: no VB cast target
+        _ => Some(Type::Integer),
     }
 }
 
@@ -134,39 +277,13 @@ fn to_owned_string(e: &mut Expr) {
     };
 }
 
-/// The VB type for an inferred numeric `RType` (for inserting `as` casts).
-/// `Usize`/`Str`/`Bool`/`Unknown` have no VB-type target.
-fn rtype_to_type(rt: RType) -> Option<Type> {
-    Some(match rt {
-        RType::I32 => Type::Integer,
-        RType::I64 => Type::Long,
-        RType::U8 => Type::Byte,
-        RType::F32 => Type::Single,
-        RType::F64 => Type::Double,
-        _ => return None,
-    })
-}
-
-fn rtype_of(ty: Type) -> RType {
-    match ty {
-        Type::Integer => RType::I32,
-        Type::Long => RType::I64,
-        Type::LongLong => RType::I64,
-        Type::Single => RType::F32,
-        Type::Double => RType::F64,
-        Type::Boolean => RType::Bool,
-        Type::Byte => RType::U8,
-        Type::Text => RType::Strng,
-    }
-}
-
 /// Result type of a known builtin, used so e.g. `Len` into a `Long` casts.
-fn builtin_rtype(name: &str) -> Option<RType> {
+fn builtin_vtype(name: &str) -> Option<VType> {
     Some(match name.to_ascii_lowercase().as_str() {
-        "len" => RType::Usize,
-        "left" | "right" | "mid" | "trim" => RType::Str,
-        "ucase" | "lcase" | "replace" | "str" | "inputbox" => RType::Strng,
-        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => RType::F64,
+        "len" => VType::Usize,
+        "left" | "right" | "mid" | "trim" => VType::Str,
+        "ucase" | "lcase" | "replace" | "str" | "inputbox" => vt(Type::Text),
+        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => vt(Type::Double),
         // instr → Option, val → Result: not a plain value type yet.
         _ => return None,
     })
@@ -182,6 +299,8 @@ pub fn resolve_body(
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
     enums: &HashSet<String>,
+    structs: &StructTable,
+    receiver: Option<&str>,
     ret_coerce: Option<Type>,
     can_propagate: bool,
     diags: &mut Diagnostics,
@@ -194,39 +313,31 @@ pub fn resolve_body(
         .map(|p| snake(&p.name))
         .collect();
 
-    // Variable types in scope. VB has no block scope, so a flat map matches the
-    // mental model.
-    let mut vars: HashMap<String, Type> = HashMap::new();
-    let mut struct_vars = HashMap::new();
-    let mut array_vars = HashSet::new();
-    let mut str_params = HashSet::new();
-    // ByVal collection params are passed as `&Vec`/`&HashMap`, so they're already
-    // a reference — `For Each` must not borrow them a second time.
-    let mut borrowed_collections = HashSet::new();
+    // The typed environment. VB has no block scope, so a flat map matches the
+    // mental model. Parameters seed it; `Dim`s add to it as they're met.
+    let mut env: HashMap<String, Binding> = HashMap::new();
     for p in params {
-        match &p.ty {
-            // A ByVal String parameter is a `&str` (already a slice).
-            DeclType::Plain(Type::Text) if p.mode == ParamMode::ByVal => {
-                str_params.insert(snake(&p.name));
-            }
-            DeclType::Plain(t) => {
-                vars.insert(snake(&p.name), *t);
-            }
-            DeclType::Named(n) => {
-                struct_vars.insert(snake(&p.name), n.clone());
-            }
-            DeclType::Vec(_) | DeclType::Map(..) if p.mode == ParamMode::ByVal => {
-                array_vars.insert(snake(&p.name));
-                borrowed_collections.insert(snake(&p.name));
-            }
-            DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
-                array_vars.insert(snake(&p.name));
-            }
-            _ => {}
-        }
+        // A ByVal String is a `&str`; a ByVal collection is a `&Vec`/`&HashMap` —
+        // both already borrows in the generated Rust.
+        let borrowed = p.mode == ParamMode::ByVal
+            && matches!(
+                p.ty,
+                DeclType::Plain(Type::Text) | DeclType::Vec(_) | DeclType::Map(..)
+            );
+        env.insert(
+            snake(&p.name),
+            Binding { ty: Some(p.ty.clone()), borrowed },
+        );
     }
+    // Inside a method, `Me` is the receiver struct — so `Me.field` infers.
+    if let Some(recv) = receiver {
+        env.insert(
+            "me".to_string(),
+            Binding { ty: Some(DeclType::Named(recv.to_string())), borrowed: false },
+        );
+    }
+
     let mut passed = HashSet::new();
-    let mut handles = HashSet::new();
     let mut ctx = Ctx {
         deref: byref,
         fns,
@@ -235,15 +346,11 @@ pub fn resolve_body(
         ret_coerce,
         can_propagate,
         diags,
-        vars: &mut vars,
-        struct_vars: &mut struct_vars,
-        array_vars: &mut array_vars,
-        str_params: &mut str_params,
+        env: &mut env,
         passed: &mut passed,
-        handles: &mut handles,
-        borrowed_collections: &mut borrowed_collections,
         modules,
         enums,
+        structs,
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -262,27 +369,76 @@ struct Ctx<'a> {
     /// `?` is allowed here.
     can_propagate: bool,
     diags: &'a mut Diagnostics,
-    vars: &'a mut HashMap<String, Type>,
-    /// Variable name → struct type, for receiver-mutation detection.
-    struct_vars: &'a mut HashMap<String, String>,
-    /// Array/Vec variable names — `x(i)` on one is a friendly error.
-    array_vars: &'a mut HashSet<String>,
-    /// ByVal String parameters — they are `&str`, so they don't get re-borrowed.
-    str_params: &'a mut HashSet<String>,
+    /// The one typed environment: emitted (snake_case) name → what we know.
+    env: &'a mut HashMap<String, Binding>,
     passed: &'a mut HashSet<String>,
-    /// Opaque Rust handles (`Dim h = Rust …`). Their only legal use is being
-    /// spliced into another inline-Rust block (which the resolver never sees as
-    /// an AST ident), so *any* ident-use of one is a value-use error.
-    handles: &'a mut HashSet<String>,
-    /// ByVal collection params (already `&Vec`/`&HashMap`); `For Each` over one
-    /// must reborrow (`&*p`) rather than double-borrow (`&&Vec`).
-    borrowed_collections: &'a mut HashSet<String>,
     /// Other project modules (snake-cased file stems). A `Module.func(...)` call
     /// on one rewrites to a qualified `crate::module::func(...)`.
     modules: &'a HashSet<String>,
     /// Enum names. `Color.Red` (a field access on an enum name) rewrites to the
     /// path `Color::Red`.
     enums: &'a HashSet<String>,
+    /// User struct definitions, so `p.field` infers to the field's type.
+    structs: &'a StructTable,
+}
+
+impl Ctx<'_> {
+    /// Record a declared variable.
+    fn bind(&mut self, name: &str, ty: DeclType) {
+        self.env.insert(snake(name), Binding { ty: Some(ty), borrowed: false });
+    }
+
+    fn binding(&self, name: &str) -> Option<&Binding> {
+        self.env.get(&snake(name))
+    }
+
+    /// An opaque `Dim h = Rust …` handle — a name whose type only Rust knows.
+    fn is_handle(&self, name: &str) -> bool {
+        self.binding(name).map_or(false, |b| b.ty.is_none())
+    }
+
+    /// A ByVal String parameter — a read-only `&str` in the generated Rust.
+    fn is_str_param(&self, name: &str) -> bool {
+        self.binding(name).map_or(false, |b| {
+            b.borrowed && matches!(b.ty, Some(DeclType::Plain(Type::Text)))
+        })
+    }
+
+    /// The declared plain scalar type of a variable, if it has one.
+    fn scalar_of(&self, name: &str) -> Option<Type> {
+        match self.binding(name)?.ty.as_ref()? {
+            DeclType::Plain(t) => Some(*t),
+            _ => None,
+        }
+    }
+
+    /// The struct (named-type) name a variable was declared as, if any.
+    fn struct_of(&self, name: &str) -> Option<&str> {
+        match self.binding(name)?.ty.as_ref()? {
+            DeclType::Named(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// An indexable collection (`Vec`, fixed array, `HashMap`) — `x(i)` on one
+    /// is the friendly "index Rust-style" error, and `Vec::contains` borrows
+    /// its argument.
+    fn is_indexable(&self, name: &str) -> bool {
+        matches!(
+            self.binding(name).and_then(|b| b.ty.as_ref()),
+            Some(
+                DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) | DeclType::Map(..)
+            )
+        )
+    }
+
+    /// A ByVal collection parameter — already a `&Vec`/`&HashMap`, so a
+    /// `For Each` over it must reborrow (`&*p`) rather than double-borrow.
+    fn is_borrowed_collection(&self, name: &str) -> bool {
+        self.binding(name).map_or(false, |b| {
+            b.borrowed && matches!(b.ty, Some(DeclType::Vec(_) | DeclType::Map(..)))
+        })
+    }
 }
 
 fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
@@ -297,39 +453,37 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         // A `&str` *expression* (Mid, a String param, Trim…) into a
                         // String var becomes owned. A bare literal is handled by the
                         // emitter; an owned-String move still hits the ownership error.
-                        if *t == Type::Text && infer(e, ctx) == RType::Str && !matches!(e, Expr::Str(_)) {
+                        if *t == Type::Text
+                            && infer(e, ctx) == VType::Str
+                            && !matches!(e, Expr::Str(_))
+                        {
                             to_owned_string(e);
                         }
                     }
-                    ctx.vars.insert(snake(name), *t);
-                } else if let DeclType::Named(struct_name) = ty {
-                    if let Some(e) = init {
-                        resolve_expr(e, ctx);
-                    }
-                    ctx.struct_vars.insert(snake(name), struct_name.clone());
-                } else {
-                    if let Some(e) = init {
-                        // Tuple / collection — type not tracked numerically.
-                        resolve_expr(e, ctx);
-                    }
-                    if matches!(
-                        ty,
-                        DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..)
-                    ) {
-                        ctx.array_vars.insert(snake(name));
+                } else if let Some(e) = init {
+                    resolve_expr(e, ctx);
+                }
+                ctx.bind(name, ty.clone());
+            }
+            Stmt::DestructureDim { names, ty, value } => {
+                resolve_expr(value, ctx);
+                // A typed destructure (`Dim (a, b) As (T, U) = …`) binds each name.
+                if let Some(DeclType::Tuple(ts)) = ty {
+                    for (n, t) in names.iter().zip(ts) {
+                        ctx.bind(n, t.clone());
                     }
                 }
             }
-            Stmt::DestructureDim { value, .. } => resolve_expr(value, ctx),
             // The body is raw Rust (not an Expr), so there's nothing to resolve —
             // just record the name so later value-uses of it are caught.
             Stmt::HandleDim { name, .. } => {
-                ctx.handles.insert(snake(name));
+                ctx.env
+                    .insert(snake(name), Binding { ty: None, borrowed: false });
             }
             Stmt::Assign { target, value, .. } => {
                 // Writing to a ByVal String parameter — it's a read-only `&str`.
                 if let Expr::Ident(name) = &*target {
-                    if ctx.str_params.contains(&snake(name)) {
+                    if ctx.is_str_param(name) {
                         ctx.diags.error_once(
                             &format!("byval-string-write-{}", snake(name)),
                             format!(
@@ -342,7 +496,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
                 // Coerce based on the target variable's type (plain Ident targets only).
                 let target_ty = match &*target {
-                    Expr::Ident(name) => ctx.vars.get(&snake(name)).copied(),
+                    Expr::Ident(name) => ctx.scalar_of(name),
                     _ => None,
                 };
                 // A plain Ident target is dereferenced by the emitter (if ByRef);
@@ -355,7 +509,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     maybe_cast(value, ty, ctx);
                     // Assigning a `&str` (a literal like `""`, a param, Mid…) to a
                     // String variable → owned.
-                    if ty == Type::Text && infer(value, ctx) == RType::Str {
+                    if ty == Type::Text && infer(value, ctx) == VType::Str {
                         to_owned_string(value);
                     }
                 }
@@ -367,7 +521,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 match ctx.ret_coerce {
                     // A String-returning function: an existing &str (literal, &str
                     // param, Trim(..)) becomes an owned String.
-                    Some(Type::Text) if infer(e, ctx) == RType::Str => to_owned_string(e),
+                    Some(Type::Text) if infer(e, ctx) == VType::Str => to_owned_string(e),
                     // Coerce a numeric return value to the declared numeric type.
                     Some(t) => maybe_cast(e, t, ctx),
                     None => {}
@@ -410,11 +564,13 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 // (count a `Long`) → `i64`. Cast both bounds to that common type so
                 // a mixed-width range (`For i = lo To hi`, different widths) still
                 // compiles, and track the var type for body arithmetic.
-                let var_ty =
-                    rtype_to_type(join(infer(from, ctx), infer(to, ctx))).unwrap_or(Type::Integer);
+                let var_ty = match (num_ty(&infer(from, ctx)), num_ty(&infer(to, ctx))) {
+                    (Some(a), Some(b)) => widen(a, b).unwrap_or(Type::Integer),
+                    _ => Type::Integer,
+                };
                 maybe_cast(from, var_ty, ctx);
                 maybe_cast(to, var_ty, ctx);
-                ctx.vars.insert(snake(var), var_ty);
+                ctx.bind(var, DeclType::Plain(var_ty));
                 resolve_stmts(body, ctx);
             }
             Stmt::DoLoop { cond, body } => {
@@ -435,10 +591,23 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 // A ByVal collection param is already `&Vec`; reborrow it (`&*p`)
                 // so the emitter's `&` doesn't produce a `&&Vec` double-borrow.
                 if let Expr::Ident(n) = &*iter {
-                    if ctx.borrowed_collections.contains(&snake(n)) {
+                    if ctx.is_borrowed_collection(n) {
                         let inner = std::mem::replace(iter, Expr::Int(0));
                         *iter = Expr::Deref(Box::new(inner));
                     }
+                }
+                // The loop variables carry the collection's element type, so
+                // body arithmetic and coercions see through them.
+                match infer(iter, ctx) {
+                    VType::Decl(DeclType::Vec(t)) => ctx.bind(var1, *t),
+                    VType::Decl(DeclType::Array(t, _)) => ctx.bind(var1, DeclType::Plain(t)),
+                    VType::Decl(DeclType::Map(k, v)) => {
+                        ctx.bind(var1, *k);
+                        if let Some(v2) = var2 {
+                            ctx.bind(v2, *v);
+                        }
+                    }
+                    _ => {}
                 }
                 // Loop variables are references inside the body, so their uses
                 // get dereferenced — scoped to this loop only.
@@ -478,12 +647,13 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
     if matches!(value, Expr::Int(_) | Expr::Float(_)) {
         return;
     }
-    let target_rt = rtype_of(target);
-    if !target_rt.is_numeric() {
+    let Some(target_n) = num_of_type(target) else {
         return;
-    }
-    let src = infer(value, ctx);
-    if src.is_numeric() && src != target_rt {
+    };
+    let Some(src) = num_ty(&infer(value, ctx)) else {
+        return;
+    };
+    if src != target_n {
         ctx.diags.note(
             "numeric-cast",
             "VB converts between number types silently; Rust wants it spelled out, so VBR \
@@ -554,7 +724,7 @@ fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
     match e {
         // An opaque Rust handle appearing as a value — the one thing it can't do.
-        Expr::Ident(name) if ctx.handles.contains(&snake(name)) => {
+        Expr::Ident(name) if ctx.is_handle(name) => {
             ctx.diags.error_once(
                 &format!("handle-value-{}", snake(name)),
                 format!(
@@ -579,38 +749,44 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // Integer `^` → `base.pow(exp)` (Rust's integer pow); only a float base
             // uses `.powi`/`.powf` (handled in the renderer).
             if *op == BinOp::Pow {
-                let base = infer(lhs, ctx);
-                if base.is_numeric() && !base.is_float() {
-                    let recv = std::mem::replace(&mut **lhs, Expr::Int(0));
-                    let exp = std::mem::replace(&mut **rhs, Expr::Int(0));
-                    *e = Expr::MethodCall {
-                        recv: Box::new(recv),
-                        method: "pow".to_string(),
-                        args: vec![exp],
-                    };
+                if let Some(base) = num_ty(&infer(lhs, ctx)) {
+                    if !base.is_float() {
+                        let recv = std::mem::replace(&mut **lhs, Expr::Int(0));
+                        let exp = std::mem::replace(&mut **rhs, Expr::Int(0));
+                        *e = Expr::MethodCall {
+                            recv: Box::new(recv),
+                            method: "pow".to_string(),
+                            args: vec![exp],
+                        };
+                    }
                 }
                 return;
             }
-            let (lt, rt) = (infer(lhs, ctx), infer(rhs, ctx));
+            let (ln, rn) = (num_ty(&infer(lhs, ctx)), num_ty(&infer(rhs, ctx)));
             // A `usize` operand (e.g. from `.Len()`) meeting a signed integer won't
             // compile; cast the usize side to the other operand's type.
-            if lt == RType::Usize && rt.is_numeric() && rt != RType::Usize {
-                if let Some(t) = rtype_to_type(rt) {
-                    maybe_cast(lhs, t, ctx);
+            match (ln, rn) {
+                (Some(NumTy::Usize), Some(r)) if r != NumTy::Usize => {
+                    if let Some(t) = type_of_num(r) {
+                        maybe_cast(lhs, t, ctx);
+                    }
                 }
-            } else if rt == RType::Usize && lt.is_numeric() && lt != RType::Usize {
-                if let Some(t) = rtype_to_type(lt) {
-                    maybe_cast(rhs, t, ctx);
+                (Some(l), Some(NumTy::Usize)) if l != NumTy::Usize => {
+                    if let Some(t) = type_of_num(l) {
+                        maybe_cast(rhs, t, ctx);
+                    }
                 }
-            } else if is_arith_or_cmp(*op) && lt.is_numeric() && rt.is_numeric() && lt != rt {
-                // Mixed numeric widths (e.g. `Long * Integer`, `Integer <= Long`):
-                // VB widens silently, but Rust needs both sides the same type — so
-                // cast the narrower up to the wider (`join`). Literals are left
-                // alone (they infer); only the narrower non-literal is cast.
-                if let Some(t) = rtype_to_type(join(lt, rt)) {
-                    maybe_cast(lhs, t, ctx);
-                    maybe_cast(rhs, t, ctx);
+                (Some(l), Some(r)) if is_arith_or_cmp(*op) && l != r => {
+                    // Mixed numeric widths (e.g. `Long * Integer`, `Integer <= Long`):
+                    // VB widens silently, but Rust needs both sides the same type — so
+                    // cast the narrower up to the wider (`widen`). Literals are left
+                    // alone (they infer); only the narrower non-literal is cast.
+                    if let Some(t) = widen(l, r) {
+                        maybe_cast(lhs, t, ctx);
+                        maybe_cast(rhs, t, ctx);
+                    }
                 }
+                _ => {}
             }
         }
         Expr::MethodCall { recv, method, args } => {
@@ -658,7 +834,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // payload (a `Vec<String>`/`HashMap` slot owns its value).
             if matches!(snake(method).as_str(), "push" | "insert") {
                 for arg in args.iter_mut() {
-                    if infer(arg, ctx) == RType::Str && !matches!(arg, Expr::Str(_)) {
+                    if infer(arg, ctx) == VType::Str && !matches!(arg, Expr::Str(_)) {
                         to_owned_string(arg);
                     }
                 }
@@ -668,9 +844,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // element first (`Vec<String>` holds `String`, not `&str`).
             if snake(method) == "contains" {
                 if let Expr::Ident(r) = &**recv {
-                    if ctx.array_vars.contains(&snake(r)) {
+                    if ctx.is_indexable(r) {
                         for arg in args.iter_mut() {
-                            if infer(arg, ctx) == RType::Str {
+                            if infer(arg, ctx) == VType::Str {
                                 to_owned_string(arg);
                             }
                             let inner = std::mem::replace(arg, Expr::Int(0));
@@ -683,7 +859,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // not an owned String — use `.to_string()` so it fits a String slot.
             if method.eq_ignore_ascii_case("clone") {
                 if let Expr::Ident(n) = &**recv {
-                    if ctx.str_params.contains(&snake(n)) {
+                    if ctx.is_str_param(n) {
                         *method = "to_string".to_string();
                     }
                 }
@@ -691,15 +867,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // Stdlib functions take string args by `&str`; borrow an owned String.
             if matches!(&**recv, Expr::Ident(n) if stdlib_type(n).is_some()) {
                 for arg in args.iter_mut() {
-                    if infer(arg, ctx) == RType::Strng {
+                    if infer(arg, ctx).is_owned_string() {
                         let inner = std::mem::replace(arg, Expr::Int(0));
                         *arg = Expr::Ref(Box::new(inner));
                     }
                 }
             }
             if let Some(v) = recv_var {
-                if let Some(struct_name) = ctx.struct_vars.get(&v) {
-                    let key = (struct_name.clone(), snake(method));
+                if let Some(struct_name) = ctx.struct_of(&v) {
+                    let key = (struct_name.to_string(), snake(method));
                     if ctx.methods.get(&key) == Some(&true) {
                         ctx.passed.insert(v);
                     }
@@ -712,7 +888,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 if ctx.enums.contains(m) {
                     let path = format!("{}::{}", m, method);
                     for arg in args.iter_mut() {
-                        if infer(arg, ctx) == RType::Str {
+                        if infer(arg, ctx) == VType::Str {
                             to_owned_string(arg);
                         }
                     }
@@ -735,7 +911,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         }
         Expr::Call { name, args } => {
             // `x(i)` where x is an array is the VB way — point at Rust indexing.
-            if ctx.array_vars.contains(&snake(name)) {
+            if ctx.is_indexable(name) {
                 ctx.diags.error_once(
                     &format!("array-call-{}", snake(name)),
                     format!(
@@ -752,18 +928,20 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // payload. For `Err` this only fires when the payload is a string —
             // i.e. the error type is `String`; a typed error (`Err(MyErr.X)`)
             // isn't a `&str`, so it's left alone.
-            if matches!(name.as_str(), "Ok" | "Err" | "Some") && args.len() == 1
-                && infer(&args[0], ctx) == RType::Str
+            if matches!(name.as_str(), "Ok" | "Err" | "Some")
+                && args.len() == 1
+                && infer(&args[0], ctx) == VType::Str
             {
                 to_owned_string(&mut args[0]);
             }
             // Maths builtins need a floating-point receiver — cast an integer
             // argument so e.g. `Sqr(n)` becomes `(n as f64).sqrt()`.
             if maths_needs_float(name) && args.len() == 1 && !is_literal(&args[0]) {
-                let t = infer(&args[0], ctx);
-                if t.is_numeric() && !t.is_float() {
-                    let inner = std::mem::replace(&mut args[0], Expr::Int(0));
-                    args[0] = Expr::Cast(Box::new(inner), Type::Double);
+                if let Some(t) = num_ty(&infer(&args[0], ctx)) {
+                    if !t.is_float() {
+                        let inner = std::mem::replace(&mut args[0], Expr::Int(0));
+                        args[0] = Expr::Cast(Box::new(inner), Type::Double);
+                    }
                 }
             }
             if let Some(sig) = ctx.fns.get(&snake(name)) {
@@ -794,7 +972,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                                 // A `&str` param: borrow an owned String, but leave an
                                 // existing slice (literal, `&str` param, `Trim(..)`) alone.
                                 Some(DeclType::Plain(Type::Text)) => {
-                                    infer(arg, ctx) != RType::Str
+                                    infer(arg, ctx) != VType::Str
                                 }
                                 _ => false,
                             };
@@ -857,45 +1035,80 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
 }
 
 /// Best-effort type inference. `Unknown` whenever we can't be sure — callers
-/// only act on a confidently numeric result.
-fn infer(e: &Expr, ctx: &Ctx) -> RType {
+/// only act on a confidently-known result.
+fn infer(e: &Expr, ctx: &Ctx) -> VType {
     match e {
-        Expr::Int(_) => RType::I32,
-        Expr::Float(_) => RType::F64,
-        Expr::Bool(_) => RType::Bool,
-        Expr::Str(_) => RType::Str,
+        Expr::Int(_) => vt(Type::Integer),
+        Expr::Float(_) => vt(Type::Double),
+        Expr::Bool(_) => vt(Type::Boolean),
+        Expr::Str(_) => VType::Str,
         Expr::Await(inner) => infer(inner, ctx),
-        Expr::Ident(name) if ctx.str_params.contains(&snake(name)) => RType::Str,
-        Expr::Ident(name) => ctx.vars.get(&snake(name)).copied().map_or(RType::Unknown, rtype_of),
+        Expr::Ident(name) if ctx.is_str_param(name) => VType::Str,
+        Expr::Ident(name) => match ctx.binding(name).and_then(|b| b.ty.clone()) {
+            Some(ty) => VType::Decl(ty),
+            None => VType::Unknown,
+        },
         Expr::Deref(inner) => infer(inner, ctx),
-        Expr::Cast(_, ty) => rtype_of(*ty),
+        Expr::Cast(_, ty) => vt(*ty),
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
-        Expr::Try(_) => RType::Unknown,
-        Expr::MutRef(_) | Expr::Ref(_) => RType::Unknown,
-        // Struct/tuple values, field types, const refs, closures: not numeric.
+        Expr::Try(_) => VType::Unknown,
+        Expr::MutRef(_) | Expr::Ref(_) => VType::Unknown,
+        // `p.field` — the field's declared type, when the receiver is a known
+        // struct (including `Me` inside a method).
+        Expr::Field(recv, field) => match infer(recv, ctx) {
+            VType::Decl(DeclType::Named(s)) => ctx
+                .structs
+                .get(&s)
+                .and_then(|fields| fields.get(&snake(field)))
+                .map_or(VType::Unknown, |t| VType::Decl(t.clone())),
+            _ => VType::Unknown,
+        },
+        // `v(i)` / `arr(i)` — the element type. Indexing a 2-D array once
+        // yields its row (an inner array), so `g(r)(c)` infers through.
+        Expr::Index(inner, _) => match infer(inner, ctx) {
+            VType::Decl(DeclType::Vec(t)) => VType::Decl(*t),
+            VType::Decl(DeclType::Array(t, _)) => vt(t),
+            VType::Decl(DeclType::Array2D(t, _, c)) => VType::Decl(DeclType::Array(t, c)),
+            _ => VType::Unknown,
+        },
+        // `t.0` — the tuple element's type.
+        Expr::TupleIndex(inner, i) => match infer(inner, ctx) {
+            VType::Decl(DeclType::Tuple(ts)) => {
+                ts.get(*i).map_or(VType::Unknown, |t| VType::Decl(t.clone()))
+            }
+            _ => VType::Unknown,
+        },
+        // Struct/tuple literals, const refs, closures: not tracked yet.
         Expr::StructLit { .. }
-        | Expr::Field(..)
         | Expr::ConstRef(_)
         | Expr::Closure { .. }
         | Expr::Tuple(_)
-        | Expr::TupleIndex(..)
-        | Expr::Index(..)
         | Expr::InlineRust(_)
-        | Expr::InlinePython { .. } => RType::Unknown,
-        Expr::Not(_) => RType::Bool,
+        | Expr::InlinePython { .. } => VType::Unknown,
+        Expr::Not(_) => vt(Type::Boolean),
         Expr::Binary { op, lhs, rhs } => match op {
-            BinOp::Concat => RType::Strng,
-            BinOp::Pow => RType::F64,
-            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => RType::Bool,
-            BinOp::And | BinOp::Or | BinOp::Xor => RType::Bool,
-            _ => join(infer(lhs, ctx), infer(rhs, ctx)),
+            BinOp::Concat => vt(Type::Text),
+            BinOp::Pow => vt(Type::Double),
+            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                vt(Type::Boolean)
+            }
+            BinOp::And | BinOp::Or | BinOp::Xor => vt(Type::Boolean),
+            _ => {
+                // Arithmetic: the widened type of the two operands.
+                match (num_ty(&infer(lhs, ctx)), num_ty(&infer(rhs, ctx))) {
+                    (Some(a), Some(b)) => match widen(a, b) {
+                        Some(t) => vt(t),
+                        None => VType::Usize,
+                    },
+                    _ => VType::Unknown,
+                }
+            }
         },
-        Expr::Call { name, args } => builtin_rtype(name).unwrap_or_else(|| {
-            // Not a builtin? A plain return type is numeric; Result/Option aren't.
-            let _ = args;
-            match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
-                Some(DeclType::Plain(t)) => rtype_of(*t),
-                _ => RType::Unknown,
+        Expr::Call { name, .. } => builtin_vtype(name).unwrap_or_else(|| {
+            // Not a builtin? Use the user function's declared return type.
+            match ctx.fns.get(&snake(name)).and_then(|s| s.ret.clone()) {
+                Some(ty) => VType::Decl(ty),
+                None => VType::Unknown,
             }
         }),
         // Rust methods pass through verbatim; this curated table just tells the
@@ -909,7 +1122,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
             if is_receiver_typed_method(&m) {
                 infer(recv, ctx)
             } else {
-                method_rtype(&m)
+                method_vtype(&m)
             }
         }
     }
@@ -936,41 +1149,21 @@ fn is_receiver_typed_method(m: &str) -> bool {
 /// glue VB functions use. Strings first; extend with Vec/number rows as needed.
 /// Unknown methods still pass through to Rust untouched; they just don't get
 /// the smooth auto-coercion (rustc is the backstop).
-fn method_rtype(m: &str) -> RType {
+fn method_vtype(m: &str) -> VType {
     match m {
         // Borrowed `&str` slices — need `.to_string()` to land in a String slot.
-        "trim" | "trim_start" | "trim_end" | "trim_matches" => RType::Str,
+        "trim" | "trim_start" | "trim_end" | "trim_matches" => VType::Str,
         // Owned `String` results — already own their value.
         "to_uppercase" | "to_lowercase" | "to_ascii_uppercase" | "to_ascii_lowercase"
-        | "replace" | "replacen" | "repeat" | "to_string" | "concat" | "join" => RType::Strng,
+        | "replace" | "replacen" | "repeat" | "to_string" | "concat" | "join" => vt(Type::Text),
         // `usize` — counts and lengths (drive `as` casts in comparisons).
-        "len" | "count" | "capacity" => RType::Usize,
+        "len" | "count" | "capacity" => VType::Usize,
         // Predicates — string and numeric.
         "is_empty" | "contains" | "starts_with" | "ends_with" | "eq_ignore_ascii_case"
         | "is_nan" | "is_finite" | "is_infinite" | "is_sign_positive" | "is_sign_negative"
-        | "is_power_of_two" => RType::Bool,
+        | "is_power_of_two" => vt(Type::Boolean),
         // Iterators, parses, and anything else: leave to Rust (no coercion).
-        _ => RType::Unknown,
-    }
-}
-
-/// The result type of arithmetic between two operands (a rough widening).
-fn join(a: RType, b: RType) -> RType {
-    if a == RType::Unknown || b == RType::Unknown {
-        return RType::Unknown;
-    }
-    if a.is_float() || b.is_float() {
-        if a == RType::F64 || b == RType::F64 {
-            RType::F64
-        } else {
-            RType::F32
-        }
-    } else if a == RType::I64 || b == RType::I64 {
-        RType::I64
-    } else if a == RType::Usize || b == RType::Usize {
-        RType::Usize
-    } else {
-        RType::I32
+        _ => VType::Unknown,
     }
 }
 
@@ -986,7 +1179,7 @@ fn join(a: RType, b: RType) -> RType {
 /// `DataFrame.ReadCsv(...)`-style constructor, or a transform chained off one.
 fn is_df_expr(e: &Expr, ctx: &Ctx) -> bool {
     match e {
-        Expr::Ident(n) => ctx.struct_vars.get(&snake(n)).map_or(false, |t| t == "DataFrame"),
+        Expr::Ident(n) => ctx.struct_of(n) == Some("DataFrame"),
         Expr::MethodCall { recv, .. } => {
             matches!(&**recv, Expr::Ident(n) if n == "DataFrame") || is_df_expr(recv, ctx)
         }
@@ -997,11 +1190,10 @@ fn is_df_expr(e: &Expr, ctx: &Ctx) -> bool {
 /// In a column formula, a name you've `Dim`'d is a *value* (`lit`); any other bare
 /// name is a *column* (`col`). This tells the two apart.
 fn is_value_var(name: &str, ctx: &Ctx) -> bool {
-    let s = snake(name);
-    ctx.vars.contains_key(&s)
-        || ctx.str_params.contains(&s)
-        || ctx.array_vars.contains(&s)
-        || ctx.struct_vars.get(&s).map_or(false, |t| t != "DataFrame")
+    match ctx.binding(name) {
+        Some(b) => b.ty.is_some() && ctx.struct_of(name) != Some("DataFrame"),
+        None => false,
+    }
 }
 
 /// Rewrite a VBR expression in column-formula context into polars expressions.

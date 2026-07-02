@@ -80,10 +80,10 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         Message::FetchDone(result) => {
             match result {
                 Ok ( body ) => {
-                    state.status = format!("{}{}", format!("{}{}", "got ", body.len()), " bytes");
+                    state.status = format!("got {} bytes", body.len());
                 }
                 Err ( e ) => {
-                    state.status = format!("{}{}", "error: ", e);
+                    state.status = format!("error: {}", e);
                 }
             }
             Task::none()
@@ -104,7 +104,7 @@ fn view(state: &Panel) -> Element<'_, Message> {
         ],
         checkbox("I agree to the terms", state.agree).on_toggle(Message::SetAgree),
         toggler(state.dark).label("Dark mode").on_toggle(Message::SetDark),
-        text(format!("{}{}", "Volume: ", state.volume)),
+        text(format!("Volume: {}", state.volume)),
         slider(0..=100, state.volume, Message::SetVolume),
         progress_bar((0 as f32)..=(100 as f32), state.volume as f32),
         text("Size:"),

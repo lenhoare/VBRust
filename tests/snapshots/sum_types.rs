@@ -27,7 +27,7 @@ fn area(s: &Shape) -> f64 {
 fn main() {
     let c: Shape = Shape::Circle(2.0);
     let r: Shape = Shape::Rectangle(3.0, 4.0);
-    println!("{}", format!("{}{}", "circle area = ", area(&c)));
-    println!("{}", format!("{}{}", "rect area   = ", area(&r)));
-    println!("{}", format!("{}{}", "empty area  = ", area(&Shape::Empty)));
+    println!("circle area = {}", area(&c));
+    println!("rect area   = {}", area(&r));
+    println!("empty area  = {}", area(&Shape::Empty));
 }

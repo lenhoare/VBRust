@@ -5,7 +5,7 @@ fn main() {
     let b: i64 = 7;
     // variables pass in automatically; last line (no semicolon) is the value
     let sum: i64 = { a + b };
-    println!("{}", format!("{}{}", "sum is ", sum));
+    println!("sum is {}", sum);
     // a multi-line block — real Rust, sealed inside
     let big: i64 = {
         let mut total = 0;
@@ -14,5 +14,5 @@ fn main() {
         }
         total
     };
-    println!("{}", format!("{}{}", "1 to 100 = ", big));
+    println!("1 to 100 = {}", big);
 }

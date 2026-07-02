@@ -21,9 +21,9 @@ _vbr_result = "layer.weight", w.tolist(), float(w.sum())
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", "tensor: ", name));
-    println!("{}", format!("{}{}", "sum:    ", total));
-    println!("{}", format!("{}{}", "first:  ", weights[0]));
+    println!("tensor: {}", name);
+    println!("sum:    {}", total);
+    println!("first:  {}", weights[0]);
     // Works with a handle passed in too: destructure stats out of a held object.
     let data: pyo3::Py<pyo3::PyAny> = {
         use pyo3::prelude::*;
@@ -53,5 +53,5 @@ _vbr_result = float(data.min()), float(data.max()), float(data.mean())
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", format!("{}{}", format!("{}{}", format!("{}{}", format!("{}{}", format!("{}{}", "range:  ", lo), " .. "), hi), " (mean "), mean), ")"));
+    println!("range:  {} .. {} (mean {})", lo, hi, mean);
 }

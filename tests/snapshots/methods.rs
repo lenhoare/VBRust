@@ -8,7 +8,7 @@ struct Person {
 
 impl Person {
     fn greet(&self) -> String {
-        format!("{}{}", format!("{}{}", format!("{}{}", format!("{}{}", "Hi, I'm ", self.name), " ("), self.age), ")")
+        format!("Hi, I'm {} ({})", self.name, self.age)
     }
 
     fn have_birthday(&mut self) {

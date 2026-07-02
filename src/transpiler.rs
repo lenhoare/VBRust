@@ -58,6 +58,7 @@ pub fn transpile_module(
     let fns = resolver::build_fn_table(program);
     let methods = resolver::build_method_table(program);
     let consts = resolver::build_const_map(program);
+    let structs = resolver::build_struct_table(program);
 
     let mut out = String::new();
     for comment in &program.leading_comments {
@@ -139,12 +140,18 @@ pub fn transpile_module(
     }
     for recv in receivers {
         sep(&mut out);
-        emit_impl(recv, program, &fns, &methods, &consts, &module_set, &enum_set, diags, &mut out);
+        emit_impl(
+            recv, program, &fns, &methods, &consts, &module_set, &enum_set, &structs, diags,
+            &mut out,
+        );
     }
 
     for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
         sep(&mut out);
-        emit_fn(func, &fns, &methods, &consts, &module_set, &enum_set, diags, &mut out, 0, None);
+        emit_fn(
+            func, &fns, &methods, &consts, &module_set, &enum_set, &structs, diags, &mut out, 0,
+            None,
+        );
     }
     out
 }
@@ -190,6 +197,7 @@ pub(crate) fn emit_impl(
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
     enums: &HashSet<String>,
+    structs: &resolver::StructTable,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
@@ -209,7 +217,7 @@ pub(crate) fn emit_impl(
             .copied()
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
-        emit_fn(f, fns, methods, consts, modules, enums, diags, out, 1, Some(self_param));
+        emit_fn(f, fns, methods, consts, modules, enums, structs, diags, out, 1, Some(self_param));
     }
     out.push_str("}\n");
 }
@@ -326,6 +334,7 @@ pub(crate) fn emit_fn(
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
     enums: &HashSet<String>,
+    structs: &resolver::StructTable,
     diags: &mut Diagnostics,
     out: &mut String,
     base_indent: usize,
@@ -381,6 +390,8 @@ pub(crate) fn emit_fn(
         consts,
         modules,
         enums,
+        structs,
+        func.receiver.as_deref(),
         tail_expected,
         can_propagate,
         diags,
@@ -728,7 +739,33 @@ pub(crate) fn emit_stmt(
             out.push_str(&format!("{}return;\n", pad));
         }
         Stmt::Print(e) => {
-            out.push_str(&format!("{}println!(\"{{}}\", {});\n", pad, render_expr(e, None)));
+            // Print a concatenation as one flat println! (string literals fold
+            // into the format string); a lone literal prints directly.
+            match e {
+                Expr::Binary { op: BinOp::Concat, .. } => {
+                    let (fmt, args) = flatten_concat(e);
+                    if args.is_empty() {
+                        out.push_str(&format!("{}println!(\"{}\");\n", pad, fmt));
+                    } else {
+                        out.push_str(&format!(
+                            "{}println!(\"{}\", {});\n",
+                            pad,
+                            fmt,
+                            args.join(", ")
+                        ));
+                    }
+                }
+                Expr::Str(s) => {
+                    out.push_str(&format!("{}println!(\"{}\");\n", pad, escape_fmt(s)));
+                }
+                _ => {
+                    out.push_str(&format!(
+                        "{}println!(\"{{}}\", {});\n",
+                        pad,
+                        render_expr(e, None)
+                    ));
+                }
+            }
         }
         Stmt::If {
             branches,
@@ -1175,7 +1212,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
     }
 }
 
-fn is_mutating_method(m: &str) -> bool {
+pub(crate) fn is_mutating_method(m: &str) -> bool {
     matches!(
         m,
         "push" | "insert" | "remove" | "pop" | "clear" | "sort" | "reverse" | "extend"
@@ -1466,14 +1503,17 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         // `Me` is the method receiver.
         Expr::Ident(name) if name == "Me" => "self".to_string(),
         Expr::Ident(name) => to_snake(name),
-        Expr::Binary { op, lhs, rhs } if *op == BinOp::Concat => {
-            // `&` concatenation always becomes format!, sidestepping ownership.
-            // The call is atomic, so it never needs surrounding parens.
-            format!(
-                "format!(\"{{}}{{}}\", {}, {})",
-                render_prec(lhs, None, 0, false),
-                render_prec(rhs, None, 0, false)
-            )
+        Expr::Binary { op, .. } if *op == BinOp::Concat => {
+            // `&` concatenation becomes one flat format!, sidestepping ownership:
+            // the whole chain is collected in order and string literals fold into
+            // the format string itself, so `"a: " & x & "!"` reads as
+            // `format!("a: {}!", x)`. The call is atomic — never needs parens.
+            let (fmt, args) = flatten_concat(e);
+            if args.is_empty() {
+                format!("format!(\"{}\")", fmt)
+            } else {
+                format!("format!(\"{}\", {})", fmt, args.join(", "))
+            }
         }
         Expr::Binary { op, lhs, rhs } if *op == BinOp::Xor => {
             // VBR treats Xor as a loose logical op, but Rust's `^` binds *tighter*
@@ -1854,6 +1894,35 @@ fn fmt_float(f: f64) -> String {
 
 fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Escape a string literal for use *inside* a format string: the usual
+/// escapes plus `{`/`}`, which format! treats as placeholders.
+fn escape_fmt(s: &str) -> String {
+    escape(s).replace('{', "{{").replace('}', "}}")
+}
+
+/// Collect an `&` concatenation chain, in order, into one format string and
+/// its arguments. String literals fold into the format string; every other
+/// operand becomes a `{}` argument.
+fn flatten_concat(e: &Expr) -> (String, Vec<String>) {
+    fn walk(e: &Expr, fmt: &mut String, args: &mut Vec<String>) {
+        match e {
+            Expr::Binary { op: BinOp::Concat, lhs, rhs } => {
+                walk(lhs, fmt, args);
+                walk(rhs, fmt, args);
+            }
+            Expr::Str(s) => fmt.push_str(&escape_fmt(s)),
+            other => {
+                fmt.push_str("{}");
+                args.push(render_prec(other, None, 0, false));
+            }
+        }
+    }
+    let mut fmt = String::new();
+    let mut args = Vec::new();
+    walk(e, &mut fmt, &mut args);
+    (fmt, args)
 }
 
 /// Names that are reassigned somewhere in the body need `let mut`.

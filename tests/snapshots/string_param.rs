@@ -2,7 +2,7 @@
 // needed to read it; only changing it requires ByRef.
 
 fn loudly(message: &str) -> String {
-    format!("{}{}", message, "!")
+    format!("{}!", message)
 }
 
 fn main() {

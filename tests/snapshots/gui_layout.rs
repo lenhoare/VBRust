@@ -29,7 +29,7 @@ fn update(state: &mut Layout, message: Message) {
 fn view(state: &Layout) -> Element<'_, Message> {
     column![
         iced::widget::container(text("Header — fixed 40px tall")).height(iced::Length::Fixed(40.0)),
-        iced::widget::container(text(format!("{}{}", "Body fills the remaining space. Clicks: ", state.clicks))).height(iced::Length::Fill),
+        iced::widget::container(text(format!("Body fills the remaining space. Clicks: {}", state.clicks))).height(iced::Length::Fill),
         iced::widget::container(button("Footer button").on_press(Message::Bump)).height(iced::Length::Fixed(30.0)),
     ].spacing(10).padding(10).into()
 }

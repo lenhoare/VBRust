@@ -32,7 +32,7 @@ _vbr_result = float(data.mean())
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", "mean = ", mean));
+    println!("mean = {}", mean);
     let biggest: f64 = {
         use pyo3::prelude::*;
         pyo3::Python::with_gil(|py| -> pyo3::PyResult<f64> {
@@ -47,7 +47,7 @@ _vbr_result = float(data.max())
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", "max  = ", biggest));
+    println!("max  = {}", biggest);
     // Pass a scalar in alongside the handle: how many exceed a threshold?
     let threshold: f64 = 4.0;
     let above: i32 = {
@@ -65,5 +65,5 @@ _vbr_result = int((data > threshold).sum())
         })
         .expect("the Python block raised an exception")
     };
-    println!("{}", format!("{}{}", format!("{}{}", above, " values exceed "), threshold));
+    println!("{} values exceed {}", above, threshold);
 }

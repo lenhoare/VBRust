@@ -4,9 +4,9 @@ fn main() {
     let a: i64 = add(2, 3);
     let s: i64 = square(4);
     let f: i64 = factorial(5);
-    println!("{}", format!("{}{}", "2 + 3 = ", a));
-    println!("{}", format!("{}{}", "4 squared = ", s));
-    println!("{}", format!("{}{}", "5! = ", f));
+    println!("2 + 3 = {}", a);
+    println!("4 squared = {}", s);
+    println!("5! = {}", f);
 }
 
 fn add(x: i64, y: i64) -> i64 {

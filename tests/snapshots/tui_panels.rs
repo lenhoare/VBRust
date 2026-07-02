@@ -54,7 +54,7 @@ fn view(state: &mut Panels, frame: &mut Frame) {
     let items_3: Vec<ratatui::widgets::ListItem> = state.right.iter().map(|s| ratatui::widgets::ListItem::new(s.clone())).collect();
     let list_3 = ratatui::widgets::List::new(items_3).highlight_symbol("» ").highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));
     frame.render_stateful_widget(list_3, chunks_1[1], &mut state.right_state);
-    frame.render_widget(Paragraph::new(format!("{}{}", " Last pick: ", state.log)), chunks_0[2]);
+    frame.render_widget(Paragraph::new(format!(" Last pick: {}", state.log)), chunks_0[2]);
 }
 
 fn main() -> std::io::Result<()> {
@@ -91,13 +91,13 @@ fn main() -> std::io::Result<()> {
                             0 => {
                                 if let Some(i) = state.left_state.selected() {
                                     let item = state.left[i].clone();
-                                    state.log = format!("{}{}", "left / ", item);
+                                    state.log = format!("left / {}", item);
                                 }
                             }
                             1 => {
                                 if let Some(i) = state.right_state.selected() {
                                     let item = state.right[i].clone();
-                                    state.log = format!("{}{}", "right / ", item);
+                                    state.log = format!("right / {}", item);
                                 }
                             }
                             _ => {}

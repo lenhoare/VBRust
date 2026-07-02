@@ -6,5 +6,5 @@ fn main() {
     n -= 3;
     n *= 2;
     n /= 4;
-    println!("{}", format!("{}{}", "n = ", n));
+    println!("n = {}", n);
 }

@@ -19,13 +19,13 @@ enum Shape {
 fn describe(s: &Shape) -> String {
     match s {
         Shape :: Dot ( p ) => {
-            return format!("{}{}", format!("{}{}", format!("{}{}", "dot at ", p.x), ","), p.y);
+            return format!("dot at {},{}", p.x, p.y);
         }
         Shape :: Segment ( a , b ) => {
-            return format!("{}{}", format!("{}{}", format!("{}{}", "segment ", a.x), " to "), b.x);
+            return format!("segment {} to {}", a.x, b.x);
         }
         Shape :: Blob ( pts ) => {
-            return format!("{}{}", format!("{}{}", "blob of ", pts.len()), " points");
+            return format!("blob of {} points", pts.len());
         }
         Shape :: Empty => {
             return "nothing".to_string();

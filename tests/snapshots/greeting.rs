@@ -36,7 +36,7 @@ fn view(state: &Greeter) -> Element<'_, Message> {
         {
             let el: Element<'_, Message> = match state.name.as_str() {
                 "" => text("Type your name above.").into(),
-                _ => text(format!("{}{}", format!("{}{}", "Hello, ", state.name), "!")).into(),
+                _ => text(format!("Hello, {}!", state.name)).into(),
             };
             el
         },

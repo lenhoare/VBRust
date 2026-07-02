@@ -30,7 +30,7 @@ fn view(state: &Dashboard, frame: &mut Frame) {
     let chunks_3 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).split(chunks_1[1]);
     frame.render_widget(Paragraph::new(" Main panel"), chunks_3[0]);
     frame.render_widget(Paragraph::new(""), chunks_3[1]);
-    frame.render_widget(Paragraph::new(format!("{}{}", "Active tab: ", state.tab)), chunks_3[2]);
+    frame.render_widget(Paragraph::new(format!("Active tab: {}", state.tab)), chunks_3[2]);
     frame.render_widget(Paragraph::new("  status: ok"), chunks_0[2]);
 }
 

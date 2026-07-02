@@ -54,10 +54,10 @@ fn update(state: &mut Worker, message: Message) -> Task<Message> {
         Message::ComputeDone(result) => {
             match result {
                 Ok ( result ) => {
-                    state.status = format!("{}{}", "sum = ", result);
+                    state.status = format!("sum = {}", result);
                 }
                 Err ( e ) => {
-                    state.status = format!("{}{}", "error: ", e);
+                    state.status = format!("error: {}", e);
                 }
             }
             Task::none()

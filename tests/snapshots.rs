@@ -38,6 +38,7 @@ const HAPPY: &[&str] = &[
     "hashmap",
     "doloop",
     "structs",
+    "field_inference",
     "enums",
     "sum_types",
     "enum_payloads",
