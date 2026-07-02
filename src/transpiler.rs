@@ -233,22 +233,23 @@ pub(crate) fn emit_enum(e: &EnumDef, out: &mut String) {
 /// `String` payload; `Eq` unless a float payload. An all-unit enum gets the full
 /// set (same as a simple enum).
 fn enum_derives(e: &EnumDef) -> String {
-    let payloads: Vec<&Type> = e
-        .variants
+    let payloads: Vec<&DeclType> = e.variants.iter().flat_map(|v| &v.payload).collect();
+    // Debug/Clone hold for every payload type. Copy only for Copy primitives (not
+    // String/Vec/struct/…). PartialEq/Eq only when every payload is a primitive or
+    // String — a struct payload derives neither (structs are Debug+Clone only), so
+    // we drop them rather than emit a derive that won't compile.
+    let copy = payloads.iter().all(|t| matches!(t, DeclType::Plain(p) if !matches!(p, Type::Text)));
+    let partial_eq = payloads.iter().all(|t| matches!(t, DeclType::Plain(_)));
+    let eq = payloads
         .iter()
-        .flat_map(|v| &v.payload)
-        .filter_map(|t| match t {
-            DeclType::Plain(p) => Some(p),
-            _ => None,
-        })
-        .collect();
-    let copy = payloads.iter().all(|p| !matches!(p, Type::Text));
-    let eq = payloads.iter().all(|p| !matches!(p, Type::Single | Type::Double));
+        .all(|t| matches!(t, DeclType::Plain(p) if !matches!(p, Type::Single | Type::Double)));
     let mut d = vec!["Debug", "Clone"];
     if copy {
         d.push("Copy");
     }
-    d.push("PartialEq");
+    if partial_eq {
+        d.push("PartialEq");
+    }
     if eq {
         d.push("Eq");
     }

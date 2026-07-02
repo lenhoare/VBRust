@@ -241,13 +241,16 @@ pub enum ViewNode {
     BarChart {
         field: String,
     },
-    /// An X/Y line or scatter chart over a `Vec<Struct>`: the struct's first two
-    /// numeric fields are the x and y of each point (ratatui `Chart`). Axis bounds
-    /// are auto-computed from the data. `scatter` picks points over a line.
+    /// An X/Y line or scatter chart (ratatui `Chart`). Each field in `fields` is a
+    /// `Vec<Struct>` series (first two numeric fields = x, y), drawn in its own
+    /// colour with a legend. Axis bounds are auto-computed unless `x_bounds`/
+    /// `y_bounds` give explicit `min..=max`. `scatter` picks points over a line.
     /// Display-only. TUI-only.
     Chart {
-        field: String,
+        fields: Vec<String>,
         scatter: bool,
+        x_bounds: Option<(Expr, Expr)>,
+        y_bounds: Option<(Expr, Expr)>,
     },
     /// A single-line text input bound to a `String` state field (ratatui, TUI).
     /// Printable keys type into it, Backspace deletes; `on_submit` fires on Enter.

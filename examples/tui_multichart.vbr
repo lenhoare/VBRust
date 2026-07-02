@@ -1,0 +1,51 @@
+Type Point
+    Public x As Double
+    Public y As Double
+End Type
+
+Screen MultiChart
+    Title "Linear vs Quadratic"
+
+    State
+        Dim linear As Vec<Point> = Linear()
+        Dim quad As Vec<Point> = Quadratic()
+    End State
+
+    View
+        Column
+            Length 1
+            Text " two series, explicit axes — q to quit"
+            Fill
+            Chart
+                Series linear
+                Series quad
+                XAxis 0..=10
+                YAxis 0..=100
+            End Chart
+        End Column
+    End View
+
+    On Key "q" Quit
+End Screen
+
+Function Linear() As Vec<Point>
+    Dim v As Vec<Point>
+    For i = 0 To 10
+        Dim xd As Double = i
+        v.Push(Point { x: xd, y: xd * 8.0 })
+    Next i
+    Return v
+End Function
+
+Function Quadratic() As Vec<Point>
+    Dim v As Vec<Point>
+    For i = 0 To 10
+        Dim xd As Double = i
+        v.Push(Point { x: xd, y: xd * xd })
+    Next i
+    Return v
+End Function
+
+Function Main()
+    MultiChart.Run
+End Function

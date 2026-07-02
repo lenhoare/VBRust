@@ -335,20 +335,12 @@ impl<'a> Parser<'a> {
             if self.eat(&Tok::LParen) {
                 if !matches!(self.peek(), Tok::RParen) {
                     loop {
-                        let ty = self.parse_decl_type()?;
-                        // V1: variant payloads are primitives or String (their
-                        // traits are known, so derives are safe). Richer payloads
-                        // (structs, Vec, nested enums) come later.
-                        if !matches!(ty, DeclType::Plain(_)) {
-                            self.diags.error(
-                                self.line(),
-                                "For now an enum variant payload must be a primitive or String \
-                                 (e.g. `Circle(Double)`, `Named(String)`). Structs/Vec/nested \
-                                 enums as payloads are a future addition.",
-                            );
-                            return None;
-                        }
-                        payload.push(ty);
+                        // Variant payloads may be any type: primitives, String,
+                        // structs, `Vec<T>`, nested enums, etc. Derives are computed
+                        // conservatively so the generated enum always compiles.
+                        // (Directly-recursive payloads still need `Vec`/`Option`;
+                        // auto-boxing is a future addition.)
+                        payload.push(self.parse_decl_type()?);
                         if !self.eat(&Tok::Comma) {
                             break;
                         }
@@ -968,22 +960,81 @@ impl<'a> Parser<'a> {
                 Some(ViewNode::BarChart { field })
             }
             "chart" => {
-                // `Chart field [Scatter]` — an X/Y line (or scatter) chart.
+                // Single-line: `Chart f1[, f2, …] [Scatter]` (auto axes).
+                // Block:       `Chart` / `Series f` / `XAxis min..=max` / … / `End Chart`.
                 self.advance();
-                let field = self.expect_ident("for the Chart's Vec<Struct> field")?;
-                let scatter = match self.peek().clone() {
-                    Tok::Ident(w) if w.eq_ignore_ascii_case("Scatter") => {
-                        self.advance();
-                        true
+                let mut fields = Vec::new();
+                let mut scatter = false;
+                let mut x_bounds = None;
+                let mut y_bounds = None;
+                if matches!(self.peek(), Tok::Newline) {
+                    self.advance();
+                    loop {
+                        self.skip_newlines();
+                        match self.peek().clone() {
+                            Tok::End => {
+                                self.advance();
+                                self.expect_kw_ident("Chart")?;
+                                self.eat(&Tok::Newline);
+                                break;
+                            }
+                            Tok::Ident(w) if w.eq_ignore_ascii_case("Series") => {
+                                self.advance();
+                                fields.push(self.expect_ident("for the series' Vec<Struct> field")?);
+                                self.eat(&Tok::Newline);
+                            }
+                            Tok::Ident(w) if w.eq_ignore_ascii_case("Scatter") => {
+                                self.advance();
+                                scatter = true;
+                                self.eat(&Tok::Newline);
+                            }
+                            Tok::Ident(w) if w.eq_ignore_ascii_case("XAxis") => {
+                                self.advance();
+                                let lo = self.parse_expr()?;
+                                self.expect(&Tok::DotDotEq, "for the axis range — `min..=max`")?;
+                                let hi = self.parse_expr()?;
+                                self.eat(&Tok::Newline);
+                                x_bounds = Some((lo, hi));
+                            }
+                            Tok::Ident(w) if w.eq_ignore_ascii_case("YAxis") => {
+                                self.advance();
+                                let lo = self.parse_expr()?;
+                                self.expect(&Tok::DotDotEq, "for the axis range — `min..=max`")?;
+                                let hi = self.parse_expr()?;
+                                self.eat(&Tok::Newline);
+                                y_bounds = Some((lo, hi));
+                            }
+                            other => {
+                                self.diags.error(
+                                    self.line(),
+                                    format!(
+                                        "Inside a Chart expected `Series <field>`, `XAxis min..=max`, \
+                                         `YAxis min..=max`, `Scatter`, or `End Chart`, found {:?}.",
+                                        other
+                                    ),
+                                );
+                                return None;
+                            }
+                        }
                     }
-                    Tok::Ident(w) if w.eq_ignore_ascii_case("Line") => {
-                        self.advance();
-                        false
+                } else {
+                    fields.push(self.expect_ident("for the Chart's Vec<Struct> field")?);
+                    while self.eat(&Tok::Comma) {
+                        fields.push(self.expect_ident("for the next series field")?);
                     }
-                    _ => false,
-                };
-                self.eat(&Tok::Newline);
-                Some(ViewNode::Chart { field, scatter })
+                    match self.peek().clone() {
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Scatter") => {
+                            self.advance();
+                            scatter = true;
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Line") => {
+                            self.advance();
+                        }
+                        _ => {}
+                    }
+                    self.eat(&Tok::Newline);
+                }
+                Some(ViewNode::Chart { fields, scatter, x_bounds, y_bounds })
             }
             "input" => {
                 // `Input field` + optional `On Submit <Event>` — a text entry line.

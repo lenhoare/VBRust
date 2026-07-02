@@ -36,15 +36,15 @@ fn view(state: &Plot, frame: &mut Frame) {
     frame.render_widget(block, area);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
     frame.render_widget(Paragraph::new(" An X/Y line chart of computed points — q to quit"), chunks_0[0]);
-    let pts_1: Vec<(f64, f64)> = state.curve.iter().map(|p| (p.x as f64, p.y as f64)).collect();
-    let xlo_1 = pts_1.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
-    let xhi_1 = pts_1.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+    let pts_1_0: Vec<(f64, f64)> = state.curve.iter().map(|p| (p.x as f64, p.y as f64)).collect();
+    let xlo_1 = pts_1_0.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+    let xhi_1 = pts_1_0.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
     let (xlo_1, xhi_1) = if xlo_1 <= xhi_1 { (xlo_1, xhi_1) } else { (0.0, 1.0) };
-    let ylo_1 = pts_1.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-    let yhi_1 = pts_1.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    let ylo_1 = pts_1_0.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let yhi_1 = pts_1_0.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
     let (ylo_1, yhi_1) = if ylo_1 <= yhi_1 { (ylo_1, yhi_1) } else { (0.0, 1.0) };
-    let dataset_1 = ratatui::widgets::Dataset::default().marker(ratatui::symbols::Marker::Braille).graph_type(ratatui::widgets::GraphType::Line).style(ratatui::style::Style::new().fg(ratatui::style::Color::Cyan)).data(&pts_1);
-    let chart_1 = ratatui::widgets::Chart::new(vec![dataset_1]).block(Block::bordered().title("curve"))
+    let dataset_1_0 = ratatui::widgets::Dataset::default().name("curve").marker(ratatui::symbols::Marker::Braille).graph_type(ratatui::widgets::GraphType::Line).style(ratatui::style::Style::new().fg(ratatui::style::Color::Cyan)).data(&pts_1_0);
+    let chart_1 = ratatui::widgets::Chart::new(vec![dataset_1_0]).block(Block::bordered().title("curve"))
         .x_axis(ratatui::widgets::Axis::default().bounds([xlo_1, xhi_1]).labels(vec![format!("{:.1}", xlo_1), format!("{:.1}", xhi_1)]))
         .y_axis(ratatui::widgets::Axis::default().bounds([ylo_1, yhi_1]).labels(vec![format!("{:.1}", ylo_1), format!("{:.1}", yhi_1)]));
     frame.render_widget(chart_1, chunks_0[1]);

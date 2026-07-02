@@ -1,0 +1,30 @@
+Window Layout
+    Title "Layout Sizing"
+
+    State
+        Dim clicks As Integer = 0
+    End State
+
+    View
+        Column
+            Spacing 10
+            Padding 10
+            Length 40
+            Text "Header — fixed 40px tall"
+            Fill
+            Text "Body fills the remaining space. Clicks: " & clicks
+            Length 30
+            Button "Footer button"
+                On Click Bump
+            End Button
+        End Column
+    End View
+
+    Event Bump
+        clicks += 1
+    End Event
+End Window
+
+Function Main()
+    Layout.Run
+End Function

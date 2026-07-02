@@ -544,69 +544,89 @@ fn render_view_node(
                 ),
             }
         }
-        // An X/Y line/scatter chart (ratatui `Chart`). Bounds auto-computed from
-        // the data (fallback 0..1 when empty), with min/max axis labels.
-        ViewNode::Chart { field, scatter } => {
-            let f = to_snake(field);
-            match chart_xy_columns(&f, field_ty, structs) {
-                Some((xf, yf)) => {
-                    let id = *counter;
-                    *counter += 1;
-                    let graph = if *scatter { "Scatter" } else { "Line" };
-                    out.push_str(&format!(
-                        "{}let pts_{}: Vec<(f64, f64)> = state.{}.iter()\
-                         .map(|p| (p.{} as f64, p.{} as f64)).collect();\n",
-                        pad, id, f, xf, yf
-                    ));
-                    // Axis bounds from the data (fallback to 0..1 when empty).
-                    for (axis, sel) in [("x", "0"), ("y", "1")] {
+        // An X/Y line/scatter chart (ratatui `Chart`) — one or more series, each
+        // its own colour + legend. Axis bounds explicit (`XAxis`/`YAxis`) or
+        // auto-computed across all series (fallback 0..1 when empty).
+        ViewNode::Chart { fields: series, scatter, x_bounds, y_bounds } => {
+            let cols: Option<Vec<(String, String)>> =
+                series.iter().map(|f| chart_xy_columns(&to_snake(f), field_ty, structs)).collect();
+            let Some(cols) = cols else {
+                diags.error_once(
+                    "chart-field",
+                    "A Chart series binds to a `Vec<Struct>` whose struct has at least two numeric \
+                     fields (the x and y of each point).",
+                );
+                return;
+            };
+            let id = *counter;
+            *counter += 1;
+            let graph = if *scatter { "Scatter" } else { "Line" };
+            const COLORS: &[&str] = &["Cyan", "Yellow", "Green", "Magenta", "Red", "Blue"];
+            // Per-series point vecs.
+            for (k, (f, (xf, yf))) in series.iter().zip(&cols).enumerate() {
+                out.push_str(&format!(
+                    "{}let pts_{}_{}: Vec<(f64, f64)> = state.{}.iter().map(|p| (p.{} as f64, p.{} as f64)).collect();\n",
+                    pad, id, k, to_snake(f), xf, yf
+                ));
+            }
+            // The iterator over every series' points (for auto bounds).
+            let chain = |sel: usize| -> String {
+                let mut s = format!("pts_{}_0.iter()", id);
+                for k in 1..series.len() {
+                    s = format!("{}.chain(pts_{}_{}.iter())", s, id, k);
+                }
+                format!("{}.map(|p| p.{})", s, sel)
+            };
+            // Axis bounds: explicit, or folded over the data.
+            for (axis, sel, bounds) in [("x", 0usize, x_bounds), ("y", 1usize, y_bounds)] {
+                match bounds {
+                    Some((lo, hi)) => {
+                        let lo = render_expr(&crate::gui::rewrite_expr(lo.clone(), fields, enums), None);
+                        let hi = render_expr(&crate::gui::rewrite_expr(hi.clone(), fields, enums), None);
+                        out.push_str(&format!("{}let {}lo_{} = ({}) as f64;\n", pad, axis, id, lo));
+                        out.push_str(&format!("{}let {}hi_{} = ({}) as f64;\n", pad, axis, id, hi));
+                    }
+                    None => {
                         out.push_str(&format!(
-                            "{}let {}lo_{} = pts_{}.iter().map(|p| p.{}).fold(f64::INFINITY, f64::min);\n",
-                            pad, axis, id, id, sel
+                            "{}let {}lo_{} = {}.fold(f64::INFINITY, f64::min);\n",
+                            pad, axis, id, chain(sel)
                         ));
                         out.push_str(&format!(
-                            "{}let {}hi_{} = pts_{}.iter().map(|p| p.{}).fold(f64::NEG_INFINITY, f64::max);\n",
-                            pad, axis, id, id, sel
+                            "{}let {}hi_{} = {}.fold(f64::NEG_INFINITY, f64::max);\n",
+                            pad, axis, id, chain(sel)
                         ));
                         out.push_str(&format!(
                             "{}let ({}lo_{}, {}hi_{}) = if {}lo_{} <= {}hi_{} {{ ({}lo_{}, {}hi_{}) }} else {{ (0.0, 1.0) }};\n",
                             pad, axis, id, axis, id, axis, id, axis, id, axis, id, axis, id
                         ));
                     }
-                    out.push_str(&format!(
-                        "{}let dataset_{} = ratatui::widgets::Dataset::default()\
-                         .marker(ratatui::symbols::Marker::Braille)\
-                         .graph_type(ratatui::widgets::GraphType::{})\
-                         .style(ratatui::style::Style::new().fg(ratatui::style::Color::Cyan))\
-                         .data(&pts_{});\n",
-                        pad, id, graph, id
-                    ));
-                    out.push_str(&format!(
-                        "{}let chart_{} = ratatui::widgets::Chart::new(vec![dataset_{}])\
-                         .block(Block::bordered().title({:?}))\n",
-                        pad, id, id, field
-                    ));
-                    out.push_str(&format!(
-                        "{}    .x_axis(ratatui::widgets::Axis::default().bounds([xlo_{}, xhi_{}])\
-                         .labels(vec![format!(\"{{:.1}}\", xlo_{}), format!(\"{{:.1}}\", xhi_{})]))\n",
-                        pad, id, id, id, id
-                    ));
-                    out.push_str(&format!(
-                        "{}    .y_axis(ratatui::widgets::Axis::default().bounds([ylo_{}, yhi_{}])\
-                         .labels(vec![format!(\"{{:.1}}\", ylo_{}), format!(\"{{:.1}}\", yhi_{})]));\n",
-                        pad, id, id, id, id
-                    ));
-                    out.push_str(&format!("{}frame.render_widget(chart_{}, {});\n", pad, id, area));
                 }
-                None => diags.error_once(
-                    &format!("chart-field-{}", f),
-                    format!(
-                        "A Chart binds to a `Vec<Struct>` whose struct has at least two numeric \
-                         fields (the x and y of each point) — `{}` isn't one.",
-                        field
-                    ),
-                ),
             }
+            // Datasets (one per series, cycling colours + a legend name).
+            let mut names: Vec<String> = Vec::new();
+            for (k, f) in series.iter().enumerate() {
+                out.push_str(&format!(
+                    "{}let dataset_{}_{} = ratatui::widgets::Dataset::default().name({:?})\
+                     .marker(ratatui::symbols::Marker::Braille).graph_type(ratatui::widgets::GraphType::{})\
+                     .style(ratatui::style::Style::new().fg(ratatui::style::Color::{})).data(&pts_{}_{});\n",
+                    pad, id, k, f, graph, COLORS[k % COLORS.len()], id, k
+                ));
+                names.push(format!("dataset_{}_{}", id, k));
+            }
+            let title = series.join(", ");
+            out.push_str(&format!(
+                "{}let chart_{} = ratatui::widgets::Chart::new(vec![{}]).block(Block::bordered().title({:?}))\n",
+                pad, id, names.join(", "), title
+            ));
+            out.push_str(&format!(
+                "{}    .x_axis(ratatui::widgets::Axis::default().bounds([xlo_{}, xhi_{}]).labels(vec![format!(\"{{:.1}}\", xlo_{}), format!(\"{{:.1}}\", xhi_{})]))\n",
+                pad, id, id, id, id
+            ));
+            out.push_str(&format!(
+                "{}    .y_axis(ratatui::widgets::Axis::default().bounds([ylo_{}, yhi_{}]).labels(vec![format!(\"{{:.1}}\", ylo_{}), format!(\"{{:.1}}\", yhi_{})]));\n",
+                pad, id, id, id, id
+            ));
+            out.push_str(&format!("{}frame.render_widget(chart_{}, {});\n", pad, id, area));
         }
         // `Match <expr>` in the view → a Rust `match` whose arm renders its
         // widget(s) into the same area.

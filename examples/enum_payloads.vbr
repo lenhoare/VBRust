@@ -1,0 +1,34 @@
+' Enum variants can now carry any payload — structs, several values, even a
+' `Vec` (which also lets an enum hold a collection of things).
+Type Point
+    Public x As Double
+    Public y As Double
+End Type
+
+Enum Shape
+    Dot(Point)
+    Segment(Point, Point)
+    Blob(Vec<Point>)
+    Empty
+End Enum
+
+Function Describe(ByVal s As Shape) As String
+    Match s
+        Shape.Dot(p) => Return "dot at " & p.x & "," & p.y
+        Shape.Segment(a, b) => Return "segment " & a.x & " to " & b.x
+        Shape.Blob(pts) => Return "blob of " & pts.len() & " points"
+        Shape.Empty => Return "nothing"
+    End Match
+End Function
+
+Function Main()
+    Debug.Print Describe(Shape.Dot(Point { x: 1.0, y: 2.0 }))
+    Debug.Print Describe(Shape.Segment(Point { x: 1.0, y: 2.0 }, Point { x: 5.0, y: 6.0 }))
+
+    Dim cloud As Vec<Point>
+    cloud.push(Point { x: 1.0, y: 2.0 })
+    cloud.push(Point { x: 5.0, y: 6.0 })
+    Debug.Print Describe(Shape.Blob(cloud))
+
+    Debug.Print Describe(Shape.Empty)
+End Function

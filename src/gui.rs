@@ -719,7 +719,7 @@ fn render_container(
     let mut s = format!("{}![\n", kw);
     for c in children {
         s.push_str(&inner);
-        s.push_str(&render_view(c, ctx, indent + 1, false));
+        s.push_str(&render_sized_child(c, ctx, indent + 1, kw));
         s.push_str(",\n");
     }
     s.push_str(&pad);
@@ -727,6 +727,31 @@ fn render_container(
     s.push_str(&props);
     s.push_str(tail);
     s
+}
+
+/// A container child, honoring a `Length`/`Fill` size line: the child is wrapped
+/// in an Iced `container` sized on the container's main axis (height in a Column,
+/// width in a Row). An unsized child renders as-is.
+fn render_sized_child(c: &ViewNode, ctx: &ViewCtx, indent: usize, kw: &str) -> String {
+    if let ViewNode::Constrained { size, child } = c {
+        let inner = render_view(child, ctx, indent, false);
+        let axis = if kw == "column" { "height" } else { "width" };
+        format!("iced::widget::container({}).{}({})", inner, axis, gui_length(*size))
+    } else {
+        render_view(c, ctx, indent, false)
+    }
+}
+
+/// A layout size → the Iced `Length` it maps to. `Percent`/`Min` are terminal-only
+/// (validated elsewhere); they fall back to a portion / fixed size here.
+fn gui_length(size: SizeConstraint) -> String {
+    match size {
+        SizeConstraint::Length(n) => format!("iced::Length::Fixed({}.0)", n),
+        SizeConstraint::Fill(1) => "iced::Length::Fill".to_string(),
+        SizeConstraint::Fill(n) => format!("iced::Length::FillPortion({})", n),
+        SizeConstraint::Percent(n) => format!("iced::Length::FillPortion({})", n),
+        SizeConstraint::Min(n) => format!("iced::Length::Fixed({}.0)", n),
+    }
 }
 
 /// A view `Match` → a typed `{ let el = match … {…}; el }` block, arms on lines.
@@ -820,7 +845,16 @@ fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
 /// out `Long`/`LongLong` (i64) — point the user at `Integer`/`Single`/`Double`.
 fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     match node {
-        ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
+        ViewNode::Constrained { size, child } => {
+            if matches!(size, SizeConstraint::Percent(_) | SizeConstraint::Min(_)) {
+                diags.error_once(
+                    "gui-size",
+                    "GUI layout sizing supports `Length N` (fixed pixels) and `Fill` — `Percent` \
+                     and `Min` are Screen (TUI) only.",
+                );
+            }
+            validate_view(child, field_ty, diags);
+        }
         ViewNode::Input { .. }
         | ViewNode::List { .. }
         | ViewNode::Table { .. }
