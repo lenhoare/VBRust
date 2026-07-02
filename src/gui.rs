@@ -675,7 +675,8 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         | ViewNode::Table { .. }
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
-        | ViewNode::BarChart { .. } => {
+        | ViewNode::BarChart { .. }
+        | ViewNode::Chart { .. } => {
             "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink)".to_string()
         }
         // Containers/conditionals/constrained returned early above.
@@ -825,7 +826,8 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
         | ViewNode::Table { .. }
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
-        | ViewNode::BarChart { .. } => diags.error_once(
+        | ViewNode::BarChart { .. }
+        | ViewNode::Chart { .. } => diags.error_once(
             "tui-widget-in-window",
             "That's a Screen (TUI) widget — it isn't available in a Window (GUI). In a GUI use \
              `TextInput` for text entry and `ProgressBar`/`Canvas` for charts.",
@@ -984,7 +986,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         | ViewNode::Table { .. }
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
-        | ViewNode::BarChart { .. } => {}
+        | ViewNode::BarChart { .. }
+        | ViewNode::Chart { .. } => {}
         ViewNode::Column { children, .. } => {
             add(used, "column");
             children.iter().for_each(|c| collect_widgets(c, used));

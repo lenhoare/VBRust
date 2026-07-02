@@ -1,0 +1,36 @@
+Type Point
+    Public x As Double
+    Public y As Double
+End Type
+
+Screen Plot
+    Title "y = x² / 10"
+
+    State
+        Dim curve As Vec<Point> = Curve()
+    End State
+
+    View
+        Column
+            Length 1
+            Text " An X/Y line chart of computed points — q to quit"
+            Fill
+            Chart curve
+        End Column
+    End View
+
+    On Key "q" Quit
+End Screen
+
+Function Curve() As Vec<Point>
+    Dim v As Vec<Point>
+    For x = 0 To 20
+        Dim xd As Double = x
+        v.Push(Point { x: xd, y: xd * xd / 10.0 })
+    Next x
+    Return v
+End Function
+
+Function Main()
+    Plot.Run
+End Function

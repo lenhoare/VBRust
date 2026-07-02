@@ -541,6 +541,70 @@ fn render_view_node(
                 ),
             }
         }
+        // An X/Y line/scatter chart (ratatui `Chart`). Bounds auto-computed from
+        // the data (fallback 0..1 when empty), with min/max axis labels.
+        ViewNode::Chart { field, scatter } => {
+            let f = to_snake(field);
+            match chart_xy_columns(&f, field_ty, structs) {
+                Some((xf, yf)) => {
+                    let id = *counter;
+                    *counter += 1;
+                    let graph = if *scatter { "Scatter" } else { "Line" };
+                    out.push_str(&format!(
+                        "{}let pts_{}: Vec<(f64, f64)> = state.{}.iter()\
+                         .map(|p| (p.{} as f64, p.{} as f64)).collect();\n",
+                        pad, id, f, xf, yf
+                    ));
+                    // Axis bounds from the data (fallback to 0..1 when empty).
+                    for (axis, sel) in [("x", "0"), ("y", "1")] {
+                        out.push_str(&format!(
+                            "{}let {}lo_{} = pts_{}.iter().map(|p| p.{}).fold(f64::INFINITY, f64::min);\n",
+                            pad, axis, id, id, sel
+                        ));
+                        out.push_str(&format!(
+                            "{}let {}hi_{} = pts_{}.iter().map(|p| p.{}).fold(f64::NEG_INFINITY, f64::max);\n",
+                            pad, axis, id, id, sel
+                        ));
+                        out.push_str(&format!(
+                            "{}let ({}lo_{}, {}hi_{}) = if {}lo_{} <= {}hi_{} {{ ({}lo_{}, {}hi_{}) }} else {{ (0.0, 1.0) }};\n",
+                            pad, axis, id, axis, id, axis, id, axis, id, axis, id, axis, id
+                        ));
+                    }
+                    out.push_str(&format!(
+                        "{}let dataset_{} = ratatui::widgets::Dataset::default()\
+                         .marker(ratatui::symbols::Marker::Braille)\
+                         .graph_type(ratatui::widgets::GraphType::{})\
+                         .style(ratatui::style::Style::new().fg(ratatui::style::Color::Cyan))\
+                         .data(&pts_{});\n",
+                        pad, id, graph, id
+                    ));
+                    out.push_str(&format!(
+                        "{}let chart_{} = ratatui::widgets::Chart::new(vec![dataset_{}])\
+                         .block(Block::bordered().title({:?}))\n",
+                        pad, id, id, field
+                    ));
+                    out.push_str(&format!(
+                        "{}    .x_axis(ratatui::widgets::Axis::default().bounds([xlo_{}, xhi_{}])\
+                         .labels(vec![format!(\"{{:.1}}\", xlo_{}), format!(\"{{:.1}}\", xhi_{})]))\n",
+                        pad, id, id, id, id
+                    ));
+                    out.push_str(&format!(
+                        "{}    .y_axis(ratatui::widgets::Axis::default().bounds([ylo_{}, yhi_{}])\
+                         .labels(vec![format!(\"{{:.1}}\", ylo_{}), format!(\"{{:.1}}\", yhi_{})]));\n",
+                        pad, id, id, id, id
+                    ));
+                    out.push_str(&format!("{}frame.render_widget(chart_{}, {});\n", pad, id, area));
+                }
+                None => diags.error_once(
+                    &format!("chart-field-{}", f),
+                    format!(
+                        "A Chart binds to a `Vec<Struct>` whose struct has at least two numeric \
+                         fields (the x and y of each point) — `{}` isn't one.",
+                        field
+                    ),
+                ),
+            }
+        }
         // `Match <expr>` in the view → a Rust `match` whose arm renders its
         // widget(s) into the same area.
         ViewNode::Match { scrutinee, arms } => {
@@ -660,9 +724,34 @@ fn child_constraint(node: &ViewNode) -> String {
         | ViewNode::List { .. }
         | ViewNode::Table { .. } => "Constraint::Fill(1)".to_string(),
         ViewNode::Input { .. } | ViewNode::Gauge { .. } => "Constraint::Length(3)".to_string(),
-        ViewNode::Sparkline { .. } | ViewNode::BarChart { .. } => "Constraint::Fill(1)".to_string(),
+        ViewNode::Sparkline { .. } | ViewNode::BarChart { .. } | ViewNode::Chart { .. } => {
+            "Constraint::Fill(1)".to_string()
+        }
         _ => "Constraint::Length(1)".to_string(),
     }
+}
+
+/// For a `Chart` field (a `Vec<Struct>`), the struct's first two numeric fields
+/// (the x and y of each point), snake-cased.
+fn chart_xy_columns(
+    field: &str,
+    field_ty: &HashMap<String, DeclType>,
+    structs: &HashMap<String, &StructDef>,
+) -> Option<(String, String)> {
+    let struct_name = match field_ty.get(field) {
+        Some(DeclType::Vec(inner)) => match &**inner {
+            DeclType::Named(n) => n,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let sd = structs.get(struct_name)?;
+    let mut nums = sd
+        .fields
+        .iter()
+        .filter(|f| matches!(f.ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
+        .map(|f| to_snake(&f.name));
+    Some((nums.next()?, nums.next()?))
 }
 
 /// For a `BarChart` field (a `Vec<Struct>`), the struct's first `String` field

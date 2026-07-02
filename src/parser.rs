@@ -958,6 +958,24 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 Some(ViewNode::BarChart { field })
             }
+            "chart" => {
+                // `Chart field [Scatter]` — an X/Y line (or scatter) chart.
+                self.advance();
+                let field = self.expect_ident("for the Chart's Vec<Struct> field")?;
+                let scatter = match self.peek().clone() {
+                    Tok::Ident(w) if w.eq_ignore_ascii_case("Scatter") => {
+                        self.advance();
+                        true
+                    }
+                    Tok::Ident(w) if w.eq_ignore_ascii_case("Line") => {
+                        self.advance();
+                        false
+                    }
+                    _ => false,
+                };
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Chart { field, scatter })
+            }
             "input" => {
                 // `Input field` + optional `On Submit <Event>` — a text entry line.
                 self.advance();
@@ -1366,7 +1384,7 @@ impl<'a> Parser<'a> {
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
                          Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         Input, List, Table, Gauge, Sparkline, BarChart, Match, If).",
+                         Input, List, Table, Gauge, Sparkline, BarChart, Chart, Match, If).",
                         other
                     ),
                 );

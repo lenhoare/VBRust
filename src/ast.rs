@@ -231,6 +231,14 @@ pub enum ViewNode {
     BarChart {
         field: String,
     },
+    /// An X/Y line or scatter chart over a `Vec<Struct>`: the struct's first two
+    /// numeric fields are the x and y of each point (ratatui `Chart`). Axis bounds
+    /// are auto-computed from the data. `scatter` picks points over a line.
+    /// Display-only. TUI-only.
+    Chart {
+        field: String,
+        scatter: bool,
+    },
     /// A single-line text input bound to a `String` state field (ratatui, TUI).
     /// Printable keys type into it, Backspace deletes; `on_submit` fires on Enter.
     /// Focusable — Tab cycles among inputs/lists/tables. TUI-only.
