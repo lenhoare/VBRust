@@ -183,58 +183,56 @@ End If
 This is the `if / else if / else` you expect. The conditions are ordinary boolean
 expressions.
 
-### Select Case
+### Match
 
-`Select Case` becomes a Rust `match`, and this is where a familiar construct hides
-a sharp Rust truth. The simple forms are exactly what you'd guess:
-
-```vb
-Select Case n
-    Case 0
-        Debug.Print "zero"
-    Case 1, 2, 3
-        Debug.Print "small"
-    Case 4 To 10
-        Debug.Print "medium"
-    Case Else
-        Debug.Print "large"
-End Select
-```
-
-Literals and constants compare as you expect, and `4 To 10` is an inclusive range.
-A `Select` must be exhaustive — `match` covers every value — so either provide
-`Case Else` (or `Case _`, the wildcard) or arms that already cover everything.
-
-The trap is comparing against a **variable**. In VB, `Case y` means "is the
-subject equal to the value in `y`?" In a Rust `match`, a bare name in a pattern is
-not a comparison at all — it *binds*, matching everything. The two readings are
-opposite, so VBR refuses the ambiguous case outright:
+`Match` replaces VB's `Select Case` and maps straight onto Rust's `match`. There
+is **no `Case` keyword** — every arm is `pattern => body`, and this is where a
+familiar-looking construct hides a sharp Rust truth. The simple forms are what
+you'd guess:
 
 ```vb
-Select Case x
-    Case y          ' ✘ rejected: y is a variable
+Match n
+    0 => Debug.Print "zero"
+    1 | 2 | 3 => Debug.Print "small"
+    4..=10 => Debug.Print "medium"
+    _ => Debug.Print "large"
+End Match
 ```
 
-> ✘ `Case y` can't compare against a variable — Rust's match would treat `y` as a
-> catch-all that matches everything. To compare, use a guard: `Case v If v = y`.
+The body is one statement on the same line, or an indented block on the lines that
+follow (running until the next arm or `End Match`). The **patterns are real Rust**,
+passed straight through: literals, `|` for alternatives, `..=` for an inclusive
+range, `_` for the wildcard, and — as you'll see in §8 — constructor
+destructuring like `Ok(n)`. A `Match` must be exhaustive, but that is *rustc's*
+job: leave a case out and the compiler names exactly what you missed, so there is
+no forced catch-all.
 
-The guard is the honest tool. `Case v If condition` binds the subject to `v` and
-keeps the arm only when the condition holds:
+The trap is comparing against a **variable**. In VB, `Case y` meant "is the subject
+equal to the value in `y`?" In a Rust pattern, a bare name is not a comparison at
+all — it *binds*, matching everything and naming it. The two readings are
+opposite, so a bare name in a `Match` arm always binds:
 
 ```vb
-Select Case n
-    Case v If v < 0
-        Debug.Print "negative"
-    Case 0
-        Debug.Print "zero"
-    Case v If v > 100
-        Debug.Print "huge"
-    Case _
-        Debug.Print "ordinary"
-End Select
+Match x
+    y => Debug.Print "this matches EVERYTHING and names it y"
+End Match
 ```
 
-`Select Case` over `Ok`/`Err` and `Some`/`None` is special and covered in §8.
+To actually compare against a variable, use a **guard** — `pattern If condition`
+binds the subject and keeps the arm only when the condition holds:
+
+```vb
+Match n
+    v If v < 0 => Debug.Print "negative"
+    0 => Debug.Print "zero"
+    v If v > 100 => Debug.Print "huge"
+    _ => Debug.Print "ordinary"
+End Match
+```
+
+Bindings are written snake_case (Rust's convention) — that's how the body refers to
+them. `Match` over `Ok`/`Err` and `Some`/`None` is where it earns its keep, and is
+covered in §8.
 
 ### Loops
 
@@ -451,7 +449,7 @@ practice; richer element types are a job for an inline `Rust` block.
 
 ---
 
-## 7. Structures and Methods
+## 7. Structures, Methods, and Enums
 
 A `Type` gathers related data into one value, becoming a Rust `struct`:
 
@@ -494,6 +492,63 @@ Because `HaveBirthday` borrows `alice` mutably, `alice` is made a `let mut` for
 you. Calls qualified by the type name — `Person.Something(...)` — become Rust's
 associated-function syntax `Person::something(...)`.
 
+### Enums
+
+Where a `Type` is an *and* — a name **and** an age — an `Enum` is an *or*: a value
+that is exactly **one of** a fixed set of possibilities. The plain form is a named
+set of choices, becoming a Rust enum:
+
+```vb
+Enum Suit
+    Hearts
+    Diamonds
+    Clubs
+    Spades
+End Enum
+```
+
+You reach a variant with a dot — `Suit.Hearts` — which, like an enum name path in
+Rust, becomes `Suit::Hearts`. Values compare with `=` and pair naturally with
+`Match`:
+
+```vb
+Dim s As Suit = Suit.Hearts
+Match s
+    Suit.Hearts | Suit.Diamonds => Debug.Print "red"
+    _ => Debug.Print "black"
+End Match
+```
+
+The powerful form lets a variant **carry data**, which is Rust's real superpower:
+an enum becomes a *sum type* — the same shape as `Result` or `Option`, but your
+own. `Result<T>` itself is just an enum that is either `Ok` with a value or `Err`
+with a reason; now you can build your own:
+
+```vb
+Enum Shape
+    Circle(Double)             ' carries a radius
+    Rectangle(Double, Double)  ' carries width and height
+    Empty                      ' carries nothing
+End Enum
+```
+
+You build one by calling the variant like a function — `Shape.Circle(2.0)` — and
+the *only* way to read the data back is by matching, which unpacks it:
+
+```vb
+Function Area(ByVal s As Shape) As Double
+    Match s
+        Shape.Circle(r) => Return 3.14159 * r * r
+        Shape.Rectangle(w, h) => Return w * h
+        Shape.Empty => Return 0.0
+    End Match
+End Function
+```
+
+A payload can be any type — a number, a `String`, a struct, a `Vec`, even another
+enum — so an enum can model a small, closed vocabulary of shapes exactly, and the
+compiler makes sure every `Match` handles all of them.
+
 ---
 
 ## 8. Errors as Values
@@ -517,19 +572,19 @@ bare number — and the compiler will not let it be ignored. `As Option<T>`, wit
 
 There are three things you may do with such a box.
 
-**Handle it**, examining both outcomes with `Select Case`:
+**Handle it**, examining both outcomes with `Match`:
 
 ```vb
-Select Case Divide(10, 2)
-    Case Ok(value)
-        Debug.Print "got " & value
-    Case Err(message)
-        Debug.Print "failed: " & message
-End Select
+Match Divide(10, 2)
+    Ok(value) => Debug.Print "got " & value
+    Err(message) => Debug.Print "failed: " & message
+End Match
 ```
 
-(These arms are exhaustive on their own — `Ok` and `Err` cover every case — so no
-`Case Else` is required.)
+Here the patterns *destructure* the result: `Ok(value)` matches a success and binds
+the inner number to `value`; `Err(message)` binds the reason. These two arms are
+exhaustive on their own — `Ok` and `Err` cover every case — so no wildcard is
+required.
 
 **Propagate it** with the `?` operator, when handling the failure is not this
 function's job:
@@ -543,20 +598,20 @@ End Function
 
 The single `?` means: if the call failed, return that error from
 *this* function immediately; if it succeeded, unwrap the value and carry on. It is
-shorthand for a whole `Select Case … Return Err` dance. Because it returns an error
+shorthand for a whole `Match … Return Err` dance. Because it returns an error
 from the enclosing function, `?` is only legal where that function itself returns
 `Result` or `Option` — VBR tells you so plainly if you forget.
 
 **Unwrap it** with `.Unwrap()`, which yields the value or crashes on failure. It is
 allowed, and flagged as training wheels; real code should handle or propagate.
 
-The rule of thumb: `?` when the failure belongs to someone above you; `Select Case`
+The rule of thumb: `?` when the failure belongs to someone above you; `Match`
 at the level that knows how to recover or report. `On Error` is rejected with a
 nudge toward all of the above.
 
 ---
 
-## 9. Inline Rust
+## 9. Inline Rust and Python
 
 VBR covers a friendly slice of Rust. For everything else there is an escape hatch:
 a block of real Rust, spliced in where you write it.
@@ -602,6 +657,51 @@ print it, compare it, or assign it, because VBR does not know what it is. It liv
 for the duration of its function, and state held inside it persists from one block
 to the next. That is how a connection or an iterator survives across calls without
 a global and without a wrapper.
+
+### Inline Python
+
+There is a second door — into **Python**. Where a `Rust` block splices *source*, a
+`Python … End Python` block *runs* real CPython at your program's runtime (through
+`pyo3`), so you can reach Python's libraries — numpy, pandas, and the rest — that
+have no Rust equivalent you'd want to rewrite:
+
+```vb
+Dim mean As Double = Python
+    import numpy as np
+    np.array([1, 2, 3, 4]).mean()
+End Python
+```
+
+As with inline Rust, the last line is the value; here it is *extracted* back into
+the type you annotate (`As Double`). To get several values at once, destructure a
+Python tuple with the typed form:
+
+```vb
+Dim (name, weights) As (String, Vec<Double>) = Python
+    "layer.weight", [0.5, 1.5, 2.0]
+End Python
+```
+
+Some Python values have no VBR type — a pandas DataFrame, a trained model. Hold one
+as an **opaque `PyObject` handle** (a `Dim` with no `As`), and pass it back into
+later blocks, exactly like a Rust handle:
+
+```vb
+Dim data = Python
+    import numpy as np
+    np.array([3.0, 1.0, 4.0, 1.0, 5.0])
+End Python
+
+Dim spread As Double = Python(data)      ' pass the handle back in
+    float(data.std())
+End Python
+```
+
+Each block is its own scope; the `(data)` after `Python` lists the VBR variables to
+make available inside it. Because a Python block links a real interpreter, it needs
+the project build and a Python installed on the machine — it is pulled in only when
+you actually use one. (For *tables* specifically, prefer the native `DataFrame`
+from the standard library below — it needs no Python at all.)
 
 ---
 
@@ -685,10 +785,29 @@ For a *stateful* HTTP client — a reused connection, cookies, auth across many
 calls — this isn't the tool; that's the case for an opaque handle or a `.rs`
 module holding a `reqwest::Client`. The stdlib keeps the easy case easy.
 
-Each namespace that pulls a real crate (`Json`, `DateTime`, `Regex`, `Http`) sits
-behind a Cargo feature, and the project build enables only the ones you use — so a
-program that just reads a file compiles nothing extra. `FileSystem` is always
-there.
+The heavyweight of the standard library is **`DataFrame`** — a native table backed
+by the **polars** crate (pure Rust; no Python). You read a CSV, compute new columns
+with **column formulas** that read like Excel array formulas, filter rows, and pull
+data back out:
+
+```vb
+Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+df = df.WithColumn("total", price * qty)              ' whole-column arithmetic
+df = df.WithColumn("band", IIf(age >= 18, "adult", "minor"))
+df = df.Filter(age > 30 And active)
+Dim names As Vec<String> = df.Column("name")
+```
+
+Inside a formula, a bare name like `price` or `age` is a *column* and the operation
+applies down the whole column; a quoted string or a value you've `Dim`'d is a
+*value*. It is the polars expression engine wearing a VB face — `IIf` is your old
+`IIf`, the operators are the operators you know. The full surface is in
+`dataframe_spec.md`.
+
+Each namespace that pulls a real crate (`Json`, `DateTime`, `Regex`, `Http`,
+`DataFrame`) sits behind a Cargo feature, and the project build enables only the
+ones you use — so a program that just reads a file compiles nothing extra.
+`FileSystem` is always there.
 
 ### Running and seeing
 

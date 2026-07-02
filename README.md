@@ -5,6 +5,7 @@ runs it. It's a teaching tool: the syntax is familiar VB, the semantics are Rust
 and the generated Rust is always there to read.
 
 - **`language_reference.md`** — the readable guide (start here).
+- **`gui_and_tui_guide.md`** — a friendly tour of building `Window` (GUI) and `Screen` (TUI) interfaces.
 - **`language_spec.md`** — the terse, normative reference.
 - **`gui_spec.md`** — graphical apps: a `Window` → an Iced application.
 - **`tui_spec.md`** — terminal apps: a `Screen` → a ratatui application.

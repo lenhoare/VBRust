@@ -76,9 +76,12 @@ float slot is emitted `5.0`).
 Dim name As Type                 ' default-initialised
 Dim name As Type = expr          ' with initialiser
 Dim a, b = tupleExpr             ' tuple destructuring (inferred)
+Dim (a, b) As (T, U) = expr      ' tuple destructuring (typed)
 ```
-- A single `Dim` **requires** `As Type`. Only the tuple-destructure form is
-  type-inferred.
+- A single `Dim` **requires** `As Type` (the one exception is an opaque handle,
+  §9). The untyped tuple-destructure form is inferred; the parenthesised form
+  gives each binding a type via a tuple annotation — chiefly so an inline
+  `Rust`/`Python` block can extract several typed values at once.
 - Mutability is **inferred**: a variable is emitted `let mut` iff it is later
   assigned or mutated, otherwise `let`.
 - A struct must be fully initialised at its `Dim` (no declare-then-fill).
@@ -429,7 +432,9 @@ rejected. `On Error …` is also rejected, with guidance toward `Result`.
 
 ---
 
-## 9. Inline Rust
+## 9. Inline Rust & Python
+
+### Inline Rust
 
 A `Rust … End Rust` block is a **Rust block expression** spliced verbatim into
 the generated function.
@@ -462,6 +467,33 @@ End Rust
 An inline block may use an external crate: declare it with `Use` (§13) and run
 the project with `runproject`.
 
+### Inline Python
+
+A `Python … End Python` block runs **real CPython** (via `pyo3`) at runtime — the
+escape hatch to Python's libraries (numpy, pandas, …). Unlike inline Rust, which
+is spliced as source, this *executes* Python and marshals values across the
+boundary.
+
+```
+Dim mean As Double = Python
+    import numpy as np
+    np.array([1, 2, 3, 4]).mean()
+End Python
+```
+- **Output:** the last non-blank line is the value, extracted into the annotated
+  type `T` (`As Double` → `f64`). Scalars (`Integer`/`Long`/`Single`/`Double`/
+  `Boolean`/`String`) and `Vec<T>` cross the boundary.
+- **Several outputs:** a typed destructure — `Dim (name, xs) As (String, Vec<Double>)
+  = Python … End Python` — extracts a Python tuple in one call.
+- **Opaque `PyObject` handles:** `Dim df = Python … End Python` with **no `As`**
+  holds a Python value VBR has no type for (a DataFrame, a model). Its only use is
+  being passed back into another block.
+- **Inputs:** `Python(a, b) … End Python` injects the VBR variables `a`, `b`
+  (scalars are converted; a `PyObject` handle is re-borrowed) so the Python body
+  can use them by name.
+- Needs the project build; requires a Python interpreter (with dev headers)
+  present. Pulled in only when a `Python` block is used.
+
 ---
 
 ## 10. Standard library
@@ -476,9 +508,14 @@ Provided by the `vbr_stdlib` crate, auto-imported when referenced. Calls are
 - **Wrapper types:** `DateTime`, `Json` — opaque value types with methods
   (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`, `j.GetString(...)`,
   etc.). Static calls use `.` → `::`; instance calls use `.` → `.`.
+- **`DataFrame`** — a native table backed by the **polars** crate. Read/inspect/
+  transform/write, with **column formulas** (`df.WithColumn("total", price * qty)`,
+  `df.Filter(age > 30 And active)`) that read like Excel array formulas and lower
+  to real polars expressions. Full surface in `dataframe_spec.md`.
 
 Every dependency-bearing namespace is behind a Cargo **feature** (`json`,
-`datetime`, `regex`, `http`); `FileSystem` is std-only and always available. The
+`datetime`, `regex`, `http`, `dataframe`); `FileSystem` is std-only and always
+available. The
 project generator enables exactly the features a program uses, so a project only
 compiles the wrappers it touches.
 
