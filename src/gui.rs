@@ -1075,14 +1075,14 @@ pub(crate) fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, Decl
 }
 
 /// The pieces of an event handler split around an `Await`.
-struct AwaitSplit {
-    pre: Vec<Stmt>,         // statements before the await (run in the kick-off)
-    snapshots: Vec<String>, // `let url = state.url.clone();` for state used in the call
-    call_src: String,       // the awaited call, e.g. `Http::get(&url)`
-    ret_type: String,       // its result type, e.g. `Result<String, String>`
-    blocking: bool,         // wrap the call in `spawn_blocking`
-    bind: String,           // continuation binding: `result` (Match) or the Dim name
-    cont: Vec<Stmt>,        // continuation statements (run when the result arrives)
+pub(crate) struct AwaitSplit {
+    pub(crate) pre: Vec<Stmt>,         // statements before the await (run in the kick-off)
+    pub(crate) snapshots: Vec<String>, // `let url = state.url.clone();` for state used in the call
+    pub(crate) call_src: String,       // the awaited call, e.g. `Http::get(&url)`
+    pub(crate) ret_type: String,       // its result type, e.g. `Result<String, String>`
+    pub(crate) blocking: bool,         // wrap the call in `spawn_blocking`
+    pub(crate) bind: String,           // continuation binding: `result` (Match) or the Dim name
+    pub(crate) cont: Vec<Stmt>,        // continuation statements (run when the result arrives)
 }
 
 /// What we need to know about an awaited stdlib call.
@@ -1096,7 +1096,7 @@ struct AwaitInfo {
 /// Analyse an event for `Await`. `None` means a synchronous event. V1 supports a
 /// single `Await` as the value of a `Match` (`Match Await Http.Get(url)`) or a
 /// `Dim` (`Dim x = Await …`).
-fn await_split(
+pub(crate) fn await_split(
     e: &GuiEvent,
     field_ty: &HashMap<String, DeclType>,
     fns: &resolver::FnTable,
@@ -1265,7 +1265,7 @@ fn is_blocking_stdlib_call(e: &Expr) -> bool {
 
 /// Teaching diagnostic: a blocking stdlib call used in an event *without* `Await`
 /// would freeze the window. A call directly under `Await` is fine.
-fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
+pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
     fn ex(e: &Expr, awaited: bool, diags: &mut Diagnostics) {
         // The expression directly under `Await` is allowed to block.
         if let Expr::Await(inner) = e {
@@ -1276,8 +1276,8 @@ fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
             diags.error_once(
                 "blocking-no-await",
                 "This stdlib call waits for I/O, so calling it directly in an event would \
-                 freeze the window until it finishes. Use `Await` so it runs off the UI \
-                 thread — e.g. `Match Await Http.Get(url) … End Match`.",
+                 freeze the UI until it finishes. Use `Await` so it runs off the UI thread \
+                 — e.g. `Match Await Http.Get(url) … End Match`.",
             );
         }
         // Children are never "awaited" by this expression.
@@ -1397,7 +1397,7 @@ fn expr_has_await(e: &Expr) -> bool {
 
 /// Collect the stdlib namespaces (e.g. `Http`) used in event bodies — for the
 /// `use vbr_stdlib::{…}` line — and mark them so the dep + feature get added.
-fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagnostics) {
+pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagnostics) {
     fn ex(e: &Expr, out: &mut Vec<String>, diags: &mut Diagnostics) {
         match e {
             Expr::MethodCall { recv, args, .. } => {

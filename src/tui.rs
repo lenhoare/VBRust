@@ -12,7 +12,10 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::gui::{coerce_state_strings, render_init, rewrite_stmt};
+use crate::gui::{
+    await_split, check_blocking_without_await, coerce_state_strings, collect_event_stdlib,
+    render_init, rewrite_stmt, AwaitSplit,
+};
 use crate::resolver;
 use crate::transpiler::{
     decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, note_builtins, render_expr,
@@ -85,7 +88,7 @@ pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
         out.push('\n');
     }
     match find_launched_screen(program) {
-        Some(sc) => out.push_str(&emit_main(sc, &enums)),
+        Some(sc) => out.push_str(&emit_main(sc, &enums, &fns, diags)),
         None => diags.error_once(
             "tui-no-launch",
             "A screen is never launched. Add `Function Main()` containing `<Screen>.Run`, \
@@ -653,7 +656,7 @@ fn render_view_node(
                 "tui-widget-unsupported",
                 format!(
                     "That widget isn't supported in a Screen yet ({}). A Screen supports Column, \
-                     Row, Text, Input, List, Table, Match, and If (with layout sizing); Chart is coming.",
+                     Row, Text, Input, List, Table, Gauge, Sparkline, BarChart, Chart, Match, and If.",
                     tui_node_name(other)
                 ),
             );
@@ -813,13 +816,34 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
 
 /// `fn main`: the crossterm event loop. Redraw from state, read a key, dispatch
 /// the keymap (a handler event's body, or `Quit` → break), repeat.
-fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
+fn emit_main(
+    sc: &Screen,
+    enums: &HashSet<String>,
+    fns: &resolver::FnTable,
+    diags: &mut Diagnostics,
+) -> String {
     let ty = &sc.name;
     let field_ty: HashMap<String, DeclType> =
         sc.state.iter().map(|f| (to_snake(&f.name), f.ty.clone())).collect();
     let fields: HashSet<String> = field_ty.keys().cloned().collect();
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
+
+    // Async: split each event around an `Await`. An async event kicks its blocking
+    // work onto a background thread and delivers the result over a channel.
+    let splits: Vec<Option<AwaitSplit>> =
+        sc.events.iter().map(|e| await_split(e, &field_ty, fns, diags)).collect();
+    let any_async = splits.iter().any(Option::is_some);
+    let async_by_name: HashMap<String, &AwaitSplit> = sc
+        .events
+        .iter()
+        .zip(&splits)
+        .filter_map(|(e, s)| s.as_ref().map(|s| (e.name.to_ascii_lowercase(), s)))
+        .collect();
+    // Teaching diagnostic: a blocking stdlib call not under `Await` freezes the loop.
+    for e in &sc.events {
+        check_blocking_without_await(&e.body, diags);
+    }
 
     let focusables = collect_focusables(&sc.view);
     let has_focus = !focusables.is_empty();
@@ -831,6 +855,28 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
 
     let mut out = String::new();
+    let mut dummy = Diagnostics::new();
+
+    // Async preamble: the stdlib import + a `Message` enum of continuations.
+    if any_async {
+        let mut std_used = Vec::new();
+        for e in &sc.events {
+            collect_event_stdlib(&e.body, &mut std_used, diags);
+        }
+        std_used.sort();
+        std_used.dedup();
+        if !std_used.is_empty() {
+            out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_used.join(", ")));
+        }
+        out.push_str("enum Message {\n");
+        for (e, split) in sc.events.iter().zip(&splits) {
+            if let Some(s) = split {
+                out.push_str(&format!("    {}Done({}),\n", e.name, s.ret_type));
+            }
+        }
+        out.push_str("}\n\n");
+    }
+
     // `state` needs `mut` if a key runs an event that changes it, or a focusable
     // widget mutates it (typing into an input, moving a list selection).
     let mutates =
@@ -842,21 +888,66 @@ fn emit_main(sc: &Screen, enums: &HashSet<String>) -> String {
     out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
     out.push_str(&format!("    {} = {}::default();\n", let_state, ty));
     out.push_str("    let mut terminal = ratatui::init();\n");
+    if any_async {
+        out.push_str("    let (tx, rx) = std::sync::mpsc::channel::<Message>();\n");
+    }
     out.push_str("    loop {\n");
     out.push_str(&format!("        terminal.draw(|frame| view({}, frame))?;\n", draw_arg));
+    if any_async {
+        // Deliver any completed background results, then only block briefly on
+        // input so the loop keeps ticking while work runs.
+        out.push_str("        while let Ok(msg) = rx.try_recv() {\n");
+        out.push_str("            match msg {\n");
+        for (e, split) in sc.events.iter().zip(&splits) {
+            if let Some(s) = split {
+                out.push_str(&format!("                Message::{}Done({}) => {{\n", e.name, s.bind));
+                for stmt in &s.cont {
+                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
+                    coerce_state_strings(&mut rewritten, &field_ty);
+                    emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 5, &mut dummy, &mut out);
+                }
+                out.push_str("                }\n");
+            }
+        }
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+        out.push_str("        if !event::poll(std::time::Duration::from_millis(50))? {\n");
+        out.push_str("            continue;\n");
+        out.push_str("        }\n");
+    }
     out.push_str("        if let Event::Key(key) = event::read()? {\n");
     out.push_str("            if key.kind == KeyEventKind::Press {\n");
     out.push_str("                match key.code {\n");
-    let mut dummy = Diagnostics::new();
     for k in &sc.keys {
         out.push_str(&format!("                    {} => {{\n", key_pattern(&k.key)));
+        let handler = k.handler.to_ascii_lowercase();
         if k.handler.eq_ignore_ascii_case("Quit") {
             out.push_str("                        break;\n");
-        } else if let Some(ev) = events.get(&k.handler.to_ascii_lowercase()) {
-            for stmt in &ev.body {
-                let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                coerce_state_strings(&mut rewritten, &field_ty);
-                emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 6, &mut dummy, &mut out);
+        } else if let Some(ev) = events.get(&handler) {
+            if let Some(s) = async_by_name.get(&handler) {
+                // Kick-off: run the pre-await body, snapshot state, spawn the
+                // blocking work on a thread, and post the result back.
+                for stmt in &s.pre {
+                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
+                    coerce_state_strings(&mut rewritten, &field_ty);
+                    emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 6, &mut dummy, &mut out);
+                }
+                for snap in &s.snapshots {
+                    out.push_str(&format!("                        {}\n", snap));
+                }
+                out.push_str("                        let tx = tx.clone();\n");
+                out.push_str("                        std::thread::spawn(move || {\n");
+                out.push_str(&format!(
+                    "                            let _ = tx.send(Message::{}Done({}));\n",
+                    ev.name, s.call_src
+                ));
+                out.push_str("                        });\n");
+            } else {
+                for stmt in &ev.body {
+                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
+                    coerce_state_strings(&mut rewritten, &field_ty);
+                    emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 6, &mut dummy, &mut out);
+                }
             }
         }
         out.push_str("                    }\n");

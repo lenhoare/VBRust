@@ -1,0 +1,34 @@
+Screen Fetcher
+    Title "HTTP Fetch"
+
+    State
+        Dim url As String = "https://example.com"
+        Dim status As String = "press r to fetch, q to quit"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " URL: " & url
+            Length 1
+            Text " Press r to fetch, q to quit"
+            Fill
+            Text status
+        End Column
+    End View
+
+    On Key "r" Fetch
+    On Key "q" Quit
+
+    Event Fetch
+        status = "loading…"
+        Match Await Http.Get(url)
+            Ok(_) => status = "ok — page fetched"
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Screen
+
+Function Main()
+    Fetcher.Run
+End Function
