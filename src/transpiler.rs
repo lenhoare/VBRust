@@ -88,6 +88,12 @@ pub fn transpile_module(
     if !std_used.is_empty() {
         out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_used.join(", ")));
     }
+    // A dataframe program also needs the polars expression builders that column
+    // formulas lower to (`col("x")`, `lit(3)`, `when(...)`), re-exported by the
+    // wrapper so the generated code has a single dependency.
+    if std_used.contains(&"DataFrame") {
+        out.push_str("use vbr_stdlib::dataframe::{col, lit, when};\n\n");
+    }
 
     // Top-level items, separated by a single blank line: structs, then impl
     // blocks (methods grouped by receiver), then free functions.
@@ -1516,6 +1522,12 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         Expr::MethodCall { recv, method, args } => {
+            // DataFrame `Select` (tagged by the resolver) renders its column names
+            // as a slice: `df.Select("a", "b")` → `df.select(&["a", "b"])`.
+            if method == "__df_select" {
+                let cols: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                return format!("{}.select(&[{}])", render_recv(recv), cols.join(", "));
+            }
             let m = to_snake(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
             if let Expr::Ident(name) = &**recv {
@@ -1524,7 +1536,17 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                     return format!("{}::{}({})", canon, m, rendered.join(", "));
                 }
             }
-            if is_iter_method(&m) {
+            // Closure-taking iterator adapters only apply when the argument really
+            // is a closure — so a DataFrame `.filter(col(...)...)` (an expression
+            // argument) falls through to a normal method call instead.
+            let iter_like = is_iter_method(&m)
+                && match m.as_str() {
+                    "filter" | "map" | "any" | "all" => {
+                        matches!(args.first(), Some(Expr::Closure { .. }))
+                    }
+                    _ => true,
+                };
+            if iter_like {
                 return render_iter_method(recv, &m, args);
             }
             // Integer `^` lowered to `.pow(...)` (the resolver rewrites it here):
@@ -1908,12 +1930,13 @@ pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
         "datetime" => Some("DateTime"),
         "regex" => Some("Regex"),
         "http" => Some("Http"),
+        "dataframe" => Some("DataFrame"),
         _ => None,
     }
 }
 
 /// All stdlib namespace names, for emitting `use vbr_stdlib::{…}`.
-const STDLIB_TYPES: [&str; 5] = ["FileSystem", "Json", "DateTime", "Regex", "Http"];
+const STDLIB_TYPES: [&str; 6] = ["FileSystem", "Json", "DateTime", "Regex", "Http", "DataFrame"];
 
 /// The stdlib namespaces a compiled program uses (for enabling Cargo features).
 /// `FileSystem` is std-only and needs no feature; the rest map to a feature.

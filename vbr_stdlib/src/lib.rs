@@ -21,6 +21,8 @@ pub mod json;
 pub mod regex;
 #[cfg(feature = "http")]
 pub mod http;
+#[cfg(feature = "dataframe")]
+pub mod dataframe;
 
 pub use filesystem::FileSystem;
 #[cfg(feature = "datetime")]
@@ -31,3 +33,5 @@ pub use json::Json;
 pub use regex::Regex;
 #[cfg(feature = "http")]
 pub use http::Http;
+#[cfg(feature = "dataframe")]
+pub use dataframe::DataFrame;

@@ -10,6 +10,9 @@ pub enum Tok {
     Int(i64),
     Float(f64),
     Str(String),
+    /// A backtick-quoted column name (`` `Unit Price` ``) — sugar for `Col("…")`
+    /// in a dataframe column formula.
+    Backtick(String),
     Ident(String),
 
     // Keywords
@@ -181,6 +184,22 @@ pub fn lex(src: &str) -> Vec<Token> {
                 tokens.push(Token { tok: Tok::Str(s), line });
                 i = j;
             }
+            '`' => {
+                // A backtick-quoted column name (`Unit Price`) for dataframe
+                // formulas — captured verbatim until the closing backtick.
+                let mut j = i + 1;
+                let mut s = String::new();
+                while let Some(c) = chars.get(j) {
+                    if *c == '`' {
+                        j += 1;
+                        break;
+                    }
+                    s.push(*c);
+                    j += 1;
+                }
+                tokens.push(Token { tok: Tok::Backtick(s), line });
+                i = j;
+            }
             '+' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::PlusEq, line, &mut i),
             '-' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::MinusEq, line, &mut i),
             '*' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::StarEq, line, &mut i),
@@ -296,10 +315,16 @@ pub fn lex(src: &str) -> Vec<Token> {
                     });
                     i = resume;
                 } else {
-                    tokens.push(Token {
-                        tok: keyword_or_ident(&word),
-                        line,
-                    });
+                    // A word right after `.` is a member name (`df.Select`,
+                    // `x.Next`), never a keyword — so it can share a spelling with
+                    // one. Otherwise, classify it normally.
+                    let after_dot = matches!(tokens.last().map(|t| &t.tok), Some(Tok::Dot));
+                    let tok = if after_dot {
+                        Tok::Ident(word.clone())
+                    } else {
+                        keyword_or_ident(&word)
+                    };
+                    tokens.push(Token { tok, line });
                     i = j;
                 }
             }

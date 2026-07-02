@@ -14,9 +14,11 @@ json = ["dep:serde_json"]
 datetime = ["dep:chrono"]
 regex = ["dep:regex"]
 http = ["dep:ureq"]
+dataframe = ["dep:polars"]
 
 [dependencies]
 serde_json = { version = "1.0", optional = true }
 chrono = { version = "0.4", optional = true }
 regex = { version = "1.0", optional = true }
 ureq = { version = "2", optional = true }
+polars = { version = "0.44", optional = true, default-features = false, features = ["lazy", "csv", "fmt"] }

@@ -614,6 +614,37 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         Expr::MethodCall { recv, method, args } => {
+            // DataFrame transforms take column *formulas*, not ordinary
+            // expressions: bare names are columns and operators broadcast. Lower
+            // them here — where we know `recv` is a DataFrame — into polars
+            // expressions, and skip the normal argument resolution.
+            if is_df_expr(recv, ctx) {
+                resolve_expr(recv, ctx);
+                match snake(method).as_str() {
+                    "filter" => {
+                        for a in args.iter_mut() {
+                            lower_formula(a, ctx);
+                        }
+                    }
+                    "with_column" => {
+                        // arg 0 is the new column's name (a value); arg 1 the formula.
+                        if let Some(a) = args.get_mut(1) {
+                            lower_formula(a, ctx);
+                        }
+                    }
+                    "select" => {
+                        // Rendered as a slice of name literals; tag for the emitter.
+                        *method = "__df_select".to_string();
+                    }
+                    _ => {
+                        // Head/Sort/Column/Shape/Columns/Print: plain value args.
+                        for a in args.iter_mut() {
+                            resolve_expr(a, ctx);
+                        }
+                    }
+                }
+                return;
+            }
             // Calling a `&mut self` method on a variable means it must be `mut`.
             let recv_var = match &**recv {
                 Expr::Ident(v) => Some(snake(v)),
@@ -941,4 +972,110 @@ fn join(a: RType, b: RType) -> RType {
     } else {
         RType::I32
     }
+}
+
+// ---- DataFrame column formulas -------------------------------------------------
+//
+// The argument of a DataFrame transform (`Filter`, `WithColumn`) is a *column
+// formula*: it reads like an Excel array formula and applies down the whole
+// column. `lower_formula` rewrites an ordinary VBR expression into the polars
+// expression tree it means — `col(...)` / `lit(...)` / `when/then/otherwise` and
+// comparison/logical methods — which the emitter then renders verbatim.
+
+/// Is `e` a DataFrame-valued expression? A variable declared `As DataFrame`, a
+/// `DataFrame.ReadCsv(...)`-style constructor, or a transform chained off one.
+fn is_df_expr(e: &Expr, ctx: &Ctx) -> bool {
+    match e {
+        Expr::Ident(n) => ctx.struct_vars.get(&snake(n)).map_or(false, |t| t == "DataFrame"),
+        Expr::MethodCall { recv, .. } => {
+            matches!(&**recv, Expr::Ident(n) if n == "DataFrame") || is_df_expr(recv, ctx)
+        }
+        _ => false,
+    }
+}
+
+/// In a column formula, a name you've `Dim`'d is a *value* (`lit`); any other bare
+/// name is a *column* (`col`). This tells the two apart.
+fn is_value_var(name: &str, ctx: &Ctx) -> bool {
+    let s = snake(name);
+    ctx.vars.contains_key(&s)
+        || ctx.str_params.contains(&s)
+        || ctx.array_vars.contains(&s)
+        || ctx.struct_vars.get(&s).map_or(false, |t| t != "DataFrame")
+}
+
+/// Rewrite a VBR expression in column-formula context into polars expressions.
+fn lower_formula(e: &mut Expr, ctx: &Ctx) {
+    match e {
+        // A bare name: a `Dim`'d value → `lit(v)`; otherwise a column → `col("name")`.
+        Expr::Ident(name) => {
+            *e = if is_value_var(name, ctx) {
+                lit_of(Expr::Ident(name.clone()))
+            } else {
+                call_expr("col", vec![Expr::Str(name.clone())])
+            };
+        }
+        // Literals are values.
+        Expr::Str(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) => {
+            let v = std::mem::replace(e, Expr::Int(0));
+            *e = lit_of(v);
+        }
+        // `Col(x)` / a backtick name → `col(x)`; the argument is a plain value.
+        Expr::Call { name, args } if name == "Col" => {
+            let arg = args.drain(..).next().unwrap_or_else(|| Expr::Str(String::new()));
+            *e = call_expr("col", vec![arg]);
+        }
+        // `IIf(c, t, e)` → `when(c).then(t).otherwise(e)`.
+        Expr::Call { name, args } if name.eq_ignore_ascii_case("IIf") && args.len() == 3 => {
+            let mut drain = args.drain(..);
+            let mut c = drain.next().unwrap();
+            let mut t = drain.next().unwrap();
+            let mut el = drain.next().unwrap();
+            drop(drain);
+            lower_formula(&mut c, ctx);
+            lower_formula(&mut t, ctx);
+            lower_formula(&mut el, ctx);
+            let w = call_expr("when", vec![c]);
+            let then = mcall(w, "then", vec![t]);
+            *e = mcall(then, "otherwise", vec![el]);
+        }
+        Expr::Binary { op, lhs, rhs } => {
+            lower_formula(lhs, ctx);
+            lower_formula(rhs, ctx);
+            // Comparisons and logical ops become methods (polars doesn't overload
+            // `>`/`&&`); arithmetic (`+ - * /`) stays as operators (polars does).
+            let method = match op {
+                BinOp::Gt => Some("gt"),
+                BinOp::Lt => Some("lt"),
+                BinOp::Ge => Some("gt_eq"),
+                BinOp::Le => Some("lt_eq"),
+                BinOp::Eq => Some("eq"),
+                BinOp::Ne => Some("neq"),
+                BinOp::And => Some("and"),
+                BinOp::Or => Some("or"),
+                _ => None,
+            };
+            if let Some(m) = method {
+                let l = std::mem::replace(&mut **lhs, Expr::Int(0));
+                let r = std::mem::replace(&mut **rhs, Expr::Int(0));
+                *e = mcall(l, m, vec![r]);
+            }
+        }
+        Expr::Not(inner) => {
+            lower_formula(inner, ctx);
+            let i = std::mem::replace(&mut **inner, Expr::Int(0));
+            *e = mcall(i, "not", vec![]);
+        }
+        _ => {}
+    }
+}
+
+fn call_expr(name: &str, args: Vec<Expr>) -> Expr {
+    Expr::Call { name: name.to_string(), args }
+}
+fn mcall(recv: Expr, method: &str, args: Vec<Expr>) -> Expr {
+    Expr::MethodCall { recv: Box::new(recv), method: method.to_string(), args }
+}
+fn lit_of(v: Expr) -> Expr {
+    Expr::Call { name: "lit".to_string(), args: vec![v] }
 }

@@ -197,6 +197,11 @@ fn cmd_project(args: &[String], run: bool) {
             "→ Building the TUI — compiling ratatui takes a few seconds the first time \
              (instant once cached). The app takes over the terminal when it starts."
         );
+    } else if cargo_toml.contains("dataframe") {
+        eprintln!(
+            "→ Building with dataframes — compiling polars takes a minute or so the \
+             first time (instant once cached)."
+        );
     }
 
     eprintln!("→ cargo run\n");
@@ -417,6 +422,7 @@ const STDLIB_FEATURES: &[(&str, &str)] = &[
     ("DateTime", "datetime"),
     ("Regex", "regex"),
     ("Http", "http"),
+    ("DataFrame", "dataframe"),
 ];
 
 /// The raw file stem (`http.rs` → `http`), before snake-casing.

@@ -1,0 +1,6 @@
+name,age,active,price,qty
+Alice,34,true,10.0,3
+Bob,28,false,5.5,10
+Carol,41,true,7.0,2
+Dave,19,true,3.0,8
+Erin,52,true,12.5,1

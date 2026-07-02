@@ -2681,6 +2681,15 @@ impl<'a> Parser<'a> {
             self.advance();
             return Some(Expr::InlineRust(raw));
         }
+        // A backtick-quoted column name in a dataframe formula — sugar for
+        // `Col("Unit Price")`; the resolver lowers both to polars `col(...)`.
+        if let Tok::Backtick(name) = self.peek().clone() {
+            self.advance();
+            return Some(Expr::Call {
+                name: "Col".to_string(),
+                args: vec![Expr::Str(name)],
+            });
+        }
         // An inline Python block (run via pyo3; typed by the surrounding `As T`,
         // or an opaque `PyObject` handle when untyped).
         if let Tok::InlinePython { args, body } = self.peek().clone() {

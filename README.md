@@ -9,6 +9,7 @@ and the generated Rust is always there to read.
 - **`gui_spec.md`** — graphical apps: a `Window` → an Iced application.
 - **`tui_spec.md`** — terminal apps: a `Screen` → a ratatui application.
 - **`stdlib_spec.md`** — the standard library.
+- **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
 
 ## Building
 

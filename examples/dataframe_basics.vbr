@@ -1,0 +1,26 @@
+' Native dataframes — read a CSV, compute new columns with Excel-style array
+' formulas, filter rows, select, and pull a column out. Backed by polars (pure
+' Rust — no Python). See dataframe_spec.md.
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+
+    Dim (rows, cols) As (Long, Long) = df.Shape()
+    Debug.Print "loaded " & rows & " rows, " & cols & " columns"
+
+    ' Column formulas: arithmetic across whole columns, and an IIf band.
+    df = df.WithColumn("total", price * qty)
+    df = df.WithColumn("band", IIf(age >= 18, "adult", "minor"))
+
+    ' Row filter: a boolean mask over columns, combined with a Dim'd value.
+    Dim cutoff As Long = 30
+    df = df.Filter(age > cutoff And active)
+
+    df = df.Select("name", "band", "total")
+    df.Print()
+
+    Dim names As Vec<String> = df.Column("name")
+    Debug.Print "first kept: " & names[0]
+
+    df.WriteCsv("out.csv")
+    Debug.Print "wrote out.csv"
+End Function
