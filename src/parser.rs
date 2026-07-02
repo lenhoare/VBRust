@@ -575,6 +575,7 @@ impl<'a> Parser<'a> {
         let mut state = Vec::new();
         let mut view = None;
         let mut keys = Vec::new();
+        let mut timers = Vec::new();
         let mut events = Vec::new();
 
         loop {
@@ -614,6 +615,14 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                     keys.push(KeyBinding { key, handler });
                 }
+                // `Every 1000 Handler` — a timer binding (interval in ms).
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Every") => {
+                    self.advance();
+                    let interval_ms = self.parse_array_size()? as u64;
+                    let handler = self.expect_ident("for the timer's handler event")?;
+                    self.eat(&Tok::Newline);
+                    timers.push(Timer { interval_ms, handler });
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Event") => {
                     self.advance();
                     let ev_name = self.expect_ident("for the event name")?;
@@ -634,7 +643,7 @@ impl<'a> Parser<'a> {
                         self.line(),
                         format!(
                             "Unexpected {:?} inside a Screen — expected Title, State, View, \
-                             `On Key`, Event, or `End Screen`.",
+                             `On Key`, `Every`, Event, or `End Screen`.",
                             other
                         ),
                     );
@@ -650,7 +659,7 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        Some(Screen { name, title, state, view, keys, events })
+        Some(Screen { name, title, state, view, keys, timers, events })
     }
 
     /// A key spec after `On Key`: a string literal for a character (`"q"`, `"+"`)

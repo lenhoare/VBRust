@@ -1,0 +1,40 @@
+Screen Monitor
+    Title "Auto-refresh Monitor"
+
+    State
+        Dim seconds As Integer = 0
+        Dim status As String = "starting…"
+        Dim url As String = "https://example.com"
+    End State
+
+    View
+        Column
+            Length 1
+            Text "Uptime: " & seconds & "s"
+            Length 1
+            Text status
+            Fill
+            Text "ticks every 1s, refreshes every 5s • q to quit"
+        End Column
+    End View
+
+    Every 1000 Tick
+    Every 5000 Poll
+    On Key "q" Quit
+
+    Event Tick
+        seconds += 1
+    End Event
+
+    Event Poll
+        status = "refreshing…"
+        Match Await Http.Get(url)
+            Ok(_) => status = "ok at " & seconds & "s"
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Screen
+
+Function Main()
+    Monitor.Run
+End Function

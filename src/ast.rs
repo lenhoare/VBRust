@@ -83,7 +83,17 @@ pub struct Screen {
     pub view: ViewNode,
     /// Key→handler bindings (`On Key "+" Increment`).
     pub keys: Vec<KeyBinding>,
+    /// Timer bindings (`Every 1000 Tick`) — run a handler on an interval.
+    pub timers: Vec<Timer>,
     pub events: Vec<GuiEvent>,
+}
+
+/// An `Every <ms> <handler>` timer — fires the handler event every `interval_ms`
+/// milliseconds. Combined with `Await`, gives periodic background polling.
+#[derive(Debug, Clone)]
+pub struct Timer {
+    pub interval_ms: u64,
+    pub handler: String,
 }
 
 /// One `On Key <key> <handler>` binding. `key` is a single character (`"+"`,

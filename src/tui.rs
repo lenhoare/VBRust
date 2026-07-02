@@ -877,10 +877,16 @@ fn emit_main(
         out.push_str("}\n\n");
     }
 
-    // `state` needs `mut` if a key runs an event that changes it, or a focusable
-    // widget mutates it (typing into an input, moving a list selection).
-    let mutates =
-        has_focus || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
+    let has_timer = !sc.timers.is_empty();
+    // A timer or an async result means the loop can't just block on a keystroke —
+    // it must tick (poll input briefly, then loop) so timers fire / results land.
+    let poll_loop = any_async || has_timer;
+
+    // `state` needs `mut` if a key/timer runs an event that changes it, or a
+    // focusable widget mutates it (typing into an input, moving a selection).
+    let mutates = has_focus
+        || has_timer
+        || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
     let let_state = if mutates { "let mut state" } else { "let state" };
     // Only a list/table makes the view `&mut` (its state mutates on render).
     let draw_arg = if has_sel { "&mut state" } else { "&state" };
@@ -891,11 +897,13 @@ fn emit_main(
     if any_async {
         out.push_str("    let (tx, rx) = std::sync::mpsc::channel::<Message>();\n");
     }
+    for i in 0..sc.timers.len() {
+        out.push_str(&format!("    let mut last_tick_{} = std::time::Instant::now();\n", i));
+    }
     out.push_str("    loop {\n");
     out.push_str(&format!("        terminal.draw(|frame| view({}, frame))?;\n", draw_arg));
     if any_async {
-        // Deliver any completed background results, then only block briefly on
-        // input so the loop keeps ticking while work runs.
+        // Deliver any completed background results.
         out.push_str("        while let Ok(msg) = rx.try_recv() {\n");
         out.push_str("            match msg {\n");
         for (e, split) in sc.events.iter().zip(&splits) {
@@ -911,6 +919,27 @@ fn emit_main(
         }
         out.push_str("            }\n");
         out.push_str("        }\n");
+    }
+    // Fire any due timers.
+    for (i, t) in sc.timers.iter().enumerate() {
+        out.push_str(&format!(
+            "        if last_tick_{}.elapsed().as_millis() >= {} {{\n",
+            i, t.interval_ms
+        ));
+        let handler = t.handler.to_ascii_lowercase();
+        if t.handler.eq_ignore_ascii_case("Quit") {
+            out.push_str("            break;\n");
+        } else if let Some(ev) = events.get(&handler) {
+            emit_event_run(
+                ev, async_by_name.get(&handler).copied(), 3, &fields, &field_ty, enums, &mut out,
+                &mut dummy,
+            );
+        }
+        out.push_str(&format!("            last_tick_{} = std::time::Instant::now();\n", i));
+        out.push_str("        }\n");
+    }
+    if poll_loop {
+        // Only block briefly on input so the loop keeps ticking.
         out.push_str("        if !event::poll(std::time::Duration::from_millis(50))? {\n");
         out.push_str("            continue;\n");
         out.push_str("        }\n");
@@ -924,31 +953,10 @@ fn emit_main(
         if k.handler.eq_ignore_ascii_case("Quit") {
             out.push_str("                        break;\n");
         } else if let Some(ev) = events.get(&handler) {
-            if let Some(s) = async_by_name.get(&handler) {
-                // Kick-off: run the pre-await body, snapshot state, spawn the
-                // blocking work on a thread, and post the result back.
-                for stmt in &s.pre {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                    coerce_state_strings(&mut rewritten, &field_ty);
-                    emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 6, &mut dummy, &mut out);
-                }
-                for snap in &s.snapshots {
-                    out.push_str(&format!("                        {}\n", snap));
-                }
-                out.push_str("                        let tx = tx.clone();\n");
-                out.push_str("                        std::thread::spawn(move || {\n");
-                out.push_str(&format!(
-                    "                            let _ = tx.send(Message::{}Done({}));\n",
-                    ev.name, s.call_src
-                ));
-                out.push_str("                        });\n");
-            } else {
-                for stmt in &ev.body {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                    coerce_state_strings(&mut rewritten, &field_ty);
-                    emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 6, &mut dummy, &mut out);
-                }
-            }
+            emit_event_run(
+                ev, async_by_name.get(&handler).copied(), 6, &fields, &field_ty, enums, &mut out,
+                &mut dummy,
+            );
         }
         out.push_str("                    }\n");
     }
@@ -995,6 +1003,48 @@ fn emit_main(
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
     out
+}
+
+/// Run a Screen event: an async event (with a split) kicks its work onto a
+/// thread and posts the result over the channel; a sync event runs inline. Used
+/// by both key handlers and timers.
+#[allow(clippy::too_many_arguments)]
+fn emit_event_run(
+    ev: &GuiEvent,
+    split: Option<&AwaitSplit>,
+    indent: usize,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+    out: &mut String,
+    dummy: &mut Diagnostics,
+) {
+    let pad = "    ".repeat(indent);
+    let emit_body = |body: &[Stmt], out: &mut String, dummy: &mut Diagnostics| {
+        for stmt in body {
+            let mut r = rewrite_stmt(stmt.clone(), fields, enums);
+            coerce_state_strings(&mut r, field_ty);
+            emit_stmt(&r, &HashSet::new(), &HashSet::new(), indent, dummy, out);
+        }
+    };
+    match split {
+        // Kick-off: pre-await body (main thread), snapshot state, spawn the
+        // blocking work, and post the result back over the channel.
+        Some(s) => {
+            emit_body(&s.pre, out, dummy);
+            for snap in &s.snapshots {
+                out.push_str(&format!("{}{}\n", pad, snap));
+            }
+            out.push_str(&format!("{}let tx = tx.clone();\n", pad));
+            out.push_str(&format!("{}std::thread::spawn(move || {{\n", pad));
+            out.push_str(&format!(
+                "{}    let _ = tx.send(Message::{}Done({}));\n",
+                pad, ev.name, s.call_src
+            ));
+            out.push_str(&format!("{}}});\n", pad));
+        }
+        None => emit_body(&ev.body, out, dummy),
+    }
 }
 
 /// Up/Down on the focused list/table — direct for one focusable, routed by
