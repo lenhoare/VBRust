@@ -56,6 +56,12 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         dependencies.push(("ratatui".to_string(), "0.29".to_string()));
     }
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
+    // An inline `Python` block runs via pyo3 (real CPython) — pull it in only when
+    // one is actually used, so nothing else pays for it. Detected from the emitted
+    // marker, like the other conditional deps (image/canvas/spawn_blocking).
+    if rust.contains("pyo3::Python::with_gil") {
+        dependencies.push(("pyo3".to_string(), "0.23".to_string()));
+    }
     let stdlib_used = transpiler::stdlib_used(&diags);
 
     Compiled {

@@ -519,6 +519,20 @@ pub(crate) fn emit_stmt(
                 ));
                 return;
             }
+            // `Dim x As T = Python … End Python` — run the block via pyo3 and
+            // extract its last-line value into `T` at the boundary.
+            if let Some(Expr::InlinePython(raw)) = init {
+                let kw = let_kw(mutated.contains(&var));
+                out.push_str(&format!(
+                    "{}{} {}: {} = {};\n",
+                    pad,
+                    kw,
+                    var,
+                    decltype_rust(ty),
+                    render_python_block(raw, Some(ty), indent)
+                ));
+                return;
+            }
             match ty {
                 // Collections are `mut` only if mutated; empty unless given an
                 // initialiser (e.g. an iterator `.collect()`).
@@ -1248,6 +1262,60 @@ fn render_inline_block(raw: &str, indent: usize) -> String {
     s
 }
 
+/// Render a `Python … End Python` block as a Rust block expression that runs the
+/// body through pyo3 and extracts its value. Unlike inline Rust (spliced tokens),
+/// this executes real CPython at runtime: the body runs in a fresh namespace, the
+/// last line's value is captured in `_vbr_result`, and that is `.extract()`ed into
+/// the annotated Rust type. `ty` is the target scalar type (`None` falls back to
+/// context inference — used only in non-`Dim` positions, which slice 1 forbids).
+fn render_python_block(raw: &str, ty: Option<&DeclType>, indent: usize) -> String {
+    let body = prepare_python(raw);
+    let ret = match ty {
+        Some(t) => format!(" -> pyo3::PyResult<{}>", decltype_rust(t)),
+        None => String::new(),
+    };
+    let pad = "    ".repeat(indent + 1);
+    let close = "    ".repeat(indent);
+    // The Python source is embedded as a raw string; its lines stay at column 0
+    // (Python is whitespace-sensitive) regardless of the surrounding Rust indent.
+    format!(
+        "{{\n\
+         {p}use pyo3::prelude::*;\n\
+         {p}pyo3::Python::with_gil(|py|{ret} {{\n\
+         {p}    let ns = pyo3::types::PyDict::new(py);\n\
+         {p}    py.run(&std::ffi::CString::new(r#\"\n{body}\n\"#).unwrap(), Some(&ns), Some(&ns))?;\n\
+         {p}    ns.get_item(\"_vbr_result\")?\n\
+         {p}        .expect(\"the Python block produced no value on its last line\")\n\
+         {p}        .extract()\n\
+         {p}}})\n\
+         {p}.expect(\"the Python block raised an exception\")\n\
+         {close}}}",
+        p = pad,
+        ret = ret,
+        body = body,
+        close = close,
+    )
+}
+
+/// Prepare a raw Python body for `exec`: dedent it (Python cares about the leading
+/// whitespace the VBR editor added), trim blank edges, and bind the last non-blank
+/// line to `_vbr_result` so its value can be read back out. The last line must be
+/// an expression (the `Rust`-block "last line is the value" rule carries over).
+fn prepare_python(raw: &str) -> String {
+    let body = dedent(raw);
+    let mut lines: Vec<String> = body.lines().map(|l| l.to_string()).collect();
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    if let Some(idx) = lines.iter().rposition(|l| !l.trim().is_empty()) {
+        lines[idx] = format!("_vbr_result = {}", lines[idx].trim_start());
+    }
+    lines.join("\n")
+}
+
 /// Strip the common leading whitespace from every non-blank line.
 fn dedent(s: &str) -> String {
     let min = s
@@ -1458,6 +1526,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).
         Expr::InlineRust(raw) => render_inline_block(raw, 0),
+        // Inline Python is only supported as a typed `Dim` initialiser (slice 1),
+        // which the emitter handles with the target type in hand. In any other
+        // position we have no type to extract into, so fall back to inference.
+        Expr::InlinePython(raw) => render_python_block(raw, None, 0),
         // `Not e` → `!e`. Unary `!` binds tighter than any binary op, so it never
         // needs outer parens; the operand is parenthesised if it's itself binary.
         Expr::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),

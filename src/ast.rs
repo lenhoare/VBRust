@@ -603,6 +603,11 @@ pub enum Expr {
     Index(Box<Expr>, Box<Expr>),
     /// A `Rust … End Rust` block — raw Rust spliced in as a block expression.
     InlineRust(String),
+    /// A `Python … End Python` block — the body is *run* at runtime via pyo3 (not
+    /// spliced like inline Rust). The last non-blank line is the value; it is
+    /// extracted back into the annotated scalar type at the boundary. Only valid
+    /// as a typed `Dim x As T = Python … End Python` initialiser (slice 1).
+    InlinePython(String),
     /// `Not inner` — logical negation → `!(inner)`.
     Not(Box<Expr>),
     /// `Await inner` — only valid inside a Window event. The GUI codegen splits

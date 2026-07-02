@@ -817,8 +817,8 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 resolve_expr(v, ctx);
             }
         }
-        // Inline Rust is opaque — no resolution.
-        Expr::InlineRust(_) => {}
+        // Inline Rust/Python are opaque — no resolution.
+        Expr::InlineRust(_) | Expr::InlinePython(_) => {}
         Expr::Not(inner) => resolve_expr(inner, ctx),
         Expr::Await(inner) => resolve_expr(inner, ctx),
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
@@ -849,7 +849,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> RType {
         | Expr::Tuple(_)
         | Expr::TupleIndex(..)
         | Expr::Index(..)
-        | Expr::InlineRust(_) => RType::Unknown,
+        | Expr::InlineRust(_)
+        | Expr::InlinePython(_) => RType::Unknown,
         Expr::Not(_) => RType::Bool,
         Expr::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => RType::Strng,

@@ -107,6 +107,10 @@ pub enum Tok {
     /// A `Rust … End Rust` block, captured verbatim (the inner Rust is not tokenised).
     InlineRust(String),
 
+    /// A `Python … End Python` block, captured verbatim (the inner Python is not
+    /// tokenised — it is run at runtime via pyo3, not spliced like inline Rust).
+    InlinePython(String),
+
     /// A `Use <crate> <version>` line, captured raw (the parser splits it).
     Use(String),
 
@@ -262,9 +266,18 @@ pub fn lex(src: &str) -> Vec<Token> {
                 if word.eq_ignore_ascii_case("Rust") {
                     // Inline Rust: capture the body verbatim (do NOT tokenise it)
                     // until a line that reads `End Rust`.
-                    let (raw, resume, newlines) = capture_inline_rust(&chars, j);
+                    let (raw, resume, newlines) = capture_inline_block(&chars, j, "rust");
                     tokens.push(Token {
                         tok: Tok::InlineRust(raw),
+                        line,
+                    });
+                    line += newlines;
+                    i = resume;
+                } else if word.eq_ignore_ascii_case("Python") {
+                    // Inline Python: same verbatim capture, terminated by `End Python`.
+                    let (raw, resume, newlines) = capture_inline_block(&chars, j, "python");
+                    tokens.push(Token {
+                        tok: Tok::InlinePython(raw),
                         line,
                     });
                     line += newlines;
@@ -308,14 +321,14 @@ fn capture_to_eol(chars: &[char], start: usize) -> (String, usize) {
     (rest.trim().to_string(), e)
 }
 
-/// Capture an inline Rust block verbatim. `start` is just after the `Rust`
-/// keyword; the block runs until the `End Rust` terminator, which may sit on its
-/// own line (multi-line block) or trail the body on one line (`Rust … End Rust`).
-/// Returns (raw body, index to resume at, number of newlines consumed).
-fn capture_inline_rust(chars: &[char], start: usize) -> (String, usize, usize) {
+/// Capture an inline block (`Rust`/`Python`) verbatim. `start` is just after the
+/// opening keyword; the block runs until an `End <term>` terminator, which may sit
+/// on its own line (multi-line block) or trail the body on one line
+/// (`Rust … End Rust`). Returns (raw body, index to resume at, newlines consumed).
+fn capture_inline_block(chars: &[char], start: usize, term: &str) -> (String, usize, usize) {
     let mut i = start;
     while i < chars.len() {
-        if let Some(resume) = match_end_rust(chars, i) {
+        if let Some(resume) = match_end_block(chars, i, term) {
             // Trim whitespace/newlines between the body and `End`.
             let mut body_end = i;
             while body_end > start && chars[body_end - 1].is_whitespace() {
@@ -333,9 +346,9 @@ fn capture_inline_rust(chars: &[char], start: usize) -> (String, usize, usize) {
     (raw, chars.len(), newlines)
 }
 
-/// If `chars[i..]` begins a whole-word `End` <ws> `Rust` terminator (at a word
-/// boundary), return the index just past `Rust`; otherwise `None`.
-fn match_end_rust(chars: &[char], i: usize) -> Option<usize> {
+/// If `chars[i..]` begins a whole-word `End` <ws> `<term>` terminator (at a word
+/// boundary), return the index just past `<term>`; otherwise `None`.
+fn match_end_block(chars: &[char], i: usize, term: &str) -> Option<usize> {
     // `End` must start at a word boundary.
     if i > 0 && !chars[i - 1].is_whitespace() {
         return None;
@@ -353,7 +366,7 @@ fn match_end_rust(chars: &[char], i: usize) -> Option<usize> {
         Some(p + w.len())
     };
     let after_end = word(i, "end")?;
-    // At least one whitespace between `End` and `Rust`.
+    // At least one whitespace between `End` and the terminator keyword.
     if !chars.get(after_end).is_some_and(|c| c.is_whitespace()) {
         return None;
     }
@@ -361,11 +374,11 @@ fn match_end_rust(chars: &[char], i: usize) -> Option<usize> {
     while p < chars.len() && chars[p].is_whitespace() {
         p += 1;
     }
-    let after_rust = word(p, "rust")?;
-    // `Rust` must end at a word boundary (whitespace or EOF).
-    match chars.get(after_rust) {
-        None => Some(after_rust),
-        Some(c) if c.is_whitespace() => Some(after_rust),
+    let after_term = word(p, term)?;
+    // The terminator must end at a word boundary (whitespace or EOF).
+    match chars.get(after_term) {
+        None => Some(after_term),
+        Some(c) if c.is_whitespace() => Some(after_term),
         _ => None,
     }
 }

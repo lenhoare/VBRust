@@ -1916,6 +1916,16 @@ impl<'a> Parser<'a> {
                 self.advance();
                 return Some(Stmt::HandleDim { name, raw, line });
             }
+            if matches!(self.peek(), Tok::InlinePython(_)) {
+                self.diags.error(
+                    line,
+                    "An inline `Python` block needs a return type: \
+                     `Dim x As Double = Python … End Python`. The block runs and its \
+                     last line is extracted back into that type. (Opaque `PyObject` \
+                     handles — holding a Python value with no VBR type — are a later slice.)",
+                );
+                return None;
+            }
             self.diags.error(
                 line,
                 "A `Dim` needs a type: `Dim x As Long`. The one exception is \
@@ -2637,6 +2647,11 @@ impl<'a> Parser<'a> {
         if let Tok::InlineRust(raw) = self.peek().clone() {
             self.advance();
             return Some(Expr::InlineRust(raw));
+        }
+        // An inline Python block (run via pyo3; typed by the surrounding `As T`).
+        if let Tok::InlinePython(raw) = self.peek().clone() {
+            self.advance();
+            return Some(Expr::InlinePython(raw));
         }
         // A closure: `|x| body` (or `|| body`).
         if matches!(self.peek(), Tok::Pipe) {

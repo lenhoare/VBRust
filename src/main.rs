@@ -385,6 +385,14 @@ fn generate_project(entry: &Path) -> PathBuf {
                 version,
                 feats.join(", ")
             ));
+        } else if krate == "pyo3" {
+            // `auto-initialize` lets a standalone binary boot CPython on first use,
+            // so the generated `Python::with_gil` "just works" without a manual
+            // interpreter setup. It links libpython — a real Python must be present.
+            cargo.push_str(&format!(
+                "pyo3 = {{ version = \"{}\", features = [\"auto-initialize\"] }}\n",
+                version
+            ));
         } else {
             cargo.push_str(&format!("{} = \"{}\"\n", krate, version));
         }

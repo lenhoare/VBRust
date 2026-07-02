@@ -1,0 +1,23 @@
+' Inline Python — drop into real CPython for a bit, get a plain value back.
+' The block runs via pyo3; its last line is the value, extracted into the
+' type you annotate with `As`. (Slice 1: scalars in, scalars out.)
+Function Main()
+    ' A one-liner reaching a library VBR doesn't have.
+    Dim mean As Double = Python
+        import numpy as np
+        np.array([1, 2, 3, 4]).mean()
+    End Python
+    Debug.Print "mean is " & mean
+
+    ' A multi-line block — real Python, sealed inside; last line is the value.
+    Dim greeting As String = Python
+        name = "world"
+        f"hello, {name}"
+    End Python
+    Debug.Print greeting
+
+    Dim answer As Integer = Python
+        6 * 7
+    End Python
+    Debug.Print "the answer is " & answer
+End Function
