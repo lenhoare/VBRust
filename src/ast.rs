@@ -469,9 +469,12 @@ pub enum Stmt {
         /// `None` for a plain `=`.
         op: Option<BinOp>,
     },
-    /// `Dim a, b = expr` — destructure a tuple into several bindings.
+    /// `Dim a, b = expr` / `Dim (a, b) As (T, U) = expr` — destructure a tuple into
+    /// several bindings. `ty` is the tuple type when written (`DeclType::Tuple`),
+    /// which lets a `Python` block extract several values in one GIL scope.
     DestructureDim {
         names: Vec<String>,
+        ty: Option<DeclType>,
         value: Expr,
     },
     /// `Dim name = Rust … End Rust` — an opaque Rust handle. No `As` type: the
@@ -605,9 +608,10 @@ pub enum Expr {
     InlineRust(String),
     /// A `Python … End Python` block — the body is *run* at runtime via pyo3 (not
     /// spliced like inline Rust). The last non-blank line is the value; it is
-    /// extracted back into the annotated scalar type at the boundary. Only valid
-    /// as a typed `Dim x As T = Python … End Python` initialiser (slice 1).
-    InlinePython(String),
+    /// extracted into the annotated type (`As T`) or held as an opaque `PyObject`
+    /// handle (no `As`). `inputs` are VBR variables passed in via `Python(a, b)` —
+    /// scalars are converted, a `PyObject` handle is re-borrowed under the GIL.
+    InlinePython { inputs: Vec<String>, body: String },
     /// `Not inner` — logical negation → `!(inner)`.
     Not(Box<Expr>),
     /// `Await inner` — only valid inside a Window event. The GUI codegen splits

@@ -1,0 +1,28 @@
+' Tuple return — pull SEVERAL values out of one Python block, in a single GIL
+' scope. The natural shape for "a name AND its data" from a model, a dataframe,
+' a query result… write the results as a comma-separated tuple on the last line,
+' and destructure them into typed VBR bindings. (Slice 3.)
+Function Main()
+    ' One block, three results: a label (String), its data (Vec<Double>), and a
+    ' summary stat (Double) — extracted together without touching the object twice.
+    Dim (name, weights, total) As (String, Vec<Double>, Double) = Python
+        import numpy as np
+        w = np.array([0.5, 1.5, 2.0, 3.0])
+        "layer.weight", w.tolist(), float(w.sum())
+    End Python
+
+    Debug.Print "tensor: " & name
+    Debug.Print "sum:    " & total
+    Debug.Print "first:  " & weights[0]
+
+    ' Works with a handle passed in too: destructure stats out of a held object.
+    Dim data = Python
+        import numpy as np
+        np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
+    End Python
+
+    Dim (lo, hi, mean) As (Double, Double, Double) = Python(data)
+        float(data.min()), float(data.max()), float(data.mean())
+    End Python
+    Debug.Print "range:  " & lo & " .. " & hi & " (mean " & mean & ")"
+End Function

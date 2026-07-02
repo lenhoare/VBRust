@@ -1,0 +1,27 @@
+' Inline Python handles — hold a Python object VBR has no type for, and pass it
+' back into later blocks. Each block is its own GIL scope. (Slice 2.)
+Function Main()
+    ' Load once: a numpy array. No `As` type — it's held as an opaque PyObject.
+    Dim data = Python
+        import numpy as np
+        np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
+    End Python
+
+    ' Query it repeatedly — the handle goes back in via `Python(data)`.
+    Dim mean As Double = Python(data)
+        float(data.mean())
+    End Python
+    Debug.Print "mean = " & mean
+
+    Dim biggest As Double = Python(data)
+        float(data.max())
+    End Python
+    Debug.Print "max  = " & biggest
+
+    ' Pass a scalar in alongside the handle: how many exceed a threshold?
+    Dim threshold As Double = 4.0
+    Dim above As Integer = Python(data, threshold)
+        int((data > threshold).sum())
+    End Python
+    Debug.Print above & " values exceed " & threshold
+End Function

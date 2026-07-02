@@ -109,7 +109,9 @@ pub enum Tok {
 
     /// A `Python … End Python` block, captured verbatim (the inner Python is not
     /// tokenised — it is run at runtime via pyo3, not spliced like inline Rust).
-    InlinePython(String),
+    /// `args` is the raw text inside optional leading parens (`Python(df, n)` →
+    /// `"df, n"`), the VBR variables passed into the block; `body` is the source.
+    InlinePython { args: String, body: String },
 
     /// A `Use <crate> <version>` line, captured raw (the parser splits it).
     Use(String),
@@ -274,10 +276,12 @@ pub fn lex(src: &str) -> Vec<Token> {
                     line += newlines;
                     i = resume;
                 } else if word.eq_ignore_ascii_case("Python") {
-                    // Inline Python: same verbatim capture, terminated by `End Python`.
-                    let (raw, resume, newlines) = capture_inline_block(&chars, j, "python");
+                    // Inline Python: optional `(args)` (VBR vars passed in), then the
+                    // verbatim body terminated by `End Python`.
+                    let (args, after_args) = capture_call_args(&chars, j);
+                    let (body, resume, newlines) = capture_inline_block(&chars, after_args, "python");
                     tokens.push(Token {
-                        tok: Tok::InlinePython(raw),
+                        tok: Tok::InlinePython { args, body },
                         line,
                     });
                     line += newlines;
@@ -319,6 +323,38 @@ fn capture_to_eol(chars: &[char], start: usize) -> (String, usize) {
     }
     let rest: String = chars[start..e].iter().collect();
     (rest.trim().to_string(), e)
+}
+
+/// Capture an optional `(args)` group immediately after `Python` (on the same
+/// line — a following newline means the body starts, not an argument list).
+/// Returns (raw inner text, index to resume the body scan at). No parens → empty
+/// args and the original index.
+fn capture_call_args(chars: &[char], start: usize) -> (String, usize) {
+    let mut p = start;
+    // Skip spaces/tabs but not newlines (a newline ends the "same line" window).
+    while p < chars.len() && (chars[p] == ' ' || chars[p] == '\t') {
+        p += 1;
+    }
+    if chars.get(p) != Some(&'(') {
+        return (String::new(), start);
+    }
+    let inner_start = p + 1;
+    let mut depth = 1;
+    let mut e = inner_start;
+    while e < chars.len() && depth > 0 {
+        match chars[e] {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 {
+            break;
+        }
+        e += 1;
+    }
+    let inner: String = chars[inner_start..e].iter().collect();
+    // Resume just past the closing `)`.
+    (inner.trim().to_string(), e + 1)
 }
 
 /// Capture an inline block (`Rust`/`Python`) verbatim. `start` is just after the

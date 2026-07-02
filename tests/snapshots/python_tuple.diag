@@ -1,0 +1,1 @@
+ℹ Indexing with `x[i]` panics if `i` is out of bounds. When you're not sure the index is valid, use `x.get(i)` — it returns an Option you can handle.

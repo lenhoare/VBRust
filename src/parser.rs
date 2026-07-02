@@ -1896,9 +1896,37 @@ impl<'a> Parser<'a> {
     fn parse_dim(&mut self) -> Option<Stmt> {
         let line = self.line();
         self.expect(&Tok::Dim, "")?;
+
+        // `Dim (a, b) As (T, U) = expr` — a typed destructure. Chiefly for a
+        // `Python` block that returns several values, extracted in one GIL scope.
+        if self.eat(&Tok::LParen) {
+            let mut names = vec![self.expect_ident("in a destructuring `Dim (a, b)`")?];
+            while self.eat(&Tok::Comma) {
+                names.push(self.expect_ident("in a destructuring `Dim (a, b)`")?);
+            }
+            self.expect(&Tok::RParen, "to close the destructured names")?;
+            let ty = if self.eat(&Tok::As) {
+                Some(self.parse_decl_type()?)
+            } else {
+                None
+            };
+            self.expect(&Tok::Eq, "in a destructuring `Dim (a, b) = …`")?;
+            let value = self.parse_expr()?;
+            if matches!(value, Expr::InlinePython { .. }) && ty.is_none() {
+                self.diags.error(
+                    line,
+                    "A `Python` block that returns several values needs their types: \
+                     `Dim (name, data) As (String, Vec<Double>) = Python … End Python`. \
+                     The Rust tuple they're extracted into must be known.",
+                );
+                return None;
+            }
+            return Some(Stmt::DestructureDim { names, ty, value });
+        }
+
         let name = self.expect_ident("after `Dim`")?;
 
-        // `Dim a, b = expr` destructures a tuple.
+        // `Dim a, b = expr` destructures a tuple (untyped, names inferred).
         if matches!(self.peek(), Tok::Comma) {
             let mut names = vec![name];
             while self.eat(&Tok::Comma) {
@@ -1906,7 +1934,7 @@ impl<'a> Parser<'a> {
             }
             self.expect(&Tok::Eq, "in a tuple destructuring (`Dim a, b = …`)")?;
             let value = self.parse_expr()?;
-            return Some(Stmt::DestructureDim { names, value });
+            return Some(Stmt::DestructureDim { names, ty: None, value });
         }
 
         // `Dim name = Rust … End Rust` — an opaque handle. The only `As`-less
@@ -1916,15 +1944,20 @@ impl<'a> Parser<'a> {
                 self.advance();
                 return Some(Stmt::HandleDim { name, raw, line });
             }
-            if matches!(self.peek(), Tok::InlinePython(_)) {
-                self.diags.error(
+            // `Dim h = Python … End Python` (no `As`) — an opaque `PyObject` handle,
+            // the Python counterpart of the inline-Rust handle above. Holds a value
+            // VBR has no type for; pass it back into a later `Python(h)` block.
+            if let Tok::InlinePython { args, body } = self.peek().clone() {
+                self.advance();
+                return Some(Stmt::Dim {
+                    name,
+                    ty: DeclType::Named("PyObject".to_string()),
+                    init: Some(Expr::InlinePython {
+                        inputs: split_py_args(&args),
+                        body,
+                    }),
                     line,
-                    "An inline `Python` block needs a return type: \
-                     `Dim x As Double = Python … End Python`. The block runs and its \
-                     last line is extracted back into that type. (Opaque `PyObject` \
-                     handles — holding a Python value with no VBR type — are a later slice.)",
-                );
-                return None;
+                });
             }
             self.diags.error(
                 line,
@@ -2648,10 +2681,14 @@ impl<'a> Parser<'a> {
             self.advance();
             return Some(Expr::InlineRust(raw));
         }
-        // An inline Python block (run via pyo3; typed by the surrounding `As T`).
-        if let Tok::InlinePython(raw) = self.peek().clone() {
+        // An inline Python block (run via pyo3; typed by the surrounding `As T`,
+        // or an opaque `PyObject` handle when untyped).
+        if let Tok::InlinePython { args, body } = self.peek().clone() {
             self.advance();
-            return Some(Expr::InlinePython(raw));
+            return Some(Expr::InlinePython {
+                inputs: split_py_args(&args),
+                body,
+            });
         }
         // A closure: `|x| body` (or `|| body`).
         if matches!(self.peek(), Tok::Pipe) {
@@ -2780,6 +2817,15 @@ fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
     }
+}
+
+/// Split the raw text inside `Python(…)` into the variable names passed in.
+/// Slice 2 inputs are bare identifiers (`Python(df, count)`); commas separate them.
+fn split_py_args(args: &str) -> Vec<String> {
+    args.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Render one token of a match-arm pattern as Rust source. Patterns pass through

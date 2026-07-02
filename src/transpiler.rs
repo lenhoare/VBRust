@@ -282,6 +282,9 @@ pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut Stri
 pub(crate) fn decltype_rust(ty: &DeclType) -> String {
     match ty {
         DeclType::Plain(t) => t.rust().to_string(),
+        // `PyObject` is the opaque inline-Python handle type — a GIL-independent
+        // owned reference to a Python value VBR has no type for.
+        DeclType::Named(n) if n == "PyObject" => "pyo3::Py<pyo3::PyAny>".to_string(),
         DeclType::Named(n) => n.clone(),
         DeclType::Tuple(ts) => {
             let parts: Vec<String> = ts.iter().map(decltype_rust).collect();
@@ -520,8 +523,8 @@ pub(crate) fn emit_stmt(
                 return;
             }
             // `Dim x As T = Python … End Python` — run the block via pyo3 and
-            // extract its last-line value into `T` at the boundary.
-            if let Some(Expr::InlinePython(raw)) = init {
+            // extract its last-line value into `T` (or hold a `PyObject` handle).
+            if let Some(Expr::InlinePython { inputs, body }) = init {
                 let kw = let_kw(mutated.contains(&var));
                 out.push_str(&format!(
                     "{}{} {}: {} = {};\n",
@@ -529,7 +532,7 @@ pub(crate) fn emit_stmt(
                     kw,
                     var,
                     decltype_rust(ty),
-                    render_python_block(raw, Some(ty), indent)
+                    render_python_block(inputs, body, Some(ty), indent)
                 ));
                 return;
             }
@@ -671,7 +674,7 @@ pub(crate) fn emit_stmt(
             };
             out.push_str(&format!("{}{};\n", pad, rendered));
         }
-        Stmt::DestructureDim { names, value } => {
+        Stmt::DestructureDim { names, ty, value } => {
             // `let (a, b) = value;` — each binding is `mut` only if reassigned.
             let pat: Vec<String> = names
                 .iter()
@@ -684,11 +687,20 @@ pub(crate) fn emit_stmt(
                     }
                 })
                 .collect();
+            // A written `As (T, U)` annotates the tuple; it also tells a `Python`
+            // block which Rust tuple to extract its several results into.
+            let anno = match ty {
+                Some(t) => format!(": {}", decltype_rust(t)),
+                None => String::new(),
+            };
             let val = match value {
                 Expr::InlineRust(raw) => render_inline_block(raw, indent),
+                Expr::InlinePython { inputs, body } => {
+                    render_python_block(inputs, body, ty.as_ref(), indent)
+                }
                 _ => render_expr(value, None),
             };
-            out.push_str(&format!("{}let ({}) = {};\n", pad, pat.join(", "), val));
+            out.push_str(&format!("{}let ({}){} = {};\n", pad, pat.join(", "), anno, val));
         }
         Stmt::HandleDim { name, raw, .. } => {
             // An opaque handle: Rust infers the type (no annotation). We can't see
@@ -1263,19 +1275,48 @@ fn render_inline_block(raw: &str, indent: usize) -> String {
 }
 
 /// Render a `Python … End Python` block as a Rust block expression that runs the
-/// body through pyo3 and extracts its value. Unlike inline Rust (spliced tokens),
-/// this executes real CPython at runtime: the body runs in a fresh namespace, the
-/// last line's value is captured in `_vbr_result`, and that is `.extract()`ed into
-/// the annotated Rust type. `ty` is the target scalar type (`None` falls back to
-/// context inference — used only in non-`Dim` positions, which slice 1 forbids).
-fn render_python_block(raw: &str, ty: Option<&DeclType>, indent: usize) -> String {
+/// body through pyo3. Unlike inline Rust (spliced tokens), this executes real
+/// CPython: the body runs in a fresh namespace, the last line's value is captured
+/// in `_vbr_result`, and it is either `.extract()`ed into the annotated Rust type
+/// or `.unbind()`ed into an opaque `PyObject` handle. `inputs` are VBR variables
+/// injected into the namespace first (scalars convert; a handle is re-borrowed).
+/// `ty` is the target type (`None` → context inference, non-`Dim` positions only).
+fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, indent: usize) -> String {
     let body = prepare_python(raw);
+    let is_handle = matches!(ty, Some(DeclType::Named(n)) if n == "PyObject");
     let ret = match ty {
         Some(t) => format!(" -> pyo3::PyResult<{}>", decltype_rust(t)),
         None => String::new(),
     };
     let pad = "    ".repeat(indent + 1);
     let close = "    ".repeat(indent);
+    // Inject each VBR input under the name it was written as; `&var` works for
+    // scalars (converted) and `&Py<PyAny>` handles (re-borrowed) alike.
+    let mut sets = String::new();
+    for name in inputs {
+        sets.push_str(&format!(
+            "{p}    ns.set_item(\"{key}\", &{var})?;\n",
+            p = pad,
+            key = name,
+            var = to_snake(name),
+        ));
+    }
+    // A handle unbinds the value (GIL-independent); a scalar extracts it.
+    let tail = if is_handle {
+        format!(
+            "{p}    Ok(ns.get_item(\"_vbr_result\")?\n\
+             {p}        .expect(\"the Python block produced no value on its last line\")\n\
+             {p}        .unbind())\n",
+            p = pad,
+        )
+    } else {
+        format!(
+            "{p}    ns.get_item(\"_vbr_result\")?\n\
+             {p}        .expect(\"the Python block produced no value on its last line\")\n\
+             {p}        .extract()\n",
+            p = pad,
+        )
+    };
     // The Python source is embedded as a raw string; its lines stay at column 0
     // (Python is whitespace-sensitive) regardless of the surrounding Rust indent.
     format!(
@@ -1283,16 +1324,17 @@ fn render_python_block(raw: &str, ty: Option<&DeclType>, indent: usize) -> Strin
          {p}use pyo3::prelude::*;\n\
          {p}pyo3::Python::with_gil(|py|{ret} {{\n\
          {p}    let ns = pyo3::types::PyDict::new(py);\n\
+         {sets}\
          {p}    py.run(&std::ffi::CString::new(r#\"\n{body}\n\"#).unwrap(), Some(&ns), Some(&ns))?;\n\
-         {p}    ns.get_item(\"_vbr_result\")?\n\
-         {p}        .expect(\"the Python block produced no value on its last line\")\n\
-         {p}        .extract()\n\
+         {tail}\
          {p}}})\n\
          {p}.expect(\"the Python block raised an exception\")\n\
          {close}}}",
         p = pad,
         ret = ret,
+        sets = sets,
         body = body,
+        tail = tail,
         close = close,
     )
 }
@@ -1526,10 +1568,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).
         Expr::InlineRust(raw) => render_inline_block(raw, 0),
-        // Inline Python is only supported as a typed `Dim` initialiser (slice 1),
-        // which the emitter handles with the target type in hand. In any other
-        // position we have no type to extract into, so fall back to inference.
-        Expr::InlinePython(raw) => render_python_block(raw, None, 0),
+        // Inline Python is supported as a typed/handle `Dim` initialiser, which the
+        // emitter handles with the target type in hand. In any other position we
+        // have no type to extract into, so fall back to context inference.
+        Expr::InlinePython { inputs, body } => render_python_block(inputs, body, None, 0),
         // `Not e` → `!e`. Unary `!` binds tighter than any binary op, so it never
         // needs outer parens; the operand is parenthesised if it's itself binary.
         Expr::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
