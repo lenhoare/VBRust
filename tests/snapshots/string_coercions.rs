@@ -7,7 +7,7 @@ fn validate(name: &str) -> Result<String, String> {
 }
 
 fn firstchar(text: &str) -> String {
-    (&text[0..1]).to_string()
+    text.chars().skip(0).take(1).collect::<String>().to_string()
 }
 
 fn main() {
@@ -20,7 +20,7 @@ fn main() {
     println!("cleared     : [{}]", current);
     current = "reset".to_string();
     println!("current     : {}", current);
-    let ch: String = (&"hello"[1..2]).to_string();
+    let ch: String = "hello".chars().skip(1).take(1).collect::<String>().to_string();
     println!("first char  : {}", firstchar("world"));
     println!("ch          : {}", ch);
     println!("names count : {}", names.len());

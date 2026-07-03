@@ -1,3 +1,3 @@
-⚠ Mid is 1-indexed in VB but Rust slices are 0-indexed — VBR shifts the positions for you, so Mid(s, 2, 3) becomes &s[1..4].
+ℹ Mid is 1-indexed in VB; VBR shifts the position for you and counts by characters (not bytes), so it stays correct on any text — Mid(s, 2, 3) is s.chars().skip(1).take(3).
 ℹ InStr becomes Rust's .find(), which returns an Option: Some(pos) when found, None when not. You handle both instead of checking for 0.
 ℹ Val becomes Rust's .parse(), which returns a Result: parsing can fail, so you handle the error rather than getting a silent 0.

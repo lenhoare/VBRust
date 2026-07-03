@@ -3,7 +3,7 @@
 // this file shows the lowering but is not compiled.)
 
 fn main() {
-    println!("{}", &"hello"[1..4]);
+    println!("{}", "hello".chars().skip(1).take(3).collect::<String>());
     let pos: i64 = "hello".find("l");
     let num: f64 = "3.14".parse::<f64>();
 }

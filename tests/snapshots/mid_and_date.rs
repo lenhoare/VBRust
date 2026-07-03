@@ -5,8 +5,8 @@ fn main() {
     let s: String = "hello world".to_string();
     let start: i64 = 7;
     let length: i64 = 5;
-    println!("mid(7,5)  : {}", &s[((start - 1) as usize)..((start - 1 + length) as usize)]);
-    println!("from(7)   : {}", &s[((start - 1) as usize)..]);
+    println!("mid(7,5)  : {}", s.chars().skip(((start) - 1) as usize).take((length) as usize).collect::<String>());
+    println!("from(7)   : {}", s.chars().skip(((start) - 1) as usize).collect::<String>());
     let date: String = "2026-06-25".to_string();
     println!("date      : {}", date);
 }

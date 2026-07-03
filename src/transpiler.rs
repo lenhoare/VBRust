@@ -1181,10 +1181,11 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
         }
         Expr::Call { name, args } => {
             match name.to_ascii_lowercase().as_str() {
-                "mid" => diags.warn_once_global(
+                "mid" => diags.note(
                     "builtin-mid",
-                    "Mid is 1-indexed in VB but Rust slices are 0-indexed — VBR shifts the \
-                     positions for you, so Mid(s, 2, 3) becomes &s[1..4].",
+                    "Mid is 1-indexed in VB; VBR shifts the position for you and counts by \
+                     characters (not bytes), so it stays correct on any text — Mid(s, 2, 3) \
+                     is s.chars().skip(1).take(3).",
                 ),
                 "instr" => diags.note(
                     "builtin-instr",
@@ -1773,8 +1774,22 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("ucase", 1) => Some(method0(&args[0], "to_uppercase")),
         ("lcase", 1) => Some(method0(&args[0], "to_lowercase")),
         ("trim", 1) => Some(method0(&args[0], "trim")),
-        ("left", 2) => Some(format!("&{}[..{}]", r(0), r(1))),
-        ("right", 2) => Some(format!("&{0}[{0}.len() - {1}..]", r(0), r(1))),
+        // Left/Right count **characters**, as VB does — never bytes. A byte slice
+        // (`&s[..n]`) panics the moment a string holds a multi-byte char ("café"),
+        // so iterate over `chars()` instead: correct for any Unicode, and safe.
+        ("left", 2) => Some(format!(
+            "{}.chars().take({}).collect::<String>()",
+            render_recv(&args[0]),
+            as_usize_arg(&args[1])
+        )),
+        ("right", 2) => {
+            let s = render_recv(&args[0]);
+            Some(format!(
+                "{0}.chars().skip({0}.chars().count().saturating_sub({1})).collect::<String>()",
+                s,
+                as_usize_arg(&args[1])
+            ))
+        }
         ("replace", 3) => Some(format!("{}.replace({}, {})", r(0), r(1), r(2))),
         ("str", 1) => Some(method0(&args[0], "to_string")),
         // InStr → .find() (returns Option); Val → .parse() (returns Result).
@@ -1839,23 +1854,33 @@ fn suffix_f64(literal: String) -> String {
     }
 }
 
-/// `Mid(s, start)` / `Mid(s, start, len)` → a 0-indexed `&s[..]` slice. When the
-/// positions are literals we fold the arithmetic so the output stays clean.
+/// `Mid(s, start)` / `Mid(s, start, len)` → a substring counted in **characters**.
+/// `start` is 1-indexed (VB), so we skip `start - 1`. Iterating over `chars()`
+/// (rather than a byte slice) keeps VB's character semantics and never splits a
+/// multi-byte char. Literal positions are folded so the output stays clean.
 fn render_mid(s: &Expr, start: &Expr, len: Option<&Expr>) -> String {
-    let s = render_expr(s, None);
-    match (start, len) {
-        (Expr::Int(start), Some(Expr::Int(len))) => {
-            let lo = start - 1;
-            format!("&{}[{}..{}]", s, lo, lo + len)
-        }
-        (Expr::Int(start), None) => format!("&{}[{}..]", s, start - 1),
-        // Variable positions: a Rust slice index must be `usize`, so cast.
-        (_, Some(len)) => {
-            let start = render_expr(start, None);
-            let len = render_expr(len, None);
-            format!("&{0}[(({1} - 1) as usize)..(({1} - 1 + {2}) as usize)]", s, start, len)
-        }
-        (_, None) => format!("&{}[(({} - 1) as usize)..]", s, render_expr(start, None)),
+    let sr = render_recv(s);
+    let skip = match start {
+        Expr::Int(n) => (n - 1).max(0).to_string(),
+        other => format!("(({}) - 1) as usize", render_expr(other, None)),
+    };
+    match len {
+        Some(len) => format!(
+            "{}.chars().skip({}).take({}).collect::<String>()",
+            sr,
+            skip,
+            as_usize_arg(len)
+        ),
+        None => format!("{}.chars().skip({}).collect::<String>()", sr, skip),
+    }
+}
+
+/// Render an expression that must be a `usize` (a slice/iterator count). An
+/// integer literal is emitted bare (it infers `usize`); anything else is cast.
+fn as_usize_arg(e: &Expr) -> String {
+    match e {
+        Expr::Int(n) => n.to_string(),
+        other => format!("({}) as usize", render_expr(other, None)),
     }
 }
 
