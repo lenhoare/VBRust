@@ -6,9 +6,10 @@ Rust **polars** crate: pure Rust, no Python, no GIL, self-contained. (This is a
 different track from inline `Python` blocks — see `inline_python_spec` notes — and
 the better home for dataframes because it needs no interpreter.)
 
-> Status: **slice 1 BUILT** (read/inspect/`Select`/`WithColumn`/`Filter`/`Sort`/
-> column-out/write + the full column-formula lowering). Later slices (GroupBy,
-> joins, lazy, more formats) are marked §8 and not yet built.
+> Status: **slices 1–2 BUILT** (read/inspect/`Select`/`WithColumn`/`Filter`/
+> `Sort`/column-out/write + the full column-formula lowering; **GroupBy/Agg**
+> and whole-column scalar aggregations). Later slices (joins, lazy, more
+> formats) are marked §8 and not yet built.
 
 ---
 
@@ -108,6 +109,28 @@ df = df.Filter(`Order Date` >= start)           ' awkward name, Dim'd value
 
 `Select` takes column names (or formulas): `df.Select("name", "band", "total")`.
 
+### 4b. GroupBy & aggregation
+
+`df.GroupBy(key, …)` groups rows by one or more key columns (string names, like
+`Select`); the chained **`.Agg(…)`** says what to compute per group — one
+aggregation per output column. Inside `Agg`, the aggregation functions
+**`Sum` / `Mean` / `Min` / `Max` / `Count`** wrap an ordinary column formula:
+
+```vb
+Dim byband As DataFrame = df.GroupBy("band").Agg(Count(name), Mean(age), Sum(qty))
+'   → df.group_by(&["band"]).agg(&[col("name").count(), col("age").mean(), col("qty").sum()])
+
+Dim spend As DataFrame = df.GroupBy("band").Agg(Sum(price * qty))
+'   → … .agg(&[(col("price") * col("qty")).sum()])
+```
+
+- Groups keep **first-seen order** (polars' stable group-by), so output is
+  deterministic.
+- An aggregated column keeps its source column's name (aliases are a later
+  slice — for now, avoid two aggregations of the same column in one `Agg`).
+- `GroupBy` is used inline with `.Agg(…)` — the grouped intermediate isn't a
+  `DataFrame`, so it can't be stored in a variable.
+
 ---
 
 ## 5. Getting data out
@@ -119,9 +142,14 @@ Dim ages As Vec<Long> = df.Column("age")
 Dim names As Vec<String> = df.Column("name")
 ```
 
-`df.Column(name)` → the column as a typed `Vec<T>`. (Aggregations that return a
-single number — `Sum`/`Mean`/`Min`/`Max` over a column — arrive with GroupBy in a
-later slice; for now, extract a `Vec` and use ordinary VBR.)
+`df.Column(name)` → the column as a typed `Vec<T>`.
+
+**Scalar aggregations** give a single number for a whole column, always as a
+`Double` (one simple type for every aggregation):
+
+```vb
+Debug.Print "mean age: " & df.Mean("age")     ' also Sum / Min / Max
+```
 
 ---
 
@@ -142,8 +170,8 @@ surface is proven.
 
 ## 8. Deferred (later slices)
 
-- **GroupBy / aggregation** — `df.GroupBy("region").Agg(Sum(sales), Mean(price))`,
-  and scalar column aggregations. The next big slice after the core.
+- **Aggregation aliases** — naming an `Agg` output (`Sum(qty) As "total"`), so
+  two aggregations of one column can coexist.
 - **Joins** — `df.Join(other, on:="id")`.
 - **Lazy pipeline** — `.Lazy()` / `.Collect()` and lazy-only optimisations.
 - **More formats** — Parquet, JSON, and read options (`CleanHeaders` to snake_case
@@ -156,4 +184,6 @@ surface is proven.
 ## 9. Examples
 
 `examples/dataframe_basics.vbr` (read → inspect → `WithColumn`/`Filter`/`Select`
-formulas → `Column` out → write) lands with slice 1.
+formulas → `Column` out → write) lands with slice 1;
+`examples/dataframe_groupby.vbr` (scalar aggregations → `GroupBy`/`Agg`,
+including a formula inside `Sum`) with slice 2.

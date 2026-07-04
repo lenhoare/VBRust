@@ -7,12 +7,12 @@ use vbr_stdlib::{DataFrame};
 use vbr_stdlib::dataframe::{col, lit, when};
 
 fn main() {
-    let mut df: DataFrame = DataFrame::readcsv("people.csv");
+    let mut df: DataFrame = DataFrame::read_csv("people.csv");
     let (rows, cols): (i64, i64) = df.shape();
     println!("loaded {} rows, {} columns", rows, cols);
     // Column formulas: arithmetic across whole columns, and an IIf band.
-    df = df.withcolumn("total", price * qty);
-    df = df.withcolumn("band", iif(age >= 18, "adult", "minor"));
+    df = df.with_column("total", col("price") * col("qty"));
+    df = df.with_column("band", when(col("age").gt_eq(lit(18))).then(lit("adult")).otherwise(lit("minor")));
     // Row filter: a boolean mask over columns, combined with a Dim'd value.
     let cutoff: i64 = 30;
     df = df.filter(col("age").gt(lit(cutoff)).and(col("active")));
@@ -20,6 +20,6 @@ fn main() {
     df.print();
     let names: Vec<String> = df.column("name");
     println!("first kept: {}", names[0]);
-    df.writecsv("out.csv");
+    df.write_csv("out.csv");
     println!("wrote out.csv");
 }

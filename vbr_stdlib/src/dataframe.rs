@@ -106,6 +106,54 @@ impl DataFrame {
         T::from_column(c)
     }
 
+    /// Group rows by one or more key columns. Finish with `.agg(...)` — the
+    /// pair reads like SQL's `GROUP BY … SELECT agg(…)`:
+    /// `df.group_by(&["band"]).agg(&[col("age").mean()])`.
+    pub fn group_by(&self, keys: &[&str]) -> GroupedFrame {
+        GroupedFrame {
+            df: self.0.clone(),
+            keys: keys.iter().map(|k| k.to_string()).collect(),
+        }
+    }
+
+    /// The sum of a numeric column, as a `Double`.
+    pub fn sum(&self, name: &str) -> f64 {
+        self.scalar_agg(col(name).sum(), "Sum")
+    }
+
+    /// The mean (average) of a numeric column.
+    pub fn mean(&self, name: &str) -> f64 {
+        self.scalar_agg(col(name).mean(), "Mean")
+    }
+
+    /// The smallest value in a numeric column.
+    pub fn min(&self, name: &str) -> f64 {
+        self.scalar_agg(col(name).min(), "Min")
+    }
+
+    /// The largest value in a numeric column.
+    pub fn max(&self, name: &str) -> f64 {
+        self.scalar_agg(col(name).max(), "Max")
+    }
+
+    /// One whole-column aggregation, cast to `f64` (VBR's `Double`) so every
+    /// scalar aggregation comes back as the same simple number type.
+    fn scalar_agg(&self, e: Expr, what: &str) -> f64 {
+        let out = self
+            .0
+            .clone()
+            .lazy()
+            .select([e.cast(DataType::Float64).alias("agg")])
+            .collect()
+            .unwrap_or_else(|_| panic!("{} failed — is the column numeric?", what));
+        out.column("agg")
+            .expect("aggregation column")
+            .f64()
+            .expect("aggregation value")
+            .get(0)
+            .unwrap_or(f64::NAN)
+    }
+
     /// Write the frame to a CSV file.
     pub fn write_csv(&self, path: &str) {
         let mut df = self.0.clone();
@@ -118,6 +166,32 @@ impl DataFrame {
     /// Pretty-print the frame (for debugging).
     pub fn print(&self) {
         println!("{}", self.0);
+    }
+}
+
+/// The intermediate of `group_by(…)` — rows grouped by key columns, waiting
+/// for `.agg(…)` to say what to compute per group. Grouping runs through
+/// polars' *stable* group-by, so groups keep first-seen order (deterministic
+/// output, which matters for a teaching tool).
+pub struct GroupedFrame {
+    df: polars::prelude::DataFrame,
+    keys: Vec<String>,
+}
+
+impl GroupedFrame {
+    /// Aggregate each group: one expression per output column, e.g.
+    /// `col("age").mean()`, `(col("price") * col("qty")).sum()`.
+    pub fn agg(&self, exprs: &[Expr]) -> DataFrame {
+        let keys: Vec<Expr> = self.keys.iter().map(|k| col(k.as_str())).collect();
+        DataFrame(
+            self.df
+                .clone()
+                .lazy()
+                .group_by_stable(keys)
+                .agg(exprs.to_vec())
+                .collect()
+                .expect("group/agg failed"),
+        )
     }
 }
 
@@ -148,5 +222,49 @@ impl FromColumn for String {
             .into_no_null_iter()
             .map(|s| s.to_string())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> DataFrame {
+        DataFrame(
+            polars::df!(
+                "band" => ["a", "b", "a", "b", "a"],
+                "v" => [1i64, 2, 3, 4, 5],
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn scalar_aggregations() {
+        let d = sample();
+        assert_eq!(d.sum("v"), 15.0);
+        assert_eq!(d.mean("v"), 3.0);
+        assert_eq!(d.min("v"), 1.0);
+        assert_eq!(d.max("v"), 5.0);
+    }
+
+    #[test]
+    fn group_by_agg() {
+        let d = sample();
+        let g = d.group_by(&["band"]).agg(&[col("v").sum()]);
+        assert_eq!(g.shape(), (2, 2));
+        // Stable grouping: "a" was seen first.
+        assert_eq!(g.column::<String>("band"), vec!["a", "b"]);
+        assert_eq!(g.column::<i64>("v"), vec![9, 6]);
+    }
+
+    #[test]
+    fn group_by_formula_agg() {
+        let d = sample();
+        // An expression inside the aggregation: sum of v*2 per group.
+        let g = d
+            .group_by(&["band"])
+            .agg(&[(col("v") * lit(2)).sum().alias("v2")]);
+        assert_eq!(g.column::<i64>("v2"), vec![18, 12]);
     }
 }

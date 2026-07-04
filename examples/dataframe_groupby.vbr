@@ -1,0 +1,19 @@
+' GroupBy and aggregation — group rows by a key column and compute per-group
+' summaries with the same Excel-style formulas, plus whole-column scalar
+' aggregations (a single Double out). See dataframe_spec.md §4b.
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+    df = df.WithColumn("band", IIf(age >= 18, "adult", "minor"))
+
+    ' Whole-column scalars — one number for the whole frame.
+    Debug.Print "mean age: " & df.Mean("age")
+    Debug.Print "max age:  " & df.Max("age")
+
+    ' Per-group aggregation: one row per band, one column per aggregation.
+    Dim byband As DataFrame = df.GroupBy("band").Agg(Count(name), Mean(age), Sum(qty))
+    byband.Print()
+
+    ' Formulas work inside an aggregation too.
+    Dim spend As DataFrame = df.GroupBy("band").Agg(Sum(price * qty))
+    spend.Print()
+End Function

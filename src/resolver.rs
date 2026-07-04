@@ -807,6 +807,11 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // expressions, and skip the normal argument resolution.
             if is_df_expr(recv, ctx) {
                 resolve_expr(recv, ctx);
+                // Map the VBR spelling to the wrapper's real method name
+                // (`WithColumn` → `with_column`) before dispatching on it.
+                if let Some(real) = crate::transpiler::stdlib_method(&snake(method)) {
+                    *method = real.to_string();
+                }
                 match snake(method).as_str() {
                     "filter" => {
                         for a in args.iter_mut() {
@@ -823,8 +828,20 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         // Rendered as a slice of name literals; tag for the emitter.
                         *method = "__df_select".to_string();
                     }
+                    "group_by" => {
+                        // Key columns render as a slice of names, like `select`.
+                        *method = "__df_group_by".to_string();
+                    }
+                    "agg" => {
+                        // Each argument is an aggregation formula: `Sum(sales)`,
+                        // `Mean(price * qty)` → `col("sales").sum()`, ….
+                        for a in args.iter_mut() {
+                            lower_agg(a, ctx);
+                        }
+                        *method = "__df_agg".to_string();
+                    }
                     _ => {
-                        // Head/Sort/Column/Shape/Columns/Print: plain value args.
+                        // Head/Sort/Column/Sum/Mean/Min/Max/…: plain value args.
                         for a in args.iter_mut() {
                             resolve_expr(a, ctx);
                         }
@@ -837,6 +854,20 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 Expr::Ident(v) => Some(snake(v)),
                 _ => None,
             };
+            // A stdlib wrapper method keeps its real snake_case name
+            // (`GetString` → `get_string`) — unless the receiver is a user
+            // struct that defines its own method of that (lowercased) name.
+            if let Some(real) = crate::transpiler::stdlib_method(&snake(method)) {
+                let user_method = recv_var
+                    .as_ref()
+                    .and_then(|v| ctx.struct_of(v))
+                    .map_or(false, |s| {
+                        ctx.methods.contains_key(&(s.to_string(), snake(method)))
+                    });
+                if !user_method {
+                    *method = real.to_string();
+                }
+            }
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
                 // A closure argument to a pass-through method (`sort_by_key`,
@@ -1497,6 +1528,25 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
         }
         _ => {}
     }
+}
+
+/// Lower one `Agg(…)` argument. An aggregation call — `Sum(x)`, `Mean(x)`,
+/// `Min(x)`, `Max(x)`, `Count(x)` — lowers its inner *formula* and applies the
+/// polars aggregation method; a bare formula passes through `lower_formula`.
+fn lower_agg(e: &mut Expr, ctx: &Ctx) {
+    if let Expr::Call { name, args } = e {
+        let agg = ["sum", "mean", "min", "max", "count"]
+            .iter()
+            .find(|a| name.eq_ignore_ascii_case(a))
+            .copied();
+        if let (Some(m), 1) = (agg, args.len()) {
+            let mut inner = args.drain(..).next().unwrap();
+            lower_formula(&mut inner, ctx);
+            *e = mcall(inner, m, vec![]);
+            return;
+        }
+    }
+    lower_formula(e, ctx);
 }
 
 fn call_expr(name: &str, args: Vec<Expr>) -> Expr {

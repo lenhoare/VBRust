@@ -1585,6 +1585,17 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 let cols: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                 return format!("{}.select(&[{}])", render_recv(recv), cols.join(", "));
             }
+            // DataFrame `GroupBy` renders its key names as a slice, and `Agg`
+            // its (already-lowered) aggregation expressions likewise:
+            // `df.group_by(&["band"]).agg(&[col("age").mean()])`.
+            if method == "__df_group_by" {
+                let keys: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                return format!("{}.group_by(&[{}])", render_recv(recv), keys.join(", "));
+            }
+            if method == "__df_agg" {
+                let aggs: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                return format!("{}.agg(&[{}])", render_recv(recv), aggs.join(", "));
+            }
             let m = rust_name(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
             if let Expr::Ident(name) = &**recv {
@@ -1992,6 +2003,57 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
 /// mapping as `rust_name`, in the constants' case convention.
 pub(crate) fn to_screaming(name: &str) -> String {
     name.to_uppercase()
+}
+
+/// The real (snake_case) name of a stdlib wrapper method, from its lowercased
+/// VBR spelling — `GetString` → `get_string`, `ReadCsv` → `read_csv`. The
+/// stdlib is real Rust with real snake_case methods; *user* names are plainly
+/// lowercased instead, so this fixed dictionary bridges VBR's surface API to
+/// the crate we ship. (Writing the snake_case name directly works too — it
+/// passes through `rust_name` unchanged.)
+pub(crate) fn stdlib_method(squashed: &str) -> Option<&'static str> {
+    Some(match squashed {
+        // DataFrame
+        "readcsv" => "read_csv",
+        "withcolumn" => "with_column",
+        "writecsv" => "write_csv",
+        "groupby" => "group_by",
+        // FileSystem
+        "readlines" => "read_lines",
+        "movefile" => "move_file",
+        "createfolder" => "create_folder",
+        "createfolderall" => "create_folder_all",
+        "folderexists" => "folder_exists",
+        "deletefolder" => "delete_folder",
+        "deletefolderall" => "delete_folder_all",
+        // Regex
+        "ismatch" => "is_match",
+        "findall" => "find_all",
+        "replaceall" => "replace_all",
+        // DateTime
+        "adddays" => "add_days",
+        "addhours" => "add_hours",
+        "addminutes" => "add_minutes",
+        "diffdays" => "diff_days",
+        "diffhours" => "diff_hours",
+        // Json (`to_string` is also the universal Rust method — same mapping).
+        "tostring" => "to_string",
+        "topretty" => "to_pretty",
+        "haskey" => "has_key",
+        "getstring" => "get_string",
+        "getint" => "get_int",
+        "getfloat" => "get_float",
+        "getbool" => "get_bool",
+        "getarray" => "get_array",
+        "setstring" => "set_string",
+        "setint" => "set_int",
+        "setbool" => "set_bool",
+        "asstring" => "as_string",
+        "asint" => "as_int",
+        "asfloat" => "as_float",
+        "asbool" => "as_bool",
+        _ => return None,
+    })
 }
 
 /// The canonical name of a vbr_stdlib namespace, if `name` is one. Stdlib calls
