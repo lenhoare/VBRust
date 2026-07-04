@@ -832,6 +832,20 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         // Key columns render as a slice of names, like `select`.
                         *method = "__df_group_by".to_string();
                     }
+                    m @ ("join" | "left_join" | "outer_join") => {
+                        // arg 0 is the other frame (borrowed — the wrapper
+                        // takes `&DataFrame`); the rest are key column names.
+                        let tag = format!("__df_{}", m);
+                        if let Some(a) = args.first_mut() {
+                            resolve_expr(a, ctx);
+                            let inner = std::mem::replace(a, Expr::Int(0));
+                            *a = Expr::Ref(Box::new(inner));
+                        }
+                        for a in args.iter_mut().skip(1) {
+                            resolve_expr(a, ctx);
+                        }
+                        *method = tag;
+                    }
                     "agg" => {
                         // Each argument is an aggregation formula: `Sum(sales)`,
                         // `Mean(price * qty)` → `col("sales").sum()`, ….
@@ -1479,6 +1493,14 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
         Expr::Str(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) => {
             let v = std::mem::replace(e, Expr::Int(0));
             *e = lit_of(v);
+        }
+        // `IsNull(x)` → `x.is_null()` — nulls appear where a LeftJoin/OuterJoin
+        // found no matching key; this is the mask that finds (or, with `Not`,
+        // removes) those rows.
+        Expr::Call { name, args } if name.eq_ignore_ascii_case("IsNull") && args.len() == 1 => {
+            let mut inner = args.drain(..).next().unwrap();
+            lower_formula(&mut inner, ctx);
+            *e = mcall(inner, "is_null", vec![]);
         }
         // `Col(x)` / a backtick name → `col(x)`; the argument is a plain value.
         Expr::Call { name, args } if name == "Col" => {

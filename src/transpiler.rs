@@ -99,6 +99,9 @@ pub fn transpile_module(
     // formulas lower to (`col("x")`, `lit(3)`, `when(...)`), re-exported by the
     // wrapper so the generated code has a single dependency.
     if std_used.contains(&"DataFrame") {
+        // The polars expression builders column formulas lower to. A given
+        // program may not use all three, so silence the unused-import lint.
+        out.push_str("#[allow(unused_imports)]\n");
         out.push_str("use vbr_stdlib::dataframe::{col, lit, when};\n\n");
     }
 
@@ -1596,6 +1599,23 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 let aggs: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                 return format!("{}.agg(&[{}])", render_recv(recv), aggs.join(", "));
             }
+            // Joins: the other frame first (already borrowed), then the key
+            // names as a slice: `people.join(&orders, &["name"])`.
+            if let Some(real) = method
+                .strip_prefix("__df_")
+                .filter(|r| matches!(*r, "join" | "left_join" | "outer_join"))
+            {
+                let other = args.first().map(|a| render_expr(a, None)).unwrap_or_default();
+                let keys: Vec<String> =
+                    args.iter().skip(1).map(|a| render_expr(a, None)).collect();
+                return format!(
+                    "{}.{}({}, &[{}])",
+                    render_recv(recv),
+                    real,
+                    other,
+                    keys.join(", ")
+                );
+            }
             let m = rust_name(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
             if let Expr::Ident(name) = &**recv {
@@ -2018,6 +2038,8 @@ pub(crate) fn stdlib_method(squashed: &str) -> Option<&'static str> {
         "withcolumn" => "with_column",
         "writecsv" => "write_csv",
         "groupby" => "group_by",
+        "leftjoin" => "left_join",
+        "outerjoin" => "outer_join",
         // FileSystem
         "readlines" => "read_lines",
         "movefile" => "move_file",

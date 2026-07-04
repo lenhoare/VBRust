@@ -4,6 +4,7 @@
 
 use vbr_stdlib::{DataFrame};
 
+#[allow(unused_imports)]
 use vbr_stdlib::dataframe::{col, lit, when};
 
 fn main() {

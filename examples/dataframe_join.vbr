@@ -1,0 +1,24 @@
+' Joins — combine two frames on a shared key column, SQL-style: Join (inner),
+' LeftJoin (keep all left rows), OuterJoin (keep everything). Where a key has
+' no match the new cells are null — Filter with IsNull before extracting.
+Function Main()
+    Dim people As DataFrame = DataFrame.ReadCsv("people.csv")
+    Dim orders As DataFrame = DataFrame.ReadCsv("orders.csv")
+
+    ' Inner join: only the people who placed orders.
+    Dim buyers As DataFrame = people.Join(orders, "name")
+    buyers.Print()
+
+    ' Left join: everyone; item/amount are null where nobody bought.
+    Dim everyone As DataFrame = people.LeftJoin(orders, "name")
+    everyone.Print()
+
+    ' Nulls have no VBR type — filter unmatched rows out, then extract.
+    Dim matched As DataFrame = everyone.Filter(Not IsNull(item))
+    Dim amounts As Vec<Double> = matched.Column("amount")
+    Dim total As Double = 0
+    For Each a In amounts
+        total += a
+    Next a
+    Debug.Print "spent: " & total
+End Function

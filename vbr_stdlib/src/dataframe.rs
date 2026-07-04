@@ -103,7 +103,60 @@ impl DataFrame {
     /// `As Vec<T>` you assign it to).
     pub fn column<T: FromColumn>(&self, name: &str) -> Vec<T> {
         let c = self.0.column(name).expect("no such column");
+        // Never hand back a silently-shortened Vec: nulls (from a LeftJoin/
+        // OuterJoin where keys didn't match) must be dealt with first.
+        assert!(
+            c.null_count() == 0,
+            "column '{}' has {} null value(s) — a LeftJoin/OuterJoin leaves nulls \
+             where keys didn't match; Filter them out first, e.g. \
+             `df.Filter(Not IsNull({}))`",
+            name,
+            c.null_count(),
+            name
+        );
         T::from_column(c)
+    }
+
+    /// Inner join: the rows whose key(s) match in BOTH frames.
+    pub fn join(&self, other: &DataFrame, keys: &[&str]) -> DataFrame {
+        self.join_with(other, keys, JoinType::Inner, "Join")
+    }
+
+    /// Left join: every row of this frame, with `other`'s columns where the
+    /// key matches and null where it doesn't.
+    pub fn left_join(&self, other: &DataFrame, keys: &[&str]) -> DataFrame {
+        self.join_with(other, keys, JoinType::Left, "LeftJoin")
+    }
+
+    /// Full (outer) join: every row from both frames, null where unmatched.
+    pub fn outer_join(&self, other: &DataFrame, keys: &[&str]) -> DataFrame {
+        self.join_with(other, keys, JoinType::Full, "OuterJoin")
+    }
+
+    /// One join, SQL semantics: one key column out, not `id` and `id_right`.
+    /// Inner/left joins coalesce keys by default; a full join keeps both key
+    /// columns, so those are merged (left, filled from right) and the
+    /// `_right` copy dropped.
+    fn join_with(&self, other: &DataFrame, keys: &[&str], how: JoinType, what: &str) -> DataFrame {
+        let full = matches!(how, JoinType::Full);
+        let on: Vec<Expr> = keys.iter().map(|k| col(*k)).collect();
+        let mut lf = self
+            .0
+            .clone()
+            .lazy()
+            .join(other.0.clone().lazy(), on.clone(), on, JoinArgs::new(how));
+        if full {
+            for k in keys {
+                let right = format!("{}_right", k);
+                lf = lf
+                    .with_column(col(*k).fill_null(col(right.as_str())))
+                    .drop([right.as_str()]);
+            }
+        }
+        DataFrame(
+            lf.collect()
+                .unwrap_or_else(|e| panic!("{} failed: {}", what, e)),
+        )
     }
 
     /// Group rows by one or more key columns. Finish with `.agg(...)` — the
@@ -256,6 +309,51 @@ mod tests {
         // Stable grouping: "a" was seen first.
         assert_eq!(g.column::<String>("band"), vec!["a", "b"]);
         assert_eq!(g.column::<i64>("v"), vec![9, 6]);
+    }
+
+    fn orders() -> DataFrame {
+        DataFrame(
+            polars::df!(
+                "band" => ["a", "c"],
+                "label" => ["alpha", "gamma"],
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn inner_join() {
+        let j = sample().join(&orders(), &["band"]);
+        // Only "a" rows match (three of them); no nulls anywhere.
+        assert_eq!(j.shape(), (3, 3));
+        assert_eq!(j.column::<String>("label"), vec!["alpha", "alpha", "alpha"]);
+    }
+
+    #[test]
+    fn left_join_keeps_all_rows() {
+        let j = sample().left_join(&orders(), &["band"]);
+        assert_eq!(j.shape(), (5, 3));
+    }
+
+    #[test]
+    #[should_panic(expected = "null value")]
+    fn null_column_extraction_refused() {
+        // "b" rows have no order — `label` holds nulls, so extraction panics
+        // (instead of silently returning a shorter Vec).
+        let j = sample().left_join(&orders(), &["band"]);
+        let _ = j.column::<String>("label");
+    }
+
+    #[test]
+    fn outer_join_keeps_both_sides() {
+        let j = sample().outer_join(&orders(), &["band"]);
+        // 5 sample rows + the unmatched "c" order; the key column coalesces
+        // (one "band" column, no "band_right").
+        assert_eq!(j.shape(), (6, 3));
+        assert_eq!(
+            j.columns().iter().filter(|c| c.starts_with("band")).count(),
+            1
+        );
     }
 
     #[test]

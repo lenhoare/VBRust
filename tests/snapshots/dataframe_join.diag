@@ -1,0 +1,1 @@
+ℹ The standard library is a Rust crate — `FileSystem.Read(...)` becomes `FileSystem::read(...)` and `use vbr_stdlib::…;` is added for you.

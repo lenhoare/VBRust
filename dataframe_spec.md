@@ -6,10 +6,10 @@ Rust **polars** crate: pure Rust, no Python, no GIL, self-contained. (This is a
 different track from inline `Python` blocks — see `inline_python_spec` notes — and
 the better home for dataframes because it needs no interpreter.)
 
-> Status: **slices 1–2 BUILT** (read/inspect/`Select`/`WithColumn`/`Filter`/
+> Status: **slices 1–3 BUILT** (read/inspect/`Select`/`WithColumn`/`Filter`/
 > `Sort`/column-out/write + the full column-formula lowering; **GroupBy/Agg**
-> and whole-column scalar aggregations). Later slices (joins, lazy, more
-> formats) are marked §8 and not yet built.
+> and whole-column scalar aggregations; **joins** with `IsNull` handling).
+> Later slices (lazy, more formats) are marked §8 and not yet built.
 
 ---
 
@@ -131,6 +131,26 @@ Dim spend As DataFrame = df.GroupBy("band").Agg(Sum(price * qty))
 - `GroupBy` is used inline with `.Agg(…)` — the grouped intermediate isn't a
   `DataFrame`, so it can't be stored in a variable.
 
+### 4c. Joins
+
+Combine two frames on shared key column(s), SQL-style. Three verbs, chosen by
+which rows survive:
+
+```vb
+Dim buyers As DataFrame = people.Join(orders, "name")       ' inner: matches only
+Dim everyone As DataFrame = people.LeftJoin(orders, "name") ' all left rows
+Dim union As DataFrame = people.OuterJoin(orders, "name")   ' all rows, both sides
+```
+
+- Keys are string column names (several allowed: `Join(other, "a", "b")`); the
+  key must exist under the same name in both frames (differing names —
+  `left_on`/`right_on` — are a later slice). Key columns come out **coalesced**:
+  one `name` column, not `name` and `name_right`.
+- **Nulls.** Where a key found no match, the new cells are **null** — a state
+  VBR has no type for. `IsNull(col)` in a `Filter` formula finds those rows
+  (`df.Filter(Not IsNull(item))` removes them), and `df.Column(...)` **refuses**
+  a column containing nulls rather than silently returning a shortened `Vec`.
+
 ---
 
 ## 5. Getting data out
@@ -172,7 +192,8 @@ surface is proven.
 
 - **Aggregation aliases** — naming an `Agg` output (`Sum(qty) As "total"`), so
   two aggregations of one column can coexist.
-- **Joins** — `df.Join(other, on:="id")`.
+- **Join options** — differing key names per side (`left_on`/`right_on`), and
+  the rarer Right/Semi/Anti join types.
 - **Lazy pipeline** — `.Lazy()` / `.Collect()` and lazy-only optimisations.
 - **More formats** — Parquet, JSON, and read options (`CleanHeaders` to snake_case
   headers on read, schema/dtype overrides).
@@ -186,4 +207,6 @@ surface is proven.
 `examples/dataframe_basics.vbr` (read → inspect → `WithColumn`/`Filter`/`Select`
 formulas → `Column` out → write) lands with slice 1;
 `examples/dataframe_groupby.vbr` (scalar aggregations → `GroupBy`/`Agg`,
-including a formula inside `Sum`) with slice 2.
+including a formula inside `Sum`) with slice 2;
+`examples/dataframe_join.vbr` (inner/left joins over `people.csv` +
+`orders.csv`, `IsNull` filtering, column extraction) with slice 3.
