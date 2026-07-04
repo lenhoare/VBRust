@@ -275,6 +275,15 @@ impl<'a> Parser<'a> {
     fn parse_struct(&mut self, public: bool) -> Option<StructDef> {
         self.expect(&Tok::Type, "to start a struct")?;
         let name = self.expect_ident("for the struct")?;
+        if matches!(self.peek(), Tok::Lt) {
+            self.diags.error(
+                self.line(),
+                "Generic types (`Type Pair<T>`) aren't supported — declare concrete \
+                 field types, or define the generic type in a `.rs` module (real Rust) \
+                 and use it from there.",
+            );
+            return None;
+        }
         self.expect(&Tok::Newline, "after the struct name")?;
 
         let mut fields = Vec::new();
@@ -320,6 +329,16 @@ impl<'a> Parser<'a> {
     fn parse_enum(&mut self, public: bool) -> Option<EnumDef> {
         self.expect(&Tok::Enum, "to start an enum")?;
         let name = self.expect_ident("for the enum")?;
+        if matches!(self.peek(), Tok::Lt) {
+            self.diags.error(
+                self.line(),
+                "Generic enums (`Enum Maybe<T>`) aren't supported — for \"a value or \
+                 nothing\" use the built-in `Option<T>`/`Result<T>`, give the variant a \
+                 concrete payload, or define the generic enum in a `.rs` module (real \
+                 Rust).",
+            );
+            return None;
+        }
         self.expect(&Tok::Newline, "after the enum name")?;
 
         let mut variants = Vec::new();
@@ -389,6 +408,17 @@ impl<'a> Parser<'a> {
         } else {
             (None, first)
         };
+        if matches!(self.peek(), Tok::Lt) {
+            self.diags.error(
+                self.line(),
+                "Generic functions (`Function Largest<T>(…)`) aren't supported. A useful \
+                 generic needs trait bounds (`T: PartialOrd` to compare, `T: Clone` to \
+                 copy, …), and those have no honest VB spelling — this is a moment to \
+                 write real Rust. Put the function in a `.rs` file in your project and \
+                 call it with the qualified form (`Utils.Largest(xs)`).",
+            );
+            return None;
+        }
         self.expect(&Tok::LParen, "after the function name")?;
 
         let mut params = Vec::new();

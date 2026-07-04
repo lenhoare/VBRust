@@ -1,0 +1,10 @@
+' ✘ A closure can't be stored or passed to a function — its type has no name.
+' Use it directly as a method argument, or name the logic with a Function.
+Function Apply(n As Long) As Long
+    Return n
+End Function
+
+Function Main()
+    Dim x As Long = Apply(|n| n + 1)
+    Debug.Print x
+End Function

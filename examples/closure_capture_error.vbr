@@ -1,0 +1,10 @@
+' ✘ A closure may only READ the variables it captures — mutating one from
+' inside a chain is rejected. Do the mutation in a For Each loop instead.
+Function Main()
+    Dim nums As Vec<Long>
+    nums.push(1)
+    nums.push(2)
+    Dim seen As Vec<Long>
+    Dim moved As Boolean = nums.any(|x| seen.push(x))
+    Debug.Print moved
+End Function

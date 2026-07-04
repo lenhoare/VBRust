@@ -1,0 +1,9 @@
+' ✘ Generic definitions are rejected — trait bounds have no VB spelling.
+' The redirect: write the generic function in a .rs module (real Rust).
+Function Largest<T>(items As Vec<T>) As T
+    Return items(0)
+End Function
+
+Function Main()
+    Debug.Print "never gets here"
+End Function

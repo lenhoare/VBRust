@@ -1,0 +1,1 @@
+✘ [line 3] Generic functions (`Function Largest<T>(…)`) aren't supported. A useful generic needs trait bounds (`T: PartialOrd` to compare, `T: Clone` to copy, …), and those have no honest VB spelling — this is a moment to write real Rust. Put the function in a `.rs` file in your project and call it with the qualified form (`Utils.Largest(xs)`).

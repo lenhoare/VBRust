@@ -573,6 +573,9 @@ These parse but are deliberately refused, each with guidance:
 | Declaring a struct uninitialised | Construct fully at `Dim`.                      |
 | Indexing where a bound/type is unknown | Compile-time error with explanation.     |
 | Using an opaque handle as a value | Only pass it back into a `Rust` block (§9).   |
+| Generic definitions (`Function F<T>`, `Type Pair<T>`, `Enum Maybe<T>`) | Trait bounds have no VB spelling; write it in a `.rs` module (the graduation ramp). |
+| A closure outside a method argument | Its type is unnameable — pass it directly (`v.filter(|x| …)`) or use a named `Function`. |
+| A closure mutating a captured variable | Closures *read* their surroundings; do the mutation in a `For Each` loop. |
 
 (`With` blocks and a few others are similarly rejected; see the error snapshot
 suite for the authoritative set.)

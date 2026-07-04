@@ -91,6 +91,9 @@ const ERRORS: &[&str] = &[
     "option_base_error",
     "global_error",
     "handle_value_error",
+    "generic_error",
+    "closure_value_error",
+    "closure_capture_error",
     "use_no_version_error",
     "blocking_no_await_error",
 ];

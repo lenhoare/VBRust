@@ -839,7 +839,16 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             };
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
-                resolve_expr(a, ctx);
+                // A closure argument to a pass-through method (`sort_by_key`,
+                // …) is legal — resolve its body directly (and check it only
+                // reads its captures); anything else resolves normally.
+                if let Expr::Closure { params, body, .. } = a {
+                    let params = params.clone();
+                    resolve_expr(body, ctx);
+                    check_closure_captures(&params, body, ctx);
+                } else {
+                    resolve_expr(a, ctx);
+                }
             }
             // `coll.push(s)` / `coll.insert(s)` of a `&str` need an owned String
             // payload (a `Vec<String>`/`HashMap` slot owns its value).
@@ -1007,8 +1016,20 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Ref(inner) | Expr::Cast(inner, _)
-        | Expr::Field(inner, _) | Expr::Closure { body: inner, .. }
-        | Expr::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        | Expr::Field(inner, _) | Expr::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        // A closure anywhere except a method argument: its type has no name,
+        // so it can't be stored in a variable, returned, or passed to a VBR
+        // function. (Method arguments are consumed before reaching here.)
+        Expr::Closure { body, .. } => {
+            ctx.diags.error_once(
+                "closure-value",
+                "A closure (`|x| …`) can't be stored in a variable or passed to a \
+                 function — its type has no name you (or VBR) could write. Use it \
+                 directly as a method argument (`v.filter(|x| x > 2)`), or give the \
+                 logic a name with a `Function`.",
+            );
+            resolve_expr(body, ctx);
+        }
         Expr::Try(inner) => {
             resolve_expr(inner, ctx);
             // `?` returns the error to the caller on failure, so the enclosing
@@ -1164,6 +1185,8 @@ fn resolve_iter_closure(
         }
     }
     resolve_expr(body, ctx);
+    let params_owned: Vec<String> = params.clone();
+    check_closure_captures(&params_owned, body, ctx);
     let out = infer(body, ctx);
     if let Some(k) = key {
         if deref_added {
@@ -1181,6 +1204,71 @@ fn resolve_iter_closure(
         }
     }
     out
+}
+
+/// A closure may *read* the variables around it, never change them — Rust
+/// would type such a closure `FnMut` and the borrow rules bite immediately
+/// (mutating the very collection being iterated is the classic case). Reject
+/// a body that calls a mutating method on a captured variable.
+fn check_closure_captures(params: &[String], body: &Expr, ctx: &mut Ctx) {
+    if let Some(name) = mutated_capture(body, params, ctx) {
+        ctx.diags.error_once(
+            &format!("closure-capture-{}", snake(&name)),
+            format!(
+                "A closure can only *read* the variables it captures — this one \
+                 changes '{}'. Do the mutation in a `For Each` loop instead, and \
+                 keep the closure a pure question about its item.",
+                name
+            ),
+        );
+    }
+}
+
+/// The first captured variable this expression mutates (a mutating method
+/// call whose receiver is rooted in an enclosing-scope name, not a closure
+/// parameter), or `None`.
+fn mutated_capture(e: &Expr, params: &[String], ctx: &Ctx) -> Option<String> {
+    match e {
+        Expr::MethodCall { recv, method, args } => {
+            if crate::transpiler::is_mutating_method(&snake(method)) {
+                if let Some(root) = place_root(recv) {
+                    let key = snake(&root);
+                    if !params.iter().any(|p| snake(p) == key) && ctx.env.contains_key(&key) {
+                        return Some(root);
+                    }
+                }
+            }
+            mutated_capture(recv, params, ctx)
+                .or_else(|| args.iter().find_map(|a| mutated_capture(a, params, ctx)))
+        }
+        Expr::Binary { lhs, rhs, .. } => mutated_capture(lhs, params, ctx)
+            .or_else(|| mutated_capture(rhs, params, ctx)),
+        Expr::Call { args, .. } | Expr::Tuple(args) => {
+            args.iter().find_map(|a| mutated_capture(a, params, ctx))
+        }
+        Expr::Not(inner)
+        | Expr::Deref(inner)
+        | Expr::Ref(inner)
+        | Expr::MutRef(inner)
+        | Expr::Cast(inner, _)
+        | Expr::Field(inner, _)
+        | Expr::Try(inner)
+        | Expr::TupleIndex(inner, _)
+        | Expr::Closure { body: inner, .. } => mutated_capture(inner, params, ctx),
+        Expr::Index(inner, idx) => mutated_capture(inner, params, ctx)
+            .or_else(|| mutated_capture(idx, params, ctx)),
+        _ => None,
+    }
+}
+
+/// The variable at the root of a place expression (`seen` in `seen`,
+/// `state.log` in… the root ident), if there is one.
+fn place_root(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Ident(n) => Some(n.clone()),
+        Expr::Field(inner, _) | Expr::Index(inner, _) | Expr::Deref(inner) => place_root(inner),
+        _ => None,
+    }
 }
 
 /// Best-effort type inference. `Unknown` whenever we can't be sure — callers

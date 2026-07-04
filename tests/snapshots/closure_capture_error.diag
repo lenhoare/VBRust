@@ -1,0 +1,1 @@
+✘ A closure can only *read* the variables it captures — this one changes 'seen'. Do the mutation in a `For Each` loop instead, and keep the closure a pure question about its item.
