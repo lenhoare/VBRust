@@ -1,0 +1,24 @@
+' Iterator chains over OWNED elements — a Vec<String> clones items into the
+' chain (`.iter().cloned()`, a real copy), filter's closure sees each item by
+' reference, and find returns an Option you Match.
+Function Main()
+    Dim names As Vec<String>
+    names.push("Ada")
+    names.push("Grace")
+    names.push("Linus")
+
+    Dim longnames As Vec<String> = names.filter(|n| n.len() > 3).collect()
+    For Each n In longnames
+        Debug.Print "long:  " & n
+    Next n
+
+    Dim shouted As Vec<String> = names.map(|n| n.to_uppercase()).collect()
+    For Each n In shouted
+        Debug.Print "loud:  " & n
+    Next n
+
+    Match names.find(|n| n.starts_with("G"))
+        Some(hit) => Debug.Print "found: " & hit
+        None => Debug.Print "no match"
+    End Match
+End Function

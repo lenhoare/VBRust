@@ -604,6 +604,10 @@ pub enum Expr {
     Closure {
         params: Vec<String>,
         body: Box<Expr>,
+        /// Emit `|&x| …`, destructuring the `&T` that `filter`/`find` hand the
+        /// closure — set by the resolver for Copy elements. Owned (non-Copy)
+        /// elements keep `|x|` and deref their uses in the body instead.
+        by_ref_params: bool,
     },
     /// `(a, b, …)` — a tuple literal.
     Tuple(Vec<Expr>),

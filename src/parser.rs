@@ -2723,6 +2723,7 @@ impl<'a> Parser<'a> {
             return Some(Expr::Closure {
                 params,
                 body: Box::new(body),
+                by_ref_params: false,
             });
         }
         match self.peek().clone() {

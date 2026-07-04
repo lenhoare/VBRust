@@ -45,6 +45,8 @@ const HAPPY: &[&str] = &[
     "methods",
     "constants",
     "iterators",
+    "iterator_strings",
+    "iterator_more",
     "tuples",
     "struct_params",
     "arrays",

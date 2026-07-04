@@ -1593,19 +1593,6 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                     return format!("{}::{}({})", canon, m, rendered.join(", "));
                 }
             }
-            // Closure-taking iterator adapters only apply when the argument really
-            // is a closure — so a DataFrame `.filter(col(...)...)` (an expression
-            // argument) falls through to a normal method call instead.
-            let iter_like = is_iter_method(&m)
-                && match m.as_str() {
-                    "filter" | "map" | "any" | "all" => {
-                        matches!(args.first(), Some(Expr::Closure { .. }))
-                    }
-                    _ => true,
-                };
-            if iter_like {
-                return render_iter_method(recv, &m, args);
-            }
             // Integer `^` lowered to `.pow(...)` (the resolver rewrites it here):
             // Rust's integer `pow` takes a `u32` exponent.
             if m == "pow" {
@@ -1630,7 +1617,9 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             // `(*tag).as_string()`. Method names follow Rust convention.
             format!("{}.{}({})", render_recv(recv), m, rendered.join(", "))
         }
-        Expr::Closure { params, body } => render_closure(params, body, false),
+        Expr::Closure { params, body, by_ref_params } => {
+            render_closure(params, body, *by_ref_params)
+        }
         Expr::Tuple(elems) => {
             let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
             format!("({})", parts.join(", "))
@@ -1712,39 +1701,11 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
     }
 }
 
-fn is_iter_method(m: &str) -> bool {
-    matches!(
-        m,
-        "filter" | "map" | "any" | "all" | "count" | "sum" | "collect"
-    )
-}
-
-fn recv_is_iter(e: &Expr) -> bool {
-    matches!(e, Expr::MethodCall { method, .. } if is_iter_method(&rust_name(method)))
-}
-
-/// Render an iterator-adapter call. The chain starts with `.iter().copied()`
-/// (so the items are owned values — works for Copy element types), and a
-/// `filter` closure derefs its `&` parameter.
-fn render_iter_method(recv: &Expr, method: &str, args: &[Expr]) -> String {
-    let base = if recv_is_iter(recv) {
-        render_prec(recv, None, 8, false)
-    } else {
-        format!("{}.iter().copied()", render_prec(recv, None, 8, false))
-    };
-    let rendered: Vec<String> = args
-        .iter()
-        .map(|a| match a {
-            // `filter`'s closure receives `&item`; deref the parameter to a value.
-            Expr::Closure { params, body } => render_closure(params, body, method == "filter"),
-            other => render_expr(other, None),
-        })
-        .collect();
-    format!("{}.{}({})", base, method, rendered.join(", "))
-}
-
-fn render_closure(params: &[String], body: &Expr, deref_params: bool) -> String {
-    let prefix = if deref_params { "&" } else { "" };
+/// Render a closure. Iterator chains are built by the resolver (which knows
+/// element types); `by_ref` emits the `|&x|` destructuring pattern the
+/// resolver chose for `filter`/`find` over Copy elements.
+fn render_closure(params: &[String], body: &Expr, by_ref: bool) -> String {
+    let prefix = if by_ref { "&" } else { "" };
     let ps: Vec<String> = params
         .iter()
         .map(|p| format!("{}{}", prefix, rust_name(p)))

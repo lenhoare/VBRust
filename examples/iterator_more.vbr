@@ -1,0 +1,33 @@
+' More iterator links — take, skip, rev — and the Option-returning consumers
+' (max, position) that pair with Match.
+Function Main()
+    Dim hi As Long = 8
+    Dim nums As Vec<Long>
+    For i = 1 To hi
+        nums.push(i)
+    Next i
+
+    Dim firstthree As Vec<Long> = nums.take(3).collect()
+    Dim lasttwo As Vec<Long> = nums.rev().take(2).collect()
+    Dim tail As Vec<Long> = nums.skip(5).collect()
+
+    For Each n In firstthree
+        Debug.Print "take: " & n
+    Next n
+    For Each n In lasttwo
+        Debug.Print "rev:  " & n
+    Next n
+    For Each n In tail
+        Debug.Print "skip: " & n
+    Next n
+
+    Match nums.max()
+        Some(top) => Debug.Print "max:  " & top
+        None => Debug.Print "empty"
+    End Match
+
+    Match nums.position(|x| x > 6)
+        Some(idx) => Debug.Print "pos:  " & idx
+        None => Debug.Print "none over 6"
+    End Match
+End Function

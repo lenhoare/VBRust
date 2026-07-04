@@ -217,6 +217,19 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
   `usize`; `join` builds a `String`. `vec.contains(x)` takes `&T`, so the borrow
   (and owning a string element) is inserted for you — unlike `str.contains`,
   which is left as-is.
+- **Iterator chains** work on a `Vec`/fixed array —
+  `nums.filter(|x| x > 2).map(|x| x * x).collect()`. VBR builds the chain root
+  for you: `.iter().copied()` when the element is a Copy primitive (free), or
+  `.iter().cloned()` when it owns data (`String`/struct — a real copy, the same
+  explicit-cost trade as `.clone()`). The closure parameter carries the element
+  type, so the usual coercions apply in its body; a closure is a single
+  expression (for more, use a named `Function`). Known links: `filter`, `map`,
+  `any`, `all`, `take(n)`, `skip(n)`, `rev`, `enumerate`; consumers: `count`,
+  `sum`, `collect` (anchored by the typed `Dim`, e.g.
+  `Dim v() As Long = …collect()`), and the `Option`-returning `min`/`max`/
+  `find`/`position`, which pair with `Match`. Chains run in ordinary code —
+  in a GUI/TUI event or view, use `For Each` instead (those bodies don't run
+  the resolver yet).
 - A **mutating** method (`push_str`, `push`, `sort`, …) makes its receiver `mut`
   for you.
 - Methods outside the curated set still pass through verbatim; they simply skip

@@ -723,6 +723,16 @@ fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
 }
 
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
+    // Iterator chains on a `Vec`/array (`nums.filter(|x| …).map(…)`) are
+    // handled whole — the resolver knows the element type, so it builds the
+    // chain root (`.iter().copied()` for Copy elements, `.cloned()` for owned
+    // ones) and types the closure parameters. A receiver that turns out not
+    // to be a sequence falls through to normal method resolution.
+    if let Expr::MethodCall { method, args, .. } = &*e {
+        if is_iter_adapter(&snake(method), args) && resolve_iter_chain(e, ctx).is_some() {
+            return;
+        }
+    }
     match e {
         // An opaque Rust handle appearing as a value — the one thing it can't do.
         Expr::Ident(name) if ctx.is_handle(name) => {
@@ -1033,6 +1043,144 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         Expr::Await(inner) => resolve_expr(inner, ctx),
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
     }
+}
+
+// ---- Iterator chains -------------------------------------------------------
+//
+// `nums.filter(|x| x > 2).map(|x| x * x).collect()` — the links VBR
+// understands on a `Vec`/fixed array. The chain root iterates by reference
+// and then makes items owned: `.iter().copied()` when the element is a Copy
+// primitive (free), `.iter().cloned()` when it owns data (a real copy — the
+// same explicit-cost trade as `.clone()`). Closure parameters are bound to
+// the element type while their body is resolved, so the usual coercions
+// apply inside; unknown methods still pass through verbatim to rustc.
+
+/// Is this method (with these arguments) an iterator link VBR understands?
+/// `min`/`max` with an argument are the numeric receiver-typed methods
+/// (`n.min(other)`), not the iterator consumers, so argument shape decides.
+fn is_iter_adapter(m: &str, args: &[Expr]) -> bool {
+    match m {
+        // Closure-taking links and consumers.
+        "filter" | "map" | "any" | "all" | "find" | "position" => {
+            matches!(args.first(), Some(Expr::Closure { .. }))
+        }
+        // Numeric-argument links.
+        "take" | "skip" => args.len() == 1,
+        // No-argument links and consumers.
+        "rev" | "enumerate" | "count" | "sum" | "collect" | "min" | "max" => args.is_empty(),
+        _ => false,
+    }
+}
+
+/// Is `e` itself an iterator link (so a method call on it continues a chain)?
+fn is_iter_chain(e: &Expr) -> bool {
+    matches!(e, Expr::MethodCall { method, args, .. } if is_iter_adapter(&snake(method), args))
+}
+
+/// A Copy element iterates with `.copied()` (and `filter` can destructure its
+/// `&T` as `|&x|`); everything owned — `String`, structs, collections — is
+/// `.cloned()` instead.
+fn elem_is_copy(v: &VType) -> bool {
+    matches!(v, VType::Decl(DeclType::Plain(t)) if !matches!(t, Type::Text))
+}
+
+/// Resolve one iterator link (recursing down the chain first). Returns the
+/// element type flowing *out* of this link, or `None` when the chain root
+/// isn't a sequence — then the caller falls back to normal resolution and
+/// nothing has been rewritten.
+fn resolve_iter_chain(e: &mut Expr, ctx: &mut Ctx) -> Option<VType> {
+    let Expr::MethodCall { recv, method, args } = e else {
+        return None;
+    };
+    let m = snake(method);
+    // The element type flowing IN: from the link below, or the chain root.
+    let elem = if is_iter_chain(recv) {
+        resolve_iter_chain(recv, ctx)?
+    } else {
+        resolve_expr(recv, ctx);
+        let elem = match infer(recv, ctx) {
+            VType::Decl(DeclType::Vec(t)) => VType::Decl(*t),
+            VType::Decl(DeclType::Array(t, _)) => vt(t),
+            _ => return None, // not a sequence — not ours
+        };
+        let owning = if elem_is_copy(&elem) { "copied" } else { "cloned" };
+        let inner = std::mem::replace(&mut **recv, Expr::Int(0));
+        **recv = mcall(mcall(inner, "iter", vec![]), owning, vec![]);
+        elem
+    };
+    // This link's arguments.
+    let mut map_out = VType::Unknown;
+    match m.as_str() {
+        // These hand the closure a `&T`: a Copy element destructures it
+        // (`|&x| …`); an owned one keeps `|x|` and derefs uses in the body.
+        "filter" | "find" => {
+            let by_ref = elem_is_copy(&elem) || !matches!(elem, VType::Decl(_));
+            resolve_iter_closure(args, &elem, !by_ref, by_ref, ctx);
+        }
+        // These receive the item by value (`position` included — unlike
+        // `find`, its predicate takes `Self::Item`, not a reference).
+        "map" | "any" | "all" | "position" => {
+            map_out = resolve_iter_closure(args, &elem, false, false, ctx);
+        }
+        "take" | "skip" => {
+            for a in args.iter_mut() {
+                resolve_expr(a, ctx);
+            }
+        }
+        _ => {}
+    }
+    // The element type flowing OUT, for the next link's closure.
+    Some(match m.as_str() {
+        "map" => map_out,
+        "filter" | "take" | "skip" | "rev" => elem,
+        // `enumerate` yields `(usize, T)`; consumers end the chain.
+        _ => VType::Unknown,
+    })
+}
+
+/// Bind an iterator closure's parameter to the element type, resolve its body
+/// under that (scoped) binding, and return the body's type (for `map`).
+/// `deref_uses` puts the parameter in the deref set (`&T` param, owned
+/// element); `by_ref` emits the `|&x|` destructuring pattern instead.
+fn resolve_iter_closure(
+    args: &mut [Expr],
+    elem: &VType,
+    deref_uses: bool,
+    by_ref: bool,
+    ctx: &mut Ctx,
+) -> VType {
+    let Some(Expr::Closure { params, body, by_ref_params }) = args.first_mut() else {
+        return VType::Unknown;
+    };
+    *by_ref_params = by_ref;
+    // Scoped binding: shadow whatever the name means outside, restore after.
+    let key = params.first().map(|p| snake(p));
+    let mut prev: Option<Binding> = None;
+    let mut deref_added = false;
+    if let (Some(k), VType::Decl(d)) = (&key, elem) {
+        prev = ctx.env.insert(k.clone(), Binding { ty: Some(d.clone()), borrowed: false });
+        if deref_uses {
+            deref_added = ctx.deref.insert(k.clone());
+        }
+    }
+    resolve_expr(body, ctx);
+    let out = infer(body, ctx);
+    if let Some(k) = key {
+        if deref_added {
+            ctx.deref.remove(&k);
+        }
+        match prev {
+            Some(b) => {
+                ctx.env.insert(k, b);
+            }
+            None => {
+                if matches!(elem, VType::Decl(_)) {
+                    ctx.env.remove(&k);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Best-effort type inference. `Unknown` whenever we can't be sure — callers
