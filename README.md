@@ -110,6 +110,16 @@ features enabled:
 cargo test --manifest-path vbr_stdlib/Cargo.toml --all-features
 ```
 
+Stdlib/GUI/TUI examples can't be compiled by the rustc-only snapshot check
+(they link crates), so a separate **compile guard** builds one representative
+example per backend as a real cargo project and requires it to be warning-free.
+It compiles Iced/polars/ratatui, so it's skipped by default — run it before a
+release or after touching codegen:
+
+```sh
+cargo test -- --ignored
+```
+
 Examples live in `examples/`; their expected output (generated Rust or
 diagnostics) lives in `tests/snapshots/`.
 
