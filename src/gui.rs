@@ -636,7 +636,7 @@ fn gui_length(size: SizeConstraint) -> String {
 
 /// A view `Match` → a typed `{ let el = match … {…}; el }` block, arms on lines.
 fn render_view_match(scrutinee: &Expr, arms: &[ViewArm], ctx: &ViewCtx, indent: usize) -> String {
-    let subj = match_scrutinee(scrutinee, ctx.fields, ctx.field_ty, ctx.enums);
+    let subj = match_scrutinee(scrutinee, "state", ctx.fields, ctx.field_ty, ctx.enums);
     let in1 = "    ".repeat(indent + 1);
     let in2 = "    ".repeat(indent + 2);
     let pad = "    ".repeat(indent);

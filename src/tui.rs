@@ -558,7 +558,7 @@ fn render_view_node(
         // `Match <expr>` in the view → a Rust `match` whose arm renders its
         // widget(s) into the same area.
         ViewNode::Match { scrutinee, arms } => {
-            let subj = match_scrutinee(scrutinee, fields, field_ty, enums);
+            let subj = match_scrutinee(scrutinee, "state", fields, field_ty, enums);
             out.push_str(&format!("{}match {} {{\n", pad, subj));
             for arm in arms {
                 let guard = match &arm.guard {

@@ -78,36 +78,40 @@ fn transpile_only_examples_compile() {
         .unwrap_or(false);
     if !wasm_ready {
         eprintln!(
-            "· web_greeting skipped — install the target with \
+            "· web examples skipped — install the target with \
              `rustup target add wasm32-unknown-unknown` to guard the web backend"
         );
         return;
     }
-    // web_greeting is the web superset: Text/Button plus the slice-2 input
-    // round-trip (TextInput/Checkbox, payload messages, the web-sys dep).
-    let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
-        .arg("build")
-        .arg(examples.join("web_greeting.vbr"))
-        .output()
-        .expect("failed to run vbr");
-    assert!(
-        vbr.status.success(),
-        "vbr build failed for web_greeting:\n{}",
-        String::from_utf8_lossy(&vbr.stderr)
-    );
-    let out = Command::new("cargo")
-        .args(["build", "--target", "wasm32-unknown-unknown"])
-        .current_dir(&build)
-        .output()
-        .expect("failed to run cargo");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        out.status.success(),
-        "cargo rejected the generated web project:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("warning:"),
-        "cargo emitted warnings for web_greeting:\n{stderr}"
-    );
-    eprintln!("✔ web_greeting compiled clean (wasm32)");
+    // The two web examples cover the whole Page surface between them:
+    // web_greeting the input round-trip (TextInput/Checkbox, payload messages,
+    // the web-sys dep); web_settings the view logic (Match/If, Slider,
+    // ProgressBar).
+    for name in ["web_greeting", "web_settings"] {
+        let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
+            .arg("build")
+            .arg(examples.join(format!("{name}.vbr")))
+            .output()
+            .expect("failed to run vbr");
+        assert!(
+            vbr.status.success(),
+            "vbr build failed for {name}:\n{}",
+            String::from_utf8_lossy(&vbr.stderr)
+        );
+        let out = Command::new("cargo")
+            .args(["build", "--target", "wasm32-unknown-unknown"])
+            .current_dir(&build)
+            .output()
+            .expect("failed to run cargo");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success(),
+            "cargo rejected the generated web project for {name}:\n{stderr}"
+        );
+        assert!(
+            !stderr.contains("warning:"),
+            "cargo emitted warnings for {name}:\n{stderr}"
+        );
+        eprintln!("✔ {name} compiled clean (wasm32)");
+    }
 }

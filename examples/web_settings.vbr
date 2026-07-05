@@ -1,0 +1,45 @@
+' View logic in the browser: Match and If choose what to show, a Slider drags a
+' number into state, and a ProgressBar mirrors it. A direct port of the GUI's
+' settings.vbr — same blocks, third renderer. (web slice 3)
+' Run it with: vbr runweb examples/web_settings.vbr
+Page Settings
+    Title "Settings"
+    State
+        Dim agreed As Boolean = False
+        Dim volume As Integer = 50
+    End State
+    View
+        Column
+            Checkbox "I agree to the terms", agreed
+                On Toggle SetAgreed
+            End Checkbox
+
+            Text "Volume: " & volume
+            Slider 0..=100, volume
+                On Change SetVolume
+            End Slider
+            ProgressBar 0..=100, volume
+
+            If volume > 80 Then
+                Text "That's loud!"
+            End If
+
+            Match agreed
+                True => Text "Thanks — you're all set!"
+                False => Text "Please agree to continue."
+            End Match
+        End Column
+    End View
+
+    Event SetAgreed(value As Boolean)
+        agreed = value
+    End Event
+
+    Event SetVolume(value As Integer)
+        volume = value
+    End Event
+End Page
+
+Function Main()
+    Settings.Run
+End Function

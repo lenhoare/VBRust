@@ -5,9 +5,10 @@ A `Page` is a **browser application**: the same State/View/Events model as a
 It is backed by the Rust **Yew** crate (version-pinned, like Iced 0.13),
 compiled to **WebAssembly**, and served by **trunk**.
 
-> Status: **slices 1–2 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
-> (`Text`, `Button`, `TextInput`, `Checkbox`, `Column`, `Row` with
-> `Spacing`/`Padding`)/`Event` including payload events, `vbr runweb`.
+> Status: **slices 1–3 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
+> (`Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`,
+> `Match`/`If` in the view, `Column`/`Row` with `Spacing`/`Padding` and
+> `Length`/`Fill` sizing)/`Event` including payload events, `vbr runweb`.
 > Later slices are listed in §8 and not yet built.
 
 ---
@@ -71,17 +72,22 @@ End Function
 | `Button "label" … On Click <Event>` | `<button onclick={ctx.link().callback(…)}>` |
 | `TextInput "placeholder", field … On Input <Event>` | a controlled `<input>` — `value` from state, `oninput` sends the new text |
 | `Checkbox "label", field … On Toggle <Event>` | `<input type="checkbox">` inside its `<label>`, `onchange` sends the new state |
+| `Slider min..=max, field … On Change <Event>` | `<input type="range">` — the dragged value is cast to the field's type |
+| `ProgressBar min..=max, field` | `<progress>` (a non-zero `min` shifts value and max — HTML progress starts at 0) |
+| `Image <path>` | `<img src=…>` — the src is a **URL**: absolute `https://…` always works; local files need the asset story (later slice) |
+| `Match` / `If` in the view | a Rust `match`/`if` choosing an `html!` fragment (no `Else` → renders nothing) |
 | `Column` / `Row` (+ `Spacing n`, `Padding n`) | flexbox `<div>` (`gap`/`padding` in px) |
+| `Length n` / `Fill [w]` before a child | a wrapping `<div>` — fixed px on the container's axis / CSS `flex: w` |
 
-The input controls are exactly the GUI's: the same syntax, the same
-payload-carrying events (`Event Rename(value As String)` /
-`Event SetAgreed(value As Boolean)`), the same binding rules (a `TextInput`
-binds a `String` field, a `Checkbox` a `Boolean` — anything else is an error).
-Reading the typed text needs the input's DOM element, so the project build
-adds `web-sys` (feature `HtmlInputElement`) automatically when an input is used.
+The controls are exactly the GUI's: the same syntax, the same payload-carrying
+events (`Event Rename(value As String)` / `Event SetVolume(value As Integer)`),
+the same binding rules (a `TextInput` binds a `String` field, a `Checkbox` a
+`Boolean`, a `Slider`/`ProgressBar` a numeric — anything else is an error).
+Reading a typed value needs the input's DOM element, so the project build adds
+`web-sys` (feature `HtmlInputElement`) automatically when an input is used.
+`Percent`/`Min` sizing stays Screen (TUI) only, as in the GUI.
 
-Anything else — including `Length`/`Fill` sizing — is a teaching error naming
-the slice it arrives in.
+Anything else is a teaching error naming what a Page supports so far.
 
 ## 4. Running — `vbr runweb`
 
@@ -117,10 +123,12 @@ Each is a teaching error today:
 
 ## 6. Testing
 
-`examples/web_counter.vbr` (slice 1) and `examples/web_greeting.vbr` (slice 2:
-inputs, payload events) are snapshot-tested (TRANSPILE_ONLY); the greeting is
-also built for real by the compile guard (`cargo test -- --ignored`) whenever
-the wasm target is installed — skipped with a notice otherwise.
+`examples/web_counter.vbr` (slice 1), `examples/web_greeting.vbr` (slice 2:
+inputs, payload events), and `examples/web_settings.vbr` (slice 3: Match/If,
+Slider, ProgressBar) are snapshot-tested (TRANSPILE_ONLY); the greeting and
+settings are also built for real by the compile guard
+(`cargo test -- --ignored`) whenever the wasm target is installed — skipped
+with a notice otherwise.
 
 ## 7. Backend mapping
 
@@ -135,8 +143,7 @@ the wasm target is installed — skipped with a notice otherwise.
 
 ## 8. Deferred (later slices)
 
-1. **View logic** — `Match`/`If` in the view, `Slider`, `ProgressBar`, `Image`,
-   sizing.
-2. **Async** — `Await` via `spawn_local`; web `Http` over the browser's fetch
+1. **Async** — `Await` via `spawn_local`; web `Http` over the browser's fetch
    (`gloo-net`).
-3. **Styling** — a CSS story beyond inline flexbox; maybe `Theme`.
+2. **Styling & assets** — a CSS story beyond inline flexbox (maybe `Theme`),
+   and local files for `Image` (trunk asset copying).

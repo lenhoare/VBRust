@@ -14,20 +14,26 @@
 //! Slice 2: the input round-trip — `TextInput` fires its event per keystroke
 //! with the new text, `Checkbox` with its new state; payload events
 //! (`Event Rename(value As String)`) become `Message` variants carrying data.
+//! Slice 3: view logic and the remaining display widgets — `Match`/`If` in the
+//! view (a Rust `match`/`if` choosing an `html!` fragment), `Slider`,
+//! `ProgressBar`, `Image`, and `Length`/`Fill` sizing.
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::surface::{
-    self, event_stdlib_imports, launched, render_init, rewrite_expr_with, state_maps,
-    stmt_has_await,
+    self, event_stdlib_imports, launched, match_scrutinee, render_init, rewrite_expr_with,
+    state_maps, stmt_has_await,
 };
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs: the state-field names (to rewrite `count` →
-/// `self.count`) and the enum names (`Size.Small` → `Size::Small`).
+/// `self.count`), their types (a `String` match scrutinee gets `.as_str()`, a
+/// slider's number gets cast to its field's type), and the enum names
+/// (`Size.Small` → `Size::Small`).
 struct PageCtx<'a> {
     fields: &'a HashSet<String>,
+    field_ty: &'a HashMap<String, DeclType>,
     enums: &'a HashSet<String>,
 }
 
@@ -89,7 +95,7 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     let mut out = String::new();
     let ty = &p.name; // the component struct is named after the page
     let (fields, field_ty) = state_maps(&p.state);
-    let ctx = PageCtx { fields: &fields, enums: &t.enums };
+    let ctx = PageCtx { fields: &fields, field_ty: &field_ty, enums: &t.enums };
 
     validate_page(p, &field_ty, diags);
     // Trigger the stdlib marks for event bodies (checked program-wide by the caller).
@@ -170,7 +176,7 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
 
     // view — the html! body decides whether `ctx` is needed (button callbacks).
     let mut body = String::new();
-    render_node(&p.view, &ctx, 3, &mut body, diags);
+    render_node(&p.view, &ctx, "column", 3, &mut body, diags);
     let ctx_param = if body.contains("ctx.link()") { "ctx" } else { "_ctx" };
     out.push_str(&format!(
         "    fn view(&self, {}: &Context<Self>) -> Html {{\n",
@@ -216,9 +222,46 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
                 );
             }
         }
+        ViewNode::Slider { value, .. } => {
+            let numeric = matches!(
+                field_ty.get(&rust_name(value)),
+                Some(DeclType::Plain(t)) if !matches!(t, Type::Text | Type::Boolean)
+            );
+            if !numeric {
+                diags.error_once(
+                    &format!("slider-field-{}", rust_name(value)),
+                    format!("A Slider binds to a numeric state field — `{}` isn't one.", value),
+                );
+            }
+        }
+        ViewNode::ProgressBar { value, .. } => {
+            let numeric = matches!(
+                field_ty.get(&rust_name(value)),
+                Some(DeclType::Plain(t)) if !matches!(t, Type::Text | Type::Boolean)
+            );
+            if !numeric {
+                diags.error_once(
+                    &format!("progress-field-{}", rust_name(value)),
+                    format!("A ProgressBar shows a number — `{}` must be a numeric field.", value),
+                );
+            }
+        }
         ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
         ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        ViewNode::Match { arms, .. } => {
+            for a in arms {
+                a.body.iter().for_each(|c| validate_view(c, field_ty, diags));
+            }
+        }
+        ViewNode::If { branches, else_body } => {
+            for (_, b) in branches {
+                b.iter().for_each(|c| validate_view(c, field_ty, diags));
+            }
+            if let Some(b) = else_body {
+                b.iter().for_each(|c| validate_view(c, field_ty, diags));
+            }
         }
         _ => {}
     }
@@ -226,9 +269,12 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
 
 /// Render a view node as `html!` markup into `out`, one element per line,
 /// indented. Containers become flexbox `<div>`s; leaves become HTML elements.
+/// `axis` is the enclosing container's direction, so a `Length` constraint
+/// knows whether it sizes height (in a Column) or width (in a Row).
 fn render_node(
     node: &ViewNode,
     ctx: &PageCtx,
+    axis: &str,
     indent: usize,
     out: &mut String,
     diags: &mut Diagnostics,
@@ -296,21 +342,133 @@ fn render_node(
             out.push_str(&format!("{}{{ {} }}\n", inner, lbl));
             out.push_str(&format!("{}</label>\n", pad));
         }
-        // Layout sizing is not styled yet — render the child and say so.
-        ViewNode::Constrained { child, .. } => {
-            diags.error_once(
-                "page-size",
-                "`Length`/`Fill` sizing isn't supported in a Page yet — a browser lays out \
-                 with CSS, which arrives in a later slice.",
-            );
-            render_node(child, ctx, indent, out, diags);
+        // A numeric slider over min..=max — each drag sends the new value,
+        // cast to the bound field's type (the DOM reports it as a float).
+        ViewNode::Slider { min, max, value, on_change } => {
+            let field = rust_name(value);
+            let cast = match ctx.field_ty.get(&field) {
+                Some(DeclType::Plain(t)) => t.rust(),
+                _ => "i64",
+            };
+            let inner = "    ".repeat(indent + 1);
+            out.push_str(&format!("{}<input\n", pad));
+            out.push_str(&format!("{}type=\"range\"\n", inner));
+            out.push_str(&format!("{}min={}\n", inner, attr_value(min, ctx)));
+            out.push_str(&format!("{}max={}\n", inner, attr_value(max, ctx)));
+            out.push_str(&format!("{}value={{self.{}.to_string()}}\n", inner, field));
+            out.push_str(&format!(
+                "{}oninput={{ctx.link().callback(|e: InputEvent| Message::{}(\
+                 e.target_unchecked_into::<web_sys::HtmlInputElement>().value_as_number() as {}))}}\n",
+                inner, on_change, cast
+            ));
+            out.push_str(&format!("{}/>\n", pad));
+        }
+        // A read-only progress bar. HTML's <progress> always starts at 0, so a
+        // non-zero `min` shifts both the value and the max.
+        ViewNode::ProgressBar { min, max, value } => {
+            let field = rust_name(value);
+            match (min, max) {
+                (Expr::Int(0), Expr::Int(hi)) => {
+                    out.push_str(&format!(
+                        "{}<progress max=\"{}\" value={{self.{}.to_string()}}></progress>\n",
+                        pad, hi, field
+                    ));
+                }
+                _ => {
+                    let lo = render_rewritten(min, ctx);
+                    let hi = render_rewritten(max, ctx);
+                    out.push_str(&format!(
+                        "{}<progress max={{(({}) as f64 - ({}) as f64).to_string()}} \
+                         value={{(self.{} as f64 - ({}) as f64).to_string()}}></progress>\n",
+                        pad, hi, lo, field, lo
+                    ));
+                }
+            }
+        }
+        // An image. The src is a URL: absolute (https://…) always works; a bare
+        // file name resolves against the served site (the asset story is a
+        // later slice). A String state field as the path is cloned to own it.
+        ViewNode::Image { path } => {
+            let src = match path {
+                Expr::Str(_) => render_expr(path, None),
+                _ => format!("{{{}.clone()}}", render_rewritten(path, ctx)),
+            };
+            out.push_str(&format!("{}<img src={} />\n", pad, src));
+        }
+        // `Match <expr>` in the view → a Rust `match` choosing an html! fragment.
+        ViewNode::Match { scrutinee, arms } => {
+            let subj = match_scrutinee(scrutinee, "self", ctx.fields, ctx.field_ty, ctx.enums);
+            let in1 = "    ".repeat(indent + 1);
+            let in2 = "    ".repeat(indent + 2);
+            out.push_str(&format!("{}{{\n", pad));
+            out.push_str(&format!("{}match {} {{\n", in1, subj));
+            for arm in arms {
+                let guard = match &arm.guard {
+                    Some(g) => format!(" if {}", render_rewritten(g, ctx)),
+                    None => String::new(),
+                };
+                out.push_str(&format!("{}{}{} => html! {{\n", in2, arm.pattern, guard));
+                render_body(&arm.body, ctx, indent + 3, out, diags);
+                out.push_str(&format!("{}}},\n", in2));
+            }
+            out.push_str(&format!("{}}}\n", in1));
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        // `If <cond> Then … [ElseIf …] [Else …]` → a Rust `if` choosing an html!
+        // fragment; with no `Else`, the false case renders nothing (`html! {}`).
+        ViewNode::If { branches, else_body } => {
+            let in1 = "    ".repeat(indent + 1);
+            let in2 = "    ".repeat(indent + 2);
+            out.push_str(&format!("{}{{\n", pad));
+            for (i, (cond, body)) in branches.iter().enumerate() {
+                let kw = if i == 0 { "if" } else { "} else if" };
+                out.push_str(&format!("{}{} {} {{\n", in1, kw, render_rewritten(cond, ctx)));
+                out.push_str(&format!("{}html! {{\n", in2));
+                render_body(body, ctx, indent + 3, out, diags);
+                out.push_str(&format!("{}}}\n", in2));
+            }
+            out.push_str(&format!("{}}} else {{\n", in1));
+            match else_body {
+                Some(body) => {
+                    out.push_str(&format!("{}html! {{\n", in2));
+                    render_body(body, ctx, indent + 3, out, diags);
+                    out.push_str(&format!("{}}}\n", in2));
+                }
+                None => out.push_str(&format!("{}html! {{}}\n", in2)),
+            }
+            out.push_str(&format!("{}}}\n", in1));
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        // A sized child: `Length N` fixes the container axis in pixels; `Fill`
+        // takes a share of the leftover space (CSS flex).
+        ViewNode::Constrained { size, child } => {
+            let style = match size {
+                SizeConstraint::Length(n) => {
+                    let dim = if axis == "row" { "width" } else { "height" };
+                    format!("{}: {}px;", dim, n)
+                }
+                SizeConstraint::Fill(w) => format!("flex: {};", w),
+                SizeConstraint::Percent(_) | SizeConstraint::Min(_) => {
+                    diags.error_once(
+                        "page-size",
+                        "Page layout sizing supports `Length N` (pixels) and `Fill` — \
+                         `Percent` and `Min` are Screen (TUI) only.",
+                    );
+                    render_node(child, ctx, axis, indent, out, diags);
+                    return;
+                }
+            };
+            out.push_str(&format!("{}<div style=\"{}\">\n", pad, style));
+            render_node(child, ctx, axis, indent + 1, out, diags);
+            out.push_str(&format!("{}</div>\n", pad));
         }
         other => {
             diags.error_once(
                 "page-widget",
                 format!(
                     "That widget isn't supported in a Page yet ({}). So far a Page supports \
-                     Column, Row, Text, Button, TextInput, and Checkbox.",
+                     Column, Row, Text, Button, TextInput, Checkbox, Slider, ProgressBar, \
+                     Image, Match, and If.",
                     web_node_name(other)
                 ),
             );
@@ -340,9 +498,43 @@ fn render_flex(
     }
     out.push_str(&format!("{}<div style=\"{}\">\n", pad, style));
     for c in children {
-        render_node(c, ctx, indent + 1, out, diags);
+        render_node(c, ctx, direction, indent + 1, out, diags);
     }
     out.push_str(&format!("{}</div>\n", pad));
+}
+
+/// An arm/branch body → its markup: one widget renders as-is; several stack
+/// vertically (an implicit Column).
+fn render_body(
+    body: &[ViewNode],
+    ctx: &PageCtx,
+    indent: usize,
+    out: &mut String,
+    diags: &mut Diagnostics,
+) {
+    match body {
+        [] => {}
+        [one] => render_node(one, ctx, "column", indent, out, diags),
+        many => {
+            let col = ViewNode::Column { children: many.to_vec(), spacing: None, padding: None };
+            render_node(&col, ctx, "column", indent, out, diags);
+        }
+    }
+}
+
+/// An expression rewritten for the component (`count` → `self.count`,
+/// `Size.Small` → `Size::Small`) and rendered to Rust.
+fn render_rewritten(e: &Expr, ctx: &PageCtx) -> String {
+    render_expr(&rewrite_expr_with(e.clone(), "self", ctx.fields, ctx.enums), None)
+}
+
+/// An HTML attribute value: a literal number as a plain quoted attribute
+/// (`min="0"`), anything else as a braced expression stringified.
+fn attr_value(e: &Expr, ctx: &PageCtx) -> String {
+    match e {
+        Expr::Int(n) => format!("\"{}\"", n),
+        _ => format!("{{({}).to_string()}}", render_rewritten(e, ctx)),
+    }
 }
 
 /// Text/label content inside `{ … }`: a string literal as-is, a concatenation
@@ -360,15 +552,10 @@ fn text_content(e: &Expr, ctx: &PageCtx) -> String {
 fn web_node_name(node: &ViewNode) -> &'static str {
     match node {
         ViewNode::TextArea { .. } => "TextArea",
-        ViewNode::Slider { .. } => "Slider",
         ViewNode::Toggler { .. } => "Toggler",
-        ViewNode::ProgressBar { .. } => "ProgressBar",
         ViewNode::Radio { .. } => "Radio",
-        ViewNode::Image { .. } => "Image",
         ViewNode::Canvas { .. } => "Canvas",
         ViewNode::Space { .. } => "Space",
-        ViewNode::Match { .. } => "Match",
-        ViewNode::If { .. } => "If",
         ViewNode::Input { .. } => "Input",
         ViewNode::List { .. } => "List",
         ViewNode::Table { .. } => "Table",

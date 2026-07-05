@@ -207,14 +207,15 @@ pub(crate) fn emit_event_stmts(
 }
 
 /// The scrutinee of a view `Match`: a bare `String` state field is matched as a
-/// slice (`state.name.as_str()`) so string-literal patterns line up.
+/// slice (`<recv>.name.as_str()`) so string-literal patterns line up.
 pub(crate) fn match_scrutinee(
     scrutinee: &Expr,
+    recv: &'static str,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
 ) -> String {
-    let rendered = render_expr(&rewrite_expr(scrutinee.clone(), fields, enums), None);
+    let rendered = render_expr(&rewrite_expr_with(scrutinee.clone(), recv, fields, enums), None);
     if let Expr::Ident(name) = scrutinee {
         if matches!(field_ty.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) {
             return format!("{}.as_str()", rendered);
