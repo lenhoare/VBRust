@@ -1,0 +1,32 @@
+' The first web page: a counter in the browser. Same State/View/Events blocks
+' as a Window — a Page compiles to a Yew (WebAssembly) app instead of Iced.
+' Run it with: vbr runweb examples/web_counter.vbr
+Page Counter
+    Title "Counter"
+    State
+        Dim count As Integer = 0
+    End State
+    View
+        Column
+            Text "Count: " & count
+            Row
+                Button "+"
+                    On Click Increment
+                End Button
+                Button "-"
+                    On Click Decrement
+                End Button
+            End Row
+        End Column
+    End View
+    Event Increment
+        count += 1
+    End Event
+    Event Decrement
+        count -= 1
+    End Event
+End Page
+
+Function Main()
+    Counter.Run
+End Function

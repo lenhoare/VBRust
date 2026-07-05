@@ -69,6 +69,9 @@ pub struct Program {
     pub windows: Vec<Window>,
     pub canvases: Vec<CanvasDef>,
     pub screens: Vec<Screen>,
+    /// Web pages (`Page … End Page`) — the same State/View/Events shape as a
+    /// `Window` (so the same struct), rendered to a Yew browser app instead.
+    pub pages: Vec<Window>,
 }
 
 /// A terminal UI app: the same State/View/Events model as a `Window`, but

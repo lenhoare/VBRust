@@ -64,4 +64,48 @@ fn transpile_only_examples_compile() {
         );
         eprintln!("✔ {name} compiled clean");
     }
+
+    // The web backend builds for wasm32 — guard it too, when the target is
+    // installed (skip with a notice otherwise, like the Python examples).
+    let wasm_ready = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|l| l.trim() == "wasm32-unknown-unknown")
+        })
+        .unwrap_or(false);
+    if !wasm_ready {
+        eprintln!(
+            "· web_counter skipped — install the target with \
+             `rustup target add wasm32-unknown-unknown` to guard the web backend"
+        );
+        return;
+    }
+    let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
+        .arg("build")
+        .arg(examples.join("web_counter.vbr"))
+        .output()
+        .expect("failed to run vbr");
+    assert!(
+        vbr.status.success(),
+        "vbr build failed for web_counter:\n{}",
+        String::from_utf8_lossy(&vbr.stderr)
+    );
+    let out = Command::new("cargo")
+        .args(["build", "--target", "wasm32-unknown-unknown"])
+        .current_dir(&build)
+        .output()
+        .expect("failed to run cargo");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "cargo rejected the generated web project:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("warning:"),
+        "cargo emitted warnings for web_counter:\n{stderr}"
+    );
+    eprintln!("✔ web_counter compiled clean (wasm32)");
 }

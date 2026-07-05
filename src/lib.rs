@@ -12,6 +12,7 @@ pub mod resolver;
 pub mod surface;
 pub mod transpiler;
 pub mod tui;
+pub mod web;
 
 use diagnostics::Diagnostics;
 
@@ -35,6 +36,9 @@ pub struct Compiled {
     /// translate rustc errors back to the `.vbr` source. Empty for GUI/TUI
     /// programs (their emitters don't keep line order yet).
     pub line_map: Vec<(usize, usize)>,
+    /// A web program's browser-tab title (the launched `Page`'s `Title`, or its
+    /// name) — written into the generated `index.html`. `None` for non-web.
+    pub web_title: Option<String>,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -63,6 +67,20 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
     if !program.screens.is_empty() {
         dependencies.push(("ratatui".to_string(), "0.29".to_string()));
     }
+    // A web program (a `Page`) needs Yew, built for WebAssembly (`vbr runweb`).
+    if !program.pages.is_empty() {
+        dependencies.push(("yew".to_string(), "0.21".to_string()));
+    }
+    // The launched page's title, for the generated index.html's <title>.
+    let web_title = if program.pages.is_empty() {
+        None
+    } else {
+        surface::launched(&program, |name| {
+            program.pages.iter().find(|p| p.name.eq_ignore_ascii_case(name))
+        })
+        .or_else(|| program.pages.first())
+        .map(|p| p.title.clone().unwrap_or_else(|| p.name.clone()))
+    };
     let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
     // An inline `Python` block runs via pyo3 (real CPython) — pull it in only when
     // one is actually used, so nothing else pays for it. Detected from the emitted
@@ -81,6 +99,7 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
         stdlib_used,
         diagnostic_items: diags.items().to_vec(),
         line_map,
+        web_title,
     }
 }
 

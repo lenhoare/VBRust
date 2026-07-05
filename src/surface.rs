@@ -181,10 +181,12 @@ pub(crate) fn event_stdlib_imports(events: &[GuiEvent], diags: &mut Diagnostics)
 /// pre-await / continuation halves of an async one) and emit it at `indent`.
 /// The chunk first runs the ordinary resolver pass — a function body and an
 /// event body are the same language — with the state fields and the event's
-/// params in scope; then state-field references become `state.field`.
+/// params in scope; then state-field references become `<recv>.field`
+/// (`state` in a Window/Screen update, `self` in a Page's Yew component).
 pub(crate) fn emit_event_stmts(
     stmts: &[Stmt],
     params: &[Param],
+    recv: &'static str,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     t: &Tables,
@@ -198,8 +200,8 @@ pub(crate) fn emit_event_stmts(
     );
     let empty: HashSet<String> = HashSet::new();
     for stmt in body {
-        let mut rewritten = rewrite_stmt(stmt, fields, &t.enums);
-        coerce_state_strings(&mut rewritten, field_ty);
+        let mut rewritten = rewrite_stmt(stmt, recv, fields, &t.enums);
+        coerce_state_strings(&mut rewritten, recv, field_ty);
         emit_stmt(&rewritten, &empty, &empty, indent, diags, out);
     }
 }
@@ -242,11 +244,16 @@ pub(crate) fn render_init(init: Option<&Expr>, ty: &DeclType, enums: &HashSet<St
 /// `String` state field gets its `.to_string()` (`status = "x"` →
 /// `state.status = "x".to_string()`), recursing through `Match`/`If` bodies.
 /// The resolver normally does this from the typed environment; this catches
-/// any assignment shape it doesn't cover.
-pub(crate) fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, DeclType>) {
+/// any assignment shape it doesn't cover. `state_recv` is the receiver the
+/// state rewrite used (`state` or `self`).
+pub(crate) fn coerce_state_strings(
+    s: &mut Stmt,
+    state_recv: &str,
+    field_ty: &HashMap<String, DeclType>,
+) {
     match s {
         Stmt::Assign { target: Expr::Field(recv, fname), value, .. }
-            if matches!(&**recv, Expr::Ident(n) if n == "state")
+            if matches!(&**recv, Expr::Ident(n) if n == state_recv)
                 && matches!(field_ty.get(&rust_name(fname)), Some(DeclType::Plain(Type::Text)))
                 && matches!(value, Expr::Str(_)) =>
         {
@@ -260,19 +267,19 @@ pub(crate) fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, Decl
         Stmt::Match { arms, .. } => {
             for a in arms {
                 for s2 in &mut a.body {
-                    coerce_state_strings(s2, field_ty);
+                    coerce_state_strings(s2, state_recv, field_ty);
                 }
             }
         }
         Stmt::If { branches, else_body } => {
             for (_, b) in branches {
                 for s2 in b {
-                    coerce_state_strings(s2, field_ty);
+                    coerce_state_strings(s2, state_recv, field_ty);
                 }
             }
             if let Some(b) = else_body {
                 for s2 in b {
-                    coerce_state_strings(s2, field_ty);
+                    coerce_state_strings(s2, state_recv, field_ty);
                 }
             }
         }
@@ -562,7 +569,7 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
 }
 
 /// Does a statement contain an `Await` (in any expression position)?
-fn stmt_has_await(s: &Stmt) -> bool {
+pub(crate) fn stmt_has_await(s: &Stmt) -> bool {
     match s {
         Stmt::Dim { init: Some(e), .. } => expr_has_await(e),
         Stmt::Assign { target, value, .. } => expr_has_await(target) || expr_has_await(value),
@@ -745,36 +752,46 @@ pub(crate) fn rewrite_expr_with(
     }
 }
 
-pub(crate) fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<String>) -> Stmt {
+pub(crate) fn rewrite_stmt(
+    s: Stmt,
+    recv: &'static str,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+) -> Stmt {
+    let re = |e: Expr| rewrite_expr_with(e, recv, fields, enums);
     match s {
         Stmt::Assign { target, value, op } => Stmt::Assign {
-            target: rewrite_expr(target, fields, enums),
-            value: rewrite_expr(value, fields, enums),
+            target: re(target),
+            value: re(value),
             op,
         },
-        Stmt::Print(e) => Stmt::Print(rewrite_expr(e, fields, enums)),
-        Stmt::Expr(e) => Stmt::Expr(rewrite_expr(e, fields, enums)),
+        Stmt::Print(e) => Stmt::Print(re(e)),
+        Stmt::Expr(e) => Stmt::Expr(re(e)),
         Stmt::If { branches, else_body } => Stmt::If {
             branches: branches
                 .into_iter()
                 .map(|(c, b)| {
                     (
-                        rewrite_expr(c, fields, enums),
-                        b.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect(),
+                        re(c),
+                        b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
                     )
                 })
                 .collect(),
             else_body: else_body
-                .map(|b| b.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect()),
+                .map(|b| b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect()),
         },
         Stmt::Match { scrutinee, arms, line } => Stmt::Match {
-            scrutinee: rewrite_expr(scrutinee, fields, enums),
+            scrutinee: re(scrutinee),
             arms: arms
                 .into_iter()
                 .map(|a| MatchArm {
                     pattern: a.pattern,
-                    guard: a.guard.map(|g| rewrite_expr(g, fields, enums)),
-                    body: a.body.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect(),
+                    guard: a.guard.map(&re),
+                    body: a
+                        .body
+                        .into_iter()
+                        .map(|s| rewrite_stmt(s, recv, fields, enums))
+                        .collect(),
                 })
                 .collect(),
             line,
@@ -782,7 +799,7 @@ pub(crate) fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<St
         Stmt::Dim { name, ty, init, line } => Stmt::Dim {
             name,
             ty,
-            init: init.map(|e| rewrite_expr(e, fields, enums)),
+            init: init.map(re),
             line,
         },
         other => other,

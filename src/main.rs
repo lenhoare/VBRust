@@ -4,6 +4,8 @@
 //!                             no standard library or external crates)
 //!   vbr runproject [path]     generate a cargo project in `build/` and run it
 //!                             (handles the standard library and external crates)
+//!   vbr runweb [path]         build a `Page` program for WebAssembly and serve it
+//!                             in the browser with trunk
 //!   vbr build [path]          generate the cargo project without running it
 //!   vbr transpile <file.vbr>  write the generated Rust to <file>.rs (or `-o file`)
 //!   vbr emit <file.vbr>       print the generated Rust to stdout (or `-o file`)
@@ -20,6 +22,7 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("run") => cmd_run(&args[1..]),
         Some("runproject") => cmd_project(&args[1..], true),
+        Some("runweb") => cmd_runweb(&args[1..]),
         Some("build") => cmd_project(&args[1..], false),
         Some("transpile") => cmd_transpile(&args[1..]),
         Some("emit") => cmd_emit(&args[1..]),
@@ -35,6 +38,7 @@ fn usage() {
         "Usage:\n\
          \tvbr run <file.vbr>      compile with rustc and run (single file, no stdlib/crates)\n\
          \tvbr runproject [path]   generate a cargo project in build/ and run it\n\
+         \tvbr runweb [path]       build a Page program for WebAssembly and serve it (trunk)\n\
          \tvbr build [path]        generate the cargo project without running\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)"
@@ -65,6 +69,11 @@ fn transpile(path: &Path) -> vbr::Compiled {
 /// Such programs can't be linked by `rustc` alone — they need the project build.
 fn needs_project(rust: &str) -> bool {
     rust.contains("vbr_stdlib")
+}
+
+/// Is this a web (`Page`) program? Those build for WebAssembly via `vbr runweb`.
+fn is_web_rust(rust: &str) -> bool {
+    rust.contains("yew::Renderer::<")
 }
 
 fn cmd_transpile(args: &[String]) {
@@ -122,6 +131,13 @@ fn cmd_run(args: &[String]) {
     };
     let result = transpile(&input);
 
+    if is_web_rust(&result.rust) {
+        eprintln!(
+            "\n✘ This program has a `Page`, so it compiles to a web app.\n  \
+             Run it with `vbr runweb` instead."
+        );
+        exit(1);
+    }
     if needs_project(&result.rust) || !result.dependencies.is_empty() {
         eprintln!(
             "\n✘ This program uses the standard library (or an external crate via `Use`), \
@@ -189,6 +205,13 @@ fn cmd_project(args: &[String], run: bool) {
     // heads-up; otherwise a long compile looks like a hang. (On a cached rebuild
     // it's instant, and the note is harmless.)
     let cargo_toml = fs::read_to_string(build.join("Cargo.toml")).unwrap_or_default();
+    if cargo_toml.contains("yew") {
+        eprintln!(
+            "✘ This program has a `Page`, so it compiles to a web app.\n  \
+             Run it with `vbr runweb` instead."
+        );
+        exit(1);
+    }
     if cargo_toml.contains("iced") {
         eprintln!(
             "→ Building the GUI — compiling Iced can take ~30s the first time \
@@ -242,6 +265,92 @@ fn cmd_project(args: &[String], run: bool) {
         Ok(s) => exit(s.code().unwrap_or(0)),
         Err(e) => {
             eprintln!("✘ Could not run cargo (is it installed?): {}", e);
+            exit(1);
+        }
+    }
+}
+
+/// `vbr runweb`: generate the project, build it for WebAssembly (translating
+/// errors back to `.vbr` lines), and serve it in the browser with trunk.
+fn cmd_runweb(args: &[String]) {
+    let entry = match resolve_entry(args.first().map(String::as_str).unwrap_or(".")) {
+        Some(e) => e,
+        None => exit(1),
+    };
+    let (build, file_maps) = generate_project(&entry);
+    eprintln!("→ project: {}", build.display());
+
+    let cargo_toml = fs::read_to_string(build.join("Cargo.toml")).unwrap_or_default();
+    if !cargo_toml.contains("yew") {
+        eprintln!(
+            "✘ This program has no `Page`, so there's nothing to serve in a browser.\n  \
+             Run it with `vbr run` or `vbr runproject` instead."
+        );
+        exit(1);
+    }
+
+    // One-time toolchain setup, checked up front so the failure is friendly.
+    // (No rustup — a distro toolchain — means we can't check; let cargo report.)
+    if let Ok(o) = Command::new("rustup").args(["target", "list", "--installed"]).output() {
+        let installed = String::from_utf8_lossy(&o.stdout);
+        if !installed.lines().any(|l| l.trim() == "wasm32-unknown-unknown") {
+            eprintln!(
+                "✘ The web build needs Rust's WebAssembly target. Install it once with:\n\n    \
+                 rustup target add wasm32-unknown-unknown\n\nthen re-run `vbr runweb`."
+            );
+            exit(1);
+        }
+    }
+    if Command::new("trunk").arg("--version").output().is_err() {
+        eprintln!(
+            "✘ The web build needs trunk (the WebAssembly bundler and dev server). \
+             Install it once with:\n\n    cargo install trunk --locked\n\n\
+             then re-run `vbr runweb`."
+        );
+        exit(1);
+    }
+
+    eprintln!(
+        "→ Building the web app — compiling Yew for WebAssembly takes a minute the \
+         first time (instant once cached)."
+    );
+    // Build first with JSON diagnostics, so a failure can be translated back to
+    // .vbr lines; trunk then reuses the cached build.
+    let built = Command::new("cargo")
+        .args([
+            "build", "--target", "wasm32-unknown-unknown", "--message-format", "json", "--quiet",
+        ])
+        .current_dir(&build)
+        .output();
+    match built {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let errors = parse_cargo_json(&stdout);
+            report_errors(&errors, |e| {
+                let name = e.file.as_deref()?;
+                file_maps
+                    .iter()
+                    .find(|m| name.ends_with(&m.rs_name))
+                    .map(|m| (m.source.clone(), m.map.clone()))
+            });
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("✘ Could not run cargo (is it installed?): {}", e);
+            exit(1);
+        }
+    }
+
+    eprintln!("→ trunk serve — opening the browser (Ctrl+C to stop)\n");
+    match Command::new("trunk")
+        .args(["serve", "--open"])
+        .current_dir(&build)
+        .status()
+    {
+        Ok(s) => exit(s.code().unwrap_or(0)),
+        Err(e) => {
+            eprintln!("✘ Could not run trunk: {}", e);
             exit(1);
         }
     }
@@ -439,6 +548,13 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
                 version,
                 feats.join(", ")
             ));
+        } else if krate == "yew" {
+            // A `Page` renders client-side in the browser (`csr`); the project is
+            // built for wasm32 and served by trunk (`vbr runweb`).
+            cargo.push_str(&format!(
+                "yew = {{ version = \"{}\", features = [\"csr\"] }}\n",
+                version
+            ));
         } else if krate == "pyo3" {
             // `auto-initialize` lets a standalone binary boot CPython on first use,
             // so the generated `Python::with_gil` "just works" without a manual
@@ -459,6 +575,24 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
         exit(1);
+    }
+
+    // A web (`Page`) project also gets the `index.html` trunk serves — the
+    // page's `Title` becomes the browser-tab title.
+    if is_web_rust(&entry_compiled.rust) {
+        let title = entry_compiled
+            .web_title
+            .clone()
+            .unwrap_or_else(|| "VBR app".to_string());
+        let html = format!(
+            "<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
+             <title>{}</title>\n  </head>\n  <body></body>\n</html>\n",
+            title
+        );
+        if let Err(e) = fs::write(build.join("index.html"), html) {
+            eprintln!("✘ Could not write index.html: {}", e);
+            exit(1);
+        }
     }
 
     (build, file_maps)

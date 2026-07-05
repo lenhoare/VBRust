@@ -9,6 +9,7 @@ and the generated Rust is always there to read.
 - **`language_spec.md`** — the terse, normative reference.
 - **`gui_spec.md`** — graphical apps: a `Window` → an Iced application.
 - **`tui_spec.md`** — terminal apps: a `Screen` → a ratatui application.
+- **`web_spec.md`** — browser apps: a `Page` → a Yew (WebAssembly) application.
 - **`stdlib_spec.md`** — the standard library.
 - **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
 
@@ -85,6 +86,18 @@ dependencies automatically — each one is behind a Cargo feature, enabled for y
 You never edit `Cargo.toml` or turn on a feature yourself; that's all internal.
 (`Http` does simple, blocking, one-shot requests; for a reused client or session,
 reach for an inline `Rust` block or a hand-written `.rs` module.)
+
+## Web pages
+
+A program with a `Page` compiles to a browser app (Yew, via WebAssembly) and is
+served with:
+
+```sh
+cargo run -- runweb examples/web_counter.vbr
+```
+
+One-time setup (each checked with a friendly error): `rustup target add
+wasm32-unknown-unknown` and `cargo install trunk --locked`. See `web_spec.md`.
 
 ## Running the tests
 

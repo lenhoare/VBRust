@@ -823,7 +823,7 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
         for (e, split) in sc.events.iter().zip(&splits) {
             if let Some(s) = split {
                 out.push_str(&format!("                Message::{}Done({}) => {{\n", e.name, s.bind));
-                surface::emit_event_stmts(&s.cont, &e.params, &fields, &field_ty, t, 5, &mut dummy, &mut out);
+                surface::emit_event_stmts(&s.cont, &e.params, "state", &fields, &field_ty, t, 5, &mut dummy, &mut out);
                 out.push_str("                }\n");
             }
         }
@@ -931,7 +931,7 @@ fn emit_event_run(
 ) {
     let pad = "    ".repeat(indent);
     let emit_body = |body: &[Stmt], out: &mut String, dummy: &mut Diagnostics| {
-        surface::emit_event_stmts(body, &ev.params, fields, field_ty, t, indent, dummy, out);
+        surface::emit_event_stmts(body, &ev.params, "state", fields, field_ty, t, indent, dummy, out);
     };
     match split {
         // Kick-off: pre-await body (main thread), snapshot state, spawn the
@@ -991,7 +991,7 @@ fn enter_dispatch(
         };
         let mut dummy = Diagnostics::new();
         let mut emit_body = |s: &mut String, extra: usize| {
-            surface::emit_event_stmts(&ev.body, &ev.params, fields, field_ty, t, indent + extra, &mut dummy, s);
+            surface::emit_event_stmts(&ev.body, &ev.params, "state", fields, field_ty, t, indent + extra, &mut dummy, s);
         };
         if fo.is_input() {
             // Submit: bind the handler's parameter to a clone of the typed text

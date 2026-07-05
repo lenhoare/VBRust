@@ -251,14 +251,14 @@ fn emit_window(
         match split {
             // Synchronous event: run the body; async windows need a `Task::none()`.
             None => {
-                surface::emit_event_stmts(&e.body, &e.params, &fields, &field_ty, t, 3, diags, &mut out);
+                surface::emit_event_stmts(&e.body, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
                 if any_async {
                     out.push_str("            Task::none()\n");
                 }
             }
             // Async kick-off: pre-await body, snapshot state, then return the Task.
             Some(s) => {
-                surface::emit_event_stmts(&s.pre, &e.params, &fields, &field_ty, t, 3, diags, &mut out);
+                surface::emit_event_stmts(&s.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
                 for snap in &s.snapshots {
                     out.push_str(&format!("            {}\n", snap));
                 }
@@ -281,7 +281,7 @@ fn emit_window(
         // The continuation arm for an async event.
         if let Some(s) = split {
             out.push_str(&format!("        Message::{}Done({}) => {{\n", e.name, s.bind));
-            surface::emit_event_stmts(&s.cont, &e.params, &fields, &field_ty, t, 3, diags, &mut out);
+            surface::emit_event_stmts(&s.cont, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
             out.push_str("            Task::none()\n");
             out.push_str("        }\n");
         }
@@ -359,7 +359,7 @@ fn emit_canvas_program(
     let empty: HashSet<String> = HashSet::new();
     for stmt in &cv.body {
         let mut rewritten = rewrite_canvas_stmt(stmt.clone(), fields, enums, paint_fns);
-        coerce_state_strings(&mut rewritten, field_ty);
+        coerce_state_strings(&mut rewritten, "self", field_ty);
         emit_stmt(&rewritten, &empty, &empty, 3, diags, out);
     }
     out.push_str("        }\n");

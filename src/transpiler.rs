@@ -35,6 +35,19 @@ pub fn transpile_module(
     is_entry: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    // A web program (one with a `Page`) compiles to a Yew (WebAssembly) app.
+    if !program.pages.is_empty() {
+        if !program.windows.is_empty() || !program.screens.is_empty() {
+            diags.error_once(
+                "mixed-surfaces",
+                "A program can't mix `Page` with `Window`/`Screen` — each program is one \
+                 kind of app. Split them into separate programs.",
+            );
+        }
+        let rust = crate::web::emit_web_program(program, diags);
+        diags.clear_line_map();
+        return rust;
+    }
     // A GUI program (one with a `Window`) compiles to an Iced application: the
     // window definitions plus a `fn main` that launches the one `Function Main()`
     // names with `<Window>.Run`.

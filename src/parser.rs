@@ -90,6 +90,7 @@ impl<'a> Parser<'a> {
         let mut windows = Vec::new();
         let mut canvases = Vec::new();
         let mut screens = Vec::new();
+        let mut pages = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -165,8 +166,15 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Window") => {
-                    if let Some(win) = self.parse_window() {
+                    if let Some(win) = self.parse_window("Window") {
                         windows.push(win);
+                    } else {
+                        break;
+                    }
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Page") => {
+                    if let Some(pg) = self.parse_window("Page") {
+                        pages.push(pg);
                     } else {
                         break;
                     }
@@ -217,6 +225,7 @@ impl<'a> Parser<'a> {
             windows,
             canvases,
             screens,
+            pages,
         }
     }
 
@@ -494,8 +503,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_window(&mut self) -> Option<Window> {
-        self.advance(); // `Window`
+    /// `Window Name … End Window` — or, with `kind = "Page"`, the identical
+    /// block shape for a web page (same AST struct, different renderer).
+    fn parse_window(&mut self, kind: &'static str) -> Option<Window> {
+        self.advance(); // `Window` / `Page`
         let name = self.expect_ident("for the window name")?;
         self.expect(&Tok::Newline, "after the window name")?;
 
@@ -510,7 +521,7 @@ impl<'a> Parser<'a> {
             match self.peek().clone() {
                 Tok::End => {
                     self.advance();
-                    self.expect_kw_ident("Window")?;
+                    self.expect_kw_ident(kind)?;
                     self.eat(&Tok::Newline);
                     break;
                 }
@@ -520,6 +531,14 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Theme") => {
+                    if kind == "Page" {
+                        self.diags.error(
+                            self.line(),
+                            "A Page has no `Theme` yet — a browser page is styled with CSS, \
+                             which arrives in a later slice.",
+                        );
+                        return None;
+                    }
                     self.advance();
                     theme = Some(self.expect_ident("for the theme name, e.g. `Theme Dracula`")?);
                     self.eat(&Tok::Newline);
@@ -558,8 +577,8 @@ impl<'a> Parser<'a> {
                     self.diags.error(
                         self.line(),
                         format!(
-                            "Unexpected {:?} inside a Window — expected Title, Theme, State, \
-                             View, Event, or `End Window`.",
+                            "Unexpected {:?} inside a {kind} — expected Title, Theme, State, \
+                             View, Event, or `End {kind}`.",
                             other
                         ),
                     );
@@ -572,7 +591,7 @@ impl<'a> Parser<'a> {
             Some(v) => v,
             None => {
                 self.diags
-                    .error(self.line(), "A Window needs a `View` block.");
+                    .error(self.line(), format!("A {kind} needs a `View` block."));
                 return None;
             }
         };
