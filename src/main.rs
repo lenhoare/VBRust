@@ -572,6 +572,11 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
     if async_gui {
         cargo.push_str("tokio = { version = \"1\", features = [\"rt\"] }\n");
     }
+    // A web input reads its DOM element (`web_sys::HtmlInputElement`) to get the
+    // typed text / checked state, so web-sys must be a direct dependency.
+    if entry_compiled.rust.contains("web_sys::HtmlInputElement") {
+        cargo.push_str("web-sys = { version = \"0.3\", features = [\"HtmlInputElement\"] }\n");
+    }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
         exit(1);

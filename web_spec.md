@@ -5,9 +5,10 @@ A `Page` is a **browser application**: the same State/View/Events model as a
 It is backed by the Rust **Yew** crate (version-pinned, like Iced 0.13),
 compiled to **WebAssembly**, and served by **trunk**.
 
-> Status: **slice 1 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
-> (`Text`, `Button`, `Column`, `Row` with `Spacing`/`Padding`)/`Event`,
-> `vbr runweb`. Later slices are listed in §8 and not yet built.
+> Status: **slices 1–2 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
+> (`Text`, `Button`, `TextInput`, `Checkbox`, `Column`, `Row` with
+> `Spacing`/`Padding`)/`Event` including payload events, `vbr runweb`.
+> Later slices are listed in §8 and not yet built.
 
 ---
 
@@ -62,13 +63,22 @@ End Function
 - A program is one kind of app: mixing `Page` with `Window`/`Screen` is an
   error.
 
-## 3. V1 controls (slice 1)
+## 3. V1 controls
 
 | Control | Lowers to |
 |---------|-----------|
 | `Text <expr>` | `<p>{ … }</p>` (literals as-is, `&` concatenation via `format!`) |
 | `Button "label" … On Click <Event>` | `<button onclick={ctx.link().callback(…)}>` |
+| `TextInput "placeholder", field … On Input <Event>` | a controlled `<input>` — `value` from state, `oninput` sends the new text |
+| `Checkbox "label", field … On Toggle <Event>` | `<input type="checkbox">` inside its `<label>`, `onchange` sends the new state |
 | `Column` / `Row` (+ `Spacing n`, `Padding n`) | flexbox `<div>` (`gap`/`padding` in px) |
+
+The input controls are exactly the GUI's: the same syntax, the same
+payload-carrying events (`Event Rename(value As String)` /
+`Event SetAgreed(value As Boolean)`), the same binding rules (a `TextInput`
+binds a `String` field, a `Checkbox` a `Boolean` — anything else is an error).
+Reading the typed text needs the input's DOM element, so the project build
+adds `web-sys` (feature `HtmlInputElement`) automatically when an input is used.
 
 Anything else — including `Length`/`Fill` sizing — is a teaching error naming
 the slice it arrives in.
@@ -104,14 +114,13 @@ Each is a teaching error today:
   would freeze the page. A web-friendly `Http` (the browser's `fetch` via
   `gloo-net`) arrives in a later slice; `FileSystem`/`DataFrame` don't apply
   in a browser.
-- **Event parameters** — they arrive with the input controls (`TextInput`,
-  `Checkbox`) in slice 2.
 
 ## 6. Testing
 
-`examples/web_counter.vbr` is snapshot-tested (TRANSPILE_ONLY) and built for
-real by the compile guard (`cargo test -- --ignored`) whenever the wasm target
-is installed — skipped with a notice otherwise.
+`examples/web_counter.vbr` (slice 1) and `examples/web_greeting.vbr` (slice 2:
+inputs, payload events) are snapshot-tested (TRANSPILE_ONLY); the greeting is
+also built for real by the compile guard (`cargo test -- --ignored`) whenever
+the wasm target is installed — skipped with a notice otherwise.
 
 ## 7. Backend mapping
 
@@ -126,10 +135,8 @@ is installed — skipped with a notice otherwise.
 
 ## 8. Deferred (later slices)
 
-1. **Input round-trip** — `TextInput` (`oninput` → `Message(String)`),
-   `Checkbox`; event parameters.
-2. **View logic** — `Match`/`If` in the view, `Slider`, `ProgressBar`, `Image`,
+1. **View logic** — `Match`/`If` in the view, `Slider`, `ProgressBar`, `Image`,
    sizing.
-3. **Async** — `Await` via `spawn_local`; web `Http` over the browser's fetch
+2. **Async** — `Await` via `spawn_local`; web `Http` over the browser's fetch
    (`gloo-net`).
-4. **Styling** — a CSS story beyond inline flexbox; maybe `Theme`.
+3. **Styling** — a CSS story beyond inline flexbox; maybe `Theme`.

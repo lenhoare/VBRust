@@ -1,0 +1,43 @@
+' The input round-trip in the browser: a TextInput fires its event on every
+' keystroke with the new text, a Checkbox with its new state — payload events
+' (`value As String`) become Message variants carrying data. (web slice 2)
+' Run it with: vbr runweb examples/web_greeting.vbr
+Page Greeter
+    Title "Greeter"
+    State
+        Dim name As String = ""
+        Dim shout As Boolean = False
+    End State
+    View
+        Column
+            Text "What's your name?"
+            TextInput "type here", name
+                On Input Rename
+            End TextInput
+            Checkbox "Shout it", shout
+                On Toggle SetShout
+            End Checkbox
+            Text "Hello, " & name & "!"
+            Button "Clear"
+                On Click Clear
+            End Button
+        End Column
+    End View
+    Event Rename(value As String)
+        If shout Then
+            name = UCase(value)
+        Else
+            name = value
+        End If
+    End Event
+    Event SetShout(value As Boolean)
+        shout = value
+    End Event
+    Event Clear
+        name = ""
+    End Event
+End Page
+
+Function Main()
+    Greeter.Run
+End Function

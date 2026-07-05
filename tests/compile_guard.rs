@@ -78,19 +78,21 @@ fn transpile_only_examples_compile() {
         .unwrap_or(false);
     if !wasm_ready {
         eprintln!(
-            "· web_counter skipped — install the target with \
+            "· web_greeting skipped — install the target with \
              `rustup target add wasm32-unknown-unknown` to guard the web backend"
         );
         return;
     }
+    // web_greeting is the web superset: Text/Button plus the slice-2 input
+    // round-trip (TextInput/Checkbox, payload messages, the web-sys dep).
     let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
         .arg("build")
-        .arg(examples.join("web_counter.vbr"))
+        .arg(examples.join("web_greeting.vbr"))
         .output()
         .expect("failed to run vbr");
     assert!(
         vbr.status.success(),
-        "vbr build failed for web_counter:\n{}",
+        "vbr build failed for web_greeting:\n{}",
         String::from_utf8_lossy(&vbr.stderr)
     );
     let out = Command::new("cargo")
@@ -105,7 +107,7 @@ fn transpile_only_examples_compile() {
     );
     assert!(
         !stderr.contains("warning:"),
-        "cargo emitted warnings for web_counter:\n{stderr}"
+        "cargo emitted warnings for web_greeting:\n{stderr}"
     );
-    eprintln!("✔ web_counter compiled clean (wasm32)");
+    eprintln!("✔ web_greeting compiled clean (wasm32)");
 }

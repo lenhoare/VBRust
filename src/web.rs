@@ -11,6 +11,9 @@
 //! Slice 1: `Page` / `State` / `View` (`Text`, `Button`, `Column`, `Row`) /
 //! `Event` → one component plus `fn main`. Events are synchronous (`Await`
 //! arrives in a later slice) and the stdlib is not available in the browser yet.
+//! Slice 2: the input round-trip — `TextInput` fires its event per keystroke
+//! with the new text, `Checkbox` with its new state; payload events
+//! (`Event Rename(value As String)`) become `Message` variants carrying data.
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
@@ -19,7 +22,7 @@ use crate::surface::{
     stmt_has_await,
 };
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs: the state-field names (to rewrite `count` →
 /// `self.count`) and the enum names (`Size.Small` → `Size::Small`).
@@ -88,7 +91,7 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     let (fields, field_ty) = state_maps(&p.state);
     let ctx = PageCtx { fields: &fields, enums: &t.enums };
 
-    validate_page(p, diags);
+    validate_page(p, &field_ty, diags);
     // Trigger the stdlib marks for event bodies (checked program-wide by the caller).
     let _ = event_stdlib_imports(&p.events, diags);
 
@@ -101,11 +104,16 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     }
     out.push_str("}\n\n");
 
-    // ── Message enum: one variant per event ──
+    // ── Message enum: one variant per event (payload params = its data) ──
     if !p.events.is_empty() {
         out.push_str("enum Message {\n");
         for e in &p.events {
-            out.push_str(&format!("    {},\n", e.name));
+            if e.params.is_empty() {
+                out.push_str(&format!("    {},\n", e.name));
+            } else {
+                let types: Vec<String> = e.params.iter().map(|p| decltype_rust(&p.ty)).collect();
+                out.push_str(&format!("    {}({}),\n", e.name, types.join(", ")));
+            }
         }
         out.push_str("}\n\n");
     }
@@ -140,7 +148,16 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
         );
         out.push_str("        match message {\n");
         for e in &p.events {
-            out.push_str(&format!("            Message::{} => {{\n", e.name));
+            if e.params.is_empty() {
+                out.push_str(&format!("            Message::{} => {{\n", e.name));
+            } else {
+                let binds: Vec<String> = e.params.iter().map(|p| rust_name(&p.name)).collect();
+                out.push_str(&format!(
+                    "            Message::{}({}) => {{\n",
+                    e.name,
+                    binds.join(", ")
+                ));
+            }
             surface::emit_event_stmts(
                 &e.body, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
             );
@@ -167,9 +184,10 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     out
 }
 
-/// Slice-1 fences, each a teaching error: no `Await` yet (events are
-/// synchronous), no event parameters yet (they arrive with input controls).
-fn validate_page(p: &Window, diags: &mut Diagnostics) {
+/// Page fences and binding checks, each a teaching error: no `Await` yet
+/// (events are synchronous), and input widgets must bind fields of the right
+/// type (a `TextInput` types into a `String`, a `Checkbox` toggles a `Boolean`).
+fn validate_page(p: &Window, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     if p.events.iter().any(|e| e.body.iter().any(stmt_has_await)) {
         diags.error_once(
             "page-await",
@@ -177,12 +195,32 @@ fn validate_page(p: &Window, diags: &mut Diagnostics) {
              (browser async arrives in a later slice).",
         );
     }
-    if p.events.iter().any(|e| !e.params.is_empty()) {
-        diags.error_once(
-            "page-event-params",
-            "A Page event can't take parameters yet — they arrive with the input controls \
-             (`TextInput`, `Checkbox`) in a later slice.",
-        );
+    validate_view(&p.view, field_ty, diags);
+}
+
+fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
+    match node {
+        ViewNode::TextInput { value, .. } => {
+            if !matches!(field_ty.get(&rust_name(value)), Some(DeclType::Plain(Type::Text))) {
+                diags.error_once(
+                    &format!("textinput-field-{}", rust_name(value)),
+                    format!("A TextInput binds to a `String` state field — `{}` isn't one.", value),
+                );
+            }
+        }
+        ViewNode::Checkbox { value, .. } => {
+            if !matches!(field_ty.get(&rust_name(value)), Some(DeclType::Plain(Type::Boolean))) {
+                diags.error_once(
+                    &format!("checkbox-field-{}", rust_name(value)),
+                    format!("A Checkbox binds to a `Boolean` state field — `{}` isn't one.", value),
+                );
+            }
+        }
+        ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
+        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+            children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        _ => {}
     }
 }
 
@@ -216,6 +254,48 @@ fn render_node(
                 None => out.push_str(&format!("{}<button>{{ {} }}</button>\n", pad, lbl)),
             }
         }
+        // A controlled text input: the value always comes from state, and each
+        // keystroke sends the input's new text to the bound event.
+        ViewNode::TextInput { placeholder, value, on_input } => {
+            let ph = render_expr(
+                &rewrite_expr_with(placeholder.clone(), "self", ctx.fields, ctx.enums),
+                None,
+            );
+            let field = rust_name(value);
+            let inner = "    ".repeat(indent + 1);
+            out.push_str(&format!("{}<input\n", pad));
+            out.push_str(&format!("{}placeholder={{{}}}\n", inner, ph));
+            out.push_str(&format!("{}value={{self.{}.clone()}}\n", inner, field));
+            if let Some(ev) = on_input {
+                out.push_str(&format!(
+                    "{}oninput={{ctx.link().callback(|e: InputEvent| \
+                     Message::{}(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}}\n",
+                    inner, ev
+                ));
+            }
+            out.push_str(&format!("{}/>\n", pad));
+        }
+        // A checkbox inside its <label>, so clicking the text toggles it too.
+        ViewNode::Checkbox { label, value, on_toggle } => {
+            let lbl = text_content(label, ctx);
+            let field = rust_name(value);
+            let inner = "    ".repeat(indent + 1);
+            let in2 = "    ".repeat(indent + 2);
+            out.push_str(&format!("{}<label>\n", pad));
+            out.push_str(&format!("{}<input\n", inner));
+            out.push_str(&format!("{}type=\"checkbox\"\n", in2));
+            out.push_str(&format!("{}checked={{self.{}}}\n", in2, field));
+            if let Some(ev) = on_toggle {
+                out.push_str(&format!(
+                    "{}onchange={{ctx.link().callback(|e: Event| \
+                     Message::{}(e.target_unchecked_into::<web_sys::HtmlInputElement>().checked()))}}\n",
+                    in2, ev
+                ));
+            }
+            out.push_str(&format!("{}/>\n", inner));
+            out.push_str(&format!("{}{{ {} }}\n", inner, lbl));
+            out.push_str(&format!("{}</label>\n", pad));
+        }
         // Layout sizing is not styled yet — render the child and say so.
         ViewNode::Constrained { child, .. } => {
             diags.error_once(
@@ -229,8 +309,8 @@ fn render_node(
             diags.error_once(
                 "page-widget",
                 format!(
-                    "That widget isn't supported in a Page yet ({}). Slice 1 supports Column, \
-                     Row, Text, and Button.",
+                    "That widget isn't supported in a Page yet ({}). So far a Page supports \
+                     Column, Row, Text, Button, TextInput, and Checkbox.",
                     web_node_name(other)
                 ),
             );
@@ -279,9 +359,7 @@ fn text_content(e: &Expr, ctx: &PageCtx) -> String {
 /// A short name for an unsupported node, for the diagnostic.
 fn web_node_name(node: &ViewNode) -> &'static str {
     match node {
-        ViewNode::TextInput { .. } => "TextInput",
         ViewNode::TextArea { .. } => "TextArea",
-        ViewNode::Checkbox { .. } => "Checkbox",
         ViewNode::Slider { .. } => "Slider",
         ViewNode::Toggler { .. } => "Toggler",
         ViewNode::ProgressBar { .. } => "ProgressBar",
