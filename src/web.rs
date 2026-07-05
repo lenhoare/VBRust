@@ -17,12 +17,16 @@
 //! Slice 3: view logic and the remaining display widgets — `Match`/`If` in the
 //! view (a Rust `match`/`if` choosing an `html!` fragment), `Slider`,
 //! `ProgressBar`, `Image`, and `Length`/`Fill` sizing.
+//! Slice 4: async — `Await Http.Get(url)` splits the event exactly as in the
+//! GUI (kick-off + generated `<Event>Done` continuation), but runs on the
+//! browser's own `fetch` (gloo-net) via `ctx.link().send_future` — no threads
+//! on wasm, and no vbr_stdlib (ureq doesn't compile there).
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::surface::{
-    self, event_stdlib_imports, launched, match_scrutinee, render_init, rewrite_expr_with,
-    state_maps, stmt_has_await,
+    self, analyze_events, collect_event_stdlib, launched, match_scrutinee, render_init,
+    rewrite_expr_with, state_maps, AsyncBackend, AwaitSplit,
 };
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
@@ -49,19 +53,39 @@ pub fn emit_web_program(program: &Program, diags: &mut Diagnostics) -> String {
         out.push('\n');
     }
 
-    // The browser sandbox has no filesystem, and our stdlib's blocking calls
-    // can't run on the UI thread — so no stdlib in a Page yet (a web-friendly
-    // `Http` over the browser's fetch arrives with `Await` in a later slice).
+    // The browser sandbox has no filesystem, and vbr_stdlib doesn't compile on
+    // wasm — so no stdlib in a Page, with one door: `Await Http.Get` in an
+    // event runs on the browser's own fetch (it never marks `stdlib:Http`, so
+    // it doesn't land here).
     let std = crate::transpiler::stdlib_used(diags);
     if !std.is_empty() {
         diags.error_once(
             "page-stdlib",
             format!(
-                "The standard library ({}) isn't available in a Page yet — a browser has no \
-                 filesystem, and blocking calls would freeze the page. A web-friendly `Http` \
-                 arrives in a later slice.",
+                "The standard library ({}) isn't available in a Page — a browser sandbox has \
+                 no filesystem, and its networking is async-only. For HTTP, use \
+                 `Await Http.Get(url)` inside an event (it runs on the browser's fetch).",
                 std.join(", ")
             ),
+        );
+    }
+
+    // The fetch wrapper behind an awaited `Http.Get`, emitted once when used.
+    if out.contains("http_get(") {
+        out.push_str(
+            "/// The browser's `fetch`, shaped like the stdlib's `Http.Get`: the response\n\
+             /// body on success; any failure (network, CORS, an HTTP error status) as a\n\
+             /// `String` error.\n\
+             async fn http_get(url: &str) -> Result<String, String> {\n\
+             \x20   let response = gloo_net::http::Request::get(url)\n\
+             \x20       .send()\n\
+             \x20       .await\n\
+             \x20       .map_err(|e| e.to_string())?;\n\
+             \x20   if !response.ok() {\n\
+             \x20       return Err(format!(\"HTTP {}\", response.status()));\n\
+             \x20   }\n\
+             \x20   response.text().await.map_err(|e| e.to_string())\n\
+             }\n\n",
         );
     }
 
@@ -98,8 +122,24 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     let ctx = PageCtx { fields: &fields, field_ty: &field_ty, enums: &t.enums };
 
     validate_page(p, &field_ty, diags);
-    // Trigger the stdlib marks for event bodies (checked program-wide by the caller).
-    let _ = event_stdlib_imports(&p.events, diags);
+
+    // Analyse each event for `Await`: an async event splits into a kick-off arm
+    // (sends a future to the component) and a generated `<Event>Done(...)`
+    // continuation arm. Also checks nothing blocking runs un-`Await`ed.
+    let splits: Vec<Option<AwaitSplit>> =
+        analyze_events(&p.events, &field_ty, &t.fns, diags, AsyncBackend::Web);
+    let any_async = splits.iter().any(Option::is_some);
+
+    // Mark stdlib namespaces used in events so the program-wide fence catches
+    // them — except `Http`, whose awaited form runs on the browser's fetch
+    // (a sync `Http.Get` is caught by the blocking-without-`Await` check).
+    let mut std_used: Vec<String> = Vec::new();
+    for e in &p.events {
+        collect_event_stdlib(&e.body, &mut std_used);
+    }
+    for ns in std_used.iter().filter(|ns| ns.as_str() != "Http") {
+        diags.mark(&format!("stdlib:{}", ns));
+    }
 
     out.push_str("use yew::prelude::*;\n\n");
 
@@ -110,15 +150,19 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     }
     out.push_str("}\n\n");
 
-    // ── Message enum: one variant per event (payload params = its data) ──
+    // ── Message enum: one variant per event (payload params = its data), plus
+    //    a `<Event>Done(result)` continuation variant for each async event ──
     if !p.events.is_empty() {
         out.push_str("enum Message {\n");
-        for e in &p.events {
+        for (e, split) in p.events.iter().zip(&splits) {
             if e.params.is_empty() {
                 out.push_str(&format!("    {},\n", e.name));
             } else {
                 let types: Vec<String> = e.params.iter().map(|p| decltype_rust(&p.ty)).collect();
                 out.push_str(&format!("    {}({}),\n", e.name, types.join(", ")));
+            }
+            if let Some(s) = split {
+                out.push_str(&format!("    {}Done({}),\n", e.name, s.ret_type));
             }
         }
         out.push_str("}\n\n");
@@ -147,13 +191,18 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     out.push_str("    }\n\n");
 
     // update — state-field idents are rewritten to `self.field`; returning
-    // `true` tells Yew the state changed, so the view re-renders.
+    // `true` tells Yew the state changed, so the view re-renders. An async
+    // event's kick-off sends its future to the component with
+    // `ctx.link().send_future` (the result comes back as `<Event>Done`), and
+    // the `true` shows the pre-await state (e.g. "loading…") right away.
     if !p.events.is_empty() {
-        out.push_str(
-            "    fn update(&mut self, _ctx: &Context<Self>, message: Self::Message) -> bool {\n",
-        );
+        let update_ctx = if any_async { "ctx" } else { "_ctx" };
+        out.push_str(&format!(
+            "    fn update(&mut self, {}: &Context<Self>, message: Self::Message) -> bool {{\n",
+            update_ctx
+        ));
         out.push_str("        match message {\n");
-        for e in &p.events {
+        for (e, split) in p.events.iter().zip(&splits) {
             if e.params.is_empty() {
                 out.push_str(&format!("            Message::{} => {{\n", e.name));
             } else {
@@ -164,10 +213,35 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
                     binds.join(", ")
                 ));
             }
-            surface::emit_event_stmts(
-                &e.body, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
-            );
+            match split {
+                // Synchronous event: run the whole body.
+                None => surface::emit_event_stmts(
+                    &e.body, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
+                ),
+                // Async kick-off: pre-await body, snapshot state, send the future.
+                Some(s) => {
+                    surface::emit_event_stmts(
+                        &s.pre, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
+                    );
+                    for snap in &s.snapshots {
+                        out.push_str(&format!("                {}\n", snap));
+                    }
+                    out.push_str(&format!(
+                        "                ctx.link().send_future(async move {{ \
+                         Message::{}Done({}.await) }});\n",
+                        e.name, s.call_src
+                    ));
+                }
+            }
             out.push_str("            }\n");
+            // The continuation arm for an async event.
+            if let Some(s) = split {
+                out.push_str(&format!("            Message::{}Done({}) => {{\n", e.name, s.bind));
+                surface::emit_event_stmts(
+                    &s.cont, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
+                );
+                out.push_str("            }\n");
+            }
         }
         out.push_str("        }\n");
         out.push_str("        true // state changed — re-render the view\n");
@@ -190,17 +264,10 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     out
 }
 
-/// Page fences and binding checks, each a teaching error: no `Await` yet
-/// (events are synchronous), and input widgets must bind fields of the right
-/// type (a `TextInput` types into a `String`, a `Checkbox` toggles a `Boolean`).
+/// Page binding checks, each a teaching error: input widgets must bind fields
+/// of the right type (a `TextInput` types into a `String`, a `Checkbox`
+/// toggles a `Boolean`).
 fn validate_page(p: &Window, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
-    if p.events.iter().any(|e| e.body.iter().any(stmt_has_await)) {
-        diags.error_once(
-            "page-await",
-            "`Await` isn't available in a Page yet — Page events are synchronous for now \
-             (browser async arrives in a later slice).",
-        );
-    }
     validate_view(&p.view, field_ty, diags);
 }
 

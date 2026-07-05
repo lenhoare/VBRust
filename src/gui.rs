@@ -152,7 +152,8 @@ fn emit_window(
     // Analyse each event for `Await`: an async event splits into a kick-off arm
     // (returns a `Task`) and a generated `<Event>Done(...)` continuation arm. If
     // any event is async, the whole `update` returns `Task<Message>`.
-    let splits: Vec<Option<AwaitSplit>> = analyze_events(&w.events, &field_ty, &t.fns, diags);
+    let splits: Vec<Option<AwaitSplit>> =
+        analyze_events(&w.events, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
     let any_async = splits.iter().any(Option::is_some);
 
     // Import only the widgets the view uses, plus Task / stdlib namespaces when

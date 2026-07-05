@@ -149,6 +149,26 @@ pub(crate) fn state_maps(
     (fields, field_ty)
 }
 
+/// How a backend runs an awaited call. `Native` (Window/Screen) offloads the
+/// blocking vbr_stdlib to a thread (`tokio::task::spawn_blocking`); `Web`
+/// (Page) has no threads — `Http.Get` maps to the browser's own async `fetch`
+/// instead. Also decides the state receiver the async split snapshots against
+/// (`state` in an update fn, `self` in a Yew component).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum AsyncBackend {
+    Native,
+    Web,
+}
+
+impl AsyncBackend {
+    fn recv(self) -> &'static str {
+        match self {
+            AsyncBackend::Native => "state",
+            AsyncBackend::Web => "self",
+        }
+    }
+}
+
 /// Analyse every event: split each around an `Await` (None = synchronous), and
 /// check that no blocking stdlib call runs un-`Await`ed (it would freeze the
 /// UI). One entry per event, in order.
@@ -157,8 +177,10 @@ pub(crate) fn analyze_events(
     field_ty: &HashMap<String, DeclType>,
     fns: &resolver::FnTable,
     diags: &mut Diagnostics,
+    backend: AsyncBackend,
 ) -> Vec<Option<AwaitSplit>> {
-    let splits = events.iter().map(|e| await_split(e, field_ty, fns, diags)).collect();
+    let splits =
+        events.iter().map(|e| await_split(e, field_ty, fns, diags, backend)).collect();
     for e in events {
         check_blocking_without_await(&e.body, diags);
     }
@@ -166,14 +188,19 @@ pub(crate) fn analyze_events(
 }
 
 /// The stdlib namespaces used across all event bodies, sorted and deduped —
-/// ready for a `use vbr_stdlib::{…}` line.
+/// ready for a `use vbr_stdlib::{…}` line. Marks each so the vbr_stdlib dep and
+/// feature get added. (The web backend collects without marking — see
+/// `collect_event_stdlib` — since its `Http` is the browser's fetch, not ours.)
 pub(crate) fn event_stdlib_imports(events: &[GuiEvent], diags: &mut Diagnostics) -> Vec<String> {
     let mut used: Vec<String> = Vec::new();
     for e in events {
-        collect_event_stdlib(&e.body, &mut used, diags);
+        collect_event_stdlib(&e.body, &mut used);
     }
     used.sort();
     used.dedup();
+    for ns in &used {
+        diags.mark(&format!("stdlib:{}", ns));
+    }
     used
 }
 
@@ -315,11 +342,12 @@ pub(crate) fn await_split(
     field_ty: &HashMap<String, DeclType>,
     fns: &resolver::FnTable,
     diags: &mut Diagnostics,
+    backend: AsyncBackend,
 ) -> Option<AwaitSplit> {
     let idx = e.body.iter().position(stmt_has_await)?;
     match &e.body[idx] {
         Stmt::Match { scrutinee: Expr::Await(call), arms, line } => {
-            let info = awaitable_info(call, field_ty, fns, diags)?;
+            let info = awaitable_info(call, field_ty, fns, diags, backend)?;
             // Continuation runs `match result { <arms> }`, then any trailing code.
             let mut cont = vec![Stmt::Match {
                 scrutinee: Expr::Ident("result".to_string()),
@@ -338,7 +366,7 @@ pub(crate) fn await_split(
             })
         }
         Stmt::Dim { name, init: Some(Expr::Await(call)), .. } => {
-            let info = awaitable_info(call, field_ty, fns, diags)?;
+            let info = awaitable_info(call, field_ty, fns, diags, backend)?;
             Some(AwaitSplit {
                 pre: e.body[..idx].to_vec(),
                 snapshots: info.snapshots,
@@ -353,19 +381,21 @@ pub(crate) fn await_split(
             diags.error_once(
                 "await-position",
                 "`Await` must be the value of a `Match` (`Match Await Http.Get(url)`) or a \
-                 `Dim` (`Dim x = Await …`) inside a Window event.",
+                 `Dim` (`Dim x = Await …`) inside an event.",
             );
             None
         }
     }
 }
 
-/// The async task can't borrow `state`, so snapshot (clone) any state fields used
-/// as args, and render the call against those owned locals. Returns the `let …`
-/// snapshot lines and the rendered argument list.
+/// The async task can't borrow the state, so snapshot (clone) any state fields
+/// used as args, and render the call against those owned locals. Returns the
+/// `let …` snapshot lines and the rendered argument list. `recv` is where the
+/// state lives (`state` in an update fn, `self` in a Yew component).
 fn snapshot_args(
     args: &[Expr],
     field_ty: &HashMap<String, DeclType>,
+    recv: &str,
 ) -> (Vec<String>, Vec<String>) {
     let mut snapshots = Vec::new();
     let mut arg_src = Vec::new();
@@ -373,7 +403,7 @@ fn snapshot_args(
         match a {
             Expr::Ident(name) if field_ty.contains_key(&rust_name(name)) => {
                 let f = rust_name(name);
-                snapshots.push(format!("let {} = state.{}.clone();", f, f));
+                snapshots.push(format!("let {} = {}.{}.clone();", f, recv, f));
                 if matches!(field_ty.get(&f), Some(DeclType::Plain(Type::Text))) {
                     arg_src.push(format!("&{}", f));
                 } else {
@@ -388,12 +418,15 @@ fn snapshot_args(
 
 /// Resolve an awaited call to its Rust form, result type, and how to run it: a
 /// known stdlib call (`Http.Get`), or one of the program's own functions (whose
-/// return type the `FnTable` records). Both run off the UI thread.
+/// return type the `FnTable` records). Natively both run off the UI thread; on
+/// the web `Http.Get` maps to the generated `http_get` fetch wrapper instead
+/// (the browser is single-threaded — its HTTP is async by nature).
 fn awaitable_info(
     call: &Expr,
     field_ty: &HashMap<String, DeclType>,
     fns: &resolver::FnTable,
     diags: &mut Diagnostics,
+    backend: AsyncBackend,
 ) -> Option<AwaitInfo> {
     match call {
         // A stdlib call: `Http.Get(url)`.
@@ -410,6 +443,28 @@ fn awaitable_info(
                 return None;
             };
             let m = rust_name(method);
+            if backend == AsyncBackend::Web {
+                if (canon, m.as_str()) != ("Http", "get") {
+                    diags.error_once(
+                        "await-unsupported",
+                        format!(
+                            "`Await {}.{}` isn't supported in a Page yet — a Page awaits \
+                             `Http.Get` (the browser's fetch).",
+                            canon, method
+                        ),
+                    );
+                    return None;
+                }
+                // No vbr_stdlib on wasm — the call goes to the generated
+                // `http_get` wrapper over the browser's fetch (gloo-net).
+                let (snapshots, arg_src) = snapshot_args(args, field_ty, backend.recv());
+                return Some(AwaitInfo {
+                    snapshots,
+                    call_src: format!("http_get({})", arg_src.join(", ")),
+                    ret_type: "Result<String, String>".to_string(),
+                    blocking: false,
+                });
+            }
             let (ret_type, blocking) = match (canon, m.as_str()) {
                 ("Http", "get") => ("Result<String, String>".to_string(), true),
                 _ => {
@@ -425,13 +480,25 @@ fn awaitable_info(
                 }
             };
             diags.mark(&format!("stdlib:{}", canon));
-            let (snapshots, arg_src) = snapshot_args(args, field_ty);
+            let (snapshots, arg_src) = snapshot_args(args, field_ty, backend.recv());
             let call_src = format!("{}::{}({})", canon, m, arg_src.join(", "));
             Some(AwaitInfo { snapshots, call_src, ret_type, blocking })
         }
         // One of the program's own functions — its return type comes from the
         // FnTable; it's synchronous Rust, so run it via `spawn_blocking`.
         Expr::Call { name, args } => {
+            if backend == AsyncBackend::Web {
+                diags.error_once(
+                    "page-await-fn",
+                    format!(
+                        "`Await {}(…)` isn't available in a Page — the browser is \
+                         single-threaded, with no background thread to run your function on. \
+                         A Page awaits `Http.Get`.",
+                        name
+                    ),
+                );
+                return None;
+            }
             let Some(sig) = fns.get(&rust_name(name)) else {
                 diags.error_once(
                     "await-unknown-fn",
@@ -450,7 +517,7 @@ fn awaitable_info(
                 return None;
             };
             let ret_type = decltype_rust(dt);
-            let (snapshots, arg_src) = snapshot_args(args, field_ty);
+            let (snapshots, arg_src) = snapshot_args(args, field_ty, backend.recv());
             let call_src = format!("{}({})", rust_name(name), arg_src.join(", "));
             Some(AwaitInfo { snapshots, call_src, ret_type, blocking: true })
         }
@@ -610,86 +677,85 @@ fn expr_has_await(e: &Expr) -> bool {
 }
 
 /// Collect the stdlib namespaces (e.g. `Http`) used in event bodies — for the
-/// `use vbr_stdlib::{…}` line — and mark them so the dep + feature get added.
-pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagnostics) {
-    fn ex(e: &Expr, out: &mut Vec<String>, diags: &mut Diagnostics) {
+/// `use vbr_stdlib::{…}` line. Pure collection; marking is the caller's call.
+pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>) {
+    fn ex(e: &Expr, out: &mut Vec<String>) {
         match e {
             Expr::MethodCall { recv, args, .. } => {
                 if let Expr::Ident(r) = &**recv {
                     if let Some(c) = stdlib_type(r) {
                         out.push(c.to_string());
-                        diags.mark(&format!("stdlib:{}", c));
                     }
                 }
-                ex(recv, out, diags);
+                ex(recv, out);
                 for a in args {
-                    ex(a, out, diags);
+                    ex(a, out);
                 }
             }
             Expr::Await(i) | Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i)
             | Expr::Cast(i, _) | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
-            | Expr::Closure { body: i, .. } => ex(i, out, diags),
+            | Expr::Closure { body: i, .. } => ex(i, out),
             Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
-                ex(lhs, out, diags);
-                ex(rhs, out, diags);
+                ex(lhs, out);
+                ex(rhs, out);
             }
             Expr::Call { args, .. } => {
                 for a in args {
-                    ex(a, out, diags);
+                    ex(a, out);
                 }
             }
             Expr::Tuple(es) => {
                 for e2 in es {
-                    ex(e2, out, diags);
+                    ex(e2, out);
                 }
             }
             Expr::StructLit { fields, .. } => {
                 for (_, v) in fields {
-                    ex(v, out, diags);
+                    ex(v, out);
                 }
             }
             _ => {}
         }
     }
-    fn st(s: &Stmt, out: &mut Vec<String>, diags: &mut Diagnostics) {
+    fn st(s: &Stmt, out: &mut Vec<String>) {
         match s {
             Stmt::Assign { target, value, .. } => {
-                ex(target, out, diags);
-                ex(value, out, diags);
+                ex(target, out);
+                ex(value, out);
             }
-            Stmt::Dim { init: Some(e), .. } => ex(e, out, diags),
-            Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => ex(e, out, diags),
+            Stmt::Dim { init: Some(e), .. } => ex(e, out),
+            Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => ex(e, out),
             Stmt::If { branches, else_body } => {
                 for (c, b) in branches {
-                    ex(c, out, diags);
+                    ex(c, out);
                     for s2 in b {
-                        st(s2, out, diags);
+                        st(s2, out);
                     }
                 }
                 if let Some(b) = else_body {
                     for s2 in b {
-                        st(s2, out, diags);
+                        st(s2, out);
                     }
                 }
             }
             Stmt::Match { scrutinee, arms, .. } => {
-                ex(scrutinee, out, diags);
+                ex(scrutinee, out);
                 for a in arms {
                     for s2 in &a.body {
-                        st(s2, out, diags);
+                        st(s2, out);
                     }
                 }
             }
             Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
                 for s2 in body {
-                    st(s2, out, diags);
+                    st(s2, out);
                 }
             }
             _ => {}
         }
     }
     for s in stmts {
-        st(s, out, diags);
+        st(s, out);
     }
 }
 

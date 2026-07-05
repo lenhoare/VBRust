@@ -755,7 +755,8 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     // Async: split each event around an `Await`. An async event kicks its blocking
     // work onto a background thread and delivers the result over a channel.
     // (`analyze_events` also checks nothing blocking runs un-`Await`ed.)
-    let splits: Vec<Option<AwaitSplit>> = analyze_events(&sc.events, &field_ty, &t.fns, diags);
+    let splits: Vec<Option<AwaitSplit>> =
+        analyze_events(&sc.events, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
     let any_async = splits.iter().any(Option::is_some);
     let async_by_name: HashMap<String, &AwaitSplit> = sc
         .events

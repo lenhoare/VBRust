@@ -1,0 +1,43 @@
+' Async in the browser: Await Http.Get runs on the browser's own fetch, so the
+' page never freezes. The event splits — kick-off shows "loading…" right away,
+' then the result arrives in a generated continuation that updates the status.
+' A direct port of the GUI's fetch.vbr — same blocks, third renderer.
+' (The browser enforces CORS: the server must allow cross-origin reads, or the
+' request comes back as an Err. api.github.com allows them.)
+' Run it with: vbr runweb examples/web_fetch.vbr
+Page Fetcher
+    Title "Fetcher"
+
+    State
+        Dim url As String = "https://api.github.com/zen"
+        Dim status As String = "idle"
+    End State
+
+    View
+        Column
+            TextInput "url", url
+                On Input SetUrl
+            End TextInput
+            Button "Fetch"
+                On Click Fetch
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event SetUrl(value As String)
+        url = value
+    End Event
+
+    Event Fetch
+        status = "loading…"
+        Match Await Http.Get(url)
+            Ok(body) => status = "got " & body.len() & " bytes"
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Page
+
+Function Main()
+    Fetcher.Run
+End Function

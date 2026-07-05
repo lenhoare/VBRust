@@ -5,11 +5,12 @@ A `Page` is a **browser application**: the same State/View/Events model as a
 It is backed by the Rust **Yew** crate (version-pinned, like Iced 0.13),
 compiled to **WebAssembly**, and served by **trunk**.
 
-> Status: **slices 1–3 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
+> Status: **slices 1–4 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
 > (`Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`,
 > `Match`/`If` in the view, `Column`/`Row` with `Spacing`/`Padding` and
-> `Length`/`Fill` sizing)/`Event` including payload events, `vbr runweb`.
-> Later slices are listed in §8 and not yet built.
+> `Length`/`Fill` sizing)/`Event` including payload events, async events
+> (`Await Http.Get` on the browser's fetch), `vbr runweb`.
+> Later slices are listed in §9 and not yet built.
 
 ---
 
@@ -110,27 +111,58 @@ cargo install trunk --locked               # the wasm bundler + dev server
 `vbr run`/`vbr runproject` on a `Page` program redirect you to `runweb`;
 `vbr build` generates the project without serving it.
 
-## 5. What a Page cannot do (yet)
+## 5. Async events — `Await Http.Get`
+
+The same `Await` you know from the GUI/TUI, on the browser's own machinery:
+
+```vb
+Event Fetch
+    status = "loading…"
+    Match Await Http.Get(url)
+        Ok(body) => status = "got " & body.len() & " bytes"
+        Err(e) => status = "error: " & e
+    End Match
+End Event
+```
+
+- The event **splits** exactly as in a `Window`: everything before the `Await`
+  runs in the kick-off (so `"loading…"` shows immediately), and the code after
+  it lands in a generated `<Event>Done(result)` continuation that runs when
+  the response arrives. `Dim r As Result<String, String> = Await …` works too.
+- The kick-off hands the future to the component with
+  `ctx.link().send_future(…)` — Yew's equivalent of Iced's `Task::perform`.
+- **`Http.Get` here is the browser's `fetch`**, not the native stdlib (which
+  can't compile to wasm): the transpiler generates a small `http_get` wrapper
+  over `gloo-net`, shaped like the stdlib's — the body on success, any failure
+  (network, an HTTP error status) as a `String` error. The `gloo-net`
+  dependency is added automatically.
+- **CORS**: a browser only lets a page read a cross-origin response if the
+  server allows it (`Access-Control-Allow-Origin`). A server that doesn't
+  comes back as an `Err` — `api.github.com` allows it, `example.com` doesn't.
+- Calling `Http.Get` *without* `Await` is the same teaching error as in the
+  GUI: it would freeze the page.
+
+## 6. What a Page cannot do (yet)
 
 Each is a teaching error today:
 
-- **`Await` / async events** — Page events are synchronous in slice 1. Browser
-  async (`spawn_local`) arrives with the web `Http` story.
-- **The stdlib** — a browser sandbox has no filesystem, and blocking calls
-  would freeze the page. A web-friendly `Http` (the browser's `fetch` via
-  `gloo-net`) arrives in a later slice; `FileSystem`/`DataFrame` don't apply
-  in a browser.
+- **The stdlib** — a browser sandbox has no filesystem, and vbr_stdlib doesn't
+  compile to wasm. The one door is `Await Http.Get` in an event (§5);
+  `FileSystem`/`DataFrame` don't apply in a browser.
+- **`Await` on your own functions** — the browser is single-threaded, with no
+  background thread to run a synchronous function on (the GUI uses
+  `spawn_blocking`; wasm has no equivalent).
 
-## 6. Testing
+## 7. Testing
 
 `examples/web_counter.vbr` (slice 1), `examples/web_greeting.vbr` (slice 2:
-inputs, payload events), and `examples/web_settings.vbr` (slice 3: Match/If,
-Slider, ProgressBar) are snapshot-tested (TRANSPILE_ONLY); the greeting and
-settings are also built for real by the compile guard
-(`cargo test -- --ignored`) whenever the wasm target is installed — skipped
-with a notice otherwise.
+inputs, payload events), `examples/web_settings.vbr` (slice 3: Match/If,
+Slider, ProgressBar), and `examples/web_fetch.vbr` (slice 4: `Await Http.Get`)
+are snapshot-tested (TRANSPILE_ONLY); all but the counter are also built for
+real by the compile guard (`cargo test -- --ignored`) whenever the wasm target
+is installed — skipped with a notice otherwise.
 
-## 7. Backend mapping
+## 8. Backend mapping
 
 | VBR | Yew |
 |-----|-----|
@@ -138,12 +170,14 @@ with a notice otherwise.
 | `State` fields | fields on `X` (`self.field`) |
 | `Dim` initialisers | `fn create` |
 | `Event E` | `Message::E` + an `update` arm returning `true` |
+| async `Event E` | kick-off arm (`ctx.link().send_future`) + `Message::EDone` continuation arm |
+| `Await Http.Get(url)` | generated `http_get` wrapper over gloo-net's fetch |
 | `View` | `fn view` → `html!` |
 | `X.Run` in `Main` | `yew::Renderer::<X>::new().render()` |
 
-## 8. Deferred (later slices)
+## 9. Deferred (later slices)
 
-1. **Async** — `Await` via `spawn_local`; web `Http` over the browser's fetch
-   (`gloo-net`).
-2. **Styling & assets** — a CSS story beyond inline flexbox (maybe `Theme`),
+1. **Styling & assets** — a CSS story beyond inline flexbox (maybe `Theme`),
    and local files for `Image` (trunk asset copying).
+2. **More of `Http`** — `Await Http.Post` (the fetch wrapper generalises
+   easily) once the native side awaits it too.

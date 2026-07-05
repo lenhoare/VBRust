@@ -83,11 +83,12 @@ fn transpile_only_examples_compile() {
         );
         return;
     }
-    // The two web examples cover the whole Page surface between them:
+    // The web examples cover the whole Page surface between them:
     // web_greeting the input round-trip (TextInput/Checkbox, payload messages,
     // the web-sys dep); web_settings the view logic (Match/If, Slider,
-    // ProgressBar).
-    for name in ["web_greeting", "web_settings"] {
+    // ProgressBar); web_fetch async (`Await Http.Get` → send_future + the
+    // gloo-net fetch wrapper).
+    for name in ["web_greeting", "web_settings", "web_fetch"] {
         let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
             .arg("build")
             .arg(examples.join(format!("{name}.vbr")))

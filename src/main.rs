@@ -577,6 +577,13 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
     if entry_compiled.rust.contains("web_sys::HtmlInputElement") {
         cargo.push_str("web-sys = { version = \"0.3\", features = [\"HtmlInputElement\"] }\n");
     }
+    // An awaited `Http.Get` in a Page runs on the browser's fetch via gloo-net
+    // (the generated `http_get` wrapper) — only its `http` feature is needed.
+    if entry_compiled.rust.contains("gloo_net::") {
+        cargo.push_str(
+            "gloo-net = { version = \"0.6\", default-features = false, features = [\"http\"] }\n",
+        );
+    }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
         exit(1);
