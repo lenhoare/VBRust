@@ -12,15 +12,11 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::gui::{
-    await_split, check_blocking_without_await, coerce_state_strings, collect_event_stdlib,
-    render_init, rewrite_stmt, AwaitSplit,
+use crate::surface::{
+    self, analyze_events, event_stdlib_imports, launched, match_scrutinee, render_init,
+    rewrite_expr, state_maps, AwaitSplit,
 };
-use crate::resolver;
-use crate::transpiler::{
-    decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, note_builtins, render_expr,
-    emit_struct, rust_name,
-};
+use crate::transpiler::{decltype_rust, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
 /// Emit a complete TUI program: shared items (consts/structs/enums/functions),
@@ -28,74 +24,22 @@ use std::collections::{HashMap, HashSet};
 /// `<Screen>.Run` inside `Function Main()`.
 pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
     let mut out = String::new();
-    for comment in &program.leading_comments {
-        out.push_str(&format!("// {}\n", comment));
-    }
-    if !program.leading_comments.is_empty() {
-        out.push('\n');
-    }
-    for c in &program.constants {
-        emit_const(c, &mut out, diags);
-    }
-    if !program.constants.is_empty() {
-        out.push('\n');
-    }
-    for s in &program.structs {
-        emit_struct(s, diags, &mut out);
-        out.push('\n');
-    }
-    for e in &program.enums {
-        emit_enum(e, &mut out);
-        out.push('\n');
-    }
-
-    let enums: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
-
-    // User functions/methods (everything except `Main`), so a screen can call them.
-    let modules: HashSet<String> = HashSet::new();
-    let fns = resolver::build_fn_table(program);
-    let methods = resolver::build_method_table(program);
-    let consts = resolver::build_const_map(program);
-    let struct_table = resolver::build_struct_table(program);
-    let is_main = |f: &Function| f.receiver.is_none() && f.name.eq_ignore_ascii_case("Main");
-    for f in &program.functions {
-        if !is_main(f) {
-            note_builtins(&f.body, diags);
-        }
-    }
-    let mut receivers: Vec<&String> = Vec::new();
-    for f in &program.functions {
-        if let Some(r) = &f.receiver {
-            if !receivers.contains(&r) {
-                receivers.push(r);
-            }
-        }
-    }
-    for recv in receivers {
-        emit_impl(
-            recv, program, &fns, &methods, &consts, &modules, &enums, &struct_table, diags,
-            &mut out,
-        );
-        out.push('\n');
-    }
-    for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
-        emit_fn(
-            f, &fns, &methods, &consts, &modules, &enums, &struct_table, diags, &mut out, 0,
-            None,
-        );
-        out.push('\n');
-    }
+    let t = surface::build_tables(program);
+    surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
     // Struct definitions by name — a `Table` reads its element struct's fields.
     let structs: HashMap<String, &StructDef> =
         program.structs.iter().map(|s| (s.name.clone(), s)).collect();
 
     for sc in &program.screens {
-        out.push_str(&emit_screen(sc, &enums, &structs, diags));
+        out.push_str(&emit_screen(sc, &t, &structs, diags));
         out.push('\n');
     }
-    match find_launched_screen(program) {
-        Some(sc) => out.push_str(&emit_main(sc, &enums, &fns, diags)),
+    let launched_screen = launched(program, |name| {
+        program.screens.iter().find(|s| s.name.eq_ignore_ascii_case(name))
+    });
+    match launched_screen {
+        Some(sc) => out.push_str(&emit_main(sc, &t, diags)),
         None => diags.error_once(
             "tui-no-launch",
             "A screen is never launched. Add `Function Main()` containing `<Screen>.Run`, \
@@ -105,42 +49,18 @@ pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
     out
 }
 
-/// Find the screen launched by `<Screen>.Run` inside `Function Main()`.
-fn find_launched_screen(program: &Program) -> Option<&Screen> {
-    let main = program.functions.iter().find(|f| f.name.eq_ignore_ascii_case("Main"))?;
-    for stmt in &main.body {
-        if let Stmt::Expr(e) = stmt {
-            let (recv, method) = match e {
-                Expr::Field(recv, m) => (recv.as_ref(), m),
-                Expr::MethodCall { recv, method, .. } => (recv.as_ref(), method),
-                _ => continue,
-            };
-            if !method.eq_ignore_ascii_case("run") {
-                continue;
-            }
-            if let Expr::Ident(name) = recv {
-                if let Some(sc) = program.screens.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
-                    return Some(sc);
-                }
-            }
-        }
-    }
-    None
-}
-
 /// Emit one screen: the State struct + Default, the `view` fn, and (later) any
 /// helpers. The event loop lives in `fn main` (emitted separately).
 fn emit_screen(
     sc: &Screen,
-    enums: &HashSet<String>,
+    t: &surface::Tables,
     structs: &HashMap<String, &StructDef>,
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
     let ty = &sc.name;
-    let field_ty: HashMap<String, DeclType> =
-        sc.state.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
-    let fields: HashSet<String> = field_ty.keys().cloned().collect();
+    let enums = &t.enums;
+    let (fields, field_ty) = state_maps(&sc.state);
 
     // Focusable widgets — Input (types into a String), List/Table (select over a
     // Vec). List/Table need a runtime `ListState`/`TableState`; >1 focusable adds
@@ -488,8 +408,8 @@ fn render_view_node(
                     format!("A Gauge shows a number — `{}` must be a numeric field.", value),
                 );
             }
-            let lo = render_expr(&crate::gui::rewrite_expr(min.clone(), fields, enums), None);
-            let hi = render_expr(&crate::gui::rewrite_expr(max.clone(), fields, enums), None);
+            let lo = render_expr(&rewrite_expr(min.clone(), fields, enums), None);
+            let hi = render_expr(&rewrite_expr(max.clone(), fields, enums), None);
             let id = *counter;
             *counter += 1;
             out.push_str(&format!(
@@ -588,8 +508,8 @@ fn render_view_node(
             for (axis, sel, bounds) in [("x", 0usize, x_bounds), ("y", 1usize, y_bounds)] {
                 match bounds {
                     Some((lo, hi)) => {
-                        let lo = render_expr(&crate::gui::rewrite_expr(lo.clone(), fields, enums), None);
-                        let hi = render_expr(&crate::gui::rewrite_expr(hi.clone(), fields, enums), None);
+                        let lo = render_expr(&rewrite_expr(lo.clone(), fields, enums), None);
+                        let hi = render_expr(&rewrite_expr(hi.clone(), fields, enums), None);
                         out.push_str(&format!("{}let {}lo_{} = ({}) as f64;\n", pad, axis, id, lo));
                         out.push_str(&format!("{}let {}hi_{} = ({}) as f64;\n", pad, axis, id, hi));
                     }
@@ -638,13 +558,13 @@ fn render_view_node(
         // `Match <expr>` in the view → a Rust `match` whose arm renders its
         // widget(s) into the same area.
         ViewNode::Match { scrutinee, arms } => {
-            let subj = match_subject(scrutinee, fields, field_ty, enums);
+            let subj = match_scrutinee(scrutinee, fields, field_ty, enums);
             out.push_str(&format!("{}match {} {{\n", pad, subj));
             for arm in arms {
                 let guard = match &arm.guard {
                     Some(g) => format!(
                         " if {}",
-                        render_expr(&crate::gui::rewrite_expr(g.clone(), fields, enums), None)
+                        render_expr(&rewrite_expr(g.clone(), fields, enums), None)
                     ),
                     None => String::new(),
                 };
@@ -661,7 +581,7 @@ fn render_view_node(
         // that renders the chosen branch's widget(s) into the area.
         ViewNode::If { branches, else_body } => {
             for (i, (cond, body)) in branches.iter().enumerate() {
-                let c = render_expr(&crate::gui::rewrite_expr(cond.clone(), fields, enums), None);
+                let c = render_expr(&rewrite_expr(cond.clone(), fields, enums), None);
                 let kw = if i == 0 { "if" } else { "} else if" };
                 out.push_str(&format!("{}{} {} {{\n", pad, kw, c));
                 render_body_nodes(
@@ -722,23 +642,6 @@ fn render_body_nodes(
             );
         }
     }
-}
-
-/// The subject of a view `Match`: a bare `String` state field is matched as a
-/// slice (`state.name.as_str()`) so string-literal patterns line up.
-fn match_subject(
-    scrutinee: &Expr,
-    fields: &HashSet<String>,
-    field_ty: &HashMap<String, DeclType>,
-    enums: &HashSet<String>,
-) -> String {
-    let rendered = render_expr(&crate::gui::rewrite_expr(scrutinee.clone(), fields, enums), None);
-    if let Expr::Ident(name) = scrutinee {
-        if matches!(field_ty.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) {
-            return format!("{}.as_str()", rendered);
-        }
-    }
-    rendered
 }
 
 /// The ratatui `Constraint` for a child — its explicit size, or a sensible
@@ -843,23 +746,16 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
 
 /// `fn main`: the crossterm event loop. Redraw from state, read a key, dispatch
 /// the keymap (a handler event's body, or `Quit` → break), repeat.
-fn emit_main(
-    sc: &Screen,
-    enums: &HashSet<String>,
-    fns: &resolver::FnTable,
-    diags: &mut Diagnostics,
-) -> String {
+fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> String {
     let ty = &sc.name;
-    let field_ty: HashMap<String, DeclType> =
-        sc.state.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
-    let fields: HashSet<String> = field_ty.keys().cloned().collect();
+    let (fields, field_ty) = state_maps(&sc.state);
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
 
     // Async: split each event around an `Await`. An async event kicks its blocking
     // work onto a background thread and delivers the result over a channel.
-    let splits: Vec<Option<AwaitSplit>> =
-        sc.events.iter().map(|e| await_split(e, &field_ty, fns, diags)).collect();
+    // (`analyze_events` also checks nothing blocking runs un-`Await`ed.)
+    let splits: Vec<Option<AwaitSplit>> = analyze_events(&sc.events, &field_ty, &t.fns, diags);
     let any_async = splits.iter().any(Option::is_some);
     let async_by_name: HashMap<String, &AwaitSplit> = sc
         .events
@@ -867,10 +763,6 @@ fn emit_main(
         .zip(&splits)
         .filter_map(|(e, s)| s.as_ref().map(|s| (e.name.to_ascii_lowercase(), s)))
         .collect();
-    // Teaching diagnostic: a blocking stdlib call not under `Await` freezes the loop.
-    for e in &sc.events {
-        check_blocking_without_await(&e.body, diags);
-    }
 
     let focusables = collect_focusables(&sc.view);
     let has_focus = !focusables.is_empty();
@@ -886,12 +778,7 @@ fn emit_main(
 
     // Async preamble: the stdlib import + a `Message` enum of continuations.
     if any_async {
-        let mut std_used = Vec::new();
-        for e in &sc.events {
-            collect_event_stdlib(&e.body, &mut std_used, diags);
-        }
-        std_used.sort();
-        std_used.dedup();
+        let std_used = event_stdlib_imports(&sc.events, diags);
         if !std_used.is_empty() {
             out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_used.join(", ")));
         }
@@ -936,11 +823,7 @@ fn emit_main(
         for (e, split) in sc.events.iter().zip(&splits) {
             if let Some(s) = split {
                 out.push_str(&format!("                Message::{}Done({}) => {{\n", e.name, s.bind));
-                for stmt in &s.cont {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                    coerce_state_strings(&mut rewritten, &field_ty);
-                    emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), 5, &mut dummy, &mut out);
-                }
+                surface::emit_event_stmts(&s.cont, &e.params, &fields, &field_ty, t, 5, &mut dummy, &mut out);
                 out.push_str("                }\n");
             }
         }
@@ -948,17 +831,17 @@ fn emit_main(
         out.push_str("        }\n");
     }
     // Fire any due timers.
-    for (i, t) in sc.timers.iter().enumerate() {
+    for (i, tm) in sc.timers.iter().enumerate() {
         out.push_str(&format!(
             "        if last_tick_{}.elapsed().as_millis() >= {} {{\n",
-            i, t.interval_ms
+            i, tm.interval_ms
         ));
-        let handler = t.handler.to_ascii_lowercase();
-        if t.handler.eq_ignore_ascii_case("Quit") {
+        let handler = tm.handler.to_ascii_lowercase();
+        if tm.handler.eq_ignore_ascii_case("Quit") {
             out.push_str("            break;\n");
         } else if let Some(ev) = events.get(&handler) {
             emit_event_run(
-                ev, async_by_name.get(&handler).copied(), 3, &fields, &field_ty, enums, &mut out,
+                ev, async_by_name.get(&handler).copied(), 3, &fields, &field_ty, t, &mut out,
                 &mut dummy,
             );
         }
@@ -981,7 +864,7 @@ fn emit_main(
             out.push_str("                        break;\n");
         } else if let Some(ev) = events.get(&handler) {
             emit_event_run(
-                ev, async_by_name.get(&handler).copied(), 6, &fields, &field_ty, enums, &mut out,
+                ev, async_by_name.get(&handler).copied(), 6, &fields, &field_ty, t, &mut out,
                 &mut dummy,
             );
         }
@@ -1008,7 +891,7 @@ fn emit_main(
     }
     if has_focus && !user_keys.contains("KeyCode::Enter") {
         out.push_str("                    KeyCode::Enter => {\n");
-        out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, enums));
+        out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, t));
         out.push_str("                    }\n");
     }
     if has_input && !user_keys.contains("KeyCode::Backspace") {
@@ -1042,17 +925,13 @@ fn emit_event_run(
     indent: usize,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
-    enums: &HashSet<String>,
+    t: &surface::Tables,
     out: &mut String,
     dummy: &mut Diagnostics,
 ) {
     let pad = "    ".repeat(indent);
     let emit_body = |body: &[Stmt], out: &mut String, dummy: &mut Diagnostics| {
-        for stmt in body {
-            let mut r = rewrite_stmt(stmt.clone(), fields, enums);
-            coerce_state_strings(&mut r, field_ty);
-            emit_stmt(&r, &HashSet::new(), &HashSet::new(), indent, dummy, out);
-        }
+        surface::emit_event_stmts(body, &ev.params, fields, field_ty, t, indent, dummy, out);
     };
     match split {
         // Kick-off: pre-await body (main thread), snapshot state, spawn the
@@ -1102,7 +981,7 @@ fn enter_dispatch(
     events: &HashMap<String, &GuiEvent>,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
-    enums: &HashSet<String>,
+    t: &surface::Tables,
 ) -> String {
     let body = |fo: &Focusable, indent: usize| -> String {
         let pad = "    ".repeat(indent);
@@ -1112,11 +991,7 @@ fn enter_dispatch(
         };
         let mut dummy = Diagnostics::new();
         let mut emit_body = |s: &mut String, extra: usize| {
-            for stmt in &ev.body {
-                let mut rewritten = rewrite_stmt(stmt.clone(), fields, enums);
-                coerce_state_strings(&mut rewritten, field_ty);
-                emit_stmt(&rewritten, &HashSet::new(), &HashSet::new(), indent + extra, &mut dummy, s);
-            }
+            surface::emit_event_stmts(&ev.body, &ev.params, fields, field_ty, t, indent + extra, &mut dummy, s);
         };
         if fo.is_input() {
             // Submit: bind the handler's parameter to a clone of the typed text
@@ -1202,7 +1077,7 @@ fn key_pattern(key: &str) -> String {
 /// A `Text` node → the `Paragraph` content: a literal as-is, a concatenation as
 /// its `format!`, anything else stringified. State fields become `state.field`.
 fn text_content(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> String {
-    let rewritten = crate::gui::rewrite_expr(e.clone(), fields, enums);
+    let rewritten = rewrite_expr(e.clone(), fields, enums);
     match e {
         Expr::Str(_) => render_expr(&rewritten, None),
         Expr::Binary { op: BinOp::Concat, .. } => render_expr(&rewritten, None),

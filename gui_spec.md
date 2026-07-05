@@ -820,6 +820,12 @@ Events may call normal VBR procedures.
 
 Events may call inline Rust if allowed elsewhere in the language.
 
+An event body is ordinary VBR — it runs the same resolution pass as a function
+body, with the window's state fields and the event's parameters in scope. So
+stdlib methods (`now.AddDays(30)`), string/numeric coercions, iterator chains
+(`nums.Iter().Sum()`), and the usual teaching diagnostics all work inside an
+event exactly as they do in a function. *(BUILT — 2026-07-04.)*
+
 ---
 
 ## 9. Generated Messages
@@ -1181,6 +1187,13 @@ GuiModule
 This avoids coupling the VBR syntax directly to Iced and leaves open the possibility of future backends.
 
 The Iced backend should be the first supported backend.
+
+> *(BUILT — 2026-07-04.)* The State/View/Events machinery is now a shared core
+> (`src/surface.rs`): the program prologue, state maps, event-body resolution
+> and lowering, `Await` splitting, and blocking-call checks are one
+> implementation used by both the GUI (Iced) and TUI (ratatui) emitters, which
+> remain view renderers plus a runtime shell. A future backend (e.g. a web
+> `Page`) would be a third renderer over the same core, not a third copy.
 
 Inline Rust may be supported inside events...
 

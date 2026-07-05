@@ -20,10 +20,12 @@ use std::process::Command;
 
 /// One example per backend: stdlib wrappers (Json + DateTime multi-word
 /// methods), dataframes (polars, formulas, joins, IsNull), GUI (the full Iced
-/// control set + async `Await`), and TUI (ratatui charts, timers, async).
-/// Inline-Python examples are left out — they link libpython, which not every
-/// machine has.
-const GUARDED: &[&str] = &["datetime_json", "dataframe_join", "showcase", "tui_monitor"];
+/// control set + async `Await`), stdlib-inside-a-GUI-event (the event bodies
+/// run the resolver, so `now.AddDays(30)` maps to `add_days`), and TUI
+/// (ratatui charts, timers, async). Inline-Python examples are left out —
+/// they link libpython, which not every machine has.
+const GUARDED: &[&str] =
+    &["datetime_json", "dataframe_join", "showcase", "gui_event_stdlib", "tui_monitor"];
 
 #[test]
 #[ignore = "builds Iced/polars/ratatui — run with `cargo test -- --ignored`"]

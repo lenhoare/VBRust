@@ -7,11 +7,11 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::resolver;
-use crate::transpiler::{
-    decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, emit_struct, note_builtins,
-    render_expr, stdlib_type, rust_name,
+use crate::surface::{
+    self, analyze_events, coerce_state_strings, event_stdlib_imports, launched, match_scrutinee,
+    render_init, rewrite_expr, rewrite_expr_with, state_maps, AwaitSplit,
 };
+use crate::transpiler::{decltype_rust, emit_stmt, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs to know about a window's state: the field names
@@ -30,81 +30,27 @@ struct ViewCtx<'a> {
 /// launches the window named by `<Window>.Run` inside `Function Main()`.
 pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
     let mut out = String::new();
-    for comment in &program.leading_comments {
-        out.push_str(&format!("// {}\n", comment));
-    }
-    if !program.leading_comments.is_empty() {
-        out.push('\n');
-    }
-    // Top-level items a GUI may define and reference (enums for Radio, etc.).
-    for c in &program.constants {
-        emit_const(c, &mut out, diags);
-    }
-    if !program.constants.is_empty() {
-        out.push('\n');
-    }
-    for s in &program.structs {
-        emit_struct(s, diags, &mut out);
-        out.push('\n');
-    }
-    for e in &program.enums {
-        emit_enum(e, &mut out);
-        out.push('\n');
-    }
-
-    let enums: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
-
-    // User-defined functions/methods (everything except `Main`, which becomes the
-    // Iced `fn main`). Without this a GUI couldn't call its own procedures.
-    let modules: HashSet<String> = HashSet::new();
-    let fns = resolver::build_fn_table(program);
-    let methods = resolver::build_method_table(program);
-    let consts = resolver::build_const_map(program);
-    let struct_table = resolver::build_struct_table(program);
-    let is_main = |f: &Function| f.receiver.is_none() && f.name.eq_ignore_ascii_case("Main");
-    for f in &program.functions {
-        if !is_main(f) {
-            note_builtins(&f.body, diags);
-        }
-    }
-    // Methods, grouped into `impl` blocks (receivers in first-seen order).
-    let mut receivers: Vec<&String> = Vec::new();
-    for f in &program.functions {
-        if let Some(r) = &f.receiver {
-            if !receivers.contains(&r) {
-                receivers.push(r);
-            }
-        }
-    }
-    for recv in receivers {
-        emit_impl(
-            recv, program, &fns, &methods, &consts, &modules, &enums, &struct_table, diags,
-            &mut out,
-        );
-        out.push('\n');
-    }
+    let t = surface::build_tables(program);
     // Paint functions (those that issue drawing verbs) are emitted specially —
     // they take an extra `frame` and their draw commands lower to `frame.*` calls.
     let paint_fns = paint_fn_set(program);
-
-    // Free functions, except `Main`.
-    for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
+    surface::emit_shared_items(program, &t, diags, &mut out, &mut |f, diags, out| {
         if paint_fns.contains(&rust_name(&f.name)) {
-            emit_paint_fn(f, &enums, &paint_fns, diags, &mut out);
+            emit_paint_fn(f, &t.enums, &paint_fns, diags, out);
+            true
         } else {
-            emit_fn(
-                f, &fns, &methods, &consts, &modules, &enums, &struct_table, diags, &mut out, 0,
-                None,
-            );
+            false
         }
-        out.push('\n');
-    }
+    });
 
     for w in &program.windows {
-        out.push_str(&emit_window(w, &enums, &fns, &program.canvases, &paint_fns, diags));
+        out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, diags));
         out.push('\n');
     }
-    match find_launched_window(program) {
+    let launched_window = launched(program, |name| {
+        program.windows.iter().find(|w| w.name.eq_ignore_ascii_case(name))
+    });
+    match launched_window {
         Some(w) => out.push_str(&emit_main(w)),
         None => diags.error_once(
             "gui-no-launch",
@@ -151,48 +97,19 @@ fn emit_main(w: &Window) -> String {
     }
 }
 
-/// Find the window launched by a `<Window>.Run` statement inside `Function Main()`.
-/// Accepts the property form (`Counter.Run`) and the call form (`Counter.Run()`).
-fn find_launched_window(program: &Program) -> Option<&Window> {
-    let main = program
-        .functions
-        .iter()
-        .find(|f| f.name.eq_ignore_ascii_case("Main"))?;
-    for stmt in &main.body {
-        if let Stmt::Expr(e) = stmt {
-            let (recv, method) = match e {
-                Expr::Field(recv, m) => (recv.as_ref(), m),
-                Expr::MethodCall { recv, method, .. } => (recv.as_ref(), method),
-                _ => continue,
-            };
-            if !method.eq_ignore_ascii_case("run") {
-                continue;
-            }
-            if let Expr::Ident(name) = recv {
-                if let Some(w) = program.windows.iter().find(|w| w.name.eq_ignore_ascii_case(name)) {
-                    return Some(w);
-                }
-            }
-        }
-    }
-    None
-}
-
 /// Emit one window's *definition* — the State struct, Message enum, update, and
 /// view. (`fn main` is emitted separately, from the launch in `Function Main()`.)
 fn emit_window(
     w: &Window,
-    enums: &HashSet<String>,
-    fns: &resolver::FnTable,
+    t: &surface::Tables,
     canvases: &[CanvasDef],
     paint_fns: &HashSet<String>,
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
-    let fields: HashSet<String> = w.state.iter().map(|f| rust_name(&f.name)).collect();
-    let field_ty: HashMap<String, DeclType> =
-        w.state.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
+    let enums = &t.enums;
+    let (fields, field_ty) = state_maps(&w.state);
 
     // Canvases placed in this view: resolve each to its definition, and work out
     // which state fields its `Draw` block reads (snapshotted into the Program).
@@ -235,17 +152,8 @@ fn emit_window(
     // Analyse each event for `Await`: an async event splits into a kick-off arm
     // (returns a `Task`) and a generated `<Event>Done(...)` continuation arm. If
     // any event is async, the whole `update` returns `Task<Message>`.
-    let splits: Vec<Option<AwaitSplit>> = w
-        .events
-        .iter()
-        .map(|e| await_split(e, &field_ty, fns, diags))
-        .collect();
+    let splits: Vec<Option<AwaitSplit>> = analyze_events(&w.events, &field_ty, &t.fns, diags);
     let any_async = splits.iter().any(Option::is_some);
-
-    // A blocking stdlib call in an event must be `Await`ed, or the window freezes.
-    for e in &w.events {
-        check_blocking_without_await(&e.body, diags);
-    }
 
     // Import only the widgets the view uses, plus Task / stdlib namespaces when
     // events need them.
@@ -257,12 +165,7 @@ fn emit_window(
     if any_async {
         out.push_str("use iced::Task;\n");
     }
-    let mut std_used: Vec<String> = Vec::new();
-    for e in &w.events {
-        collect_event_stdlib(&e.body, &mut std_used, diags);
-    }
-    std_used.sort();
-    std_used.dedup();
+    let std_used = event_stdlib_imports(&w.events, diags);
     if !std_used.is_empty() {
         out.push_str(&format!("use vbr_stdlib::{{{}}};\n", std_used.join(", ")));
     }
@@ -324,7 +227,6 @@ fn emit_window(
     // ── update: state-field idents are rewritten to `state.field`. An async
     //    event's kick-off returns `Task::perform(work, Message::<Event>Done)`;
     //    its continuation runs the post-await handling. ──
-    let empty: HashSet<String> = HashSet::new();
     let ret = if any_async { " -> Task<Message>" } else { "" };
     // With no events and no text areas, nothing touches `state` — underscore it
     // so a display-only window (e.g. just an Image) compiles warning-free.
@@ -349,22 +251,14 @@ fn emit_window(
         match split {
             // Synchronous event: run the body; async windows need a `Task::none()`.
             None => {
-                for stmt in &e.body {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                    coerce_state_strings(&mut rewritten, &field_ty);
-                    emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
-                }
+                surface::emit_event_stmts(&e.body, &e.params, &fields, &field_ty, t, 3, diags, &mut out);
                 if any_async {
                     out.push_str("            Task::none()\n");
                 }
             }
             // Async kick-off: pre-await body, snapshot state, then return the Task.
             Some(s) => {
-                for stmt in &s.pre {
-                    let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                    coerce_state_strings(&mut rewritten, &field_ty);
-                    emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
-                }
+                surface::emit_event_stmts(&s.pre, &e.params, &fields, &field_ty, t, 3, diags, &mut out);
                 for snap in &s.snapshots {
                     out.push_str(&format!("            {}\n", snap));
                 }
@@ -387,11 +281,7 @@ fn emit_window(
         // The continuation arm for an async event.
         if let Some(s) = split {
             out.push_str(&format!("        Message::{}Done({}) => {{\n", e.name, s.bind));
-            for stmt in &s.cont {
-                let mut rewritten = rewrite_stmt(stmt.clone(), &fields, enums);
-                    coerce_state_strings(&mut rewritten, &field_ty);
-                emit_stmt(&rewritten, &empty, &empty, 3, diags, &mut out);
-            }
+            surface::emit_event_stmts(&s.cont, &e.params, &fields, &field_ty, t, 3, diags, &mut out);
             out.push_str("            Task::none()\n");
             out.push_str("        }\n");
         }
@@ -511,23 +401,6 @@ fn render_paint_param(p: &Param) -> String {
         other => decltype_rust(other),
     };
     format!("{}: {}", rust_name(&p.name), ty)
-}
-
-/// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
-/// an enum variant (`Size.Small`) resolves to its path (`Size::Small`), and a
-/// `Vec` with no initialiser starts empty.
-pub(crate) fn render_init(init: Option<&Expr>, ty: &DeclType, enums: &HashSet<String>) -> String {
-    let empty = HashSet::new();
-    match (ty, init) {
-        (DeclType::Vec(_), None) => "Vec::new()".to_string(),
-        (DeclType::Plain(Type::Text), Some(e)) => format!("{}.to_string()", render_expr(e, None)),
-        (DeclType::Plain(t), Some(e)) => render_expr(e, Some(*t)),
-        // Enum / Vec-with-initialiser / other — rewrite `Size.Small` → `Size::Small`.
-        (_, Some(e)) => render_expr(&rewrite_expr(e.clone(), &empty, enums), None),
-        // A non-collection field without an initialiser shouldn't reach here (the
-        // parser requires one); fall back to Default.
-        (_, None) => "Default::default()".to_string(),
-    }
 }
 
 /// Render a view node to an Iced widget expression, pretty-printed with
@@ -763,7 +636,7 @@ fn gui_length(size: SizeConstraint) -> String {
 
 /// A view `Match` → a typed `{ let el = match … {…}; el }` block, arms on lines.
 fn render_view_match(scrutinee: &Expr, arms: &[ViewArm], ctx: &ViewCtx, indent: usize) -> String {
-    let subj = render_match_scrutinee(scrutinee, ctx);
+    let subj = match_scrutinee(scrutinee, ctx.fields, ctx.field_ty, ctx.enums);
     let in1 = "    ".repeat(indent + 1);
     let in2 = "    ".repeat(indent + 2);
     let pad = "    ".repeat(indent);
@@ -833,18 +706,6 @@ fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx, indent: usize) -> String {
         [one] => render_view(one, ctx, indent, true),
         many => render_container("column", many, ctx, indent, true, None, None),
     }
-}
-
-/// The scrutinee of a view `Match`: a bare `String` state field is matched as a
-/// slice (`state.name.as_str()`) so string-literal patterns line up.
-fn render_match_scrutinee(scrutinee: &Expr, ctx: &ViewCtx) -> String {
-    let rendered = render_expr(&rewrite_expr(scrutinee.clone(), ctx.fields, ctx.enums), None);
-    if let Expr::Ident(name) = scrutinee {
-        if matches!(ctx.field_ty.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) {
-            return format!("{}.as_str()", rendered);
-        }
-    }
-    rendered
 }
 
 /// Walk the view for type mismatches we can explain better than rustc would.
@@ -1072,555 +933,6 @@ fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
         Expr::Str(_) => format!("text({})", rendered),
         Expr::Binary { op: BinOp::Concat, .. } => format!("text({})", rendered),
         _ => format!("text(format!(\"{{}}\", {}))", rendered),
-    }
-}
-
-/// Event bodies skip the resolver, so a string literal assigned to a `String`
-/// state field doesn't get its `.to_string()`. Add it here (`status = "x"` →
-/// `state.status = "x".to_string()`), recursing through `Match`/`If` bodies.
-pub(crate) fn coerce_state_strings(s: &mut Stmt, field_ty: &HashMap<String, DeclType>) {
-    match s {
-        Stmt::Assign { target: Expr::Field(recv, fname), value, .. }
-            if matches!(&**recv, Expr::Ident(n) if n == "state")
-                && matches!(field_ty.get(&rust_name(fname)), Some(DeclType::Plain(Type::Text)))
-                && matches!(value, Expr::Str(_)) =>
-        {
-            let inner = std::mem::replace(value, Expr::Int(0));
-            *value = Expr::MethodCall {
-                recv: Box::new(inner),
-                method: "to_string".to_string(),
-                args: Vec::new(),
-            };
-        }
-        Stmt::Match { arms, .. } => {
-            for a in arms {
-                for s2 in &mut a.body {
-                    coerce_state_strings(s2, field_ty);
-                }
-            }
-        }
-        Stmt::If { branches, else_body } => {
-            for (_, b) in branches {
-                for s2 in b {
-                    coerce_state_strings(s2, field_ty);
-                }
-            }
-            if let Some(b) = else_body {
-                for s2 in b {
-                    coerce_state_strings(s2, field_ty);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// The pieces of an event handler split around an `Await`.
-pub(crate) struct AwaitSplit {
-    pub(crate) pre: Vec<Stmt>,         // statements before the await (run in the kick-off)
-    pub(crate) snapshots: Vec<String>, // `let url = state.url.clone();` for state used in the call
-    pub(crate) call_src: String,       // the awaited call, e.g. `Http::get(&url)`
-    pub(crate) ret_type: String,       // its result type, e.g. `Result<String, String>`
-    pub(crate) blocking: bool,         // wrap the call in `spawn_blocking`
-    pub(crate) bind: String,           // continuation binding: `result` (Match) or the Dim name
-    pub(crate) cont: Vec<Stmt>,        // continuation statements (run when the result arrives)
-}
-
-/// What we need to know about an awaited stdlib call.
-struct AwaitInfo {
-    snapshots: Vec<String>,
-    call_src: String,
-    ret_type: String,
-    blocking: bool,
-}
-
-/// Analyse an event for `Await`. `None` means a synchronous event. V1 supports a
-/// single `Await` as the value of a `Match` (`Match Await Http.Get(url)`) or a
-/// `Dim` (`Dim x = Await …`).
-pub(crate) fn await_split(
-    e: &GuiEvent,
-    field_ty: &HashMap<String, DeclType>,
-    fns: &resolver::FnTable,
-    diags: &mut Diagnostics,
-) -> Option<AwaitSplit> {
-    let idx = e.body.iter().position(stmt_has_await)?;
-    match &e.body[idx] {
-        Stmt::Match { scrutinee: Expr::Await(call), arms, line } => {
-            let info = awaitable_info(call, field_ty, fns, diags)?;
-            // Continuation runs `match result { <arms> }`, then any trailing code.
-            let mut cont = vec![Stmt::Match {
-                scrutinee: Expr::Ident("result".to_string()),
-                arms: arms.clone(),
-                line: *line,
-            }];
-            cont.extend(e.body[idx + 1..].iter().cloned());
-            Some(AwaitSplit {
-                pre: e.body[..idx].to_vec(),
-                snapshots: info.snapshots,
-                call_src: info.call_src,
-                ret_type: info.ret_type,
-                blocking: info.blocking,
-                bind: "result".to_string(),
-                cont,
-            })
-        }
-        Stmt::Dim { name, init: Some(Expr::Await(call)), .. } => {
-            let info = awaitable_info(call, field_ty, fns, diags)?;
-            Some(AwaitSplit {
-                pre: e.body[..idx].to_vec(),
-                snapshots: info.snapshots,
-                call_src: info.call_src,
-                ret_type: info.ret_type,
-                blocking: info.blocking,
-                bind: rust_name(name),
-                cont: e.body[idx + 1..].to_vec(),
-            })
-        }
-        _ => {
-            diags.error_once(
-                "await-position",
-                "`Await` must be the value of a `Match` (`Match Await Http.Get(url)`) or a \
-                 `Dim` (`Dim x = Await …`) inside a Window event.",
-            );
-            None
-        }
-    }
-}
-
-/// The async task can't borrow `state`, so snapshot (clone) any state fields used
-/// as args, and render the call against those owned locals. Returns the `let …`
-/// snapshot lines and the rendered argument list.
-fn snapshot_args(
-    args: &[Expr],
-    field_ty: &HashMap<String, DeclType>,
-) -> (Vec<String>, Vec<String>) {
-    let mut snapshots = Vec::new();
-    let mut arg_src = Vec::new();
-    for a in args {
-        match a {
-            Expr::Ident(name) if field_ty.contains_key(&rust_name(name)) => {
-                let f = rust_name(name);
-                snapshots.push(format!("let {} = state.{}.clone();", f, f));
-                if matches!(field_ty.get(&f), Some(DeclType::Plain(Type::Text))) {
-                    arg_src.push(format!("&{}", f));
-                } else {
-                    arg_src.push(f);
-                }
-            }
-            other => arg_src.push(render_expr(other, None)),
-        }
-    }
-    (snapshots, arg_src)
-}
-
-/// Resolve an awaited call to its Rust form, result type, and how to run it: a
-/// known stdlib call (`Http.Get`), or one of the program's own functions (whose
-/// return type the `FnTable` records). Both run off the UI thread.
-fn awaitable_info(
-    call: &Expr,
-    field_ty: &HashMap<String, DeclType>,
-    fns: &resolver::FnTable,
-    diags: &mut Diagnostics,
-) -> Option<AwaitInfo> {
-    match call {
-        // A stdlib call: `Http.Get(url)`.
-        Expr::MethodCall { recv, method, args } => {
-            let canon = match &**recv {
-                Expr::Ident(r) => stdlib_type(r),
-                _ => None,
-            };
-            let Some(canon) = canon else {
-                diags.error_once(
-                    "await-not-awaitable",
-                    "`Await` works on a stdlib call (`Http.Get(url)`) or one of your own functions.",
-                );
-                return None;
-            };
-            let m = rust_name(method);
-            let (ret_type, blocking) = match (canon, m.as_str()) {
-                ("Http", "get") => ("Result<String, String>".to_string(), true),
-                _ => {
-                    diags.error_once(
-                        "await-unsupported",
-                        format!(
-                            "`Await {}.{}` isn't supported yet — V1 awaits `Http.Get` or your \
-                             own functions.",
-                            canon, method
-                        ),
-                    );
-                    return None;
-                }
-            };
-            diags.mark(&format!("stdlib:{}", canon));
-            let (snapshots, arg_src) = snapshot_args(args, field_ty);
-            let call_src = format!("{}::{}({})", canon, m, arg_src.join(", "));
-            Some(AwaitInfo { snapshots, call_src, ret_type, blocking })
-        }
-        // One of the program's own functions — its return type comes from the
-        // FnTable; it's synchronous Rust, so run it via `spawn_blocking`.
-        Expr::Call { name, args } => {
-            let Some(sig) = fns.get(&rust_name(name)) else {
-                diags.error_once(
-                    "await-unknown-fn",
-                    format!("`Await {}(…)` — there's no function `{}` to await.", name, name),
-                );
-                return None;
-            };
-            let Some(dt) = &sig.ret else {
-                diags.error_once(
-                    "await-no-return",
-                    format!(
-                        "`Await {}(…)` needs `{}` to return a value, so its result can come back.",
-                        name, name
-                    ),
-                );
-                return None;
-            };
-            let ret_type = decltype_rust(dt);
-            let (snapshots, arg_src) = snapshot_args(args, field_ty);
-            let call_src = format!("{}({})", rust_name(name), arg_src.join(", "));
-            Some(AwaitInfo { snapshots, call_src, ret_type, blocking: true })
-        }
-        _ => {
-            diags.error_once(
-                "await-not-awaitable",
-                "`Await` works on a stdlib call (`Http.Get(url)`) or one of your own functions.",
-            );
-            None
-        }
-    }
-}
-
-/// True if `e` is a stdlib call that blocks on I/O — so in a GUI event it must be
-/// `Await`ed, or it freezes the window. (Same set `awaitable_info` knows about.)
-fn is_blocking_stdlib_call(e: &Expr) -> bool {
-    if let Expr::MethodCall { recv, method, .. } = e {
-        if let Expr::Ident(r) = &**recv {
-            if let Some(c) = stdlib_type(r) {
-                return matches!((c, rust_name(method).as_str()), ("Http", "get"));
-            }
-        }
-    }
-    false
-}
-
-/// Teaching diagnostic: a blocking stdlib call used in an event *without* `Await`
-/// would freeze the window. A call directly under `Await` is fine.
-pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
-    fn ex(e: &Expr, awaited: bool, diags: &mut Diagnostics) {
-        // The expression directly under `Await` is allowed to block.
-        if let Expr::Await(inner) = e {
-            ex(inner, true, diags);
-            return;
-        }
-        if !awaited && is_blocking_stdlib_call(e) {
-            diags.error_once(
-                "blocking-no-await",
-                "This stdlib call waits for I/O, so calling it directly in an event would \
-                 freeze the UI until it finishes. Use `Await` so it runs off the UI thread \
-                 — e.g. `Match Await Http.Get(url) … End Match`.",
-            );
-        }
-        // Children are never "awaited" by this expression.
-        match e {
-            Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
-            | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
-            | Expr::Closure { body: i, .. } => ex(i, false, diags),
-            Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
-                ex(lhs, false, diags);
-                ex(rhs, false, diags);
-            }
-            Expr::MethodCall { recv, args, .. } => {
-                ex(recv, false, diags);
-                for a in args {
-                    ex(a, false, diags);
-                }
-            }
-            Expr::Call { args, .. } => {
-                for a in args {
-                    ex(a, false, diags);
-                }
-            }
-            Expr::Tuple(es) => {
-                for e2 in es {
-                    ex(e2, false, diags);
-                }
-            }
-            Expr::StructLit { fields, .. } => {
-                for (_, v) in fields {
-                    ex(v, false, diags);
-                }
-            }
-            _ => {}
-        }
-    }
-    fn st(s: &Stmt, diags: &mut Diagnostics) {
-        match s {
-            Stmt::Assign { target, value, .. } => {
-                ex(target, false, diags);
-                ex(value, false, diags);
-            }
-            Stmt::Dim { init: Some(e), .. } => ex(e, false, diags),
-            Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => ex(e, false, diags),
-            Stmt::If { branches, else_body } => {
-                for (c, b) in branches {
-                    ex(c, false, diags);
-                    for s2 in b {
-                        st(s2, diags);
-                    }
-                }
-                if let Some(b) = else_body {
-                    for s2 in b {
-                        st(s2, diags);
-                    }
-                }
-            }
-            Stmt::Match { scrutinee, arms, .. } => {
-                ex(scrutinee, false, diags);
-                for a in arms {
-                    for s2 in &a.body {
-                        st(s2, diags);
-                    }
-                }
-            }
-            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
-                for s2 in body {
-                    st(s2, diags);
-                }
-            }
-            _ => {}
-        }
-    }
-    for s in stmts {
-        st(s, diags);
-    }
-}
-
-/// Does a statement contain an `Await` (in any expression position)?
-fn stmt_has_await(s: &Stmt) -> bool {
-    match s {
-        Stmt::Dim { init: Some(e), .. } => expr_has_await(e),
-        Stmt::Assign { target, value, .. } => expr_has_await(target) || expr_has_await(value),
-        Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => expr_has_await(e),
-        Stmt::Match { scrutinee, arms, .. } => {
-            expr_has_await(scrutinee) || arms.iter().any(|a| a.body.iter().any(stmt_has_await))
-        }
-        Stmt::If { branches, else_body } => {
-            branches.iter().any(|(c, b)| expr_has_await(c) || b.iter().any(stmt_has_await))
-                || else_body.as_ref().map_or(false, |b| b.iter().any(stmt_has_await))
-        }
-        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
-            body.iter().any(stmt_has_await)
-        }
-        _ => false,
-    }
-}
-
-fn expr_has_await(e: &Expr) -> bool {
-    match e {
-        Expr::Await(_) => true,
-        Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
-        | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _) | Expr::Closure { body: i, .. } => {
-            expr_has_await(i)
-        }
-        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
-            expr_has_await(lhs) || expr_has_await(rhs)
-        }
-        Expr::MethodCall { recv, args, .. } => {
-            expr_has_await(recv) || args.iter().any(expr_has_await)
-        }
-        Expr::Call { args, .. } => args.iter().any(expr_has_await),
-        Expr::Tuple(es) => es.iter().any(expr_has_await),
-        Expr::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_await(v)),
-        _ => false,
-    }
-}
-
-/// Collect the stdlib namespaces (e.g. `Http`) used in event bodies — for the
-/// `use vbr_stdlib::{…}` line — and mark them so the dep + feature get added.
-pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>, diags: &mut Diagnostics) {
-    fn ex(e: &Expr, out: &mut Vec<String>, diags: &mut Diagnostics) {
-        match e {
-            Expr::MethodCall { recv, args, .. } => {
-                if let Expr::Ident(r) = &**recv {
-                    if let Some(c) = stdlib_type(r) {
-                        out.push(c.to_string());
-                        diags.mark(&format!("stdlib:{}", c));
-                    }
-                }
-                ex(recv, out, diags);
-                for a in args {
-                    ex(a, out, diags);
-                }
-            }
-            Expr::Await(i) | Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i)
-            | Expr::Cast(i, _) | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
-            | Expr::Closure { body: i, .. } => ex(i, out, diags),
-            Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
-                ex(lhs, out, diags);
-                ex(rhs, out, diags);
-            }
-            Expr::Call { args, .. } => {
-                for a in args {
-                    ex(a, out, diags);
-                }
-            }
-            Expr::Tuple(es) => {
-                for e2 in es {
-                    ex(e2, out, diags);
-                }
-            }
-            Expr::StructLit { fields, .. } => {
-                for (_, v) in fields {
-                    ex(v, out, diags);
-                }
-            }
-            _ => {}
-        }
-    }
-    fn st(s: &Stmt, out: &mut Vec<String>, diags: &mut Diagnostics) {
-        match s {
-            Stmt::Assign { target, value, .. } => {
-                ex(target, out, diags);
-                ex(value, out, diags);
-            }
-            Stmt::Dim { init: Some(e), .. } => ex(e, out, diags),
-            Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => ex(e, out, diags),
-            Stmt::If { branches, else_body } => {
-                for (c, b) in branches {
-                    ex(c, out, diags);
-                    for s2 in b {
-                        st(s2, out, diags);
-                    }
-                }
-                if let Some(b) = else_body {
-                    for s2 in b {
-                        st(s2, out, diags);
-                    }
-                }
-            }
-            Stmt::Match { scrutinee, arms, .. } => {
-                ex(scrutinee, out, diags);
-                for a in arms {
-                    for s2 in &a.body {
-                        st(s2, out, diags);
-                    }
-                }
-            }
-            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
-                for s2 in body {
-                    st(s2, out, diags);
-                }
-            }
-            _ => {}
-        }
-    }
-    for s in stmts {
-        st(s, out, diags);
-    }
-}
-
-/// Replace a bare reference to a state field with `state.field`, and an enum
-/// variant `Color.Red` with the path `Color::Red`, so an event/view expression
-/// reaches the window's state and names variants correctly.
-pub(crate) fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> Expr {
-    rewrite_expr_with(e, "state", fields, enums)
-}
-
-/// The general form: a bare state-field reference becomes `<recv>.field` — `state`
-/// in a window's view/events, `self` inside a canvas `Draw` block.
-fn rewrite_expr_with(
-    e: Expr,
-    recv: &'static str,
-    fields: &HashSet<String>,
-    enums: &HashSet<String>,
-) -> Expr {
-    let go = |e: Expr| rewrite_expr_with(e, recv, fields, enums);
-    match e {
-        // `Color.Red` (field on an enum name) → the path `Color::Red`.
-        Expr::Field(inner, variant) if matches!(&*inner, Expr::Ident(n) if enums.contains(n)) => {
-            match *inner {
-                Expr::Ident(n) => Expr::ConstRef(format!("{}::{}", n, variant)),
-                _ => unreachable!(),
-            }
-        }
-        Expr::Ident(name) if fields.contains(&rust_name(&name)) => {
-            Expr::Field(Box::new(Expr::Ident(recv.to_string())), name)
-        }
-        Expr::Binary { op, lhs, rhs } => Expr::Binary {
-            op,
-            lhs: Box::new(go(*lhs)),
-            rhs: Box::new(go(*rhs)),
-        },
-        Expr::Not(inner) => Expr::Not(Box::new(go(*inner))),
-        Expr::Call { name, args } => Expr::Call {
-            name,
-            args: args.into_iter().map(go).collect(),
-        },
-        // `Shape.Circle(r)` on an enum → the variant constructor `Shape::Circle(r)`.
-        Expr::MethodCall { recv: r, method, args } if matches!(&*r, Expr::Ident(e) if enums.contains(e)) => {
-            let e = match *r {
-                Expr::Ident(n) => n,
-                _ => unreachable!(),
-            };
-            Expr::Call {
-                name: format!("{}::{}", e, method),
-                args: args.into_iter().map(go).collect(),
-            }
-        }
-        Expr::MethodCall { recv: r, method, args } => Expr::MethodCall {
-            recv: Box::new(go(*r)),
-            method,
-            args: args.into_iter().map(go).collect(),
-        },
-        Expr::Field(inner, f) => Expr::Field(Box::new(go(*inner)), f),
-        Expr::Index(a, b) => Expr::Index(Box::new(go(*a)), Box::new(go(*b))),
-        Expr::Cast(inner, t) => Expr::Cast(Box::new(go(*inner)), t),
-        other => other,
-    }
-}
-
-pub(crate) fn rewrite_stmt(s: Stmt, fields: &HashSet<String>, enums: &HashSet<String>) -> Stmt {
-    match s {
-        Stmt::Assign { target, value, op } => Stmt::Assign {
-            target: rewrite_expr(target, fields, enums),
-            value: rewrite_expr(value, fields, enums),
-            op,
-        },
-        Stmt::Print(e) => Stmt::Print(rewrite_expr(e, fields, enums)),
-        Stmt::Expr(e) => Stmt::Expr(rewrite_expr(e, fields, enums)),
-        Stmt::If { branches, else_body } => Stmt::If {
-            branches: branches
-                .into_iter()
-                .map(|(c, b)| {
-                    (
-                        rewrite_expr(c, fields, enums),
-                        b.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect(),
-                    )
-                })
-                .collect(),
-            else_body: else_body
-                .map(|b| b.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect()),
-        },
-        Stmt::Match { scrutinee, arms, line } => Stmt::Match {
-            scrutinee: rewrite_expr(scrutinee, fields, enums),
-            arms: arms
-                .into_iter()
-                .map(|a| MatchArm {
-                    pattern: a.pattern,
-                    guard: a.guard.map(|g| rewrite_expr(g, fields, enums)),
-                    body: a.body.into_iter().map(|s| rewrite_stmt(s, fields, enums)).collect(),
-                })
-                .collect(),
-            line,
-        },
-        Stmt::Dim { name, ty, init, line } => Stmt::Dim {
-            name,
-            ty,
-            init: init.map(|e| rewrite_expr(e, fields, enums)),
-            line,
-        },
-        other => other,
     }
 }
 

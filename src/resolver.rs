@@ -356,6 +356,50 @@ pub fn resolve_body(
     passed
 }
 
+/// Rewrite a GUI/TUI event body in place — the same resolution an ordinary
+/// function body gets (stdlib method names, string/numeric coercions, iterator
+/// chains, teaching diagnostics). The window's state fields join the
+/// environment as owned values (the backend rewrites them to `state.field`
+/// afterwards); the event's params are message payloads, also owned (never
+/// `&str` borrows).
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_event_body(
+    stmts: &mut [Stmt],
+    params: &[Param],
+    state: &HashMap<String, DeclType>,
+    fns: &FnTable,
+    methods: &MethodTable,
+    consts: &HashMap<String, String>,
+    enums: &HashSet<String>,
+    structs: &StructTable,
+    diags: &mut Diagnostics,
+) {
+    let mut env: HashMap<String, Binding> = HashMap::new();
+    for p in params {
+        env.insert(snake(&p.name), Binding { ty: Some(p.ty.clone()), borrowed: false });
+    }
+    for (name, ty) in state {
+        env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false });
+    }
+    let modules = HashSet::new();
+    let mut passed = HashSet::new();
+    let mut ctx = Ctx {
+        deref: HashSet::new(),
+        fns,
+        methods,
+        consts,
+        ret_coerce: None,
+        can_propagate: false,
+        diags,
+        env: &mut env,
+        passed: &mut passed,
+        modules: &modules,
+        enums,
+        structs,
+    };
+    resolve_stmts(stmts, &mut ctx);
+}
+
 struct Ctx<'a> {
     /// Names whose uses are references and must be dereferenced: ByRef params
     /// plus the (scoped) variables of an enclosing `For Each`.

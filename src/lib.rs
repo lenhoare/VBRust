@@ -9,6 +9,7 @@ pub mod gui;
 pub mod lexer;
 pub mod parser;
 pub mod resolver;
+pub mod surface;
 pub mod transpiler;
 pub mod tui;
 

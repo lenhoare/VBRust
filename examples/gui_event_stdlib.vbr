@@ -1,0 +1,26 @@
+' The stdlib inside a Window event: event bodies run the same resolver pass as
+' function bodies, so multi-word methods (AddDays -> add_days) and string
+' coercions work here too.
+Window Clock
+    Title "Clock"
+    State
+        Dim label As String = "press stamp"
+    End State
+    View
+        Column
+            Text label
+            Button "Stamp"
+                On Click Stamp
+            End Button
+        End Column
+    End View
+    Event Stamp
+        Dim now As DateTime = DateTime.Now()
+        Dim later As DateTime = now.AddDays(30)
+        label = "in 30 days: " & later.Format("%Y-%m-%d")
+    End Event
+End Window
+
+Function Main()
+    Clock.Run
+End Function
