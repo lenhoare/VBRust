@@ -38,6 +38,14 @@ pub fn transpile_module(
     web: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    // A `Css` block is a Page's stylesheet — it has no meaning anywhere else.
+    if !program.css.is_empty() && program.pages.is_empty() {
+        diags.error_once(
+            "css-no-page",
+            "`Css … End Css` styles a `Page` (a browser app) — this program has none. \
+             A `Window` or `Screen` is themed with `Theme` instead.",
+        );
+    }
     // A web program (one with a `Page`) compiles to a Yew (WebAssembly) app.
     if !program.pages.is_empty() {
         if !program.windows.is_empty() || !program.screens.is_empty() {

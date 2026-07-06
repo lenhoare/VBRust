@@ -39,6 +39,12 @@ pub struct Compiled {
     /// A web program's browser-tab title (the launched `Page`'s `Title`, or its
     /// name) — written into the generated `index.html`. `None` for non-web.
     pub web_title: Option<String>,
+    /// A web program's stylesheet — the launched page's `Theme` as CSS plus any
+    /// `Css … End Css` blocks — for the generated `index.html`'s `<style>`.
+    pub web_style: Option<String>,
+    /// Local files the pages reference (`Image "logo.png"`) — each becomes a
+    /// trunk copy-file directive in the generated `index.html`.
+    pub web_assets: Vec<String>,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -111,6 +117,8 @@ fn compile_with(source: &str, modules: &[String], is_entry: bool, web: bool) -> 
     } else {
         None
     };
+    let web_style = web::page_style(&program);
+    let web_assets = web::page_assets(&program);
     let rust = transpiler::transpile_module(&program, modules, is_entry, web, &mut diags);
     // An inline `Python` block runs via pyo3 (real CPython) — pull it in only when
     // one is actually used, so nothing else pays for it. Detected from the emitted
@@ -130,6 +138,8 @@ fn compile_with(source: &str, modules: &[String], is_entry: bool, web: bool) -> 
         diagnostic_items: diags.items().to_vec(),
         line_map,
         web_title,
+        web_style,
+        web_assets,
     }
 }
 

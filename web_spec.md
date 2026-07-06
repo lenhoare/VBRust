@@ -5,12 +5,12 @@ A `Page` is a **browser application**: the same State/View/Events model as a
 It is backed by the Rust **Yew** crate (version-pinned, like Iced 0.13),
 compiled to **WebAssembly**, and served by **trunk**.
 
-> Status: **slices 1–4 BUILT** (2026-07-05) — `Page`/`Title`/`State`/`View`
+> Status: **slices 1–5 BUILT** (2026-07-06) — `Page`/`Title`/`State`/`View`
 > (`Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`,
 > `Match`/`If` in the view, `Column`/`Row` with `Spacing`/`Padding` and
 > `Length`/`Fill` sizing)/`Event` including payload events, async events
-> (`Await Http.Get` on the browser's fetch), `vbr runweb`.
-> Later slices are listed in §9 and not yet built.
+> (`Await Http.Get` on the browser's fetch), styling (`Theme`, `Css` blocks,
+> stable `vbr-*` classes) and local `Image` assets, `vbr runweb`.
 
 ---
 
@@ -60,8 +60,8 @@ End Function
 - Event bodies are ordinary VBR — the same resolver pass as a function body
   (string/numeric coercions, iterator chains, teaching diagnostics), shared
   with the GUI/TUI backends (`src/surface.rs`).
-- `Theme` is **not** a Page concept (a browser styles with CSS — later slice);
-  using it is an error.
+- `Theme` works like the GUI's (`Theme Dracula`) — the palette becomes CSS in
+  the generated page (§6).
 - A program is one kind of app: mixing `Page` with `Window`/`Screen` is an
   error.
 
@@ -75,7 +75,7 @@ End Function
 | `Checkbox "label", field … On Toggle <Event>` | `<input type="checkbox">` inside its `<label>`, `onchange` sends the new state |
 | `Slider min..=max, field … On Change <Event>` | `<input type="range">` — the dragged value is cast to the field's type |
 | `ProgressBar min..=max, field` | `<progress>` (a non-zero `min` shifts value and max — HTML progress starts at 0) |
-| `Image <path>` | `<img src=…>` — the src is a **URL**: absolute `https://…` always works; local files need the asset story (later slice) |
+| `Image <path>` | `<img src=…>` — an absolute `https://…` URL, or a local file copied into the site (§6) |
 | `Match` / `If` in the view | a Rust `match`/`if` choosing an `html!` fragment (no `Else` → renders nothing) |
 | `Column` / `Row` (+ `Spacing n`, `Padding n`) | flexbox `<div>` (`gap`/`padding` in px) |
 | `Length n` / `Fill [w]` before a child | a wrapping `<div>` — fixed px on the container's axis / CSS `flex: w` |
@@ -142,7 +142,58 @@ End Event
 - Calling `Http.Get` *without* `Await` is the same teaching error as in the
   GUI: it would freeze the page.
 
-## 6. What a Page cannot do (yet)
+## 6. Styling — `Theme`, `Css`, and the `vbr-*` classes
+
+Three layers, smallest first:
+
+**Stable classes.** Every generated element carries a class naming its kind:
+`vbr-text`, `vbr-button`, `vbr-textinput`, `vbr-checkbox`, `vbr-slider`,
+`vbr-progressbar`, `vbr-image`, `vbr-column`, `vbr-row`. The page's root
+container additionally carries the page's own (lowercased) name, so a
+stylesheet can say `.vbr-button` (every button) or `.counter .vbr-button`
+(this page's buttons). These names are a stable contract. Layout stays inline
+(your `Spacing`/`Padding`/`Length`/`Fill` numbers); colors and fonts are
+never inlined, so CSS has full authority over appearance.
+
+**`Theme` — the simple case.** The same line as the GUI:
+
+```vb
+Page Counter
+    Title "Dracula Counter"
+    Theme Dracula
+```
+
+The theme becomes a `<style>` block in the generated `index.html`: the
+palette of the **Iced theme of the same name** (so the browser Dracula is the
+desktop Dracula) as CSS custom properties — `--vbr-background`, `--vbr-text`,
+`--vbr-primary` — plus base rules for the body and the `vbr-*` controls. All
+22 GUI theme names work; an unknown name is the same teaching error.
+
+**`Css … End Css` — the escape hatch.** Real CSS, verbatim, at the top level
+of the `.vbr` file (like an inline `Rust` block — the inside isn't VBR):
+
+```vb
+Css
+.counter .vbr-text {
+    font-size: 24px;
+}
+End Css
+```
+
+It lands in `index.html` *after* the theme's rules, so it overrides them —
+tweak one thing or replace the look entirely. A `Css` block in a program with
+no `Page` is a teaching error.
+
+**Local `Image` assets.** An `Image "logo.png"` whose path is a plain local
+file name becomes a trunk copy directive in `index.html`, so the file is
+copied into the served site. Keep the file next to the `.vbr`. An absolute
+`https://…` URL needs no copying, and a *computed* path can't be detected at
+compile time — use a literal for local files.
+
+`examples/web_dracula.vbr` — the GUI's dracula.vbr ported, plus a `Css`
+block — shows all of it.
+
+## 7. What a Page cannot do (yet)
 
 Each is a teaching error today:
 
@@ -153,16 +204,18 @@ Each is a teaching error today:
   background thread to run a synchronous function on (the GUI uses
   `spawn_blocking`; wasm has no equivalent).
 
-## 7. Testing
+## 8. Testing
 
 `examples/web_counter.vbr` (slice 1), `examples/web_greeting.vbr` (slice 2:
 inputs, payload events), `examples/web_settings.vbr` (slice 3: Match/If,
-Slider, ProgressBar), and `examples/web_fetch.vbr` (slice 4: `Await Http.Get`)
-are snapshot-tested (TRANSPILE_ONLY); all but the counter are also built for
-real by the compile guard (`cargo test -- --ignored`) whenever the wasm target
-is installed — skipped with a notice otherwise.
+Slider, ProgressBar), `examples/web_fetch.vbr` (slice 4: `Await Http.Get`),
+and `examples/web_dracula.vbr` (slice 5: Theme + Css) are snapshot-tested
+(TRANSPILE_ONLY); greeting/settings/fetch are also built for real by the
+compile guard (`cargo test -- --ignored`) whenever the wasm target is
+installed — skipped with a notice otherwise. (Dracula's Theme/Css land in
+`index.html`, which a cargo build doesn't see.)
 
-## 8. Backend mapping
+## 9. Backend mapping
 
 | VBR | Yew |
 |-----|-----|
@@ -175,9 +228,7 @@ is installed — skipped with a notice otherwise.
 | `View` | `fn view` → `html!` |
 | `X.Run` in `Main` | `yew::Renderer::<X>::new().render()` |
 
-## 9. Deferred (later slices)
+## 10. Deferred (later slices)
 
-1. **Styling & assets** — a CSS story beyond inline flexbox (maybe `Theme`),
-   and local files for `Image` (trunk asset copying).
-2. **More of `Http`** — `Await Http.Post` (the fetch wrapper generalises
+1. **More of `Http`** — `Await Http.Post` (the fetch wrapper generalises
    easily) once the native side awaits it too.

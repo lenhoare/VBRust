@@ -56,14 +56,15 @@ impl Component for Fetcher {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         html! {
-            <div style="display: flex; flex-direction: column;">
+            <div class="vbr-column fetcher" style="display: flex; flex-direction: column;">
                 <input
+                    class="vbr-textinput"
                     placeholder={"url"}
                     value={self.url.clone()}
                     oninput={ctx.link().callback(|e: InputEvent| Message::SetUrl(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}
                 />
-                <button onclick={ctx.link().callback(|_| Message::Fetch)}>{ "Fetch" }</button>
-                <p>{ format!("{}", self.status) }</p>
+                <button class="vbr-button" onclick={ctx.link().callback(|_| Message::Fetch)}>{ "Fetch" }</button>
+                <p class="vbr-text">{ format!("{}", self.status) }</p>
             </div>
         }
     }

@@ -40,8 +40,8 @@ impl Component for Settings {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         html! {
-            <div style="display: flex; flex-direction: column;">
-                <label>
+            <div class="vbr-column settings" style="display: flex; flex-direction: column;">
+                <label class="vbr-checkbox">
                     <input
                         type="checkbox"
                         checked={self.agreed}
@@ -49,19 +49,20 @@ impl Component for Settings {
                     />
                     { "I agree to the terms" }
                 </label>
-                <p>{ format!("Volume: {}", self.volume) }</p>
+                <p class="vbr-text">{ format!("Volume: {}", self.volume) }</p>
                 <input
+                    class="vbr-slider"
                     type="range"
                     min="0"
                     max="100"
                     value={self.volume.to_string()}
                     oninput={ctx.link().callback(|e: InputEvent| Message::SetVolume(e.target_unchecked_into::<web_sys::HtmlInputElement>().value_as_number() as i32))}
                 />
-                <progress max="100" value={self.volume.to_string()}></progress>
+                <progress class="vbr-progressbar" max="100" value={self.volume.to_string()}></progress>
                 {
                     if self.volume > 80 {
                         html! {
-                            <p>{ "That's loud!" }</p>
+                            <p class="vbr-text">{ "That's loud!" }</p>
                         }
                     } else {
                         html! {}
@@ -70,10 +71,10 @@ impl Component for Settings {
                 {
                     match self.agreed {
                         true => html! {
-                            <p>{ "Thanks — you're all set!" }</p>
+                            <p class="vbr-text">{ "Thanks — you're all set!" }</p>
                         },
                         false => html! {
-                            <p>{ "Please agree to continue." }</p>
+                            <p class="vbr-text">{ "Please agree to continue." }</p>
                         },
                     }
                 }

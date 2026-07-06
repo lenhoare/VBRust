@@ -150,24 +150,58 @@ pub(crate) fn state_maps(
 }
 
 /// How a backend runs an awaited call. `Native` (Window/Screen) offloads the
-/// blocking vbr_stdlib to a thread (`tokio::task::spawn_blocking`); `Web`
-/// (Page) has no threads — `Http.Get` maps to the browser's own async `fetch`
-/// instead. Also decides the state receiver the async split snapshots against
-/// (`state` in an update fn, `self` in a Yew component).
+/// blocking vbr_stdlib to a thread (`tokio::task::spawn_blocking` / a spawned
+/// thread); the browser backends have no threads — `Http.Get` maps to the
+/// generated `http_get` wrapper over the browser's own async `fetch` instead.
+/// Also decides the state receiver the async split snapshots against: `state`
+/// in an update fn or a Screen's key/timer closure, `self` in a Yew component.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum AsyncBackend {
     Native,
-    Web,
+    Web,       // a Yew `Page`
+    WebScreen, // a Ratzilla `Screen` (`vbr runweb` on a TUI program)
 }
 
 impl AsyncBackend {
     fn recv(self) -> &'static str {
         match self {
-            AsyncBackend::Native => "state",
+            AsyncBackend::Native | AsyncBackend::WebScreen => "state",
             AsyncBackend::Web => "self",
         }
     }
+
+    fn is_browser(self) -> bool {
+        !matches!(self, AsyncBackend::Native)
+    }
+
+    /// The surface name for teaching messages ("a Page" / "a browser Screen").
+    fn surface_name(self) -> &'static str {
+        match self {
+            AsyncBackend::Web => "a Page",
+            _ => "a browser Screen",
+        }
+    }
 }
+
+/// The fetch wrapper a browser backend emits (once) when an event awaits
+/// `Http.Get` — shared by the Page (Yew) and browser-Screen (Ratzilla)
+/// emitters.
+pub(crate) const HTTP_GET_HELPER: &str = "\
+/// The browser's `fetch`, shaped like the stdlib's `Http.Get`: the response
+/// body on success; any failure (network, CORS, an HTTP error status) as a
+/// `String` error.
+async fn http_get(url: &str) -> Result<String, String> {
+    let response = gloo_net::http::Request::get(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.ok() {
+        return Err(format!(\"HTTP {}\", response.status()));
+    }
+    response.text().await.map_err(|e| e.to_string())
+}
+
+";
 
 /// Analyse every event: split each around an `Await` (None = synchronous), and
 /// check that no blocking stdlib call runs un-`Await`ed (it would freeze the
@@ -443,14 +477,16 @@ fn awaitable_info(
                 return None;
             };
             let m = rust_name(method);
-            if backend == AsyncBackend::Web {
+            if backend.is_browser() {
                 if (canon, m.as_str()) != ("Http", "get") {
                     diags.error_once(
                         "await-unsupported",
                         format!(
-                            "`Await {}.{}` isn't supported in a Page yet — a Page awaits \
+                            "`Await {}.{}` isn't supported in {} yet — it awaits \
                              `Http.Get` (the browser's fetch).",
-                            canon, method
+                            canon,
+                            method,
+                            backend.surface_name()
                         ),
                     );
                     return None;
@@ -487,14 +523,15 @@ fn awaitable_info(
         // One of the program's own functions — its return type comes from the
         // FnTable; it's synchronous Rust, so run it via `spawn_blocking`.
         Expr::Call { name, args } => {
-            if backend == AsyncBackend::Web {
+            if backend.is_browser() {
                 diags.error_once(
                     "page-await-fn",
                     format!(
-                        "`Await {}(…)` isn't available in a Page — the browser is \
+                        "`Await {}(…)` isn't available in {} — the browser is \
                          single-threaded, with no background thread to run your function on. \
-                         A Page awaits `Http.Get`.",
-                        name
+                         `Await` there works on `Http.Get`.",
+                        name,
+                        backend.surface_name()
                     ),
                 );
                 return None;

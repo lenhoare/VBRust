@@ -72,21 +72,7 @@ pub fn emit_web_program(program: &Program, diags: &mut Diagnostics) -> String {
 
     // The fetch wrapper behind an awaited `Http.Get`, emitted once when used.
     if out.contains("http_get(") {
-        out.push_str(
-            "/// The browser's `fetch`, shaped like the stdlib's `Http.Get`: the response\n\
-             /// body on success; any failure (network, CORS, an HTTP error status) as a\n\
-             /// `String` error.\n\
-             async fn http_get(url: &str) -> Result<String, String> {\n\
-             \x20   let response = gloo_net::http::Request::get(url)\n\
-             \x20       .send()\n\
-             \x20       .await\n\
-             \x20       .map_err(|e| e.to_string())?;\n\
-             \x20   if !response.ok() {\n\
-             \x20       return Err(format!(\"HTTP {}\", response.status()));\n\
-             \x20   }\n\
-             \x20   response.text().await.map_err(|e| e.to_string())\n\
-             }\n\n",
-        );
+        out.push_str(surface::HTTP_GET_HELPER);
     }
 
     let launched_page = launched(program, |name| {
@@ -122,6 +108,20 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     let ctx = PageCtx { fields: &fields, field_ty: &field_ty, enums: &t.enums };
 
     validate_page(p, &field_ty, diags);
+    // The same theme names as the GUI — `Theme "Dracula"` colors a Page like
+    // it colors a Window (the palette becomes CSS in the generated index.html).
+    if let Some(th) = &p.theme {
+        if crate::gui::canonical_theme(th).is_none() {
+            diags.error_once(
+                "unknown-theme",
+                format!(
+                    "Unknown theme `{}`. Built-in themes: {}.",
+                    th,
+                    crate::gui::KNOWN_THEMES.join(", ")
+                ),
+            );
+        }
+    }
 
     // Analyse each event for `Await`: an async event splits into a kick-off arm
     // (sends a future to the component) and a generated `<Event>Done(...)`
@@ -249,8 +249,19 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     }
 
     // view — the html! body decides whether `ctx` is needed (button callbacks).
+    // The root container carries the page's own name as a class alongside its
+    // vbr-* kind, so CSS can say ".counter .vbr-button" as well as ".vbr-button".
+    let root_class = rust_name(&p.name);
     let mut body = String::new();
-    render_node(&p.view, &ctx, "column", 3, &mut body, diags);
+    match &p.view {
+        ViewNode::Column { children, spacing, padding } => render_flex(
+            "column", children, *spacing, *padding, Some(&root_class), &ctx, 3, &mut body, diags,
+        ),
+        ViewNode::Row { children, spacing, padding } => render_flex(
+            "row", children, *spacing, *padding, Some(&root_class), &ctx, 3, &mut body, diags,
+        ),
+        other => render_node(other, &ctx, "column", 3, &mut body, diags),
+    }
     let ctx_param = if body.contains("ctx.link()") { "ctx" } else { "_ctx" };
     out.push_str(&format!(
         "    fn view(&self, {}: &Context<Self>) -> Html {{\n",
@@ -349,22 +360,25 @@ fn render_node(
     let pad = "    ".repeat(indent);
     match node {
         ViewNode::Column { children, spacing, padding } => {
-            render_flex("column", children, *spacing, *padding, ctx, indent, out, diags);
+            render_flex("column", children, *spacing, *padding, None, ctx, indent, out, diags);
         }
         ViewNode::Row { children, spacing, padding } => {
-            render_flex("row", children, *spacing, *padding, ctx, indent, out, diags);
+            render_flex("row", children, *spacing, *padding, None, ctx, indent, out, diags);
         }
         ViewNode::Text(e) => {
-            out.push_str(&format!("{}<p>{{ {} }}</p>\n", pad, text_content(e, ctx)));
+            out.push_str(&format!("{}<p class=\"vbr-text\">{{ {} }}</p>\n", pad, text_content(e, ctx)));
         }
         ViewNode::Button { label, on_click } => {
             let lbl = text_content(label, ctx);
             match on_click {
                 Some(ev) => out.push_str(&format!(
-                    "{}<button onclick={{ctx.link().callback(|_| Message::{})}}>{{ {} }}</button>\n",
+                    "{}<button class=\"vbr-button\" onclick={{ctx.link().callback(|_| Message::{})}}>{{ {} }}</button>\n",
                     pad, ev, lbl
                 )),
-                None => out.push_str(&format!("{}<button>{{ {} }}</button>\n", pad, lbl)),
+                None => out.push_str(&format!(
+                    "{}<button class=\"vbr-button\">{{ {} }}</button>\n",
+                    pad, lbl
+                )),
             }
         }
         // A controlled text input: the value always comes from state, and each
@@ -377,6 +391,7 @@ fn render_node(
             let field = rust_name(value);
             let inner = "    ".repeat(indent + 1);
             out.push_str(&format!("{}<input\n", pad));
+            out.push_str(&format!("{}class=\"vbr-textinput\"\n", inner));
             out.push_str(&format!("{}placeholder={{{}}}\n", inner, ph));
             out.push_str(&format!("{}value={{self.{}.clone()}}\n", inner, field));
             if let Some(ev) = on_input {
@@ -394,7 +409,7 @@ fn render_node(
             let field = rust_name(value);
             let inner = "    ".repeat(indent + 1);
             let in2 = "    ".repeat(indent + 2);
-            out.push_str(&format!("{}<label>\n", pad));
+            out.push_str(&format!("{}<label class=\"vbr-checkbox\">\n", pad));
             out.push_str(&format!("{}<input\n", inner));
             out.push_str(&format!("{}type=\"checkbox\"\n", in2));
             out.push_str(&format!("{}checked={{self.{}}}\n", in2, field));
@@ -419,6 +434,7 @@ fn render_node(
             };
             let inner = "    ".repeat(indent + 1);
             out.push_str(&format!("{}<input\n", pad));
+            out.push_str(&format!("{}class=\"vbr-slider\"\n", inner));
             out.push_str(&format!("{}type=\"range\"\n", inner));
             out.push_str(&format!("{}min={}\n", inner, attr_value(min, ctx)));
             out.push_str(&format!("{}max={}\n", inner, attr_value(max, ctx)));
@@ -437,7 +453,7 @@ fn render_node(
             match (min, max) {
                 (Expr::Int(0), Expr::Int(hi)) => {
                     out.push_str(&format!(
-                        "{}<progress max=\"{}\" value={{self.{}.to_string()}}></progress>\n",
+                        "{}<progress class=\"vbr-progressbar\" max=\"{}\" value={{self.{}.to_string()}}></progress>\n",
                         pad, hi, field
                     ));
                 }
@@ -445,7 +461,7 @@ fn render_node(
                     let lo = render_rewritten(min, ctx);
                     let hi = render_rewritten(max, ctx);
                     out.push_str(&format!(
-                        "{}<progress max={{(({}) as f64 - ({}) as f64).to_string()}} \
+                        "{}<progress class=\"vbr-progressbar\" max={{(({}) as f64 - ({}) as f64).to_string()}} \
                          value={{(self.{} as f64 - ({}) as f64).to_string()}}></progress>\n",
                         pad, hi, lo, field, lo
                     ));
@@ -460,7 +476,7 @@ fn render_node(
                 Expr::Str(_) => render_expr(path, None),
                 _ => format!("{{{}.clone()}}", render_rewritten(path, ctx)),
             };
-            out.push_str(&format!("{}<img src={} />\n", pad, src));
+            out.push_str(&format!("{}<img class=\"vbr-image\" src={} />\n", pad, src));
         }
         // `Match <expr>` in the view → a Rust `match` choosing an html! fragment.
         ViewNode::Match { scrutinee, arms } => {
@@ -544,18 +560,25 @@ fn render_node(
 }
 
 /// A `Column`/`Row` → a flexbox `<div>`, children one per line inside.
+/// `extra` adds a second CSS class — the page's own name on its root
+/// container, so a stylesheet can target one page's controls.
 #[allow(clippy::too_many_arguments)]
 fn render_flex(
     direction: &str,
     children: &[ViewNode],
     spacing: Option<u16>,
     padding: Option<u16>,
+    extra: Option<&str>,
     ctx: &PageCtx,
     indent: usize,
     out: &mut String,
     diags: &mut Diagnostics,
 ) {
     let pad = "    ".repeat(indent);
+    let class = match extra {
+        Some(e) => format!("vbr-{} {}", direction, e),
+        None => format!("vbr-{}", direction),
+    };
     let mut style = format!("display: flex; flex-direction: {};", direction);
     if let Some(s) = spacing {
         style.push_str(&format!(" gap: {}px;", s));
@@ -563,7 +586,7 @@ fn render_flex(
     if let Some(p) = padding {
         style.push_str(&format!(" padding: {}px;", p));
     }
-    out.push_str(&format!("{}<div style=\"{}\">\n", pad, style));
+    out.push_str(&format!("{}<div class=\"{}\" style=\"{}\">\n", pad, class, style));
     for c in children {
         render_node(c, ctx, direction, indent + 1, out, diags);
     }
@@ -632,4 +655,122 @@ fn web_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Chart { .. } => "Chart",
         _ => "widget",
     }
+}
+
+/// The stylesheet for a web program's `index.html`: the launched page's
+/// `Theme` (the same palette as the Iced theme of that name, as CSS custom
+/// properties plus base rules), followed by any `Css … End Css` blocks,
+/// verbatim. `None` when the program styles nothing (the index stays bare).
+pub fn page_style(program: &Program) -> Option<String> {
+    if program.pages.is_empty() {
+        return None;
+    }
+    let page = launched(program, |name| {
+        program.pages.iter().find(|p| p.name.eq_ignore_ascii_case(name))
+    })
+    .or_else(|| program.pages.first());
+    let mut css = String::new();
+    if let Some(th) = page.and_then(|p| p.theme.as_ref()) {
+        if let Some(t) = theme_css(th) {
+            css.push_str(&t);
+        }
+    }
+    for block in &program.css {
+        if !css.is_empty() {
+            css.push('\n');
+        }
+        css.push_str(block.trim_matches('\n'));
+        css.push('\n');
+    }
+    (!css.is_empty()).then_some(css)
+}
+
+/// Local files the pages' views reference (`Image "logo.png"`) — trunk copies
+/// each into the served site. An absolute URL isn't an asset, and a computed
+/// path can't be scanned (the spec says to keep asset files next to the .vbr).
+pub fn page_assets(program: &Program) -> Vec<String> {
+    fn walk(node: &ViewNode, out: &mut Vec<String>) {
+        match node {
+            ViewNode::Image { path: Expr::Str(s) }
+                if !s.starts_with("http://") && !s.starts_with("https://") =>
+            {
+                out.push(s.clone());
+            }
+            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Constrained { child, .. } => walk(child, out),
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut assets = Vec::new();
+    for p in &program.pages {
+        walk(&p.view, &mut assets);
+    }
+    assets.sort();
+    assets.dedup();
+    assets
+}
+
+/// A built-in theme as CSS: the palette (matching Iced 0.13's of the same
+/// name) as custom properties, plus base rules for the page body and the
+/// generated `vbr-*` controls. A `Css` block can override any of it — it comes
+/// later in the stylesheet.
+fn theme_css(name: &str) -> Option<String> {
+    let (bg, text, primary) = theme_palette(crate::gui::canonical_theme(name)?)?;
+    Some(format!(
+        ":root {{\n  --vbr-background: {bg};\n  --vbr-text: {text};\n  --vbr-primary: {primary};\n}}\n\
+         body {{\n  margin: 0;\n  min-height: 100vh;\n  background: var(--vbr-background);\n  \
+         color: var(--vbr-text);\n  font-family: system-ui, sans-serif;\n}}\n\
+         .vbr-button {{\n  width: fit-content;\n  padding: 6px 14px;\n  border: none;\n  \
+         border-radius: 4px;\n  background: var(--vbr-primary);\n  color: var(--vbr-background);\n  \
+         cursor: pointer;\n}}\n\
+         .vbr-textinput {{\n  padding: 6px 8px;\n  border: 1px solid var(--vbr-primary);\n  \
+         border-radius: 4px;\n  background: transparent;\n  color: var(--vbr-text);\n}}\n\
+         .vbr-checkbox, .vbr-slider, .vbr-progressbar {{\n  accent-color: var(--vbr-primary);\n}}\n"
+    ))
+}
+
+/// (background, text, primary) for each built-in theme — the hex values of
+/// Iced 0.13's palettes (core/src/theme/palette.rs), so the browser Dracula
+/// is the desktop Dracula.
+fn theme_palette(canon: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    Some(match canon {
+        "Light" => ("#ffffff", "#000000", "#5e7ce2"),
+        "Dark" => ("#202225", "#e6e6e6", "#5e7ce2"),
+        "Dracula" => ("#282a36", "#f8f8f2", "#bd93f9"),
+        "Nord" => ("#2e3440", "#eceff4", "#8fbcbb"),
+        "SolarizedLight" => ("#fdf6e3", "#657b83", "#2aa198"),
+        "SolarizedDark" => ("#002b36", "#839496", "#2aa198"),
+        "GruvboxLight" => ("#fbf1c7", "#282828", "#458588"),
+        "GruvboxDark" => ("#282828", "#fbf1c7", "#458588"),
+        "CatppuccinLatte" => ("#eff1f5", "#4c4f69", "#1e66f5"),
+        "CatppuccinFrappe" => ("#303446", "#c6d0f5", "#8caaee"),
+        "CatppuccinMacchiato" => ("#24273a", "#cad3f5", "#8aadf4"),
+        "CatppuccinMocha" => ("#1e1e2e", "#cdd6f4", "#89b4fa"),
+        "TokyoNight" => ("#1a1b26", "#9aa5ce", "#2ac3de"),
+        "TokyoNightStorm" => ("#24283b", "#9aa5ce", "#2ac3de"),
+        "TokyoNightLight" => ("#d5d6db", "#565a6e", "#166775"),
+        "KanagawaWave" => ("#363646", "#dcd7ba", "#2d4f67"),
+        "KanagawaDragon" => ("#181616", "#c5c9c5", "#223249"),
+        "KanagawaLotus" => ("#f2ecbc", "#545464", "#c9cbd1"),
+        "Moonfly" => ("#080808", "#bdbdbd", "#80a0ff"),
+        "Nightfly" => ("#011627", "#bdc1c6", "#82aaff"),
+        "Oxocarbon" => ("#232323", "#d0d0d0", "#00b4ff"),
+        "Ferra" => ("#2b292d", "#fecdb2", "#d1d1e0"),
+        _ => return None,
+    })
 }

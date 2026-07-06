@@ -88,6 +88,8 @@ fn transpile_only_examples_compile() {
     // the web-sys dep); web_settings the view logic (Match/If, Slider,
     // ProgressBar); web_fetch async (`Await Http.Get` → send_future + the
     // gloo-net fetch wrapper).
+    // (web_dracula adds nothing at the Rust level beyond classes — its Theme/Css
+    // land in index.html — so the wasm builds stop at web_fetch.)
     for name in ["web_greeting", "web_settings", "web_fetch"] {
         let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
             .arg("build")
@@ -122,8 +124,10 @@ fn transpile_only_examples_compile() {
     // 0.29 — also compiles against 0.30 on wasm; tui_input covers the focus
     // machinery (Input + List, Tab cycling, Enter dispatch) in the browser
     // key handler; tui_pulse covers `Every` timers (gloo-timers Intervals and
-    // the RefCell-guard reborrow that lets one statement touch two fields).
-    for name in ["tui_counter", "tui_dashboard", "tui_input", "tui_pulse"] {
+    // the RefCell-guard reborrow that lets one statement touch two fields);
+    // tui_monitor covers async — `Await Http.Get` split into a spawn_local
+    // future over the browser's fetch, from a timer.
+    for name in ["tui_counter", "tui_dashboard", "tui_input", "tui_pulse", "tui_monitor"] {
         let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
             .args(["build", "--web"])
             .arg(examples.join(format!("{name}.vbr")))

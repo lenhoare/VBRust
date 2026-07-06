@@ -110,6 +110,10 @@ pub enum Tok {
     /// A `Rust … End Rust` block, captured verbatim (the inner Rust is not tokenised).
     InlineRust(String),
 
+    /// A `Css … End Css` block, captured verbatim — a `Page`'s stylesheet
+    /// (real CSS, injected into the generated `index.html`).
+    InlineCss(String),
+
     /// A `Python … End Python` block, captured verbatim (the inner Python is not
     /// tokenised — it is run at runtime via pyo3, not spliced like inline Rust).
     /// `args` is the raw text inside optional leading parens (`Python(df, n)` →
@@ -290,6 +294,16 @@ pub fn lex(src: &str) -> Vec<Token> {
                     let (raw, resume, newlines) = capture_inline_block(&chars, j, "rust");
                     tokens.push(Token {
                         tok: Tok::InlineRust(raw),
+                        line,
+                    });
+                    line += newlines;
+                    i = resume;
+                } else if word.eq_ignore_ascii_case("Css") {
+                    // A Page's stylesheet: capture verbatim until `End Css` —
+                    // it's real CSS, not VBR.
+                    let (raw, resume, newlines) = capture_inline_block(&chars, j, "css");
+                    tokens.push(Token {
+                        tok: Tok::InlineCss(raw),
                         line,
                     });
                     line += newlines;

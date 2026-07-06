@@ -91,6 +91,7 @@ impl<'a> Parser<'a> {
         let mut canvases = Vec::new();
         let mut screens = Vec::new();
         let mut pages = Vec::new();
+        let mut css = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -179,6 +180,11 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
+                Tok::InlineCss(_) => {
+                    if let Tok::InlineCss(raw) = self.advance() {
+                        css.push(raw);
+                    }
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Canvas") => {
                     if let Some(cv) = self.parse_canvas() {
                         canvases.push(cv);
@@ -226,6 +232,7 @@ impl<'a> Parser<'a> {
             canvases,
             screens,
             pages,
+            css,
         }
     }
 
@@ -531,14 +538,6 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Theme") => {
-                    if kind == "Page" {
-                        self.diags.error(
-                            self.line(),
-                            "A Page has no `Theme` yet — a browser page is styled with CSS, \
-                             which arrives in a later slice.",
-                        );
-                        return None;
-                    }
                     self.advance();
                     theme = Some(self.expect_ident("for the theme name, e.g. `Theme Dracula`")?);
                     self.eat(&Tok::Newline);

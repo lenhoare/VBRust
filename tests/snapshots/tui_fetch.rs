@@ -10,7 +10,7 @@ struct Fetcher {
 impl Default for Fetcher {
     fn default() -> Self {
         Fetcher {
-            url: "https://example.com".to_string(),
+            url: "https://api.github.com/zen".to_string(),
             status: "press r to fetch, q to quit".to_string(),
         }
     }

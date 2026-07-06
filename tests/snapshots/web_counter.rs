@@ -37,11 +37,11 @@ impl Component for Counter {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         html! {
-            <div style="display: flex; flex-direction: column;">
-                <p>{ format!("Count: {}", self.count) }</p>
-                <div style="display: flex; flex-direction: row;">
-                    <button onclick={ctx.link().callback(|_| Message::Increment)}>{ "+" }</button>
-                    <button onclick={ctx.link().callback(|_| Message::Decrement)}>{ "-" }</button>
+            <div class="vbr-column counter" style="display: flex; flex-direction: column;">
+                <p class="vbr-text">{ format!("Count: {}", self.count) }</p>
+                <div class="vbr-row" style="display: flex; flex-direction: row;">
+                    <button class="vbr-button" onclick={ctx.link().callback(|_| Message::Increment)}>{ "+" }</button>
+                    <button class="vbr-button" onclick={ctx.link().callback(|_| Message::Decrement)}>{ "-" }</button>
                 </div>
             </div>
         }

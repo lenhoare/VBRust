@@ -612,6 +612,10 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
     if entry_compiled.rust.contains("gloo_timers::") {
         cargo.push_str("gloo-timers = \"0.3\"\n");
     }
+    // A browser Screen's async continuation is spawned with wasm-bindgen-futures.
+    if entry_compiled.rust.contains("wasm_bindgen_futures::") {
+        cargo.push_str("wasm-bindgen-futures = \"0.4\"\n");
+    }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
         exit(1);
@@ -638,10 +642,25 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
                 title
             )
         } else {
+            // The page's stylesheet: its Theme's palette + any Css blocks. The
+            // asset links make trunk copy local Image files into the site.
+            let style = match &entry_compiled.web_style {
+                Some(css) => {
+                    let indented: String =
+                        css.lines().map(|l| format!("      {}\n", l)).collect();
+                    format!("    <style>\n{}    </style>\n", indented)
+                }
+                None => String::new(),
+            };
+            let assets: String = entry_compiled
+                .web_assets
+                .iter()
+                .map(|a| format!("    <link data-trunk rel=\"copy-file\" href=\"../{}\" />\n", a))
+                .collect();
             format!(
                 "<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
-                 <title>{}</title>\n  </head>\n  <body></body>\n</html>\n",
-                title
+                 <title>{}</title>\n{}{}  </head>\n  <body></body>\n</html>\n",
+                title, assets, style
             )
         };
         if let Err(e) = fs::write(build.join("index.html"), html) {

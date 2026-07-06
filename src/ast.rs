@@ -72,6 +72,9 @@ pub struct Program {
     /// Web pages (`Page … End Page`) — the same State/View/Events shape as a
     /// `Window` (so the same struct), rendered to a Yew browser app instead.
     pub pages: Vec<Window>,
+    /// `Css … End Css` blocks, verbatim — a `Page`'s stylesheet, injected into
+    /// the generated `index.html` (`web_spec.md` §6).
+    pub css: Vec<String>,
 }
 
 /// A terminal UI app: the same State/View/Events model as a `Window`, but

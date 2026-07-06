@@ -2,7 +2,7 @@ Screen Fetcher
     Title "HTTP Fetch"
 
     State
-        Dim url As String = "https://example.com"
+        Dim url As String = "https://api.github.com/zen"
         Dim status As String = "press r to fetch, q to quit"
     End State
 

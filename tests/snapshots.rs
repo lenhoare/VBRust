@@ -69,12 +69,12 @@ const HAPPY: &[&str] = &[
 /// here — they need a feature not yet built, or an external crate (vbr_stdlib)
 /// that our rustc-only compile check can't link.
 const TRANSPILE_ONLY: &[&str] =
-    &["string_options", "stdlib", "datetime_json", "counter", "greeting", "settings", "fetch", "view_if", "toggle_progress", "radio_choice", "notes", "spacing", "dracula", "converter", "await_fn", "logo", "canvas", "plot", "gui_layout", "showcase", "gui_event_stdlib", "tui_counter", "tui_layout", "tui_list", "tui_panels", "tui_table", "tui_input", "tui_tabs", "tui_dashboard", "tui_chart", "tui_multichart", "tui_fetch", "tui_monitor", "tui_pulse", "python_scalar", "python_handle", "python_tuple", "dataframe_basics", "dataframe_groupby", "dataframe_join", "web_counter", "web_greeting", "web_settings", "web_fetch"];
+    &["string_options", "stdlib", "datetime_json", "counter", "greeting", "settings", "fetch", "view_if", "toggle_progress", "radio_choice", "notes", "spacing", "dracula", "converter", "await_fn", "logo", "canvas", "plot", "gui_layout", "showcase", "gui_event_stdlib", "tui_counter", "tui_layout", "tui_list", "tui_panels", "tui_table", "tui_input", "tui_tabs", "tui_dashboard", "tui_chart", "tui_multichart", "tui_fetch", "tui_monitor", "tui_pulse", "python_scalar", "python_handle", "python_tuple", "dataframe_basics", "dataframe_groupby", "dataframe_join", "web_counter", "web_greeting", "web_settings", "web_fetch", "web_dracula"];
 
 /// `Screen` programs also compiled for the browser (`vbr runweb` → Ratzilla):
 /// the same example file, second snapshot. The State struct and `view` are
 /// byte-identical to the native output; only `fn main` (the shell) differs.
-const WEB_SCREENS: &[&str] = &["tui_counter", "tui_input", "tui_pulse"];
+const WEB_SCREENS: &[&str] = &["tui_counter", "tui_input", "tui_pulse", "tui_monitor"];
 
 /// Files that are meant to fail, exercising the teaching diagnostics.
 const ERRORS: &[&str] = &[

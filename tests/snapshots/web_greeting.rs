@@ -48,14 +48,15 @@ impl Component for Greeter {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         html! {
-            <div style="display: flex; flex-direction: column;">
-                <p>{ "What's your name?" }</p>
+            <div class="vbr-column greeter" style="display: flex; flex-direction: column;">
+                <p class="vbr-text">{ "What's your name?" }</p>
                 <input
+                    class="vbr-textinput"
                     placeholder={"type here"}
                     value={self.name.clone()}
                     oninput={ctx.link().callback(|e: InputEvent| Message::Rename(e.target_unchecked_into::<web_sys::HtmlInputElement>().value()))}
                 />
-                <label>
+                <label class="vbr-checkbox">
                     <input
                         type="checkbox"
                         checked={self.shout}
@@ -63,8 +64,8 @@ impl Component for Greeter {
                     />
                     { "Shout it" }
                 </label>
-                <p>{ format!("Hello, {}!", self.name) }</p>
-                <button onclick={ctx.link().callback(|_| Message::Clear)}>{ "Clear" }</button>
+                <p class="vbr-text">{ format!("Hello, {}!", self.name) }</p>
+                <button class="vbr-button" onclick={ctx.link().callback(|_| Message::Clear)}>{ "Clear" }</button>
             </div>
         }
     }

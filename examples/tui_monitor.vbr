@@ -4,7 +4,7 @@ Screen Monitor
     State
         Dim seconds As Integer = 0
         Dim status As String = "starting…"
-        Dim url As String = "https://example.com"
+        Dim url As String = "https://api.github.com/zen"
     End State
 
     View

@@ -62,7 +62,7 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
 }
 
 /// Iced's built-in themes (variant names). Selecting one restyles the whole app.
-const KNOWN_THEMES: &[&str] = &[
+pub(crate) const KNOWN_THEMES: &[&str] = &[
     "Light", "Dark", "Dracula", "Nord", "SolarizedLight", "SolarizedDark",
     "GruvboxLight", "GruvboxDark", "CatppuccinLatte", "CatppuccinFrappe",
     "CatppuccinMacchiato", "CatppuccinMocha", "TokyoNight", "TokyoNightStorm",
@@ -71,7 +71,7 @@ const KNOWN_THEMES: &[&str] = &[
 ];
 
 /// The canonical (PascalCase) name of a built-in theme, matched case-insensitively.
-fn canonical_theme(name: &str) -> Option<&'static str> {
+pub(crate) fn canonical_theme(name: &str) -> Option<&'static str> {
     KNOWN_THEMES.iter().find(|t| t.eq_ignore_ascii_case(name)).copied()
 }
 

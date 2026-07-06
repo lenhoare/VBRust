@@ -13,7 +13,7 @@ impl Default for Monitor {
         Monitor {
             seconds: 0,
             status: "starting…".to_string(),
-            url: "https://example.com".to_string(),
+            url: "https://api.github.com/zen".to_string(),
         }
     }
 }

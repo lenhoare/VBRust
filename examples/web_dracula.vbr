@@ -1,0 +1,49 @@
+' Built-in themes work in the browser: Theme Dracula colors the page with the
+' same palette as the desktop Window of the same name. A Css block is the
+' escape hatch — real CSS targeting the generated classes (.vbr-button,
+' .vbr-text, …) or one page's controls via its name (.counter). A direct port
+' of the GUI's dracula.vbr. (web slice 5)
+' Run it with: vbr runweb examples/web_dracula.vbr
+Page Counter
+    Title "Dracula Counter"
+    Theme Dracula
+
+    State
+        Dim count As Integer = 0
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 20
+            Text "Count"
+            Text count
+            Row
+                Spacing 8
+                Button "-"
+                    On Click Down
+                End Button
+                Button "+"
+                    On Click Up
+                End Button
+            End Row
+        End Column
+    End View
+
+    Event Up
+        count += 1
+    End Event
+    Event Down
+        count -= 1
+    End Event
+End Page
+
+Css
+.counter .vbr-text {
+    font-size: 24px;
+}
+End Css
+
+Function Main()
+    Counter.Run
+End Function
