@@ -96,6 +96,14 @@ served with:
 cargo run -- runweb examples/web_counter.vbr
 ```
 
+A `Screen` (terminal app) can be served the same way — the identical file runs
+in the terminal via `run`/`runproject` and in the browser via `runweb`, where
+Ratzilla draws the ratatui widgets into the DOM:
+
+```sh
+cargo run -- runweb examples/tui_counter.vbr
+```
+
 One-time setup (each checked with a friendly error): `rustup target add
 wasm32-unknown-unknown` and `cargo install trunk --locked`. See `web_spec.md`.
 

@@ -9,6 +9,12 @@
 //! Slice 1: `State` + a `View` of `Text` lines + `On Key` + `Event` → a State
 //! struct, a `view(state, frame)` that draws a bordered `Paragraph`, and a
 //! crossterm event loop that redraws on each keystroke and dispatches the keymap.
+//!
+//! Web (`vbr runweb`): the same `Screen` renders in a browser through Ratzilla,
+//! which draws real ratatui widgets into the DOM. The State struct, `view` fn,
+//! and event lowering are shared verbatim — only the shell differs: instead of
+//! a blocking crossterm loop, `emit_web_main` wires the state (an
+//! `Rc<RefCell<_>>`) into `on_key_event` + a `draw_web` render loop.
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
@@ -21,8 +27,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Emit a complete TUI program: shared items (consts/structs/enums/functions),
 /// each screen's definition, then `fn main`, which runs the screen launched by
-/// `<Screen>.Run` inside `Function Main()`.
-pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
+/// `<Screen>.Run` inside `Function Main()`. With `web`, `fn main` is the
+/// Ratzilla browser shell instead of the crossterm loop.
+pub fn emit_tui_program(program: &Program, web: bool, diags: &mut Diagnostics) -> String {
     let mut out = String::new();
     let t = surface::build_tables(program);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
@@ -39,6 +46,7 @@ pub fn emit_tui_program(program: &Program, diags: &mut Diagnostics) -> String {
         program.screens.iter().find(|s| s.name.eq_ignore_ascii_case(name))
     });
     match launched_screen {
+        Some(sc) if web => out.push_str(&emit_web_main(sc, &t, diags)),
         Some(sc) => out.push_str(&emit_main(sc, &t, diags)),
         None => diags.error_once(
             "tui-no-launch",
@@ -875,12 +883,12 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     // matters: specific user `Char('x')` arms above, general `Char(c)` typing last.
     if has_sel && !user_keys.contains("KeyCode::Down") {
         out.push_str("                    KeyCode::Down => {\n");
-        out.push_str(&nav_dispatch(&focusables, multi, "select_next"));
+        out.push_str(&nav_dispatch(&focusables, multi, "select_next", 6));
         out.push_str("                    }\n");
     }
     if has_sel && !user_keys.contains("KeyCode::Up") {
         out.push_str("                    KeyCode::Up => {\n");
-        out.push_str(&nav_dispatch(&focusables, multi, "select_previous"));
+        out.push_str(&nav_dispatch(&focusables, multi, "select_previous", 6));
         out.push_str("                    }\n");
     }
     if multi && !user_keys.contains("KeyCode::Tab") {
@@ -892,17 +900,17 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     }
     if has_focus && !user_keys.contains("KeyCode::Enter") {
         out.push_str("                    KeyCode::Enter => {\n");
-        out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, t));
+        out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, t, 6));
         out.push_str("                    }\n");
     }
     if has_input && !user_keys.contains("KeyCode::Backspace") {
         out.push_str("                    KeyCode::Backspace => {\n");
-        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.pop();", f)));
+        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.pop();", f), 6));
         out.push_str("                    }\n");
     }
     if has_input {
         out.push_str("                    KeyCode::Char(c) => {\n");
-        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.push(c);", f)));
+        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.push(c);", f), 6));
         out.push_str("                    }\n");
     }
     out.push_str("                    _ => {}\n");
@@ -911,6 +919,159 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("    ratatui::restore();\n");
+    out.push_str("    Ok(())\n");
+    out.push_str("}\n");
+    out
+}
+
+/// `fn main` for the browser (`vbr runweb`): the Ratzilla shell. The terminal
+/// is drawn into the DOM; the state lives in an `Rc<RefCell<_>>` shared by the
+/// key handler (which dispatches the same keymap as the native loop) and the
+/// `draw_web` render loop. The State struct, `view`, and event bodies are the
+/// exact ones the native shell uses.
+fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> String {
+    let ty = &sc.name;
+    let (fields, field_ty) = state_maps(&sc.state);
+    let events: HashMap<String, &GuiEvent> =
+        sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();
+
+    // Not in the browser Screen yet — a teaching fence for a later slice.
+    if sc.events.iter().any(|e| e.body.iter().any(surface::stmt_has_await)) {
+        diags.error_once(
+            "tui-web-await",
+            "`Await` isn't available in the browser Screen yet — it arrives in a later \
+             slice. (The terminal version runs it: `vbr runproject`.)",
+        );
+    }
+
+    // The focusable widgets and their built-in navigation — the same dispatch
+    // the native loop wires up, inside the browser key handler.
+    let focusables = collect_focusables(&sc.view);
+    let has_focus = !focusables.is_empty();
+    let has_sel = focusables.iter().any(Focusable::selectable);
+    let has_input = focusables.iter().any(Focusable::is_input);
+    let multi = focusables.len() > 1;
+    let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
+
+    // A browser page can't quit itself, so `Quit` bindings (key or timer) are
+    // dropped on the web — say so rather than diverge silently.
+    if sc.keys.iter().any(|k| k.handler.eq_ignore_ascii_case("Quit"))
+        || sc.timers.iter().any(|tm| tm.handler.eq_ignore_ascii_case("Quit"))
+    {
+        diags.note(
+            "tui-web-quit",
+            "A `Quit` key has no meaning in a browser (close the tab instead), so that \
+             binding is left out of the web build.",
+        );
+    }
+    let arms: Vec<&KeyBinding> =
+        sc.keys.iter().filter(|k| !k.handler.eq_ignore_ascii_case("Quit")).collect();
+
+    let mut out = String::new();
+    let mut dummy = Diagnostics::new();
+    let handle_keys = !arms.is_empty() || has_focus;
+    out.push_str("fn main() -> std::io::Result<()> {\n");
+    out.push_str("    use ratzilla::{DomBackend, WebRenderer};\n");
+    if handle_keys {
+        out.push_str("    use ratzilla::event::KeyCode;\n");
+    }
+    out.push_str(&format!(
+        "    let state = std::rc::Rc::new(std::cell::RefCell::new({}::default()));\n",
+        ty
+    ));
+    out.push_str("    let backend = DomBackend::new()?;\n");
+    // `on_key_event` needs `&mut terminal`; with no bindings, skip it (and the
+    // `mut`) so an output-only screen stays warning-free.
+    let let_term = if handle_keys { "let mut terminal" } else { "let terminal" };
+    out.push_str(&format!("    {} = ratzilla::ratatui::Terminal::new(backend)?;\n", let_term));
+    if handle_keys {
+        out.push_str("    terminal.on_key_event({\n");
+        out.push_str("        let state = state.clone();\n");
+        out.push_str("        move |key| {\n");
+        // Reborrow the RefCell guard into a plain `&mut`, so one statement can
+        // touch two state fields (`state.history.push(state.level)`) — through
+        // the guard itself, the borrow checker can't split fields across the
+        // deref, which a native `&mut state` allows.
+        out.push_str("            let mut guard = state.borrow_mut();\n");
+        out.push_str("            let state = &mut *guard;\n");
+        out.push_str("            match key.code {\n");
+        for k in &arms {
+            out.push_str(&format!("                {} => {{\n", key_pattern(&k.key)));
+            if let Some(ev) = events.get(&k.handler.to_ascii_lowercase()) {
+                surface::emit_event_stmts(
+                    &ev.body, &ev.params, "state", &fields, &field_ty, t, 5, &mut dummy, &mut out,
+                );
+            }
+            out.push_str("                }\n");
+        }
+        // Built-in focus navigation — same rules as the native loop: a key the
+        // user bound wins; the general `Char(c)` typing arm comes last.
+        if has_sel && !user_keys.contains("KeyCode::Down") {
+            out.push_str("                KeyCode::Down => {\n");
+            out.push_str(&nav_dispatch(&focusables, multi, "select_next", 5));
+            out.push_str("                }\n");
+        }
+        if has_sel && !user_keys.contains("KeyCode::Up") {
+            out.push_str("                KeyCode::Up => {\n");
+            out.push_str(&nav_dispatch(&focusables, multi, "select_previous", 5));
+            out.push_str("                }\n");
+        }
+        if multi && !user_keys.contains("KeyCode::Tab") {
+            out.push_str(&format!(
+                "                KeyCode::Tab => {{\n                    \
+                 state.focus_index = (state.focus_index + 1) % {};\n                }}\n",
+                focusables.len()
+            ));
+        }
+        if has_focus && !user_keys.contains("KeyCode::Enter") {
+            out.push_str("                KeyCode::Enter => {\n");
+            out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, t, 5));
+            out.push_str("                }\n");
+        }
+        if has_input && !user_keys.contains("KeyCode::Backspace") {
+            out.push_str("                KeyCode::Backspace => {\n");
+            out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.pop();", f), 5));
+            out.push_str("                }\n");
+        }
+        if has_input {
+            out.push_str("                KeyCode::Char(c) => {\n");
+            out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.push(c);", f), 5));
+            out.push_str("                }\n");
+        }
+        out.push_str("                _ => {}\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+        out.push_str("    })?;\n");
+    }
+    // Each `Every` becomes a browser interval timer running the same handler
+    // body; `.forget()` keeps it ticking for the life of the page. (Ratzilla's
+    // render loop redraws continuously, so the state change just shows up.)
+    for tm in &sc.timers {
+        let Some(ev) = events.get(&tm.handler.to_ascii_lowercase()) else {
+            continue; // `Quit` (noted above) or an unknown handler
+        };
+        out.push_str(&format!(
+            "    gloo_timers::callback::Interval::new({}, {{\n",
+            tm.interval_ms
+        ));
+        out.push_str("        let state = state.clone();\n");
+        out.push_str("        move || {\n");
+        out.push_str("            let mut guard = state.borrow_mut();\n");
+        out.push_str("            let state = &mut *guard;\n");
+        surface::emit_event_stmts(
+            &ev.body, &ev.params, "state", &fields, &field_ty, t, 3, &mut dummy, &mut out,
+        );
+        out.push_str("        }\n");
+        out.push_str("    })\n");
+        out.push_str("    .forget();\n");
+    }
+    // Only a list/table makes the render borrow mutable (its selection state
+    // mutates as it draws), matching the native `draw` call.
+    if has_sel {
+        out.push_str("    terminal.draw_web(move |frame| view(&mut state.borrow_mut(), frame));\n");
+    } else {
+        out.push_str("    terminal.draw_web(move |frame| view(&state.borrow(), frame));\n");
+    }
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
     out
@@ -955,27 +1116,28 @@ fn emit_event_run(
 }
 
 /// Up/Down on the focused list/table — direct for one focusable, routed by
-/// `focus_index` for several (inputs fall through to `_`).
-fn nav_dispatch(focusables: &[Focusable], multi: bool, method: &str) -> String {
+/// `focus_index` for several (inputs fall through to `_`). `base` is the
+/// indent level of the emitted body (the shells nest differently).
+fn nav_dispatch(focusables: &[Focusable], multi: bool, method: &str, base: usize) -> String {
+    let pad = "    ".repeat(base);
     let sel: Vec<(usize, &Focusable)> =
         focusables.iter().enumerate().filter(|(_, f)| f.selectable()).collect();
     if !multi {
-        return format!("                        state.{}_state.{}();\n", sel[0].1.field, method);
+        return format!("{}state.{}_state.{}();\n", pad, sel[0].1.field, method);
     }
-    let mut out = String::from("                        match state.focus_index {\n");
+    let mut out = format!("{}match state.focus_index {{\n", pad);
     for (i, f) in &sel {
-        out.push_str(&format!(
-            "                            {} => state.{}_state.{}(),\n",
-            i, f.field, method
-        ));
+        out.push_str(&format!("{}    {} => state.{}_state.{}(),\n", pad, i, f.field, method));
     }
-    out.push_str("                            _ => {}\n");
-    out.push_str("                        }\n");
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
     out
 }
 
 /// Enter on the focused widget → its handler: an Input's `On Submit` (reading the
 /// bound field from state), or a List/Table's `On Select` (with the selected row).
+/// `base` is the indent level of the emitted body.
+#[allow(clippy::too_many_arguments)]
 fn enter_dispatch(
     focusables: &[Focusable],
     multi: bool,
@@ -983,6 +1145,7 @@ fn enter_dispatch(
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     t: &surface::Tables,
+    base: usize,
 ) -> String {
     let body = |fo: &Focusable, indent: usize| -> String {
         let pad = "    ".repeat(indent);
@@ -1018,37 +1181,45 @@ fn enter_dispatch(
         s
     };
     if !multi {
-        return body(&focusables[0], 6);
+        return body(&focusables[0], base);
     }
-    let mut out = String::from("                        match state.focus_index {\n");
+    let pad = "    ".repeat(base);
+    let mut out = format!("{}match state.focus_index {{\n", pad);
     for (i, fo) in focusables.iter().enumerate() {
-        let arm = body(fo, 8);
+        let arm = body(fo, base + 2);
         if arm.is_empty() {
             continue;
         }
-        out.push_str(&format!("                            {} => {{\n", i));
+        out.push_str(&format!("{}    {} => {{\n", pad, i));
         out.push_str(&arm);
-        out.push_str("                            }\n");
+        out.push_str(&format!("{}    }}\n", pad));
     }
-    out.push_str("                            _ => {}\n");
-    out.push_str("                        }\n");
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
     out
 }
 
 /// A key that edits the focused input (Backspace/typing) → `action(field)` on the
 /// focused input; direct for one focusable, routed by `focus_index` otherwise.
-fn input_dispatch(focusables: &[Focusable], multi: bool, action: &dyn Fn(&str) -> String) -> String {
+/// `base` is the indent level of the emitted body.
+fn input_dispatch(
+    focusables: &[Focusable],
+    multi: bool,
+    action: &dyn Fn(&str) -> String,
+    base: usize,
+) -> String {
+    let pad = "    ".repeat(base);
     let inputs: Vec<(usize, &Focusable)> =
         focusables.iter().enumerate().filter(|(_, f)| f.is_input()).collect();
     if !multi {
-        return format!("                        {}\n", action(&inputs[0].1.field));
+        return format!("{}{}\n", pad, action(&inputs[0].1.field));
     }
-    let mut out = String::from("                        match state.focus_index {\n");
+    let mut out = format!("{}match state.focus_index {{\n", pad);
     for (i, f) in &inputs {
-        out.push_str(&format!("                            {} => {{ {} }}\n", i, action(&f.field)));
+        out.push_str(&format!("{}    {} => {{ {} }}\n", pad, i, action(&f.field)));
     }
-    out.push_str("                            _ => {}\n");
-    out.push_str("                        }\n");
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
     out
 }
 

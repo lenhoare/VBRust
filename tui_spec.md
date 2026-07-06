@@ -262,6 +262,44 @@ dispatch → `ratatui::restore()`); it takes over the terminal, so run it in a r
 terminal (not piped), and it restores on exit. Adding a `Screen` pulls in
 `ratatui` (crossterm comes with it); it builds far faster than the GUI's Iced.
 
+### 8.1 Running in the browser — `vbr runweb`
+
+The **same `Screen` file** also runs in a browser:
+
+```sh
+vbr runweb examples/tui_counter.vbr    # serve it (trunk, like a Page)
+vbr build --web examples/tui_counter.vbr   # just generate the project
+```
+
+This swaps the shell, not the program: it compiles to WebAssembly against
+**Ratzilla** (pinned 0.3, on ratatui 0.30), which draws real ratatui widgets
+into the DOM — same State struct, same `view`, same event bodies, byte for
+byte. Only `fn main` differs: the state lives in an `Rc<RefCell<_>>` shared by
+an `on_key_event` handler (dispatching the same keymap) and a `draw_web`
+render loop. The one-time setup is the web toolchain from `web_spec.md` §4
+(the wasm target + trunk).
+
+Web differences, each said out loud rather than silently diverged:
+
+- A `Quit` binding (key or timer) is dropped (a page can't quit itself —
+  close the tab); a note says so.
+- **Not yet, a teaching error (a later slice):** `Await`. The terminal
+  version of the same file runs it today.
+
+The focusable widgets (`Input`, `List`, `Table`) work in the browser with the
+same built-in navigation as the terminal (§5): Tab cycles focus, arrows move
+the selection, Enter submits/selects, typing and Backspace edit the focused
+input — the identical dispatch, wired into the browser's key handler.
+
+`Every` timers (§6) run on browser interval timers (gloo-timers), each
+executing the same handler body against the shared state; the render loop
+picks the change up automatically. `examples/tui_pulse.vbr` — a timer-driven
+Gauge + Sparkline animation — runs identically in both shells.
+
+*(BUILT — 2026-07-06: the shell, keymap + sync events, the full widget set
+including focus/Input/List/Table, and `Every` timers — the widget lowering
+compiles unchanged against ratatui 0.30 on wasm.)*
+
 ---
 
 ## 9. Deferred
@@ -281,4 +319,5 @@ terminal (not piped), and it restores on exit. Adding a `Screen` pulls in
 `tui_list.vbr` / `tui_panels.vbr` (list + focus), `tui_table.vbr`,
 `tui_input.vbr` (input + list), `tui_tabs.vbr` (Match/If), `tui_dashboard.vbr`
 (Gauge/Sparkline/BarChart), `tui_chart.vbr` / `tui_multichart.vbr` (XY charts),
-`tui_fetch.vbr` (async), `tui_monitor.vbr` (timers + async).
+`tui_fetch.vbr` (async), `tui_monitor.vbr` (timers + async), `tui_pulse.vbr`
+(timer-driven animation, terminal + browser).

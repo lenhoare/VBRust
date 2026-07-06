@@ -1,0 +1,2 @@
+⚠ [line 40] Function 'Seed' is 'seed' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ A `Quit` key has no meaning in a browser (close the tab instead), so that binding is left out of the web build.

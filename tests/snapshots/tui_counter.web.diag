@@ -1,0 +1,1 @@
+ℹ A `Quit` key has no meaning in a browser (close the tab instead), so that binding is left out of the web build.

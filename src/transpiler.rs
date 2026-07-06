@@ -23,16 +23,19 @@ const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> String {
 ";
 
 pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
-    transpile_module(program, &[], true, diags)
+    transpile_module(program, &[], true, false, diags)
 }
 
 /// Transpile one file of a project. `modules` are the other project module names
 /// (snake-cased), used to qualify cross-module calls; when `is_entry`, the file
-/// is the crate root and gets `mod <name>;` declarations and `fn main`.
+/// is the crate root and gets `mod <name>;` declarations and `fn main`. `web`
+/// targets the browser (`vbr runweb`): a `Screen` renders through Ratzilla
+/// instead of crossterm (a `Page` is web by nature; a `Window` ignores it).
 pub fn transpile_module(
     program: &Program,
     modules: &[String],
     is_entry: bool,
+    web: bool,
     diags: &mut Diagnostics,
 ) -> String {
     // A web program (one with a `Page`) compiles to a Yew (WebAssembly) app.
@@ -58,9 +61,11 @@ pub fn transpile_module(
         diags.clear_line_map();
         return rust;
     }
-    // A TUI program (one with a `Screen`) compiles to a ratatui application.
+    // A TUI program (one with a `Screen`) compiles to a ratatui application —
+    // in the terminal (crossterm) by default, in the browser (Ratzilla) for
+    // `vbr runweb`. Same state, same view; only the shell differs.
     if !program.screens.is_empty() {
-        let rust = crate::tui::emit_tui_program(program, diags);
+        let rust = crate::tui::emit_tui_program(program, web, diags);
         diags.clear_line_map();
         return rust;
     }

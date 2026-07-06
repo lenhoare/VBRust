@@ -4,9 +4,10 @@
 //!                             no standard library or external crates)
 //!   vbr runproject [path]     generate a cargo project in `build/` and run it
 //!                             (handles the standard library and external crates)
-//!   vbr runweb [path]         build a `Page` program for WebAssembly and serve it
-//!                             in the browser with trunk
+//!   vbr runweb [path]         build a `Page` (or a `Screen`, via Ratzilla) for
+//!                             WebAssembly and serve it in the browser with trunk
 //!   vbr build [path]          generate the cargo project without running it
+//!                             (`--web` generates the browser form)
 //!   vbr transpile <file.vbr>  write the generated Rust to <file>.rs (or `-o file`)
 //!   vbr emit <file.vbr>       print the generated Rust to stdout (or `-o file`)
 //!
@@ -38,8 +39,8 @@ fn usage() {
         "Usage:\n\
          \tvbr run <file.vbr>      compile with rustc and run (single file, no stdlib/crates)\n\
          \tvbr runproject [path]   generate a cargo project in build/ and run it\n\
-         \tvbr runweb [path]       build a Page program for WebAssembly and serve it (trunk)\n\
-         \tvbr build [path]        generate the cargo project without running\n\
+         \tvbr runweb [path]       build a Page or Screen for WebAssembly and serve it (trunk)\n\
+         \tvbr build [path]        generate the cargo project without running (--web for the browser form)\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)"
     );
@@ -71,9 +72,10 @@ fn needs_project(rust: &str) -> bool {
     rust.contains("vbr_stdlib")
 }
 
-/// Is this a web (`Page`) program? Those build for WebAssembly via `vbr runweb`.
+/// Is this generated Rust a browser program (a `Page`, or a `Screen` compiled
+/// for the web)? Those build for WebAssembly via `vbr runweb`.
 fn is_web_rust(rust: &str) -> bool {
-    rust.contains("yew::Renderer::<")
+    rust.contains("yew::Renderer::<") || rust.contains("ratzilla::")
 }
 
 fn cmd_transpile(args: &[String]) {
@@ -188,11 +190,20 @@ fn cmd_run(args: &[String]) {
 }
 
 fn cmd_project(args: &[String], run: bool) {
-    let entry = match resolve_entry(args.first().map(String::as_str).unwrap_or(".")) {
+    // `vbr build --web <file>` generates the browser form of a Screen program
+    // (what `vbr runweb` builds) without serving it.
+    let web = args.iter().any(|a| a == "--web");
+    let path_arg =
+        args.iter().find(|a| !a.starts_with("--")).map(String::as_str).unwrap_or(".");
+    let entry = match resolve_entry(path_arg) {
         Some(e) => e,
         None => exit(1),
     };
-    let (build, file_maps) = generate_project(&entry);
+    if web && run {
+        eprintln!("✘ `--web` builds a browser app — serve it with `vbr runweb` instead.");
+        exit(1);
+    }
+    let (build, file_maps) = generate_project(&entry, web);
     eprintln!("→ project: {}", build.display());
 
     if !run {
@@ -277,14 +288,15 @@ fn cmd_runweb(args: &[String]) {
         Some(e) => e,
         None => exit(1),
     };
-    let (build, file_maps) = generate_project(&entry);
+    let (build, file_maps) = generate_project(&entry, true);
     eprintln!("→ project: {}", build.display());
 
     let cargo_toml = fs::read_to_string(build.join("Cargo.toml")).unwrap_or_default();
-    if !cargo_toml.contains("yew") {
+    if !cargo_toml.contains("yew") && !cargo_toml.contains("ratzilla") {
         eprintln!(
-            "✘ This program has no `Page`, so there's nothing to serve in a browser.\n  \
-             Run it with `vbr run` or `vbr runproject` instead."
+            "✘ Nothing here runs in a browser — `runweb` serves a `Page` (a web app) or a \
+             `Screen` (a terminal app drawn in the browser).\n  \
+             Run this with `vbr run` or `vbr runproject` instead."
         );
         exit(1);
     }
@@ -310,10 +322,17 @@ fn cmd_runweb(args: &[String]) {
         exit(1);
     }
 
-    eprintln!(
-        "→ Building the web app — compiling Yew for WebAssembly takes a minute the \
-         first time (instant once cached)."
-    );
+    if cargo_toml.contains("ratzilla") {
+        eprintln!(
+            "→ Building the web terminal — compiling Ratzilla for WebAssembly takes a \
+             minute the first time (instant once cached)."
+        );
+    } else {
+        eprintln!(
+            "→ Building the web app — compiling Yew for WebAssembly takes a minute the \
+             first time (instant once cached)."
+        );
+    }
     // Build first with JSON diagnostics, so a failure can be translated back to
     // .vbr lines; trunk then reuses the cached build.
     let built = Command::new("cargo")
@@ -385,7 +404,7 @@ struct FileMap {
 
 /// Generate the cargo project under `<project>/build/` and return its path
 /// plus the per-file line maps (for translating build errors).
-fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
+fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
 
     // A multi-module project is a folder whose entry is `main.vbr`; its siblings
@@ -431,7 +450,7 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
 
     // Entry → main.rs (crate root: `mod` declarations + `fn main`).
     let mut file_maps: Vec<FileMap> = Vec::new();
-    let entry_compiled = compile_path(entry, &module_names, true);
+    let entry_compiled = compile_path(entry, &module_names, true, web);
     if let Err(e) = fs::write(src.join("main.rs"), &entry_compiled.rust) {
         eprintln!("✘ Could not write main.rs: {}", e);
         exit(1);
@@ -452,7 +471,7 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
 
     // Each `.vbr` sibling → transpiled `<name>.rs`.
     for (file, name) in vbr_files.iter().zip(&vbr_names) {
-        let compiled = compile_path(file, &module_names, false);
+        let compiled = compile_path(file, &module_names, false, web);
         let path = src.join(format!("{}.rs", name));
         if let Err(e) = fs::write(&path, &compiled.rust) {
             eprintln!("✘ Could not write {}: {}", path.display(), e);
@@ -555,6 +574,11 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
                 "yew = {{ version = \"{}\", features = [\"csr\"] }}\n",
                 version
             ));
+        } else if krate == "ratatui" && version == "0.30" {
+            // ratatui 0.30 is the web (Ratzilla) pairing — its default features
+            // pull the crossterm backend, which can't compile for wasm. The
+            // widgets/layout the generated `view` uses need no feature.
+            cargo.push_str("ratatui = { version = \"0.30\", default-features = false }\n");
         } else if krate == "pyo3" {
             // `auto-initialize` lets a standalone binary boot CPython on first use,
             // so the generated `Python::with_gil` "just works" without a manual
@@ -584,23 +608,42 @@ fn generate_project(entry: &Path) -> (PathBuf, Vec<FileMap>) {
             "gloo-net = { version = \"0.6\", default-features = false, features = [\"http\"] }\n",
         );
     }
+    // An `Every` timer in a browser Screen runs on a gloo-timers Interval.
+    if entry_compiled.rust.contains("gloo_timers::") {
+        cargo.push_str("gloo-timers = \"0.3\"\n");
+    }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
         exit(1);
     }
 
-    // A web (`Page`) project also gets the `index.html` trunk serves — the
-    // page's `Title` becomes the browser-tab title.
+    // A web project also gets the `index.html` trunk serves — the page's (or
+    // screen's) `Title` becomes the browser-tab title. A Screen's page styles
+    // the terminal: Ratzilla's DOM backend renders it as <pre> text, so it
+    // gets a monospace font, centered on a dark page.
     if is_web_rust(&entry_compiled.rust) {
         let title = entry_compiled
             .web_title
             .clone()
             .unwrap_or_else(|| "VBR app".to_string());
-        let html = format!(
-            "<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
-             <title>{}</title>\n  </head>\n  <body></body>\n</html>\n",
-            title
-        );
+        let html = if entry_compiled.rust.contains("ratzilla::") {
+            format!(
+                "<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
+                 <title>{}</title>\n    <style>\n      body {{\n        margin: 0;\n        \
+                 width: 100%;\n        height: 100vh;\n        display: flex;\n        \
+                 flex-direction: column;\n        justify-content: center;\n        \
+                 align-items: center;\n        background-color: #121212;\n      }}\n      \
+                 pre {{\n        font-family: monospace;\n        font-size: 16px;\n        \
+                 margin: 0px;\n      }}\n    </style>\n  </head>\n  <body></body>\n</html>\n",
+                title
+            )
+        } else {
+            format!(
+                "<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
+                 <title>{}</title>\n  </head>\n  <body></body>\n</html>\n",
+                title
+            )
+        };
         if let Err(e) = fs::write(build.join("index.html"), html) {
             eprintln!("✘ Could not write index.html: {}", e);
             exit(1);
@@ -632,7 +675,7 @@ fn module_of(p: &Path) -> String {
 
 /// Read + compile one project file (as entry or module), printing diagnostics
 /// and exiting on error.
-fn compile_path(path: &Path, modules: &[String], is_entry: bool) -> vbr::Compiled {
+fn compile_path(path: &Path, modules: &[String], is_entry: bool, web: bool) -> vbr::Compiled {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -640,7 +683,11 @@ fn compile_path(path: &Path, modules: &[String], is_entry: bool) -> vbr::Compile
             exit(1);
         }
     };
-    let result = vbr::compile_module(&source, modules, is_entry);
+    let result = if web {
+        vbr::compile_module_web(&source, modules, is_entry)
+    } else {
+        vbr::compile_module(&source, modules, is_entry)
+    };
     for d in &result.diagnostics {
         eprintln!("{}", d);
     }

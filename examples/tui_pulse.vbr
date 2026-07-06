@@ -1,0 +1,48 @@
+' Timers drive the state: Every 100ms the gauge pulses up or down, and each
+' full beat lands in the sparkline's history. No keys needed — the app animates
+' itself. The same file runs in the terminal (vbr runproject) and in the
+' browser (vbr runweb). (tui web slice 3)
+Screen Pulse
+    Title "Pulse"
+
+    State
+        Dim level As Integer = 0
+        Dim rising As Boolean = True
+        Dim beats As Integer = 0
+        Dim history As Vec<Integer>
+    End State
+
+    View
+        Column
+            Length 1
+            Text "Beats: " & beats & " • q to quit"
+            Length 3
+            Gauge 0..=100, level
+            Fill
+            Sparkline history
+        End Column
+    End View
+
+    Every 100 Beat
+    On Key "q" Quit
+
+    Event Beat
+        If rising Then
+            level += 5
+            If level >= 100 Then
+                rising = False
+                beats += 1
+                history.Push(level)
+            End If
+        Else
+            level -= 5
+            If level <= 0 Then
+                rising = True
+            End If
+        End If
+    End Event
+End Screen
+
+Function Main()
+    Pulse.Run
+End Function

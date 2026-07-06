@@ -115,4 +115,39 @@ fn transpile_only_examples_compile() {
         );
         eprintln!("✔ {name} compiled clean (wasm32)");
     }
+
+    // A `Screen` also runs in the browser (`vbr runweb` → Ratzilla, ratatui
+    // 0.30). tui_counter covers the web shell (keymap + events); tui_dashboard
+    // proves the chart/gauge widget lowering — written against native ratatui
+    // 0.29 — also compiles against 0.30 on wasm; tui_input covers the focus
+    // machinery (Input + List, Tab cycling, Enter dispatch) in the browser
+    // key handler; tui_pulse covers `Every` timers (gloo-timers Intervals and
+    // the RefCell-guard reborrow that lets one statement touch two fields).
+    for name in ["tui_counter", "tui_dashboard", "tui_input", "tui_pulse"] {
+        let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
+            .args(["build", "--web"])
+            .arg(examples.join(format!("{name}.vbr")))
+            .output()
+            .expect("failed to run vbr");
+        assert!(
+            vbr.status.success(),
+            "vbr build --web failed for {name}:\n{}",
+            String::from_utf8_lossy(&vbr.stderr)
+        );
+        let out = Command::new("cargo")
+            .args(["build", "--target", "wasm32-unknown-unknown"])
+            .current_dir(&build)
+            .output()
+            .expect("failed to run cargo");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success(),
+            "cargo rejected the generated web-screen project for {name}:\n{stderr}"
+        );
+        assert!(
+            !stderr.contains("warning:"),
+            "cargo emitted warnings for {name}:\n{stderr}"
+        );
+        eprintln!("✔ {name} compiled clean (wasm32, ratzilla)");
+    }
 }

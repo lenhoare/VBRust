@@ -44,13 +44,29 @@ pub struct Compiled {
 /// Run the full pipeline over `source` as a single standalone file (the entry,
 /// with no sibling modules).
 pub fn compile(source: &str) -> Compiled {
-    compile_module(source, &[], true)
+    compile_with(source, &[], true, false)
+}
+
+/// Compile for the browser (`vbr runweb`): a `Screen` renders through Ratzilla
+/// (the terminal drawn into the DOM) instead of crossterm. A `Page` is always
+/// a web app, so for it this is the same as `compile`.
+pub fn compile_web(source: &str) -> Compiled {
+    compile_with(source, &[], true, true)
 }
 
 /// Compile one file of a multifile project. `modules` are the other project
 /// module names (lowercased file stems), used to qualify cross-module calls;
 /// `is_entry` marks the crate root (gets `mod <name>;` declarations and `fn main`).
 pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compiled {
+    compile_with(source, modules, is_entry, false)
+}
+
+/// The browser-targeted form of `compile_module` (`vbr runweb` on a project).
+pub fn compile_module_web(source: &str, modules: &[String], is_entry: bool) -> Compiled {
+    compile_with(source, modules, is_entry, true)
+}
+
+fn compile_with(source: &str, modules: &[String], is_entry: bool, web: bool) -> Compiled {
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
@@ -63,25 +79,39 @@ pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compi
     if !program.windows.is_empty() {
         dependencies.push(("iced".to_string(), "0.13".to_string()));
     }
-    // A TUI program (a `Screen`) needs ratatui (crossterm comes with it).
+    // A TUI program (a `Screen`) needs ratatui (crossterm comes with it) — or,
+    // in the browser, Ratzilla, which draws the same ratatui widgets into the
+    // DOM (it builds on ratatui 0.30, so the web project pins that).
     if !program.screens.is_empty() {
-        dependencies.push(("ratatui".to_string(), "0.29".to_string()));
+        if web {
+            dependencies.push(("ratzilla".to_string(), "0.3".to_string()));
+            dependencies.push(("ratatui".to_string(), "0.30".to_string()));
+        } else {
+            dependencies.push(("ratatui".to_string(), "0.29".to_string()));
+        }
     }
     // A web program (a `Page`) needs Yew, built for WebAssembly (`vbr runweb`).
     if !program.pages.is_empty() {
         dependencies.push(("yew".to_string(), "0.21".to_string()));
     }
-    // The launched page's title, for the generated index.html's <title>.
-    let web_title = if program.pages.is_empty() {
-        None
-    } else {
+    // The launched page's (or, on the web, screen's) title, for the generated
+    // index.html's <title>.
+    let web_title = if !program.pages.is_empty() {
         surface::launched(&program, |name| {
             program.pages.iter().find(|p| p.name.eq_ignore_ascii_case(name))
         })
         .or_else(|| program.pages.first())
         .map(|p| p.title.clone().unwrap_or_else(|| p.name.clone()))
+    } else if web && !program.screens.is_empty() {
+        surface::launched(&program, |name| {
+            program.screens.iter().find(|s| s.name.eq_ignore_ascii_case(name))
+        })
+        .or_else(|| program.screens.first())
+        .map(|s| s.title.clone().unwrap_or_else(|| s.name.clone()))
+    } else {
+        None
     };
-    let rust = transpiler::transpile_module(&program, modules, is_entry, &mut diags);
+    let rust = transpiler::transpile_module(&program, modules, is_entry, web, &mut diags);
     // An inline `Python` block runs via pyo3 (real CPython) — pull it in only when
     // one is actually used, so nothing else pays for it. Detected from the emitted
     // marker, like the other conditional deps (image/canvas/spawn_blocking).
