@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VBR Playground</title>
+    <style>
+      :root {
+        --bg: #1e1f29;
+        --panel: #282a36;
+        --border: #44475a;
+        --text: #f8f8f2;
+        --dim: #9ea8c7;
+        --accent: #bd93f9;
+        --error: #ff5555;
+        --warn: #f1fa8c;
+        --note: #8be9fd;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      header h1 { margin: 0; font-size: 18px; color: var(--accent); }
+      header p { margin: 0; font-size: 13px; color: var(--dim); flex: 1; }
+      header label { font-size: 13px; color: var(--dim); }
+      header select {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 13px;
+      }
+      main { flex: 1; display: flex; min-height: 0; }
+      .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+      .pane + .pane { border-left: 1px solid var(--border); }
+      .pane h2 {
+        margin: 0;
+        padding: 6px 16px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--dim);
+        border-bottom: 1px solid var(--border);
+      }
+      textarea, pre {
+        flex: 1;
+        margin: 0;
+        padding: 12px 16px;
+        border: none;
+        overflow: auto;
+        background: var(--panel);
+        color: var(--text);
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre;
+      }
+      textarea { resize: none; outline: none; }
+      .diagnostics {
+        max-height: 40%;
+        overflow: auto;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        padding: 8px 16px;
+      }
+      .diagnostics p {
+        margin: 2px 0;
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+      .diagnostics p.error { color: var(--error); }
+      .diagnostics p.warn { color: var(--warn); }
+      .diagnostics p.note { color: var(--note); }
+      .deps {
+        padding: 6px 16px;
+        border-bottom: 1px solid var(--border);
+        color: var(--dim);
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body></body>
+</html>

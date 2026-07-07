@@ -154,4 +154,23 @@ fn transpile_only_examples_compile() {
         );
         eprintln!("✔ {name} compiled clean (wasm32, ratzilla)");
     }
+
+    // The playground — the transpiler itself compiled to WebAssembly behind a
+    // Yew UI (playground/). Guarding it keeps `vbr::compile` wasm-clean: a new
+    // dependency that doesn't build for wasm32 would break it silently.
+    let out = Command::new("cargo")
+        .args(["build", "--target", "wasm32-unknown-unknown"])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("playground"))
+        .output()
+        .expect("failed to run cargo");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "cargo rejected the playground:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("warning:"),
+        "cargo emitted warnings for the playground:\n{stderr}"
+    );
+    eprintln!("✔ playground compiled clean (wasm32)");
 }

@@ -107,6 +107,20 @@ cargo run -- runweb examples/tui_counter.vbr
 One-time setup (each checked with a friendly error): `rustup target add
 wasm32-unknown-unknown` and `cargo install trunk --locked`. See `web_spec.md`.
 
+## Playground
+
+The transpiler itself compiles to WebAssembly: `playground/` is a two-pane
+browser app — type VBR on the left, read the generated Rust (and the teaching
+diagnostics) on the right, with an example picker covering the language. No
+server; the compiler runs in the page.
+
+```sh
+cd playground && trunk serve --open
+```
+
+`trunk build --release` produces a fully static `dist/` (three files, ~760 KB
+of wasm) that can be hosted anywhere — GitHub Pages included.
+
 ## Running the tests
 
 The test suite snapshots every example in `examples/` and, for the runnable ones,

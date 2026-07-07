@@ -1,0 +1,15 @@
+[package]
+name = "vbr-playground"
+version = "0.1.0"
+edition = "2021"
+description = "The VBR transpiler running in the browser: type VBA-flavoured syntax, watch idiomatic Rust appear."
+
+[dependencies]
+vbr = { path = ".." }
+yew = { version = "0.21", features = ["csr"] }
+web-sys = { version = "0.3", features = ["HtmlTextAreaElement", "HtmlSelectElement"] }
+
+# The shipped playground is a static site — keep the wasm small.
+[profile.release]
+opt-level = "s"
+lto = true
