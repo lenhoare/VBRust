@@ -34,6 +34,9 @@ const GUARDED: &[&str] = &[
     // the UI thread in a Screen event (tui_post) — the LLM-call shape.
     "http_post",
     "tui_post",
+    // SQLite: the Database handle (bundled rusqlite), Json rows, `?` chaining,
+    // the list literal as params, and a `&Database` function param.
+    "database",
 ];
 
 #[test]

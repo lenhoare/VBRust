@@ -48,7 +48,7 @@ Dim text As String = FileSystem.Read("notes.txt")
 | `datetime` (`DateTime`) | `chrono` | include |
 | `regex` (`Regex`) | `regex` | include |
 | `http` (`Http`) | `ureq` blocking | include |
-| `database` | — | deferred (was already V2) |
+| `database` (`Database`) | `rusqlite` (bundled SQLite) | include — see §8 |
 
 HTTP is built on **`ureq`** (blocking, no async runtime, minimal deps) rather
 than `reqwest`, so the crate stays fast and offline-friendly; it lives behind a
@@ -118,7 +118,7 @@ crate like `vbr_stdlib`. So:
 
 ---
 
-## 8. SQLite — the `Database` module (slice 1)
+## 8. SQLite — the `Database` module (slice 1) — **BUILT 2026-07-09**
 
 The first genuinely **stateful** stdlib module: a database is a live connection
 you hold, so `Database` is a **newtype-wrapper handle** like `DateTime` / `Json`
@@ -172,16 +172,27 @@ End Match
   handled there — needs a general "seed state from `Main`" seam across *all*
   surfaces, not just Screen).
 
-### Prerequisite fix (general, not SQLite-only)
+### Prerequisite fix (general, not SQLite-only) — **fixed**
 
-`db.Execute(sql, …)` where `sql` is a **String variable** exposes a latent bug:
-a stdlib **wrapper instance** method doesn't `&`-reference its owned-String args
-(only stdlib *type* receivers like `Http.`/`FileSystem.` do). Today
-`doc.GetInt(k)` with `k As String` emits `doc.get_int(k)` (String into a `&str`
-param → won't compile); every working example uses string *literals*, which hid
-it. Slice 1 extends the resolver's arg-ref rule to fire when the receiver's
-inferred type is a stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`),
-fixing `Json`/`DateTime`/`Database` alike. Logged in `projects/vbr_gaps.md`.
+`db.Execute(sql, …)` where `sql` is a **String variable** exposed a latent bug:
+a stdlib **wrapper instance** method didn't `&`-reference its owned-String args
+(only stdlib *type* receivers like `Http.`/`FileSystem.` did) — `doc.GetInt(k)`
+with `k As String` emitted `doc.get_int(k)` (String into a `&str` param → won't
+compile); every working example used string *literals*, which hid it. The
+resolver's arg-ref rule now also fires when the receiver's declared type is a
+stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`), fixing
+`Json`/`DateTime`/`Database` alike. Logged in `projects/vbr_gaps.md`.
+
+### Also picked up along the way
+
+- **`Json.IsNull()`** — new: true for JSON null. Needed to spot a NULL column
+  (`row.Get("parent")?.IsNull()`); previously null was only visible as a failed
+  typed read.
+- **`CStr(x)`** — new alias for `Str(x)` (→ `.to_string()`): `CStr` was VB's
+  *recommended* conversion, so it's what a VB6 hand types first.
+- **NULL params:** a `Vec<String>` has no null slot — write NULL in the SQL
+  itself (`VALUES (?, NULL)`). Reading it back: `IsNull`.
+- **BLOB columns:** a clean `Err` pointing at inline Rust (not silently mangled).
 
 ### Slice-1 scope & known friction
 

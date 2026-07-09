@@ -1,0 +1,44 @@
+' database.vbr — SQLite via the stdlib. A Database is a live connection you
+' hold and call methods on (like Json/DateTime, not a stateless namespace).
+'
+' Params bind to ? placeholders (always as text — column affinity stores them
+' typed, so declare columns INTEGER/REAL). NULL goes in the SQL itself:
+' VALUES (?, NULL) — a list of strings has no null slot. Query rows come back
+' as Json objects keyed by column name, each column with its natural type.
+
+' A ByVal Database param borrows the connection (&Database) — open once,
+' hand it around. Inside a Result function, `?` chains the fallible calls.
+Function Run(ByVal db As Database) As Result<()>
+    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, gen INTEGER, text TEXT, score REAL, parent INTEGER)", [])?
+    db.Execute("DELETE FROM ideas", [])?
+
+    ' A root idea has no parent — the NULL is written in the SQL.
+    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (1, ?, ?, NULL)", ["solar tracker", "0.82"])?
+    Dim root As Long = db.LastInsertId()
+
+    ' A child links to its parent via the fresh rowid — lineage.
+    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (2, ?, ?, ?)", ["improved tracker", "0.91", CStr(root)])?
+
+    Dim rows As Vec<Json> = db.Query("SELECT text, score, parent FROM ideas ORDER BY score DESC", [])?
+    For Each row In rows
+        Dim line As String = row.GetString("text")? & " scores " & row.GetFloat("score")?
+        If row.Get("parent")?.IsNull() Then
+            Debug.Print line & " (a root idea)"
+        Else
+            Debug.Print line & " (child of #" & row.GetInt("parent")? & ")"
+        End If
+    Next
+
+    Return Ok(())
+End Function
+
+Function Main()
+    Match Database.Open("ideas.db")
+        Ok(db) =>
+            Match Run(db)
+                Ok(_) => Debug.Print "done"
+                Err(message) => Debug.Print "db error: " & message
+            End Match
+        Err(message) => Debug.Print "could not open: " & message
+    End Match
+End Function

@@ -64,8 +64,9 @@ with the `VBR_STDLIB_PATH` environment variable if needed.
 
 ## Using the standard library
 
-The standard library — `FileSystem`, `Regex`, `Http`, `DateTime`, `Json` — needs
-no setup. Just reference a namespace and run the project:
+The standard library — `FileSystem`, `Regex`, `Http`, `DateTime`, `Json`,
+`Database` (SQLite) — needs no setup. Just reference a namespace and run the
+project:
 
 ```vb
 ' fetch.vbr

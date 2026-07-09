@@ -1823,7 +1823,9 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
             ))
         }
         ("replace", 3) => Some(format!("{}.replace({}, {})", r(0), r(1), r(2))),
-        ("str", 1) => Some(method0(&args[0], "to_string")),
+        // `CStr` was VB's recommended conversion (Str added a leading space);
+        // in VBR both are plain `.to_string()`.
+        ("str", 1) | ("cstr", 1) => Some(method0(&args[0], "to_string")),
         // InStr → .find() (returns Option); Val → .parse() (returns Result).
         ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
         ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),
@@ -2098,6 +2100,9 @@ pub(crate) fn stdlib_method(squashed: &str) -> Option<&'static str> {
         "addminutes" => "add_minutes",
         "diffdays" => "diff_days",
         "diffhours" => "diff_hours",
+        // Database
+        "lastinsertid" => "last_insert_id",
+        "isnull" => "is_null",
         // Json (`to_string` is also the universal Rust method — same mapping).
         "tostring" => "to_string",
         "topretty" => "to_pretty",
@@ -2128,12 +2133,14 @@ pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
         "regex" => Some("Regex"),
         "http" => Some("Http"),
         "dataframe" => Some("DataFrame"),
+        "database" => Some("Database"),
         _ => None,
     }
 }
 
 /// All stdlib namespace names, for emitting `use vbr_stdlib::{…}`.
-const STDLIB_TYPES: [&str; 6] = ["FileSystem", "Json", "DateTime", "Regex", "Http", "DataFrame"];
+const STDLIB_TYPES: [&str; 7] =
+    ["FileSystem", "Json", "DateTime", "Regex", "Http", "DataFrame", "Database"];
 
 /// The stdlib namespaces a compiled program uses (for enabling Cargo features).
 /// `FileSystem` is std-only and needs no feature; the rest map to a feature.

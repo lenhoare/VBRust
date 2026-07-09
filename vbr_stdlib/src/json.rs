@@ -124,6 +124,18 @@ impl Json {
         self.0.as_bool().ok_or_else(|| "value is not a boolean".to_string())
     }
 
+    /// True when the value is JSON null — e.g. a NULL database column.
+    /// VBA: IsNull(value)
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+
+    /// Wrap a raw serde_json value — for sibling modules (the database wrapper
+    /// builds one Json object per query row).
+    pub(crate) fn from_value(v: Value) -> Json {
+        Json(v)
+    }
+
     fn field(&self, key: &str) -> Result<&Value, String> {
         self.0.get(key).ok_or_else(|| format!("Key '{}' not found", key))
     }

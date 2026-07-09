@@ -23,6 +23,8 @@ pub mod regex;
 pub mod http;
 #[cfg(feature = "dataframe")]
 pub mod dataframe;
+#[cfg(feature = "database")]
+pub mod database;
 
 pub use filesystem::FileSystem;
 #[cfg(feature = "datetime")]
@@ -35,3 +37,5 @@ pub use regex::Regex;
 pub use http::Http;
 #[cfg(feature = "dataframe")]
 pub use dataframe::DataFrame;
+#[cfg(feature = "database")]
+pub use database::Database;

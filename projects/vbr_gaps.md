@@ -98,6 +98,32 @@ local exposed it.)
 `snapshot_args` borrow an owned-`String` local as `&str`, just as it does for a
 field.
 
+### 8. Stdlib *wrapper-instance* methods didn't `&`-reference owned-String args
+
+The arg-ref rule (owned `String` → `&x` for a `&str` param) only fired for
+stdlib **type** receivers (`Http.Get(url)`, `FileSystem.Read(p)`), not for
+methods on a wrapper **instance** — `doc.GetInt(k)` with `Dim k As String`
+emitted `doc.get_int(k)` → won't compile. Hidden because every existing
+Json/DateTime example used string *literals*; surfaced by designing
+`db.Execute(sqlVar, …)`.
+
+**Fix** (`resolver.rs`): the rule also fires when the receiver's declared type
+is a stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)` — `Json`,
+`DateTime`, `Database`…). Zero snapshot churn, which is the hiding confirmed.
+
+### 9. `CStr` didn't exist (and an unknown function is silent)
+
+VBR had `Str(x)` but not `CStr(x)` — yet `CStr` was VB's *recommended*
+conversion, so it's what a VB6 hand types. Worse, `CStr(root)` fell through as
+a call to a nonexistent `cstr()` with **no VBR diagnostic** (rustc catches it
+later, via error translation — the backstop worked, but a teaching hint would
+have been kinder).
+
+**Fix**: `CStr` is now an alias of `Str` (→ `.to_string()`). The broader
+"unknown function passes through silently" behaviour is by design (rustc is the
+backstop) but worth watching — if it keeps biting, known VB6 names (`CInt`,
+`CLng`, `CDbl`…) deserve mappings or teaching notes.
+
 ---
 
 ## Open bugs (not yet fixed)
@@ -131,7 +157,11 @@ for a future `{k: v}` / `{}` **map literal** — consistent with having reserved
 
 ---
 
-## Next capability: SQLite stdlib namespace
+## Capability: SQLite stdlib namespace — BUILT (slice 1)
 
-The engine stores generations / ideas / lineage. VBR has no SQLite — the plan is
-a `Database`/`Sqlite` stdlib namespace (see `stdlib_spec.md` §7). Not built yet.
+`Database` is in the stdlib (`stdlib_spec.md` §8): `Open` / `Execute` / `Query`
+(rows as `Json`) / `LastInsertId`, rusqlite bundled, `database` feature.
+Verified end-to-end: `examples/database.vbr` runs — typed reads, NULL lineage
+roots via `IsNull`, parent links via `LastInsertId`. **Slice 2 (todo):** hold a
+handle on surface state — a general "seed state from `Main`" seam across *all*
+surfaces (a `:memory:` db forces it; open-per-event covers file dbs today).

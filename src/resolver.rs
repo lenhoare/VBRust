@@ -282,7 +282,7 @@ fn builtin_vtype(name: &str) -> Option<VType> {
     Some(match name.to_ascii_lowercase().as_str() {
         "len" => VType::Usize,
         "left" | "right" | "mid" | "trim" => VType::Str,
-        "ucase" | "lcase" | "replace" | "str" | "inputbox" => vt(Type::Text),
+        "ucase" | "lcase" | "replace" | "str" | "cstr" | "inputbox" => vt(Type::Text),
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => vt(Type::Double),
         // instr → Option, val → Result: not a plain value type yet.
         _ => return None,
@@ -975,7 +975,19 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             // Stdlib functions take string args by `&str`; borrow an owned String.
             // (Collections like `Http.Post`'s headers map are passed by value.)
-            if matches!(&**recv, Expr::Ident(n) if stdlib_type(n).is_some()) {
+            // This applies both to namespace calls (`FileSystem.Read(x)`) and to
+            // methods on a stdlib *wrapper instance* (`doc.GetString(key)` with
+            // `doc As Json`, `db.Query(sql, …)` with `db As Database`) — every
+            // wrapper method takes its string args as `&str` too.
+            let stdlib_recv = match &**recv {
+                Expr::Ident(n) if stdlib_type(n).is_some() => true,
+                Expr::Ident(n) => matches!(
+                    ctx.binding(n).and_then(|b| b.ty.as_ref()),
+                    Some(DeclType::Named(t)) if stdlib_type(t).is_some()
+                ),
+                _ => false,
+            };
+            if stdlib_recv {
                 for arg in args.iter_mut() {
                     if infer(arg, ctx).is_owned_string() {
                         let inner = std::mem::replace(arg, Expr::Int(0));

@@ -680,6 +680,7 @@ const STDLIB_FEATURES: &[(&str, &str)] = &[
     ("Regex", "regex"),
     ("Http", "http"),
     ("DataFrame", "dataframe"),
+    ("Database", "database"),
 ];
 
 /// The raw file stem (`http.rs` → `http`), before lowercasing.
