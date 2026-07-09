@@ -124,6 +124,33 @@ have been kinder).
 backstop) but worth watching — if it keeps biting, known VB6 names (`CInt`,
 `CLng`, `CDbl`…) deserve mappings or teaching notes.
 
+### 10. The state-field rewrite didn't recurse through wrapper expressions
+
+`rewrite_expr_with` (the `db` → `state.db` rewrite for event bodies) had a
+catch-all that swallowed `Ref`, `Try`, `Tuple`, `List`, `StructLit`, `Closure`,
+`Deref`. First seen as `AddIdea(db)` emitting `addidea(&db)` instead of
+`addidea(&state.db)` — the resolver wraps the ByVal-struct arg in `&` first, and
+the rewrite stopped at the `&`. The same hole affected any state field inside a
+`?` chain, a tuple, a list literal, or a closure in an event.
+
+**Fix** (`surface.rs`): the rewrite recurses through all wrapper/aggregate
+expression forms. Zero snapshot churn (no existing example hit any of them).
+
+### 11. Surface programs never ran the stdlib-type marking pass
+
+`mark_stdlib_types` (which turns declared types like `As Database` /
+`Vec<Json>` into Cargo features + the `use vbr_stdlib::{…}` line) ran only on
+the *plain-program* path — the GUI/TUI/web dispatches returned before it. A
+Screen program with `ByVal db As Database` helper functions would have compiled
+against a stdlib built with the wrong features, with no `use` for the types its
+items name (the TUI emitter had no file-top vbr_stdlib `use` mechanism at all —
+only scope-local ones inside `fn main` for event calls).
+
+**Fix** (`transpiler.rs`/`tui.rs`/`gui.rs`): a shared `stdlib_types_declared`
+scan (function signatures/bodies, struct fields, and now `State` fields) marks
+features and feeds a file-top `use` in the TUI/GUI emitters. Event-body calls
+keep their scope-local imports — the two never collide.
+
 ---
 
 ## Open bugs (not yet fixed)
@@ -157,11 +184,21 @@ for a future `{k: v}` / `{}` **map literal** — consistent with having reserved
 
 ---
 
-## Capability: SQLite stdlib namespace — BUILT (slice 1)
+## Capability: SQLite stdlib namespace — BUILT (slices 1 + 2)
 
 `Database` is in the stdlib (`stdlib_spec.md` §8): `Open` / `Execute` / `Query`
 (rows as `Json`) / `LastInsertId`, rusqlite bundled, `database` feature.
 Verified end-to-end: `examples/database.vbr` runs — typed reads, NULL lineage
-roots via `IsNull`, parent links via `LastInsertId`. **Slice 2 (todo):** hold a
-handle on surface state — a general "seed state from `Main`" seam across *all*
-surfaces (a `:memory:` db forces it; open-per-event covers file dbs today).
+roots via `IsNull`, parent links via `LastInsertId`.
+
+**Slice 2 — fallible `State` initialisers — BUILT.** A `State` field may be
+initialised by a fallible call (`Dim db As Database = Database.Open("ideas.db")`,
+or your own `Result`-returning function). State is then built by a generated
+`init() -> Result<State, String>` run *before* the window/terminal starts;
+failure prints `could not start: <why>` and exits — never a half-alive UI.
+All native surfaces (Window + Screen); browser surfaces fence it with a
+teaching error. Verified: `examples/tui_ideas.vbr` (a Database in Screen state,
+events via `state.db`, helper functions borrowing `&Database`) compiles clean,
+and the failure path prints and exits before the terminal is touched. The
+considered-and-shelved alternative (`Run`-args seeding from `Main`) is
+documented in stdlib_spec §8 Deferred — only needed for custom failure UI.

@@ -203,6 +203,10 @@ Each is a teaching error today:
 - **`Await` on your own functions** — the browser is single-threaded, with no
   background thread to run a synchronous function on (the GUI uses
   `spawn_blocking`; wasm has no equivalent).
+- **Fallible `State` initialisers** (`Dim db As Database = Database.Open(…)`) —
+  native Windows/Screens build such state before launch and bail cleanly on
+  failure; a browser component has no startup moment to fail in (and the
+  stdlib isn't on wasm anyway). Give the field a plain initial value.
 
 ## 8. Testing
 

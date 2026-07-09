@@ -2156,49 +2156,63 @@ pub fn stdlib_used(diags: &Diagnostics) -> Vec<String> {
 /// fields, Vec/Map elements) so their `use` is emitted even without a `Type.X()`
 /// call — e.g. `ByVal d As DateTime`.
 fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
-    fn mark_name(name: &str, diags: &mut Diagnostics) {
+    let _ = stdlib_types_declared(program, diags);
+}
+
+/// Mark — and return, sorted — the stdlib types *declared* in the program:
+/// function params/returns/`Dim`s, struct fields, and surface `State` fields.
+/// (Not event bodies: their calls get scope-local imports from the emitters.)
+/// The marks drive Cargo features; the returned list lets a surface emitter
+/// write the file-top `use vbr_stdlib::{…}` its item-level code needs.
+pub(crate) fn stdlib_types_declared(
+    program: &Program,
+    diags: &mut Diagnostics,
+) -> Vec<&'static str> {
+    fn collect_name(name: &str, used: &mut Vec<&'static str>) {
         if let Some(canon) = stdlib_type(name) {
-            diags.mark(&format!("stdlib:{}", canon));
+            if !used.contains(&canon) {
+                used.push(canon);
+            }
         }
     }
-    fn mark_decltype(dt: &DeclType, diags: &mut Diagnostics) {
+    fn collect_decltype(dt: &DeclType, used: &mut Vec<&'static str>) {
         match dt {
-            DeclType::Named(n) => mark_name(n, diags),
-            DeclType::Vec(t) | DeclType::Option(t) => mark_decltype(t, diags),
+            DeclType::Named(n) => collect_name(n, used),
+            DeclType::Vec(t) | DeclType::Option(t) => collect_decltype(t, used),
             DeclType::Result(t, e) => {
-                mark_decltype(t, diags);
-                mark_decltype(e, diags);
+                collect_decltype(t, used);
+                collect_decltype(e, used);
             }
             DeclType::Map(k, v) => {
-                mark_decltype(k, diags);
-                mark_decltype(v, diags);
+                collect_decltype(k, used);
+                collect_decltype(v, used);
             }
             DeclType::Tuple(ts) => {
                 for t in ts {
-                    mark_decltype(t, diags);
+                    collect_decltype(t, used);
                 }
             }
             _ => {}
         }
     }
-    fn walk(stmts: &[Stmt], diags: &mut Diagnostics) {
+    fn walk(stmts: &[Stmt], used: &mut Vec<&'static str>) {
         for s in stmts {
             match s {
-                Stmt::Dim { ty, .. } => mark_decltype(ty, diags),
+                Stmt::Dim { ty, .. } => collect_decltype(ty, used),
                 Stmt::If { branches, else_body } => {
                     for (_, b) in branches {
-                        walk(b, diags);
+                        walk(b, used);
                     }
                     if let Some(b) = else_body {
-                        walk(b, diags);
+                        walk(b, used);
                     }
                 }
                 Stmt::For { body, .. }
                 | Stmt::ForEach { body, .. }
-                | Stmt::DoLoop { body, .. } => walk(body, diags),
+                | Stmt::DoLoop { body, .. } => walk(body, used),
                 Stmt::Match { arms, .. } => {
                     for a in arms {
-                        walk(&a.body, diags);
+                        walk(&a.body, used);
                     }
                 }
                 _ => {}
@@ -2206,20 +2220,38 @@ fn mark_stdlib_types(program: &Program, diags: &mut Diagnostics) {
         }
     }
 
+    let mut used: Vec<&'static str> = Vec::new();
     for s in &program.structs {
         for f in &s.fields {
-            mark_decltype(&f.ty, diags);
+            collect_decltype(&f.ty, &mut used);
         }
     }
     for func in &program.functions {
         for p in &func.params {
-            mark_decltype(&p.ty, diags);
+            collect_decltype(&p.ty, &mut used);
         }
         if let Some(rt) = &func.ret {
-            mark_decltype(rt, diags);
+            collect_decltype(rt, &mut used);
         }
-        walk(&func.body, diags);
+        walk(&func.body, &mut used);
     }
+    // Surface `State` fields (`Dim db As Database` in a Screen/Window/Page).
+    for state in program
+        .screens
+        .iter()
+        .map(|s| &s.state)
+        .chain(program.windows.iter().map(|w| &w.state))
+        .chain(program.pages.iter().map(|p| &p.state))
+    {
+        for f in state {
+            collect_decltype(&f.ty, &mut used);
+        }
+    }
+    for canon in &used {
+        diags.mark(&format!("stdlib:{}", canon));
+    }
+    used.sort();
+    used
 }
 
 /// The Rust spelling of a VBR name: simply lowercased. VBR identifiers are

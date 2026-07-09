@@ -166,11 +166,14 @@ End Match
   parameters, never string concatenation — injection-safe.
 - **`Database` handle**: passes into functions as `&Database` (a ByVal struct
   param already lowers to a shared borrow — rusqlite methods take `&self`, so
-  this is exactly right) and holds fine as a local. Holding it on **surface
-  state** is deferred to **slice 2** (state is built by an infallible
-  `Default::default()`; a fallible `Open` returning `Result` has nowhere to be
-  handled there — needs a general "seed state from `Main`" seam across *all*
-  surfaces, not just Screen).
+  this is exactly right) and holds fine as a local. **Holding it on surface
+  state: BUILT (slice 2, 2026-07-09)** — a `State` field initialiser may be a
+  fallible call (`Dim db As Database = Database.Open("ideas.db")`, or your own
+  `Result`-returning function): the state is built by a generated
+  `init() -> Result<State, String>` that runs *before* the window/terminal
+  starts, printing `could not start: <why>` and exiting on failure. All native
+  surfaces (Window + Screen); browser surfaces get a teaching fence. See
+  `gui_spec.md`/`tui_spec.md` §2.1 and `examples/tui_ideas.vbr`.
 
 ### Prerequisite fix (general, not SQLite-only) — **fixed**
 
@@ -199,9 +202,11 @@ stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`), fixing
 - **In:** `Open`/`Execute`/`Query`/`LastInsertId`, Json rows, string params,
   bundled rusqlite, feature-gated, hermetic tests (a temp-file db, like `http`'s
   loopback server).
-- **Deferred:** holding the handle on surface state (slice 2), in-memory
-  (`:memory:`) dbs (need a held connection), transactions, prepared-statement
-  reuse, typed/`Json` params, named parameters.
+- **Deferred:** in-memory (`:memory:`) dbs on *browser* surfaces (native holds
+  a connection in State now), transactions, prepared-statement reuse,
+  typed/`Json` params, named parameters, a custom failure policy for a failed
+  `State` init (today's policy is fixed: message + exit — the rare "show a
+  picker window instead" case would need `Run`-args, designed but not built).
 - **Params ergonomics — the inline list literal (BUILT first).** VBR now has an
   **inline list literal** `["a", "b"]` → `Vec<T>` (string elements owned,
   numbers typed from the target; empty `[]` allowed), so params read cleanly:

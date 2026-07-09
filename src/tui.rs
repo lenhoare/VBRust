@@ -34,6 +34,31 @@ pub fn emit_tui_program(program: &Program, web: bool, diags: &mut Diagnostics) -
     let t = surface::build_tables(program);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
+    // Stdlib types named at item level (function signatures/bodies, `State`
+    // fields) need a file-top `use`; `State` initialiser calls (`Database.Open`)
+    // add their namespace too. Marked either way (it drives Cargo features and
+    // the web fence); the `use` line is native-only — wasm has no vbr_stdlib.
+    let mut std_top = crate::transpiler::stdlib_types_declared(program, diags);
+    for sc in &program.screens {
+        for ns in surface::state_stdlib(&sc.state, diags) {
+            if !std_top.contains(&ns) {
+                std_top.push(ns);
+            }
+        }
+    }
+    std_top.sort();
+    if !web && !std_top.is_empty() {
+        out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_top.join(", ")));
+    }
+    if web && program.screens.iter().any(|sc| surface::state_fallible(&sc.state, &t.fns)) {
+        diags.error_once(
+            "web-fallible-init",
+            "A fallible `State` initialiser (a call returning a Result, like \
+             `Database.Open`) isn't available in a browser Screen — there's no \
+             startup moment to fail cleanly in. Give the field a plain initial value.",
+        );
+    }
+
     // Struct definitions by name — a `Table` reads its element struct's fields.
     let structs: HashMap<String, &StructDef> =
         program.structs.iter().map(|s| (s.name.clone(), s)).collect();
@@ -151,15 +176,28 @@ fn emit_screen(
     }
     out.push_str("}\n\n");
 
-    // ── Default (the Dim initialisers) ──
-    out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
-    out.push_str(&format!("        {} {{\n", ty));
-    for f in &sc.state {
+    // ── Initial state (the Dim initialisers) ──
+    // Infallible initialisers make a plain `Default`. Any *fallible* one (a
+    // call returning a Result, like `Database.Open`) switches the constructor
+    // to `fn init() -> Result<Self, String>` — `?` on the fallible fields —
+    // which `main` runs *before* the terminal starts, bailing out cleanly.
+    let fallible = surface::state_fallible(&sc.state, &t.fns);
+    if fallible {
         out.push_str(&format!(
-            "            {}: {},\n",
-            rust_name(&f.name),
-            render_init(f.init.as_ref(), &f.ty, enums)
+            "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
+            ty, ty
         ));
+        out.push_str(&format!("        Ok({} {{\n", ty));
+    } else {
+        out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
+        out.push_str(&format!("        {} {{\n", ty));
+    }
+    for f in &sc.state {
+        let mut init = render_init(f.init.as_ref(), &f.ty, enums);
+        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t.fns)) {
+            init.push('?');
+        }
+        out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));
     }
     for fo in &focusables {
         if let Some(st) = fo.state_ty() {
@@ -172,7 +210,11 @@ fn emit_screen(
     if multi {
         out.push_str("            focus_index: 0,\n");
     }
-    out.push_str("        }\n    }\n}\n\n");
+    if fallible {
+        out.push_str("        })\n    }\n}\n\n");
+    } else {
+        out.push_str("        }\n    }\n}\n\n");
+    }
 
     // ── view ──
     // `state` is `_state` when nothing reads it. A list/table makes the view
@@ -851,7 +893,19 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     let draw_arg = if has_sel { "&mut state" } else { "&state" };
     out.push_str("fn main() -> std::io::Result<()> {\n");
     out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
-    out.push_str(&format!("    {} = {}::default();\n", let_state, ty));
+    if surface::state_fallible(&sc.state, &t.fns) {
+        // Fallible state construction runs *before* the terminal takes over,
+        // so a failure prints normally and the app never starts half-alive.
+        out.push_str(&format!("    {} = match {}::init() {{\n", let_state, ty));
+        out.push_str("        Ok(state) => state,\n");
+        out.push_str("        Err(message) => {\n");
+        out.push_str("            eprintln!(\"could not start: {}\", message);\n");
+        out.push_str("            std::process::exit(1);\n");
+        out.push_str("        }\n");
+        out.push_str("    };\n");
+    } else {
+        out.push_str(&format!("    {} = {}::default();\n", let_state, ty));
+    }
     out.push_str("    let mut terminal = ratatui::init();\n");
     if any_async {
         out.push_str("    let (tx, rx) = std::sync::mpsc::channel::<Message>();\n");

@@ -43,15 +43,28 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
         }
     });
 
+    // Stdlib types named at item level (function signatures/bodies, `State`
+    // fields) and `State` initialiser namespaces (`Database.Open`) — for the
+    // file-top `use` and the Cargo features.
+    let mut std_top = crate::transpiler::stdlib_types_declared(program, diags);
     for w in &program.windows {
-        out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, diags));
+        for ns in surface::state_stdlib(&w.state, diags) {
+            if !std_top.contains(&ns) {
+                std_top.push(ns);
+            }
+        }
+    }
+    std_top.sort();
+
+    for w in &program.windows {
+        out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, &std_top, diags));
         out.push('\n');
     }
     let launched_window = launched(program, |name| {
         program.windows.iter().find(|w| w.name.eq_ignore_ascii_case(name))
     });
     match launched_window {
-        Some(w) => out.push_str(&emit_main(w)),
+        Some(w) => out.push_str(&emit_main(w, surface::state_fallible(&w.state, &t.fns))),
         None => diags.error_once(
             "gui-no-launch",
             "A window is never launched. Add `Function Main()` containing `<Window>.Run`, \
@@ -77,19 +90,38 @@ pub(crate) fn canonical_theme(name: &str) -> Option<&'static str> {
 
 /// `fn main` for a GUI: run the window. With a `Theme`, use the `application`
 /// builder so we can set `.theme(...)`; otherwise the simpler `iced::run`.
-fn emit_main(w: &Window) -> String {
+/// With a fallible `State` initialiser, boot goes through `run_with`, building
+/// the state via `init()` and bailing out cleanly before any window opens.
+fn emit_main(w: &Window, fallible: bool) -> String {
     let title = w.title.clone().unwrap_or_else(|| w.name.clone());
-    match &w.theme {
-        Some(t) => {
-            let theme = canonical_theme(t).unwrap_or(t);
-            format!(
-                "fn main() -> iced::Result {{\n    \
-                 iced::application({:?}, update, view)\n        \
-                 .theme(|_| iced::Theme::{})\n        \
-                 .run()\n}}\n",
-                title, theme
-            )
-        }
+    let theme_line = w.theme.as_ref().map(|t| {
+        format!("        .theme(|_| iced::Theme::{})\n", canonical_theme(t).unwrap_or(t))
+    });
+    if fallible {
+        return format!(
+            "fn main() -> iced::Result {{\n    \
+             iced::application({:?}, update, view)\n\
+             {}        \
+             .run_with(|| match {}::init() {{\n            \
+             Ok(state) => (state, iced::Task::none()),\n            \
+             Err(message) => {{\n                \
+             eprintln!(\"could not start: {{}}\", message);\n                \
+             std::process::exit(1);\n            \
+             }}\n        \
+             }})\n}}\n",
+            title,
+            theme_line.as_deref().unwrap_or(""),
+            w.name
+        );
+    }
+    match theme_line {
+        Some(theme) => format!(
+            "fn main() -> iced::Result {{\n    \
+             iced::application({:?}, update, view)\n\
+             {}        \
+             .run()\n}}\n",
+            title, theme
+        ),
         None => format!(
             "fn main() -> iced::Result {{\n    iced::run({:?}, update, view)\n}}\n",
             title
@@ -104,6 +136,7 @@ fn emit_window(
     t: &surface::Tables,
     canvases: &[CanvasDef],
     paint_fns: &HashSet<String>,
+    std_top: &[&'static str],
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -168,7 +201,14 @@ fn emit_window(
     }
     // `std` types used in event bodies (e.g. an `Http.Post` headers HashMap).
     out.push_str(&surface::event_std_imports(&w.events));
-    let std_used = event_stdlib_imports(&w.events, diags);
+    // vbr_stdlib namespaces: those called in events, plus item-level types /
+    // `State` initialisers (`Database` for a db held in state).
+    let mut std_used = event_stdlib_imports(&w.events, diags);
+    for ns in std_top {
+        if !std_used.iter().any(|u| u == ns) {
+            std_used.push(ns.to_string());
+        }
+    }
     if !std_used.is_empty() {
         out.push_str(&format!("use vbr_stdlib::{{{}}};\n", std_used.join(", ")));
     }
@@ -191,18 +231,37 @@ fn emit_window(
     out.push_str("}\n\n");
 
     // ── Initial state (the Dim initialisers) ──
-    out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
-    out.push_str(&format!("        {} {{\n", ty));
+    // Infallible initialisers make a plain `Default`; any fallible one (a call
+    // returning a Result, like `Database.Open`) switches to
+    // `fn init() -> Result<Self, String>`, run at boot with a clean bail-out.
+    let fallible = surface::state_fallible(&w.state, &t.fns);
+    if fallible {
+        out.push_str(&format!(
+            "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
+            ty, ty
+        ));
+        out.push_str(&format!("        Ok({} {{\n", ty));
+    } else {
+        out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
+        out.push_str(&format!("        {} {{\n", ty));
+    }
     for f in &w.state {
-        let init = if is_textarea(&f.ty) {
+        let mut init = if is_textarea(&f.ty) {
             let text = f.init.as_ref().map(|e| render_expr(e, None)).unwrap_or_else(|| "\"\"".to_string());
             format!("iced::widget::text_editor::Content::with_text({})", text)
         } else {
             render_init(f.init.as_ref(), &f.ty, enums)
         };
+        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t.fns)) {
+            init.push('?');
+        }
         out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));
     }
-    out.push_str("        }\n    }\n}\n\n");
+    if fallible {
+        out.push_str("        })\n    }\n}\n\n");
+    } else {
+        out.push_str("        }\n    }\n}\n\n");
+    }
 
     // ── Message enum: one variant per event (payload params = its data), plus a
     //    `<Event>Done(result)` continuation variant for each async event. ──

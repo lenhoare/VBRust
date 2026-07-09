@@ -108,6 +108,16 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     let ctx = PageCtx { fields: &fields, field_ty: &field_ty, enums: &t.enums };
 
     validate_page(p, &field_ty, diags);
+    // A fallible `State` initialiser needs a startup moment to fail cleanly in;
+    // a browser component has none (and vbr_stdlib isn't on wasm anyway).
+    if surface::state_fallible(&p.state, &t.fns) {
+        diags.error_once(
+            "page-fallible-init",
+            "A fallible `State` initialiser (a call returning a Result, like \
+             `Database.Open`) isn't available in a Page — give the field a plain \
+             initial value.",
+        );
+    }
     // The same theme names as the GUI — `Theme "Dracula"` colors a Page like
     // it colors a Window (the palette becomes CSS in the generated index.html).
     if let Some(th) = &p.theme {

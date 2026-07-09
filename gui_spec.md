@@ -67,6 +67,23 @@ charts/plots). `Map` and fixed arrays are not yet supported as state fields.
 
 Controls should not normally be mutated directly. Instead, controls display and update state.
 
+**Fallible initialisers.** A field's initialiser may be a *fallible* call — a
+stdlib constructor (`Database.Open`, `Json.Parse`, `DateTime.Parse`,
+`FileSystem.Read`/`ReadLines`) or one of your own `Result`-returning functions:
+
+```vb
+State
+    Dim db As Database = Database.Open("ideas.db")
+End State
+```
+
+Construction then happens **before the window opens**, in a generated
+`init() -> Result<State, String>`: on failure the program prints
+`could not start: <why>` and exits — the app never launches with broken state.
+Events use the ready value (`db` is `state.db`); passing it to one of your
+functions borrows it (`&Database`). This is native-only — a browser `Page` or
+`Screen` has no startup moment to fail in, and gets a teaching error.
+
 ### 2.2 View
 
 The `View` block declares the visible widget tree.

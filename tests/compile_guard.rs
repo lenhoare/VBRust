@@ -37,6 +37,10 @@ const GUARDED: &[&str] = &[
     // SQLite: the Database handle (bundled rusqlite), Json rows, `?` chaining,
     // the list literal as params, and a `&Database` function param.
     "database",
+    // A Database held in a Screen's State: the fallible `init()` constructor
+    // (built before the terminal starts, clean bail-out on Err), events using
+    // the handle via `state.db`, and the file-top stdlib-type imports.
+    "tui_ideas",
 ];
 
 #[test]

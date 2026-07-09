@@ -68,6 +68,13 @@ Identical to a Window's `State` — primitives, enums, and `Vec<T>` collections
 `Table`) or an **input** join the *focus ring* automatically; lists/tables also
 carry a hidden runtime cursor.
 
+A field's initialiser may be **fallible** (`Dim db As Database =
+Database.Open("ideas.db")`, or your own `Result`-returning function): the state
+is then built *before* the terminal starts, and on failure the program prints
+`could not start: <why>` and exits cleanly — see the GUI spec §2.1 for the full
+rules (identical here; `examples/tui_ideas.vbr` shows a Database in State).
+Native-only: a browser Screen gets a teaching error.
+
 ### 2.2 View
 
 A tree of widgets (see §4), laid out with `Column`/`Row` and per-child size

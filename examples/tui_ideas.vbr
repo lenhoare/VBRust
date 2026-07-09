@@ -1,0 +1,45 @@
+' tui_ideas.vbr — a Database held in State. A State initialiser may be a
+' fallible call (Database.Open, or one of your own Result-returning functions):
+' construction then runs *before* the terminal starts — if it fails, you get
+' "could not start: <why>" and a clean exit, never a half-alive UI. Events
+' just use the open handle (db here is state.db), and passing it to a helper
+' function borrows it (&Database).
+Screen Ideas
+    Title "Idea Store"
+
+    State
+        Dim db As Database = Database.Open("ideas.db")
+        Dim status As String = "a = add an idea, q = quit"
+        Dim count As Long = 0
+    End State
+
+    View
+        Column
+            Text "Ideas stored: " & count
+            Text status
+        End Column
+    End View
+
+    On Key "a" Add
+    On Key "q" Quit
+
+    Event Add
+        Match AddIdea(db)
+            Ok(n) =>
+                count = n
+                status = "added — " & n & " ideas now"
+            Err(e) => status = "error: " & e
+        End Match
+    End Event
+End Screen
+
+Function AddIdea(ByVal db As Database) As Result<Long>
+    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", [])?
+    db.Execute("INSERT INTO ideas (text) VALUES (?)", ["a fresh idea"])?
+    Dim rows As Vec<Json> = db.Query("SELECT COUNT(*) AS n FROM ideas", [])?
+    Return Ok(rows[0].GetInt("n")?)
+End Function
+
+Function Main()
+    Ideas.Run
+End Function

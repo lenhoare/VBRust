@@ -152,6 +152,57 @@ pub(crate) fn event_std_imports(events: &[GuiEvent]) -> String {
     out
 }
 
+/// True when a `State` field initialiser is a *fallible* call — one returning a
+/// `Result` that the generated `init()` unwraps with `?`: a known stdlib
+/// constructor (`Database.Open`, `Json.Parse`, …) or one of the program's own
+/// functions whose declared return type is a `Result`.
+pub(crate) fn fallible_init(e: &Expr, fns: &resolver::FnTable) -> bool {
+    match e {
+        Expr::MethodCall { recv, method, .. } => {
+            let Expr::Ident(r) = &**recv else { return false };
+            let Some(canon) = stdlib_type(r) else { return false };
+            matches!(
+                (canon, rust_name(method).as_str()),
+                ("Database", "open")
+                    | ("Json", "parse")
+                    | ("DateTime", "parse")
+                    | ("FileSystem", "read")
+                    | ("FileSystem", "read_lines")
+            )
+        }
+        Expr::Call { name, .. } => matches!(
+            fns.get(&rust_name(name)).and_then(|s| s.ret.as_ref()),
+            Some(DeclType::Result(..))
+        ),
+        _ => false,
+    }
+}
+
+/// Does any `State` field need the fallible `init()` constructor?
+pub(crate) fn state_fallible(state: &[StateField], fns: &resolver::FnTable) -> bool {
+    state.iter().any(|f| f.init.as_ref().map_or(false, |e| fallible_init(e, fns)))
+}
+
+/// The stdlib namespaces used by `State` initialisers (e.g. `Database` for
+/// `Database.Open`) — marked for the Cargo feature and returned for the
+/// file-top `use vbr_stdlib::{…}` line.
+pub(crate) fn state_stdlib(state: &[StateField], diags: &mut Diagnostics) -> Vec<&'static str> {
+    let mut used = Vec::new();
+    for f in state {
+        if let Some(Expr::MethodCall { recv, .. }) = &f.init {
+            if let Expr::Ident(r) = &**recv {
+                if let Some(canon) = stdlib_type(r) {
+                    if !used.contains(&canon) {
+                        used.push(canon);
+                        diags.mark(&format!("stdlib:{}", canon));
+                    }
+                }
+            }
+        }
+    }
+    used
+}
+
 /// The two views of a `State` block the emitters need: the field-name set (to
 /// rewrite `count` → `state.count`) and name → declared type (for coercions).
 pub(crate) fn state_maps(
@@ -900,6 +951,25 @@ pub(crate) fn rewrite_expr_with(
         Expr::Field(inner, f) => Expr::Field(Box::new(go(*inner)), f),
         Expr::Index(a, b) => Expr::Index(Box::new(go(*a)), Box::new(go(*b))),
         Expr::Cast(inner, t) => Expr::Cast(Box::new(go(*inner)), t),
+        // Wrappers the resolver may have added around a state field (`&db` for
+        // a ByVal struct arg, `x?` chaining) — recurse through them all, or the
+        // field inside never becomes `state.<field>`.
+        Expr::Ref(inner) => Expr::Ref(Box::new(go(*inner))),
+        Expr::MutRef(inner) => Expr::MutRef(Box::new(go(*inner))),
+        Expr::Deref(inner) => Expr::Deref(Box::new(go(*inner))),
+        Expr::Try(inner) => Expr::Try(Box::new(go(*inner))),
+        Expr::Await(inner) => Expr::Await(Box::new(go(*inner))),
+        Expr::Tuple(elems) => Expr::Tuple(elems.into_iter().map(go).collect()),
+        Expr::List(elems) => Expr::List(elems.into_iter().map(go).collect()),
+        Expr::StructLit { name, fields } => Expr::StructLit {
+            name,
+            fields: fields.into_iter().map(|(n, v)| (n, go(v))).collect(),
+        },
+        Expr::Closure { params, body, by_ref_params } => Expr::Closure {
+            params,
+            body: Box::new(go(*body)),
+            by_ref_params,
+        },
         other => other,
     }
 }
