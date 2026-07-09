@@ -1,0 +1,18 @@
+' http_post.vbr — POST a JSON body with request headers.
+'
+' This is the shape of an LLM API call: a JSON body, a Content-Type, and an
+' `Authorization: Bearer` token. Headers are a HashMap<String, String> (VB's
+' Scripting.Dictionary); pass an empty one for no custom headers.
+Function Main()
+    Dim key As String = "sk-demo-key"
+    Dim body As String = "{""model"": ""demo"", ""prompt"": ""hello""}"
+
+    Dim headers As HashMap<String, String>
+    headers.insert("Authorization", "Bearer " & key)
+    headers.insert("Content-Type", "application/json")
+
+    Match Http.Post("https://api.example.com/v1/complete", body, headers)
+        Ok(reply) => Debug.Print "got " & reply.Len() & " bytes"
+        Err(message) => Debug.Print "request failed: " & message
+    End Match
+End Function

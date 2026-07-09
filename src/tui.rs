@@ -130,7 +130,11 @@ fn emit_screen(
     if body.contains("Layout::") {
         out.push_str("use ratatui::layout::{Constraint, Layout};\n");
     }
-    out.push_str("use ratatui::Frame;\n\n");
+    out.push_str("use ratatui::Frame;\n");
+    // `std` types used in event bodies (e.g. an `Http.Post` headers HashMap) —
+    // shared across every surface, native and web alike.
+    out.push_str(&surface::event_std_imports(&sc.events));
+    out.push('\n');
 
     // ── State struct ──
     out.push_str(&format!("struct {} {{\n", ty));

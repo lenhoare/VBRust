@@ -1,0 +1,2 @@
+ℹ HashMap keys are owned Strings — VBR adds `.to_string()` to a string-literal key for you, so `dict.insert("key", v)` becomes `dict.insert("key".to_string(), v)`.
+ℹ The standard library is a Rust crate — `FileSystem.Read(...)` becomes `FileSystem::read(...)` and `use vbr_stdlib::…;` is added for you.

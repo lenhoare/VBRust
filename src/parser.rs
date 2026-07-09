@@ -2833,6 +2833,22 @@ impl<'a> Parser<'a> {
                     Some(Expr::Ident(name))
                 }
             }
+            // `[a, b, …]` — an inline list literal (primary position). Postfix
+            // `expr[i]` indexing is handled in the suffix loop, so no clash.
+            Tok::LBracket => {
+                self.advance();
+                let mut elems = Vec::new();
+                if !matches!(self.peek(), Tok::RBracket) {
+                    loop {
+                        elems.push(self.parse_expr()?);
+                        if !self.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&Tok::RBracket, "to close the list literal")?;
+                Some(Expr::List(elems))
+            }
             Tok::LParen => {
                 self.advance();
                 // `()` — the unit value (e.g. `Ok(())` in a `Result<()>` function).

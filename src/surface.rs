@@ -138,6 +138,20 @@ pub(crate) fn launched<'a, T>(
     None
 }
 
+/// The `std` imports a surface's event bodies need, independent of the renderer.
+/// Each backend owns its *crate* imports (Iced / ratatui / Yew), but `std` types
+/// used inside events are common to all of them — so the decision lives here,
+/// once. Today that's `HashMap` (e.g. an `Http.Post` headers map built in an
+/// event). A new surface gets this by calling it in its preamble; a new std type
+/// is added here, not re-discovered in every emitter.
+pub(crate) fn event_std_imports(events: &[GuiEvent]) -> String {
+    let mut out = String::new();
+    if events.iter().any(|e| crate::transpiler::body_uses_hashmap(&e.body)) {
+        out.push_str("use std::collections::HashMap;\n");
+    }
+    out
+}
+
 /// The two views of a `State` block the emitters need: the field-name set (to
 /// rewrite `count` → `state.count`) and name → declared type (for coercions).
 pub(crate) fn state_maps(
@@ -259,11 +273,15 @@ pub(crate) fn emit_event_stmts(
     resolver::resolve_event_body(
         &mut body, params, field_ty, &t.fns, &t.methods, &t.consts, &t.enums, &t.structs, diags,
     );
+    // A local reassigned or mutated in place (`headers.insert(…)`) needs
+    // `let mut`, exactly as in a plain function body.
+    let mut mutated: HashSet<String> = HashSet::new();
+    crate::transpiler::collect_mutated(&body, &mut mutated);
     let empty: HashSet<String> = HashSet::new();
     for stmt in body {
         let mut rewritten = rewrite_stmt(stmt, recv, fields, &t.enums);
         coerce_state_strings(&mut rewritten, recv, field_ty);
-        emit_stmt(&rewritten, &empty, &empty, indent, diags, out);
+        emit_stmt(&rewritten, &mutated, &empty, indent, diags, out);
     }
 }
 
@@ -379,9 +397,13 @@ pub(crate) fn await_split(
     backend: AsyncBackend,
 ) -> Option<AwaitSplit> {
     let idx = e.body.iter().position(stmt_has_await)?;
+    // Locals visible where the `Await` sits — event params plus any `Dim`
+    // declared before it — so an owned-String local (a built-up request body,
+    // say) borrows as `&str` for the awaited call, like a state field does.
+    let locals = local_types(&e.params, &e.body[..idx]);
     match &e.body[idx] {
         Stmt::Match { scrutinee: Expr::Await(call), arms, line } => {
-            let info = awaitable_info(call, field_ty, fns, diags, backend)?;
+            let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
             // Continuation runs `match result { <arms> }`, then any trailing code.
             let mut cont = vec![Stmt::Match {
                 scrutinee: Expr::Ident("result".to_string()),
@@ -400,7 +422,7 @@ pub(crate) fn await_split(
             })
         }
         Stmt::Dim { name, init: Some(Expr::Await(call)), .. } => {
-            let info = awaitable_info(call, field_ty, fns, diags, backend)?;
+            let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
             Some(AwaitSplit {
                 pre: e.body[..idx].to_vec(),
                 snapshots: info.snapshots,
@@ -422,6 +444,19 @@ pub(crate) fn await_split(
     }
 }
 
+/// The declared types of the locals in scope at an `Await`: the event's params
+/// and every `Dim` before it. Later declarations win, matching Rust shadowing.
+fn local_types(params: &[Param], pre: &[Stmt]) -> HashMap<String, DeclType> {
+    let mut m: HashMap<String, DeclType> =
+        params.iter().map(|p| (rust_name(&p.name), p.ty.clone())).collect();
+    for s in pre {
+        if let Stmt::Dim { name, ty, .. } = s {
+            m.insert(rust_name(name), ty.clone());
+        }
+    }
+    m
+}
+
 /// The async task can't borrow the state, so snapshot (clone) any state fields
 /// used as args, and render the call against those owned locals. Returns the
 /// `let …` snapshot lines and the rendered argument list. `recv` is where the
@@ -429,6 +464,7 @@ pub(crate) fn await_split(
 fn snapshot_args(
     args: &[Expr],
     field_ty: &HashMap<String, DeclType>,
+    locals: &HashMap<String, DeclType>,
     recv: &str,
 ) -> (Vec<String>, Vec<String>) {
     let mut snapshots = Vec::new();
@@ -444,6 +480,12 @@ fn snapshot_args(
                     arg_src.push(f);
                 }
             }
+            // A local (an event param or a `Dim` before the `Await`) is captured
+            // by the async closure directly — no clone. An owned `String` still
+            // borrows as `&str` for a stdlib `&str` param, just like a field.
+            Expr::Ident(name) if matches!(locals.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) => {
+                arg_src.push(format!("&{}", rust_name(name)));
+            }
             other => arg_src.push(render_expr(other, None)),
         }
     }
@@ -458,6 +500,7 @@ fn snapshot_args(
 fn awaitable_info(
     call: &Expr,
     field_ty: &HashMap<String, DeclType>,
+    locals: &HashMap<String, DeclType>,
     fns: &resolver::FnTable,
     diags: &mut Diagnostics,
     backend: AsyncBackend,
@@ -493,7 +536,7 @@ fn awaitable_info(
                 }
                 // No vbr_stdlib on wasm — the call goes to the generated
                 // `http_get` wrapper over the browser's fetch (gloo-net).
-                let (snapshots, arg_src) = snapshot_args(args, field_ty, backend.recv());
+                let (snapshots, arg_src) = snapshot_args(args, field_ty, locals, backend.recv());
                 return Some(AwaitInfo {
                     snapshots,
                     call_src: format!("http_get({})", arg_src.join(", ")),
@@ -502,7 +545,9 @@ fn awaitable_info(
                 });
             }
             let (ret_type, blocking) = match (canon, m.as_str()) {
-                ("Http", "get") => ("Result<String, String>".to_string(), true),
+                ("Http", "get") | ("Http", "post") => {
+                    ("Result<String, String>".to_string(), true)
+                }
                 _ => {
                     diags.error_once(
                         "await-unsupported",
@@ -516,7 +561,7 @@ fn awaitable_info(
                 }
             };
             diags.mark(&format!("stdlib:{}", canon));
-            let (snapshots, arg_src) = snapshot_args(args, field_ty, backend.recv());
+            let (snapshots, arg_src) = snapshot_args(args, field_ty, locals, backend.recv());
             let call_src = format!("{}::{}({})", canon, m, arg_src.join(", "));
             Some(AwaitInfo { snapshots, call_src, ret_type, blocking })
         }
@@ -554,7 +599,7 @@ fn awaitable_info(
                 return None;
             };
             let ret_type = decltype_rust(dt);
-            let (snapshots, arg_src) = snapshot_args(args, field_ty, backend.recv());
+            let (snapshots, arg_src) = snapshot_args(args, field_ty, locals, backend.recv());
             let call_src = format!("{}({})", rust_name(name), arg_src.join(", "));
             Some(AwaitInfo { snapshots, call_src, ret_type, blocking: true })
         }
@@ -574,7 +619,10 @@ fn is_blocking_stdlib_call(e: &Expr) -> bool {
     if let Expr::MethodCall { recv, method, .. } = e {
         if let Expr::Ident(r) = &**recv {
             if let Some(c) = stdlib_type(r) {
-                return matches!((c, rust_name(method).as_str()), ("Http", "get"));
+                return matches!(
+                    (c, rust_name(method).as_str()),
+                    ("Http", "get") | ("Http", "post")
+                );
             }
         }
     }

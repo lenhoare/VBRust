@@ -4,6 +4,8 @@
 //! module holding a `reqwest::Client` — VBR keeps the simple case simple and
 //! sends the stateful case to the escape hatch.
 
+use std::collections::HashMap;
+
 pub struct Http;
 
 impl Http {
@@ -16,9 +18,20 @@ impl Http {
             .map_err(|e| e.to_string())
     }
 
-    /// POST a string body to a URL and return the response body.
-    pub fn post(url: &str, body: &str) -> Result<String, String> {
-        ureq::post(url)
+    /// POST a string body to a URL with the given request headers, and return
+    /// the response body. The headers map carries whatever the endpoint needs —
+    /// `Content-Type`, an `Authorization: Bearer …` token, and so on; pass an
+    /// empty map for none.
+    pub fn post(
+        url: &str,
+        body: &str,
+        headers: HashMap<String, String>,
+    ) -> Result<String, String> {
+        let mut request = ureq::post(url);
+        for (name, value) in &headers {
+            request = request.set(name, value);
+        }
+        request
             .send_string(body)
             .map_err(|e| e.to_string())?
             .into_string()
@@ -63,7 +76,9 @@ mod tests {
     #[test]
     fn post_returns_body() {
         let url = serve_once("posted ok");
-        assert_eq!(Http::post(&url, "payload").unwrap(), "posted ok");
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        assert_eq!(Http::post(&url, "payload", headers).unwrap(), "posted ok");
     }
 
     #[test]

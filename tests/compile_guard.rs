@@ -24,8 +24,17 @@ use std::process::Command;
 /// run the resolver, so `now.AddDays(30)` maps to `add_days`), and TUI
 /// (ratatui charts, timers, async). Inline-Python examples are left out —
 /// they link libpython, which not every machine has.
-const GUARDED: &[&str] =
-    &["datetime_json", "dataframe_join", "showcase", "gui_event_stdlib", "tui_monitor"];
+const GUARDED: &[&str] = &[
+    "datetime_json",
+    "dataframe_join",
+    "showcase",
+    "gui_event_stdlib",
+    "tui_monitor",
+    // `Http.Post` with headers: blocking in `Main` (http_post), and awaited off
+    // the UI thread in a Screen event (tui_post) — the LLM-call shape.
+    "http_post",
+    "tui_post",
+];
 
 #[test]
 #[ignore = "builds Iced/polars/ratatui — run with `cargo test -- --ignored`"]

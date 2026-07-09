@@ -974,6 +974,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
             }
             // Stdlib functions take string args by `&str`; borrow an owned String.
+            // (Collections like `Http.Post`'s headers map are passed by value.)
             if matches!(&**recv, Expr::Ident(n) if stdlib_type(n).is_some()) {
                 for arg in args.iter_mut() {
                     if infer(arg, ctx).is_owned_string() {
@@ -1133,7 +1134,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 );
             }
         }
-        Expr::Tuple(elems) => {
+        Expr::Tuple(elems) | Expr::List(elems) => {
             for el in elems.iter_mut() {
                 resolve_expr(el, ctx);
             }
@@ -1402,6 +1403,13 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
             VType::Decl(DeclType::Tuple(ts)) => {
                 ts.get(*i).map_or(VType::Unknown, |t| VType::Decl(t.clone()))
             }
+            _ => VType::Unknown,
+        },
+        // An inline list `[a, b, …]` → `Vec<T>`, with T from the first element
+        // (a bare String element is owned, so a `Text` list is `Vec<String>`).
+        Expr::List(elems) => match elems.first().map(|e| infer(e, ctx)) {
+            Some(VType::Decl(dt)) => VType::Decl(DeclType::Vec(Box::new(dt))),
+            Some(VType::Str) => VType::Decl(DeclType::Vec(Box::new(DeclType::Plain(Type::Text)))),
             _ => VType::Unknown,
         },
         // Struct/tuple literals, const refs, closures: not tracked yet.

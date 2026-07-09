@@ -166,6 +166,8 @@ fn emit_window(
     if any_async {
         out.push_str("use iced::Task;\n");
     }
+    // `std` types used in event bodies (e.g. an `Http.Post` headers HashMap).
+    out.push_str(&surface::event_std_imports(&w.events));
     let std_used = event_stdlib_imports(&w.events, diags);
     if !std_used.is_empty() {
         out.push_str(&format!("use vbr_stdlib::{{{}}};\n", std_used.join(", ")));

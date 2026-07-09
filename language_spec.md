@@ -108,6 +108,17 @@ Dim m As HashMap<K, V>
 habit) is accepted but **warns** — Rust creates the value from the declaration
 itself, so `New` is redundant.
 
+An **inline list literal** builds a `Vec<T>` directly:
+```
+Dim names As Vec<String> = ["alice", "bob"]   ' → vec!["alice".to_string(), …]
+Dim nums  As Vec<Long>   = [10, 20, 30]        ' → vec![10, 20, 30]
+Dim none  As Vec<String> = []                  ' empty; type from the annotation
+```
+`[a, b, …]` in expression position is a list (→ `vec![…]`); string elements are
+owned automatically, numeric elements take their type from the target. Prefix
+`[…]` (a literal) and postfix `x[i]` (indexing) never clash — the brackets start
+an expression in one case and follow one in the other, as in Rust.
+
 ### Constants — `Const`
 ```
 Const Name As Type = literalExpr

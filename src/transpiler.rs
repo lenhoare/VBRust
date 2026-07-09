@@ -349,7 +349,7 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
 }
 
 /// Does any `Dim` in these statements declare a `HashMap`? (Recurses blocks.)
-fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
+pub(crate) fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::Dim { ty: DeclType::Map(..), .. } => true,
         Stmt::If { branches, else_body } => {
@@ -1658,11 +1658,12 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
             let rendered: Vec<String> = args
                 .iter()
-                .enumerate()
-                .map(|(i, a)| {
-                    // A string literal into a `Vec<String>`/`HashMap` becomes owned:
-                    // `push("x")` / `insert("k", …)`.
-                    if m == "push" || (m == "insert" && i == 0) {
+                .map(|a| {
+                    // A string literal into a `Vec<String>`/`HashMap` becomes
+                    // owned — `push("x")`, or either side of `insert("k", "v")`
+                    // (a HashMap<String, String> owns its values too; a Vec's
+                    // numeric index is never a string literal, so it's untouched).
+                    if m == "push" || m == "insert" {
                         if let Expr::Str(s) = a {
                             return format!("\"{}\".to_string()", escape(s));
                         }
@@ -1680,6 +1681,19 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         Expr::Tuple(elems) => {
             let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
             format!("({})", parts.join(", "))
+        }
+        // `[a, b, …]` → `vec![…]`. A string-literal element is owned (VBR strings
+        // are always `String`); numeric literals infer their type from the target
+        // (`let v: Vec<i64> = vec![1, 2]`), same as elsewhere.
+        Expr::List(elems) => {
+            let parts: Vec<String> = elems
+                .iter()
+                .map(|e| match e {
+                    Expr::Str(s) => format!("\"{}\".to_string()", escape(s)),
+                    other => render_expr(other, None),
+                })
+                .collect();
+            format!("vec![{}]", parts.join(", "))
         }
         Expr::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
         Expr::Index(inner, idx) => {
@@ -1985,7 +1999,7 @@ fn flatten_concat(e: &Expr) -> (String, Vec<String>) {
 }
 
 /// Names that are reassigned somewhere in the body need `let mut`.
-fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
+pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
     for stmt in stmts {
         match stmt {
             Stmt::Assign { target, .. } => {

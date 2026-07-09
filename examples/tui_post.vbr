@@ -1,0 +1,52 @@
+' tui_post.vbr — an awaited Http.Post in a terminal app.
+'
+' Press Enter to POST a JSON body (with a Content-Type and a Bearer token) and
+' show the reply, without freezing the screen — `Await` runs the request off the
+' UI thread, exactly like `Await Http.Get`. This is the shape of an LLM call.
+Screen Poster
+    Title "POST from a TUI"
+
+    State
+        Dim status As String = "Press Enter to send"
+        Dim reply As String = ""
+        Dim key As String = "sk-demo-key"
+        Dim endpoint As String = "https://api.example.com/v1/complete"
+    End State
+
+    View
+        Column
+            Length 1
+            Text status
+            Length 1
+            Text reply
+            Fill
+            Text "Enter to POST • q to quit"
+        End Column
+    End View
+
+    On Key Enter Send
+    On Key "q" Quit
+
+    Event Send
+        status = "sending…"
+
+        Dim headers As HashMap<String, String>
+        headers.insert("Authorization", "Bearer " & key)
+        headers.insert("Content-Type", "application/json")
+
+        Dim body As String = "{""prompt"": ""hello""}"
+
+        Match Await Http.Post(endpoint, body, headers)
+            Ok(text) =>
+                status = "ok"
+                reply = text
+            Err(message) =>
+                status = "failed"
+                reply = message
+        End Match
+    End Event
+End Screen
+
+Function Main()
+    Poster.Run
+End Function

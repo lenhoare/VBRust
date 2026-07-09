@@ -416,6 +416,19 @@ nums.push(10)
 nums.push(20)
 ```
 
+Or build one in place with an **inline list literal**, `[a, b, …]`:
+
+```vb
+Dim names As Vec<String> = ["alice", "bob"]   →   let names: Vec<String> =
+                                                       vec!["alice".to_string(), "bob".to_string()];
+Dim nums  As Vec<Long>   = [10, 20, 30]        →   let nums: Vec<i64> = vec![10, 20, 30];
+```
+
+String elements are owned for you; numbers take their type from the `As Vec<…>`
+you wrote. This is a *prefix* `[…]`; the *postfix* `x[i]` you'd use to index a
+list is a different thing in a different place, so the two never collide — just
+like Rust.
+
 (VB's `New` is unnecessary here and earns a gentle warning if you write it; the
 value is created by the declaration itself.) A `HashMap` maps keys to values:
 

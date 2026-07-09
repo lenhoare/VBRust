@@ -1,0 +1,24 @@
+' Inline list literals — `[a, b, …]` builds a Vec<T>.
+'
+' Prefix `[…]` is a list; postfix `x[i]` is still indexing — no clash, exactly
+' like Rust. String elements are owned automatically; numbers take their type
+' from the target.
+Function Total(ByVal xs As Vec<Long>) As Long
+    Dim sum As Long = 0
+    For Each x In xs
+        sum = sum + x
+    Next
+    Return sum
+End Function
+
+Function Main()
+    Dim names As Vec<String> = ["alice", "bob", "carol"]
+    Debug.Print "first = " & names[0] & ", of " & names.len()
+
+    ' A list literal passed straight into a function (the common case for, e.g.,
+    ' query parameters).
+    Debug.Print "total = " & Total([10, 20, 30])
+
+    Dim empty As Vec<String> = []
+    Debug.Print "empty count = " & empty.len()
+End Function

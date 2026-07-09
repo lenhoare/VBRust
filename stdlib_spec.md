@@ -47,12 +47,25 @@ Dim text As String = FileSystem.Read("notes.txt")
 | `json` (`Json`) | `serde_json` | include |
 | `datetime` (`DateTime`) | `chrono` | include |
 | `regex` (`Regex`) | `regex` | include |
-| `http` (`Http`) | `reqwest` blocking | **deferred** |
+| `http` (`Http`) | `ureq` blocking | include |
 | `database` | — | deferred (was already V2) |
 
-HTTP is left out for now: `reqwest` drags in tokio/hyper/TLS, needs network to
-build, and its tests hit the network. We'll add it later, behind a Cargo
-feature so the rest stays fast and offline-friendly.
+HTTP is built on **`ureq`** (blocking, no async runtime, minimal deps) rather
+than `reqwest`, so the crate stays fast and offline-friendly; it lives behind a
+Cargo feature like the rest. Two functions, each one-shot (no shared client or
+session — reach for inline Rust / a `.rs` module for that):
+
+- **`Http.Get(url)`** → `Result<String, String>` — the response body, or the
+  failure as a `String`.
+- **`Http.Post(url, body, headers)`** → `Result<String, String>` — POST `body`
+  (a string) with `headers`, a `HashMap<String, String>` of request headers
+  (`Content-Type`, an `Authorization: Bearer …` token, …); pass an empty map
+  for none. The map is passed **by value** (consumed), so build one per request.
+
+Both are **awaitable** in a `Window`/`Screen` event — `Match Await Http.Get(url)`
+/ `Match Await Http.Post(url, body, headers)` runs the request off the UI thread
+so the interface stays live. (In a browser `Page`/`Screen`, only `Await Http.Get`
+is supported today — it maps to the browser's `fetch`; POST there is deferred.)
 
 ---
 
@@ -67,7 +80,9 @@ feature so the rest stays fast and offline-friendly.
 
 ## 5. Changes from the original spec_03
 
-1. **Drop the `http` module** for this pass (see §3).
+1. ~~**Drop the `http` module** for this pass~~ — `http` is now **included**,
+   built on `ureq` (not `reqwest`); see §3. `Http.Get` and `Http.Post` (with a
+   headers map), both awaitable in a Window/Screen event.
 2. **`DateTime.year/month/day`**: use chrono's `Datelike` methods
    (`dt.year()`, `dt.month()`, `dt.day()`) instead of the
    `format("%Y").parse().unwrap()` round-trip — cleaner and it can't panic.
@@ -96,6 +111,90 @@ crate like `vbr_stdlib`. So:
 
 ## 7. Deferred / open
 
-- `http` module (behind a feature, current `reqwest`).
-- `database` module (needs async — V2).
-- Cargo-project run mode for programs that use the stdlib.
+- `http`: `Await Http.Post` in a browser `Page`/`Screen` (native + blocking
+  work); other verbs (PUT/DELETE), custom timeouts, a reusable client/session.
+- Cargo-project run mode for programs that use the stdlib. *(Built: `runproject`
+  / `build`.)*
+
+---
+
+## 8. SQLite — the `Database` module (slice 1)
+
+The first genuinely **stateful** stdlib module: a database is a live connection
+you hold, so `Database` is a **newtype-wrapper handle** like `DateTime` / `Json`
+/ `DataFrame` — a static constructor plus instance methods. Built on **`rusqlite`
+with the `bundled` feature** (compiles SQLite from source → no system
+`libsqlite3` to install, consistent with `ureq`'s "no system setup"), behind a
+`database` Cargo feature.
+
+### Surface
+
+```vb
+' open (fallible → Result), then run statements on the handle
+Match Database.Open("ideas.db")
+    Ok(db) =>
+        db.Execute("CREATE TABLE ideas (id INTEGER PRIMARY KEY, gen INT, text TEXT, score REAL)", [])
+
+        db.Execute("INSERT INTO ideas (gen, text) VALUES (?, ?)", [CStr(gen), ideaText])
+
+        Dim rows As Vec<Json> = db.Query("SELECT text, score FROM ideas WHERE gen = ? ORDER BY score DESC", [CStr(gen)])
+        For Each row In rows
+            Debug.Print row.GetString("text").Unwrap() & " — " & row.GetFloat("score").Unwrap()
+        Next
+    Err(message) => Debug.Print "open failed: " & message
+End Match
+```
+
+| Method | Rust | Returns |
+|---|---|---|
+| `Database.Open(path)` | `Database::open(path) -> Result<Database, String>` | the handle |
+| `db.Execute(sql, params)` | `execute(&self, sql, params: Vec<String>) -> Result<i64, String>` | rows affected |
+| `db.Query(sql, params)` | `query(&self, sql, params: Vec<String>) -> Result<Vec<Json>, String>` | one `Json` object per row |
+| `db.LastInsertId()` | `last_insert_id(&self) -> i64` | last auto-increment rowid (for lineage) |
+
+### Design decisions (settled)
+
+- **Rows come back as `Vec<Json>`**, reusing the `Json` wrapper already taught.
+  Each column is mapped to its **natural SQLite storage type** (INTEGER → Json
+  int, REAL → Json float, TEXT → Json string, NULL → Json null), so
+  `GetInt`/`GetFloat`/`GetString` return real typed values — no text round-trip
+  on read. No new row type to learn.
+- **Parameters are `Vec<String>`, passed by value** (consumed, like `Http.Post`'s
+  headers map — the one shape that needs no reference-plumbing). Bound to `?`
+  placeholders positionally; numbers go in as text and land in typed columns via
+  **SQLite column affinity** (so declare columns `INTEGER`/`REAL`). Real bound
+  parameters, never string concatenation — injection-safe.
+- **`Database` handle**: passes into functions as `&Database` (a ByVal struct
+  param already lowers to a shared borrow — rusqlite methods take `&self`, so
+  this is exactly right) and holds fine as a local. Holding it on **surface
+  state** is deferred to **slice 2** (state is built by an infallible
+  `Default::default()`; a fallible `Open` returning `Result` has nowhere to be
+  handled there — needs a general "seed state from `Main`" seam across *all*
+  surfaces, not just Screen).
+
+### Prerequisite fix (general, not SQLite-only)
+
+`db.Execute(sql, …)` where `sql` is a **String variable** exposes a latent bug:
+a stdlib **wrapper instance** method doesn't `&`-reference its owned-String args
+(only stdlib *type* receivers like `Http.`/`FileSystem.` do). Today
+`doc.GetInt(k)` with `k As String` emits `doc.get_int(k)` (String into a `&str`
+param → won't compile); every working example uses string *literals*, which hid
+it. Slice 1 extends the resolver's arg-ref rule to fire when the receiver's
+inferred type is a stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`),
+fixing `Json`/`DateTime`/`Database` alike. Logged in `projects/vbr_gaps.md`.
+
+### Slice-1 scope & known friction
+
+- **In:** `Open`/`Execute`/`Query`/`LastInsertId`, Json rows, string params,
+  bundled rusqlite, feature-gated, hermetic tests (a temp-file db, like `http`'s
+  loopback server).
+- **Deferred:** holding the handle on surface state (slice 2), in-memory
+  (`:memory:`) dbs (need a held connection), transactions, prepared-statement
+  reuse, typed/`Json` params, named parameters.
+- **Params ergonomics — the inline list literal (BUILT first).** VBR now has an
+  **inline list literal** `["a", "b"]` → `Vec<T>` (string elements owned,
+  numbers typed from the target; empty `[]` allowed), so params read cleanly:
+  `db.Execute("INSERT … VALUES (?, ?)", [CStr(gen), ideaText])`. A no-parameter
+  statement passes `[]` (there are no `Optional` params). This was built ahead of
+  the SQLite module so the API is pleasant from day one — see `list_literal.vbr`,
+  `language_spec.md` (Collections).

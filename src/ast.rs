@@ -617,6 +617,8 @@ pub enum Expr {
     },
     /// `(a, b, …)` — a tuple literal.
     Tuple(Vec<Expr>),
+    /// `[a, b, …]` — an inline list literal → `Vec<T>` (empty `[]` allowed).
+    List(Vec<Expr>),
     /// `expr.0` — tuple element access.
     TupleIndex(Box<Expr>, usize),
     /// `expr[index]` — array/Vec indexing.

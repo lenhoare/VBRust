@@ -141,7 +141,10 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
         diags.mark(&format!("stdlib:{}", ns));
     }
 
-    out.push_str("use yew::prelude::*;\n\n");
+    out.push_str("use yew::prelude::*;\n");
+    // `std` types used in event bodies (e.g. a HashMap built in an event).
+    out.push_str(&surface::event_std_imports(&p.events));
+    out.push('\n');
 
     // ── State struct: a Yew component holds its state directly ──
     out.push_str(&format!("struct {} {{\n", ty));
