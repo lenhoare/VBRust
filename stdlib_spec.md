@@ -67,6 +67,10 @@ Both are **awaitable** in a `Window`/`Screen` event — `Match Await Http.Get(ur
 so the interface stays live. (In a browser `Page`/`Screen`, only `Await Http.Get`
 is supported today — it maps to the browser's `fetch`; POST there is deferred.)
 
+Both carry a **60-second overall timeout**: a hung server comes back as an
+`Err` string like every other failure, never a call that waits forever
+(generous, because LLM endpoints legitimately take a while).
+
 ---
 
 ## 4. Design rules (unchanged from spec_03)

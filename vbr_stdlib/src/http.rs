@@ -5,29 +5,50 @@
 //! sends the stateful case to the escape hatch.
 
 use std::collections::HashMap;
+use std::time::Duration;
+
+/// Overall per-request timeout. Without one, a hung server means the call
+/// never returns — in a UI the event would sit on "sending…" forever with no
+/// error. Generous, because LLM endpoints legitimately take a while.
+const TIMEOUT_SECS: u64 = 60;
 
 pub struct Http;
 
 impl Http {
-    /// Fetch a URL with GET and return the response body.
+    /// Fetch a URL with GET and return the response body. Times out (as an
+    /// `Err`) after 60 seconds.
     pub fn get(url: &str) -> Result<String, String> {
+        Self::get_with_timeout(url, TIMEOUT_SECS)
+    }
+
+    /// POST a string body to a URL with the given request headers, and return
+    /// the response body. The headers map carries whatever the endpoint needs —
+    /// `Content-Type`, an `Authorization: Bearer …` token, and so on; pass an
+    /// empty map for none. Times out (as an `Err`) after 60 seconds.
+    pub fn post(
+        url: &str,
+        body: &str,
+        headers: HashMap<String, String>,
+    ) -> Result<String, String> {
+        Self::post_with_timeout(url, body, headers, TIMEOUT_SECS)
+    }
+
+    fn get_with_timeout(url: &str, secs: u64) -> Result<String, String> {
         ureq::get(url)
+            .timeout(Duration::from_secs(secs))
             .call()
             .map_err(|e| e.to_string())?
             .into_string()
             .map_err(|e| e.to_string())
     }
 
-    /// POST a string body to a URL with the given request headers, and return
-    /// the response body. The headers map carries whatever the endpoint needs —
-    /// `Content-Type`, an `Authorization: Bearer …` token, and so on; pass an
-    /// empty map for none.
-    pub fn post(
+    fn post_with_timeout(
         url: &str,
         body: &str,
         headers: HashMap<String, String>,
+        secs: u64,
     ) -> Result<String, String> {
-        let mut request = ureq::post(url);
+        let mut request = ureq::post(url).timeout(Duration::from_secs(secs));
         for (name, value) in &headers {
             request = request.set(name, value);
         }
@@ -85,5 +106,22 @@ mod tests {
     fn bad_host_is_an_err() {
         // Nothing is listening on this port → a transport error, surfaced as a String.
         assert!(Http::get("http://127.0.0.1:1/").is_err());
+    }
+
+    #[test]
+    fn hung_server_times_out_as_err() {
+        // A server that accepts the connection and then says nothing — the
+        // shape of a hung endpoint. The timeout turns "waits forever" into an
+        // Err. (Tested through the private helper with a 1-second timeout so
+        // the test is fast; the public calls use the same path with 60.)
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((_stream, _)) = listener.accept() {
+                thread::sleep(std::time::Duration::from_secs(10));
+            }
+        });
+        let url = format!("http://127.0.0.1:{}/", port);
+        assert!(Http::get_with_timeout(&url, 1).is_err());
     }
 }

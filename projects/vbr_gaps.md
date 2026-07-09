@@ -98,6 +98,17 @@ local exposed it.)
 `snapshot_args` borrow an owned-`String` local as `&str`, just as it does for a
 field.
 
+### 6. `Http` had no request timeout
+
+ureq requests ran with no overall timeout; a hung LLM endpoint meant the call
+never returned — natively the UI stayed live (the call is `Await`ed off-thread)
+but the event never completed, a Screen stuck on "sending…" with no error.
+
+**Fix** (`vbr_stdlib/src/http.rs`): `Http.Get`/`Http.Post` carry a 60-second
+overall timeout (generous — LLM generations take a while); a hang comes back as
+an `Err` string like every other failure. Hermetic test: a loopback server that
+accepts and then says nothing, hit through a 1-second-timeout helper.
+
 ### 8. Stdlib *wrapper-instance* methods didn't `&`-reference owned-String args
 
 The arg-ref rule (owned `String` → `&x` for a `&str` param) only fired for
@@ -164,15 +175,6 @@ won't compile (`Result<String, String>` ≠ `String`). VBR should either require
 the result be handled (`Match` / `?`) or teach the mismatch. Found while
 explaining why a `Database` handle can't sit in a `State` field (same shape:
 `Open` returns `Result`, the slot wants the bare type). Not yet fixed.
-
-### 6. `Http` has no request timeout
-
-ureq requests run with no overall timeout, and for LLM endpoints (slow by
-nature) a hung server means the request never returns. Natively the UI stays
-live (the call is `Await`ed off-thread) but the event never completes — a
-Screen sits on "sending…" forever with no error. `Http`'s calls should carry a
-sensible default timeout (30–60s) so a hang comes back as an `Err` string like
-every other failure. Follow-up from the `Http.Post` review; not yet built.
 
 ### 7. No map literal — "no headers" / empty-HashMap calls are clunky
 
