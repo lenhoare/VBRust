@@ -50,29 +50,60 @@ pub struct Compiled {
 /// Run the full pipeline over `source` as a single standalone file (the entry,
 /// with no sibling modules).
 pub fn compile(source: &str) -> Compiled {
-    compile_with(source, &[], true, false)
+    compile_with(source, &[], &resolver::ProjectInterfaces::new(), true, false)
 }
 
 /// Compile for the browser (`vbr runweb`): a `Screen` renders through Ratzilla
 /// (the terminal drawn into the DOM) instead of crossterm. A `Page` is always
 /// a web app, so for it this is the same as `compile`.
 pub fn compile_web(source: &str) -> Compiled {
-    compile_with(source, &[], true, true)
+    compile_with(source, &[], &resolver::ProjectInterfaces::new(), true, true)
+}
+
+/// Harvest one module's public surface — pass 1 of a project compile. Each
+/// file is parsed once for its interface (function signatures, constants);
+/// pass 2 (`compile_module`) then resolves qualified calls against the
+/// siblings' interfaces exactly as it does local ones. Parse problems are
+/// ignored here — they resurface, with diagnostics, when the module itself
+/// is compiled.
+pub fn module_interface(source: &str) -> resolver::ModuleInterface {
+    let mut diags = Diagnostics::new();
+    let tokens = lexer::lex(source);
+    let program = parser::parse(tokens, &mut diags);
+    resolver::module_interface(&program)
 }
 
 /// Compile one file of a multifile project. `modules` are the other project
 /// module names (lowercased file stems), used to qualify cross-module calls;
-/// `is_entry` marks the crate root (gets `mod <name>;` declarations and `fn main`).
-pub fn compile_module(source: &str, modules: &[String], is_entry: bool) -> Compiled {
-    compile_with(source, modules, is_entry, false)
+/// `interfaces` their harvested surfaces (`module_interface`), giving those
+/// calls the full local argument treatment; `is_entry` marks the crate root
+/// (gets `mod <name>;` declarations and `fn main`).
+pub fn compile_module(
+    source: &str,
+    modules: &[String],
+    interfaces: &resolver::ProjectInterfaces,
+    is_entry: bool,
+) -> Compiled {
+    compile_with(source, modules, interfaces, is_entry, false)
 }
 
 /// The browser-targeted form of `compile_module` (`vbr runweb` on a project).
-pub fn compile_module_web(source: &str, modules: &[String], is_entry: bool) -> Compiled {
-    compile_with(source, modules, is_entry, true)
+pub fn compile_module_web(
+    source: &str,
+    modules: &[String],
+    interfaces: &resolver::ProjectInterfaces,
+    is_entry: bool,
+) -> Compiled {
+    compile_with(source, modules, interfaces, is_entry, true)
 }
 
-fn compile_with(source: &str, modules: &[String], is_entry: bool, web: bool) -> Compiled {
+fn compile_with(
+    source: &str,
+    modules: &[String],
+    interfaces: &resolver::ProjectInterfaces,
+    is_entry: bool,
+    web: bool,
+) -> Compiled {
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
@@ -119,7 +150,7 @@ fn compile_with(source: &str, modules: &[String], is_entry: bool, web: bool) -> 
     };
     let web_style = web::page_style(&program);
     let web_assets = web::page_assets(&program);
-    let rust = transpiler::transpile_module(&program, modules, is_entry, web, &mut diags);
+    let rust = transpiler::transpile_module(&program, modules, interfaces, is_entry, web, &mut diags);
     // An inline `Python` block runs via pyo3 (real CPython) — pull it in only when
     // one is actually used, so nothing else pays for it. Detected from the emitted
     // marker, like the other conditional deps (image/canvas/spawn_blocking).

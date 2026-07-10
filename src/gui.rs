@@ -11,7 +11,7 @@ use crate::surface::{
     self, analyze_events, coerce_state_strings, event_stdlib_imports, launched, match_scrutinee,
     render_init, rewrite_expr, rewrite_expr_with, state_maps, AwaitSplit,
 };
-use crate::transpiler::{decltype_rust, emit_stmt, render_expr, rust_name};
+use crate::transpiler::{collect_stmt_idents, decltype_rust, emit_stmt, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs to know about a window's state: the field names
@@ -1109,103 +1109,8 @@ fn canvas_idents(body: &[Stmt]) -> HashSet<String> {
     out
 }
 
-fn collect_stmt_idents(s: &Stmt, out: &mut HashSet<String>) {
-    match s {
-        Stmt::Draw(cmd) => collect_drawcmd_idents(cmd, out),
-        Stmt::Dim { init: Some(e), .. } => collect_expr_idents(e, out),
-        Stmt::Assign { target, value, .. } => {
-            collect_expr_idents(target, out);
-            collect_expr_idents(value, out);
-        }
-        Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => collect_expr_idents(e, out),
-        Stmt::If { branches, else_body } => {
-            for (c, b) in branches {
-                collect_expr_idents(c, out);
-                b.iter().for_each(|s| collect_stmt_idents(s, out));
-            }
-            if let Some(b) = else_body {
-                b.iter().for_each(|s| collect_stmt_idents(s, out));
-            }
-        }
-        Stmt::For { from, to, step, body, .. } => {
-            collect_expr_idents(from, out);
-            collect_expr_idents(to, out);
-            if let Some(st) = step {
-                collect_expr_idents(st, out);
-            }
-            body.iter().for_each(|s| collect_stmt_idents(s, out));
-        }
-        Stmt::ForEach { iter, body, .. } => {
-            collect_expr_idents(iter, out);
-            body.iter().for_each(|s| collect_stmt_idents(s, out));
-        }
-        Stmt::DoLoop { body, .. } => body.iter().for_each(|s| collect_stmt_idents(s, out)),
-        Stmt::Match { scrutinee, arms, .. } => {
-            collect_expr_idents(scrutinee, out);
-            for a in arms {
-                a.body.iter().for_each(|s| collect_stmt_idents(s, out));
-            }
-        }
-        _ => {}
-    }
-}
 
-fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
-    let shape = |sh: &Shape, out: &mut HashSet<String>| match sh {
-        Shape::Circle(a, b, c) => {
-            [a, b, c].iter().for_each(|e| collect_expr_idents(e, out));
-        }
-        Shape::Rect(a, b, c, d) | Shape::Line(a, b, c, d) => {
-            [a, b, c, d].iter().for_each(|e| collect_expr_idents(e, out));
-        }
-    };
-    match cmd {
-        DrawCmd::Fill { shape: sh, color } => {
-            shape(sh, out);
-            collect_expr_idents(color, out);
-        }
-        DrawCmd::Stroke { shape: sh, color, width } => {
-            shape(sh, out);
-            collect_expr_idents(color, out);
-            if let Some(w) = width {
-                collect_expr_idents(w, out);
-            }
-        }
-        DrawCmd::Text { text, x, y, color } => {
-            collect_expr_idents(text, out);
-            collect_expr_idents(x, out);
-            collect_expr_idents(y, out);
-            if let Some(c) = color {
-                collect_expr_idents(c, out);
-            }
-        }
-        DrawCmd::Paint { args, .. } => args.iter().for_each(|e| collect_expr_idents(e, out)),
-    }
-}
 
-fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
-    match e {
-        Expr::Ident(n) => {
-            out.insert(rust_name(n));
-        }
-        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
-            collect_expr_idents(lhs, out);
-            collect_expr_idents(rhs, out);
-        }
-        Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
-        | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _) | Expr::Closure { body: i, .. } => {
-            collect_expr_idents(i, out)
-        }
-        Expr::MethodCall { recv, args, .. } => {
-            collect_expr_idents(recv, out);
-            args.iter().for_each(|a| collect_expr_idents(a, out));
-        }
-        Expr::Call { args, .. } => args.iter().for_each(|a| collect_expr_idents(a, out)),
-        Expr::Tuple(es) => es.iter().for_each(|e| collect_expr_idents(e, out)),
-        Expr::StructLit { fields, .. } => fields.iter().for_each(|(_, v)| collect_expr_idents(v, out)),
-        _ => {}
-    }
-}
 
 /// Rewrite a statement in a canvas `Draw` block / paint function: state fields
 /// become `self.field`, enum variants get their path, and a call to a paint

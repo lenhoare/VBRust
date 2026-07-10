@@ -1,0 +1,19 @@
+' The entry of a multi-file project: collections, strings, and constants all
+' cross the module boundary. Pass 1 of the project compile harvested life.vbr's
+' interface, so every qualified call below is argument-checked and borrowed
+' exactly like a local call — `Life.SetCell(grid, …)` becomes
+' `crate::life::setcell(&mut grid, …)`.
+
+Function Main()
+    Dim grid As Vec<Long> = Life.NewGrid()
+    Life.SetCell(grid, 1, 1, 1)
+    Life.SetCell(grid, 2, 1, 1)
+    Life.SetCell(grid, 3, 1, 1)
+    Debug.Print "live cells: " & Life.CountLive(grid)
+    Debug.Print "grid: " & Life.WIDTH & " x " & Life.HEIGHT
+
+    Dim birth As String = "3"
+    Dim survive As String = "23"
+    Debug.Print "rule: " & Life.FormatRule(birth, survive)
+    Debug.Print "checksum: " & Life.Checksum()
+End Function

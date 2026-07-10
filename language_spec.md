@@ -627,7 +627,15 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
 - Every other `<File>.vbr` becomes a module named by lowercasing the filename
   (`MyHelpers.vbr` → module `myhelpers`).
 - **Cross-module calls are qualified:** `Shapes.CircleArea(r)` →
-  `crate::shapes::circlearea(r)`. The callee must be `Public`.
+  `crate::shapes::circlearea(r)`. The callee must be `Public` (calling a
+  `Private` one is a compile-time teaching error).
+- **Signatures cross with the call** (two-pass compile: each module's public
+  interface is harvested first): a qualified call gets the same argument
+  treatment as a local one — `&mut` for ByRef, `&` for ByVal
+  collections/strings, return-type inference — so `Vec`, `String`, and
+  struct arguments cross modules freely. `Module.CONST` reads a
+  `Public Const` (→ `crate::module::CONST`). **Types don't cross yet**: a
+  `Type`/`Enum` is usable only in its own file.
 - A sibling **`.rs` file is a hand-written module**, included **verbatim** (it
   skips transpilation) and called with the same qualified syntax —
   `Text.Shout(s)` → `crate::text::shout(s)`. This is the in-project "wrapper"

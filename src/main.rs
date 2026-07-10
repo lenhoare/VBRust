@@ -441,6 +441,17 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
     // Every sibling module is a possible qualified-call target and a `mod` decl.
     let module_names: Vec<String> = vbr_names.iter().chain(&rs_names).cloned().collect();
 
+    // Pass 1: harvest each `.vbr` module's interface (public functions and
+    // constants), so pass 2 can give a qualified call the same argument
+    // treatment as a local one. Verbatim `.rs` modules have no VBR interface —
+    // their calls stay name-qualified only.
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    for (file, name) in vbr_files.iter().zip(&vbr_names) {
+        if let Ok(source) = fs::read_to_string(file) {
+            interfaces.insert(name.clone(), vbr::module_interface(&source));
+        }
+    }
+
     let build = project_dir.join("build");
     let src = build.join("src");
     if let Err(e) = fs::create_dir_all(&src) {
@@ -450,7 +461,7 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
 
     // Entry → main.rs (crate root: `mod` declarations + `fn main`).
     let mut file_maps: Vec<FileMap> = Vec::new();
-    let entry_compiled = compile_path(entry, &module_names, true, web);
+    let entry_compiled = compile_path(entry, &module_names, &interfaces, true, web);
     if let Err(e) = fs::write(src.join("main.rs"), &entry_compiled.rust) {
         eprintln!("✘ Could not write main.rs: {}", e);
         exit(1);
@@ -471,7 +482,7 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
 
     // Each `.vbr` sibling → transpiled `<name>.rs`.
     for (file, name) in vbr_files.iter().zip(&vbr_names) {
-        let compiled = compile_path(file, &module_names, false, web);
+        let compiled = compile_path(file, &module_names, &interfaces, false, web);
         let path = src.join(format!("{}.rs", name));
         if let Err(e) = fs::write(&path, &compiled.rust) {
             eprintln!("✘ Could not write {}: {}", path.display(), e);
@@ -695,7 +706,13 @@ fn module_of(p: &Path) -> String {
 
 /// Read + compile one project file (as entry or module), printing diagnostics
 /// and exiting on error.
-fn compile_path(path: &Path, modules: &[String], is_entry: bool, web: bool) -> vbr::Compiled {
+fn compile_path(
+    path: &Path,
+    modules: &[String],
+    interfaces: &vbr::resolver::ProjectInterfaces,
+    is_entry: bool,
+    web: bool,
+) -> vbr::Compiled {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -704,9 +721,9 @@ fn compile_path(path: &Path, modules: &[String], is_entry: bool, web: bool) -> v
         }
     };
     let result = if web {
-        vbr::compile_module_web(&source, modules, is_entry)
+        vbr::compile_module_web(&source, modules, interfaces, is_entry)
     } else {
-        vbr::compile_module(&source, modules, is_entry)
+        vbr::compile_module(&source, modules, interfaces, is_entry)
     };
     for d in &result.diagnostics {
         eprintln!("{}", d);

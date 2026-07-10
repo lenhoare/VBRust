@@ -224,9 +224,13 @@ fn multifile_project_compiles() {
     let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
     let shapes_src = fs::read_to_string(proj.join("shapes.vbr")).unwrap();
     let modules = vec![vbr::module_name("shapes")];
+    // Pass 1: the sibling's interface, so qualified calls get the full local
+    // argument treatment (`&` on ByVal collections/strings, `&mut` on ByRef).
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert(vbr::module_name("shapes"), vbr::module_interface(&shapes_src));
 
-    let main_rs = vbr::compile_module(&main_src, &modules, true);
-    let shapes_rs = vbr::compile_module(&shapes_src, &modules, false);
+    let main_rs = vbr::compile_module(&main_src, &modules, &interfaces, true);
+    let shapes_rs = vbr::compile_module(&shapes_src, &modules, &interfaces, false);
     assert!(!main_rs.has_errors, "main.vbr errors: {:?}", main_rs.diagnostics);
     assert!(!shapes_rs.has_errors, "shapes.vbr errors: {:?}", shapes_rs.diagnostics);
 
@@ -253,6 +257,58 @@ fn multifile_project_compiles() {
     assert!(stderr.trim().is_empty(), "rustc emitted warnings:\n{stderr}");
 }
 
+/// Cross-module *interfaces* (pass 1 of the project compile): collections,
+/// strings, and constants cross the module boundary with the full local
+/// argument treatment — `&mut` for a ByRef Vec, `&` for ByVal Vec/String,
+/// `crate::module::CONST` for a `Public Const`. We snapshot both files,
+/// rustc-compile them as one crate, and check the visibility diagnostics
+/// (private function / private constant / unknown member).
+#[test]
+fn crossmodule_interfaces_compile() {
+    let proj = examples_dir().join("life_project");
+    let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
+    let life_src = fs::read_to_string(proj.join("life.vbr")).unwrap();
+    let modules = vec![vbr::module_name("life")];
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert(vbr::module_name("life"), vbr::module_interface(&life_src));
+
+    let main_rs = vbr::compile_module(&main_src, &modules, &interfaces, true);
+    let life_rs = vbr::compile_module(&life_src, &modules, &interfaces, false);
+    assert!(!main_rs.has_errors, "main.vbr errors: {:?}", main_rs.diagnostics);
+    assert!(!life_rs.has_errors, "life.vbr errors: {:?}", life_rs.diagnostics);
+
+    check_snapshot("life_main", "rs", &main_rs.rust);
+    check_snapshot("life_life", "rs", &life_rs.rust);
+
+    let dir = std::env::temp_dir().join("vbr_crossmodule");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("life.rs"), &life_rs.rust).unwrap();
+    let main_path = dir.join("main.rs");
+    fs::write(&main_path, &main_rs.rust).unwrap();
+
+    let output = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg("-o")
+        .arg(dir.join("bin"))
+        .arg(&main_path)
+        .output()
+        .expect("failed to run rustc");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "rustc rejected the project:\n{stderr}");
+    assert!(stderr.trim().is_empty(), "rustc emitted warnings:\n{stderr}");
+
+    // The other side of visibility: private members earn teaching errors, and
+    // an unknown member points at the parentheses rule.
+    let bad = "Function Main()\n    Debug.Print Life.Hidden()\n    Debug.Print Life.SECRET\n    Debug.Print Life.Wdith\nEnd Function\n";
+    let bad_rs = vbr::compile_module(bad, &modules, &interfaces, true);
+    assert!(bad_rs.has_errors);
+    let all = bad_rs.diagnostics.join("\n");
+    for expect in ["'Hidden' is Private", "'SECRET' is Private", "no public constant 'Wdith'"] {
+        assert!(all.contains(expect), "missing diagnostic {expect:?} in:\n{all}");
+    }
+}
+
 /// A mixed project: a `.vbr` entry calling a hand-written `.rs` module. The `.rs`
 /// file is included verbatim; we snapshot the generated entry, then compile the
 /// two together to prove the qualified call into hand-written Rust links.
@@ -262,8 +318,11 @@ fn mixed_rs_project_compiles() {
     let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
     let text_rs = fs::read_to_string(proj.join("text.rs")).unwrap();
     let modules = vec![vbr::module_name("text")];
+    // A verbatim `.rs` module has no VBR interface to harvest — its calls stay
+    // name-qualified, matching the Rust side by hand.
+    let interfaces = vbr::resolver::ProjectInterfaces::new();
 
-    let main_rs = vbr::compile_module(&main_src, &modules, true);
+    let main_rs = vbr::compile_module(&main_src, &modules, &interfaces, true);
     assert!(!main_rs.has_errors, "main.vbr errors: {:?}", main_rs.diagnostics);
     check_snapshot("mixed_main", "rs", &main_rs.rust);
 

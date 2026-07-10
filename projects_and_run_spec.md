@@ -32,6 +32,38 @@ it knows the stdlib type names (`FileSystem`, `Json`, …).
 A VB6 person isn't lost here: `Module.Function` qualification existed in VB6, and
 qualified calls make it obvious where each function comes from.
 
+### Cross-module *interfaces* (two-pass compile) — BUILT
+
+A project compiles in two passes. **Pass 1** parses every `.vbr` module and
+harvests its interface: `Public Function` signatures (parameter modes and
+types, return type) and `Public Const` names. **Pass 2** compiles each file
+with the sibling interfaces in scope, so a qualified call gets the **same
+argument treatment as a local call** — nothing about the call site changes when
+a function moves to another file:
+
+```vb
+Life.SetCell(grid, x, y, 1)   →   crate::life::setcell(&mut grid, x, y, 1)   ' ByRef Vec
+Life.CountLive(grid)          →   crate::life::countlive(&grid)              ' ByVal Vec
+Life.FormatRule(birth, s)     →   crate::life::formatrule(&birth, &s)        ' ByVal String
+Life.WIDTH                    →   crate::life::WIDTH                         ' Public Const
+```
+
+Return types cross too — `Dim g As Vec<Long> = Life.NewGrid()` infers like a
+local call. Visibility is enforced with teaching errors: calling a `Private`
+function or reading a private `Const` from another file says to mark it
+`Public`; an unknown member points out that a function call needs parentheses.
+
+Two deliberate limits:
+
+- **Types don't cross modules yet** — a `Type`/`Enum` is usable only in the
+  file that declares it; pass primitives, `String`s, and collections across.
+  (Own slice, when a project demands it.)
+- **A verbatim `.rs` module has no VBR interface** — calls into it stay
+  name-qualified only, and its argument types are matched by hand (as before).
+
+Example: `examples/life_project/` (a miniature Game of Life split into
+`main.vbr` + `life.vbr`); guarded by `crossmodule_interfaces_compile`.
+
 ---
 
 ## Mixed `.vbr` + `.rs` projects (and stateful libraries)
@@ -174,7 +206,9 @@ VBR is for (the transition to Rust).
 - `run` currently writes `<file>.rs` next to the source — maybe run from a temp
   dir to avoid littering.
 - `build/` is generated — should be treated as disposable (gitignore-style).
-- Module-name → `::` translation needs the project's module set threaded into the
-  transpiler (mirrors `stdlib_type`).
+- Cross-module **types** (`Public Type` / `Enum` used from another file) — the
+  interface harvest covers functions and consts; types are the next slice.
+- A `Screen`/`Window` program can't call sibling modules yet (the surface
+  emitters don't emit `mod` declarations) — `projects/vbr_gaps.md` #24.
 - Depends on inline Rust (`inline_rust_spec.md`) for `Use`'d crate calls to be
   worth anything.

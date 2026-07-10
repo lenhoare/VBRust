@@ -242,21 +242,45 @@ in otherwise clean output. **Fix** (`transpiler.rs`): the dead `Dim` is elided
 (scalar, no initialiser, never assigned outside a `For` that binds it). Spec
 notes the VB6 difference: the counter doesn't exist after the loop.
 
-### 22. Cross-module `Module.Const` isn't lowered (OPEN — slice 2)
+### 22. Cross-module `Module.Const` isn't lowered (fixed — slice 2)
 
-`Life.WIDTH` parses as field access on a value; the resolver never tries it as
-a const of a sibling module → "cannot find value life". Root cause below (#23).
+`Life.WIDTH` parsed as field access on a value; the resolver never tried it as
+a sibling module's constant → "cannot find value life". **Fix**: with the
+module's interface (see #23), `Life.WIDTH` → `crate::life::WIDTH` for a
+`Public Const` (which emits `pub const`). A private const, or an unknown
+member, gets a teaching error (the latter notes that a function call needs
+parentheses — the VB6 no-parens habit).
 
-### 23. Cross-module calls skip the ByVal/ByRef rewrite (OPEN — slice 2)
+### 23. Cross-module calls skip the ByVal/ByRef rewrite (fixed — slice 2)
 
-`Life.StepLife(g)` rewrites by *name* to `crate::life::steplife(g)`, but the
-argument treatment looks the signature up under the qualified name and misses —
-no `&`/`&mut`, no coercions, so `Vec`/`String` args can't cross modules. Root
-cause: `compile_module` compiles each file alone, knowing only sibling module
-*names*. **Agreed fix**: a two-pass project compile — pass 1 parses every
-module and harvests its interface (fn signatures with modes/types, consts,
-structs, enums); pass 2 compiles each module with the sibling interfaces in the
-resolver's tables, so a qualified call resolves exactly like a local one.
+`Life.StepLife(g)` rewrote by *name* to `crate::life::steplife(g)`, but the
+argument treatment looked the signature up under the qualified name and missed —
+no `&`/`&mut`, no coercions, so `Vec`/`String` args couldn't cross modules. Root
+cause: `compile_module` compiled each file alone, knowing only sibling module
+*names*. **Fix — the agreed two-pass project compile**: pass 1
+(`vbr::module_interface`) parses every `.vbr` module and harvests its public
+surface (fn signatures with modes/types + consts; private names kept for the
+visibility diagnostics); pass 2 compiles each file with the sibling interfaces
+in the resolver (`ProjectInterfaces` in `Ctx`), and the *same* `apply_fn_sig`
+that treats local call arguments treats qualified ones — `&mut` ByRef, `&`
+ByVal collections/strings, return types feeding inference. Calling a `Private`
+function cross-module now earns a teaching error instead of rustc's raw
+"function is private". Scope drawn deliberately: **types don't cross modules
+yet** (structs/enums stay file-local — own slice), and verbatim `.rs` modules
+stay name-only (no VBR interface to harvest). Example + guard:
+`examples/life_project/`, `crossmodule_interfaces_compile`. Zero churn in the
+existing geometry/mixed project snapshots (they cross only primitives).
+
+### 25. An unread `For` counter warned as unused (fixed)
+
+Found *building the fix for #23*: VB's "repeat N times" idiom
+(`For i = 1 To WIDTH * HEIGHT` with `i` never read in the body) emitted
+`for i in …` → rustc's unused-variable warning in otherwise clean output.
+**Fix** (`transpiler.rs`): the emitter scans the loop body (via the
+`collect_stmt_idents` walker, moved from gui.rs and completed — Do conditions,
+Match guards, Set/destructure, inline Rust/Python as opaque "uses everything")
+and names the binding `_` when the counter is never read. Companion to #21 —
+the two together make the whole Dim-and-For VB6 habit warning-free.
 
 ### 24. `Screen`/`Window` programs ignore sibling modules (OPEN — slice 3)
 

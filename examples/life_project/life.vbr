@@ -1,0 +1,42 @@
+' The logic module of a miniature Game of Life project. Everything marked
+' Public crosses the module boundary — including its *signature*: a caller in
+' another file gets the same argument treatment as a local one (`&mut` for the
+' ByRef grid, `&` for a ByVal Vec or String). `Hidden` and `SECRET` stay
+' file-local; calling them from main.vbr earns a teaching error.
+
+Public Const WIDTH As Long = 5
+Public Const HEIGHT As Long = 3
+Const SECRET As Long = 99
+
+Public Function NewGrid() As Vec<Long>
+    Dim g As Vec<Long> = []
+    Dim i As Long
+    For i = 1 To WIDTH * HEIGHT
+        g.push(0)
+    Next
+    Return g
+End Function
+
+Public Function SetCell(ByRef grid As Vec<Long>, ByVal x As Long, ByVal y As Long, ByVal v As Long)
+    grid[y * WIDTH + x] = v
+End Function
+
+Public Function CountLive(ByVal grid As Vec<Long>) As Long
+    Dim total As Long = 0
+    For Each cell In grid
+        total = total + cell
+    Next
+    Return total
+End Function
+
+Public Function FormatRule(ByVal birth As String, ByVal survive As String) As String
+    Return "B" & birth & "/S" & survive
+End Function
+
+Function Hidden() As Long
+    Return SECRET
+End Function
+
+Public Function Checksum() As Long
+    Return Hidden() + WIDTH
+End Function

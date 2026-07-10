@@ -21,7 +21,8 @@ use std::collections::{HashMap, HashSet};
 
 /// The program-wide lookup tables every backend builds before emitting: enum
 /// names, function/method signatures, constants, and struct fields. `modules`
-/// is always empty for a surface program (a Window/Screen is single-file).
+/// and `interfaces` are always empty for a surface program (a Window/Screen is
+/// single-file).
 pub(crate) struct Tables {
     pub enums: HashSet<String>,
     pub fns: resolver::FnTable,
@@ -29,6 +30,7 @@ pub(crate) struct Tables {
     pub consts: HashMap<String, String>,
     pub structs: resolver::StructTable,
     pub modules: HashSet<String>,
+    pub interfaces: resolver::ProjectInterfaces,
 }
 
 pub(crate) fn build_tables(program: &Program) -> Tables {
@@ -39,6 +41,7 @@ pub(crate) fn build_tables(program: &Program) -> Tables {
         consts: resolver::build_const_map(program),
         structs: resolver::build_struct_table(program),
         modules: HashSet::new(),
+        interfaces: resolver::ProjectInterfaces::new(),
     }
 }
 
@@ -92,8 +95,8 @@ pub(crate) fn emit_shared_items(
     }
     for recv in receivers {
         emit_impl(
-            recv, program, &t.fns, &t.methods, &t.consts, &t.modules, &t.enums, &t.structs, diags,
-            out,
+            recv, program, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces, &t.enums,
+            &t.structs, diags, out,
         );
         out.push('\n');
     }
@@ -101,8 +104,8 @@ pub(crate) fn emit_shared_items(
     for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
         if !special_fn(f, diags, out) {
             emit_fn(
-                f, &t.fns, &t.methods, &t.consts, &t.modules, &t.enums, &t.structs, diags, out, 0,
-                None,
+                f, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces, &t.enums, &t.structs,
+                diags, out, 0, None,
             );
         }
         out.push('\n');

@@ -23,17 +23,20 @@ const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> String {
 ";
 
 pub fn transpile(program: &Program, diags: &mut Diagnostics) -> String {
-    transpile_module(program, &[], true, false, diags)
+    transpile_module(program, &[], &resolver::ProjectInterfaces::new(), true, false, diags)
 }
 
 /// Transpile one file of a project. `modules` are the other project module names
-/// (snake-cased), used to qualify cross-module calls; when `is_entry`, the file
-/// is the crate root and gets `mod <name>;` declarations and `fn main`. `web`
-/// targets the browser (`vbr runweb`): a `Screen` renders through Ratzilla
-/// instead of crossterm (a `Page` is web by nature; a `Window` ignores it).
+/// (snake-cased), used to qualify cross-module calls; `interfaces` their
+/// harvested surfaces (pass 1), so a qualified call gets the same argument
+/// treatment as a local one; when `is_entry`, the file is the crate root and
+/// gets `mod <name>;` declarations and `fn main`. `web` targets the browser
+/// (`vbr runweb`): a `Screen` renders through Ratzilla instead of crossterm
+/// (a `Page` is web by nature; a `Window` ignores it).
 pub fn transpile_module(
     program: &Program,
     modules: &[String],
+    interfaces: &resolver::ProjectInterfaces,
     is_entry: bool,
     web: bool,
     diags: &mut Diagnostics,
@@ -176,16 +179,16 @@ pub fn transpile_module(
     for recv in receivers {
         sep(&mut out);
         emit_impl(
-            recv, program, &fns, &methods, &consts, &module_set, &enum_set, &structs, diags,
-            &mut out,
+            recv, program, &fns, &methods, &consts, &module_set, interfaces, &enum_set, &structs,
+            diags, &mut out,
         );
     }
 
     for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
         sep(&mut out);
         emit_fn(
-            func, &fns, &methods, &consts, &module_set, &enum_set, &structs, diags, &mut out, 0,
-            None,
+            func, &fns, &methods, &consts, &module_set, interfaces, &enum_set, &structs, diags,
+            &mut out, 0, None,
         );
     }
     out
@@ -231,6 +234,7 @@ pub(crate) fn emit_impl(
     methods: &resolver::MethodTable,
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
+    interfaces: &resolver::ProjectInterfaces,
     enums: &HashSet<String>,
     structs: &resolver::StructTable,
     diags: &mut Diagnostics,
@@ -252,7 +256,10 @@ pub(crate) fn emit_impl(
             .copied()
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
-        emit_fn(f, fns, methods, consts, modules, enums, structs, diags, out, 1, Some(self_param));
+        emit_fn(
+            f, fns, methods, consts, modules, interfaces, enums, structs, diags, out, 1,
+            Some(self_param),
+        );
     }
     out.push_str("}\n");
 }
@@ -368,6 +375,7 @@ pub(crate) fn emit_fn(
     methods: &resolver::MethodTable,
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
+    interfaces: &resolver::ProjectInterfaces,
     enums: &HashSet<String>,
     structs: &resolver::StructTable,
     diags: &mut Diagnostics,
@@ -426,6 +434,7 @@ pub(crate) fn emit_fn(
         methods,
         consts,
         modules,
+        interfaces,
         enums,
         structs,
         func.receiver.as_deref(),
@@ -637,6 +646,136 @@ fn emit_block(
 ) {
     for stmt in stmts {
         emit_stmt(stmt, mutated, byref, indent, diags, out);
+    }
+}
+
+/// Collect every identifier a statement reads or writes (Rust-cased), walking
+/// nested bodies and conditions. An inline `Rust`/`Python` block is opaque —
+/// it contributes the sentinel `"*"` (assume it uses everything), so callers
+/// deciding "is this name unused?" stay safe.
+pub(crate) fn collect_stmt_idents(s: &Stmt, out: &mut HashSet<String>) {
+    match s {
+        Stmt::Draw(cmd) => collect_drawcmd_idents(cmd, out),
+        Stmt::Dim { init: Some(e), .. } => collect_expr_idents(e, out),
+        Stmt::Set { value, .. } | Stmt::DestructureDim { value, .. } => {
+            collect_expr_idents(value, out)
+        }
+        Stmt::HandleDim { .. } => {
+            out.insert("*".to_string());
+        }
+        Stmt::Assign { target, value, .. } => {
+            collect_expr_idents(target, out);
+            collect_expr_idents(value, out);
+        }
+        Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => collect_expr_idents(e, out),
+        Stmt::If { branches, else_body } => {
+            for (c, b) in branches {
+                collect_expr_idents(c, out);
+                b.iter().for_each(|s| collect_stmt_idents(s, out));
+            }
+            if let Some(b) = else_body {
+                b.iter().for_each(|s| collect_stmt_idents(s, out));
+            }
+        }
+        Stmt::For { from, to, step, body, .. } => {
+            collect_expr_idents(from, out);
+            collect_expr_idents(to, out);
+            if let Some(st) = step {
+                collect_expr_idents(st, out);
+            }
+            body.iter().for_each(|s| collect_stmt_idents(s, out));
+        }
+        Stmt::ForEach { iter, body, .. } => {
+            collect_expr_idents(iter, out);
+            body.iter().for_each(|s| collect_stmt_idents(s, out));
+        }
+        Stmt::DoLoop { cond, body } => {
+            match cond {
+                Some(
+                    DoCond::PreWhile(c) | DoCond::PreUntil(c) | DoCond::PostWhile(c)
+                    | DoCond::PostUntil(c),
+                ) => collect_expr_idents(c, out),
+                None => {}
+            }
+            body.iter().for_each(|s| collect_stmt_idents(s, out));
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            collect_expr_idents(scrutinee, out);
+            for a in arms {
+                if let Some(g) = &a.guard {
+                    collect_expr_idents(g, out);
+                }
+                a.body.iter().for_each(|s| collect_stmt_idents(s, out));
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
+    let shape = |sh: &Shape, out: &mut HashSet<String>| match sh {
+        Shape::Circle(a, b, c) => {
+            [a, b, c].iter().for_each(|e| collect_expr_idents(e, out));
+        }
+        Shape::Rect(a, b, c, d) | Shape::Line(a, b, c, d) => {
+            [a, b, c, d].iter().for_each(|e| collect_expr_idents(e, out));
+        }
+    };
+    match cmd {
+        DrawCmd::Fill { shape: sh, color } => {
+            shape(sh, out);
+            collect_expr_idents(color, out);
+        }
+        DrawCmd::Stroke { shape: sh, color, width } => {
+            shape(sh, out);
+            collect_expr_idents(color, out);
+            if let Some(w) = width {
+                collect_expr_idents(w, out);
+            }
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            collect_expr_idents(text, out);
+            collect_expr_idents(x, out);
+            collect_expr_idents(y, out);
+            if let Some(c) = color {
+                collect_expr_idents(c, out);
+            }
+        }
+        DrawCmd::Paint { args, .. } => args.iter().for_each(|e| collect_expr_idents(e, out)),
+    }
+}
+
+pub(crate) fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
+    match e {
+        Expr::Ident(n) => {
+            out.insert(rust_name(n));
+        }
+        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+            collect_expr_idents(lhs, out);
+            collect_expr_idents(rhs, out);
+        }
+        Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
+        | Expr::Try(i) | Expr::Await(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
+        | Expr::Closure { body: i, .. } => collect_expr_idents(i, out),
+        Expr::MethodCall { recv, args, .. } => {
+            collect_expr_idents(recv, out);
+            args.iter().for_each(|a| collect_expr_idents(a, out));
+        }
+        Expr::Call { args, .. } => args.iter().for_each(|a| collect_expr_idents(a, out)),
+        Expr::Tuple(es) | Expr::List(es) => es.iter().for_each(|e| collect_expr_idents(e, out)),
+        Expr::StructLit { fields, .. } => {
+            fields.iter().for_each(|(_, v)| collect_expr_idents(v, out))
+        }
+        // Opaque embedded code — assume it touches everything.
+        Expr::InlineRust(_) => {
+            out.insert("*".to_string());
+        }
+        Expr::InlinePython { inputs, .. } => {
+            for i in inputs {
+                out.insert(rust_name(i));
+            }
+        }
+        _ => {}
     }
 }
 
@@ -928,7 +1067,15 @@ pub(crate) fn emit_stmt(
             step,
             body,
         } => {
-            let loop_var = rust_name(var);
+            // VB's "repeat N times" loop often never reads its counter — Rust
+            // warns on the unused binding, so an unread counter emits as `_`.
+            let mut used = HashSet::new();
+            body.iter().for_each(|s| collect_stmt_idents(s, &mut used));
+            let loop_var = if used.contains(&rust_name(var)) || used.contains("*") {
+                rust_name(var)
+            } else {
+                "_".to_string()
+            };
             let range = render_range(from, to, step.as_ref(), diags);
             out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
             emit_block(body, mutated, byref, indent + 1, diags, out);

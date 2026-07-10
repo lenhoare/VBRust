@@ -33,6 +33,60 @@ pub struct FnSig {
 
 pub type FnTable = HashMap<String, FnSig>;
 
+/// One module's surface, harvested from its parse (pass 1 of a project
+/// compile) — what *another* file needs to resolve a qualified call or
+/// constant against it. Public items resolve with the same argument treatment
+/// a local call gets; private names are kept so calling one earns a teaching
+/// error instead of rustc's bare "function is private".
+pub struct ModuleInterface {
+    /// Public functions, by Rust (lowercase) name.
+    pub fns: FnTable,
+    /// Public constants: original name → SCREAMING Rust name.
+    pub consts: HashMap<String, String>,
+    /// Private function names (Rust-cased), for the visibility diagnostic.
+    pub private_fns: HashSet<String>,
+    /// Private constant names (as written), for the visibility diagnostic.
+    pub private_consts: HashSet<String>,
+}
+
+/// Module (Rust) name → its interface. A verbatim `.rs` module has no entry —
+/// its calls stay name-qualified only, as before.
+pub type ProjectInterfaces = HashMap<String, ModuleInterface>;
+
+/// Harvest a module's interface from its parsed program.
+pub fn module_interface(program: &Program) -> ModuleInterface {
+    let mut fns = FnTable::new();
+    let mut private_fns = HashSet::new();
+    for f in &program.functions {
+        // Methods belong to their struct, not the module surface.
+        if f.receiver.is_some() {
+            continue;
+        }
+        if f.public {
+            fns.insert(
+                snake(&f.name),
+                FnSig {
+                    modes: f.params.iter().map(|p| p.mode).collect(),
+                    param_types: f.params.iter().map(|p| p.ty.clone()).collect(),
+                    ret: f.ret.clone(),
+                },
+            );
+        } else {
+            private_fns.insert(snake(&f.name));
+        }
+    }
+    let mut consts = HashMap::new();
+    let mut private_consts = HashSet::new();
+    for c in &program.constants {
+        if c.public {
+            consts.insert(c.name.clone(), to_screaming(&c.name));
+        } else {
+            private_consts.insert(c.name.clone());
+        }
+    }
+    ModuleInterface { fns, consts, private_fns, private_consts }
+}
+
 /// `(struct name, method snake name)` → does it take `&mut self`?
 pub type MethodTable = HashMap<(String, String), bool>;
 
@@ -318,6 +372,7 @@ pub fn resolve_body(
     methods: &MethodTable,
     consts: &HashMap<String, String>,
     modules: &HashSet<String>,
+    interfaces: &ProjectInterfaces,
     enums: &HashSet<String>,
     structs: &StructTable,
     receiver: Option<&str>,
@@ -372,6 +427,7 @@ pub fn resolve_body(
         env: &mut env,
         passed: &mut passed,
         modules,
+        interfaces,
         enums,
         structs,
     };
@@ -404,7 +460,10 @@ pub fn resolve_event_body(
     for (name, ty) in state {
         env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false, byref: false });
     }
+    // Surfaces don't join multi-module projects yet (a Screen/Window program
+    // is self-contained), so event bodies resolve with no sibling modules.
     let modules = HashSet::new();
+    let interfaces = ProjectInterfaces::new();
     let mut passed = HashSet::new();
     let mut ctx = Ctx {
         deref: HashSet::new(),
@@ -417,10 +476,60 @@ pub fn resolve_event_body(
         env: &mut env,
         passed: &mut passed,
         modules: &modules,
+        interfaces: &interfaces,
         enums,
         structs,
     };
     resolve_stmts(stmts, &mut ctx);
+}
+
+/// Fix a call's arguments up against the callee's signature: `&mut` for a
+/// ByRef (bare when forwarding a ByRef collection/struct param — it's already
+/// the `&mut`), `&` for a ByVal collection/struct/owned-String. Shared by
+/// local calls and qualified cross-module calls, so both get identical
+/// treatment.
+fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
+    for (i, arg) in args.iter_mut().enumerate() {
+        match sig.modes.get(i) {
+            // ByRef: borrow mutably; the local must be `mut`.
+            Some(ParamMode::ByRef) => {
+                if !is_lvalue(arg) {
+                    ctx.diags.error_once(
+                        "byref-lvalue",
+                        "A ByRef parameter must be given a variable (so it can be \
+                         borrowed and changed in place), not a literal or an \
+                         expression.",
+                    );
+                }
+                if let Expr::Ident(v) = arg {
+                    // Forwarding our own ByRef collection/struct
+                    // param: it is already the `&mut` the callee
+                    // wants — pass it bare and let Rust reborrow.
+                    if ctx.env.get(&snake(v)).map_or(false, |b| b.byref) {
+                        continue;
+                    }
+                    ctx.passed.insert(snake(v));
+                }
+                let inner = std::mem::replace(arg, Expr::Int(0));
+                *arg = Expr::MutRef(Box::new(inner));
+            }
+            // ByVal of an unknown-size type borrows immutably (`&arg`).
+            Some(ParamMode::ByVal) => {
+                let needs_ref = match sig.param_types.get(i) {
+                    Some(DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..)) => true,
+                    // A `&str` param: borrow an owned String, but leave an
+                    // existing slice (literal, `&str` param, `Trim(..)`) alone.
+                    Some(DeclType::Plain(Type::Text)) => infer(arg, ctx) != VType::Str,
+                    _ => false,
+                };
+                if needs_ref {
+                    let inner = std::mem::replace(arg, Expr::Int(0));
+                    *arg = Expr::Ref(Box::new(inner));
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 struct Ctx<'a> {
@@ -442,6 +551,10 @@ struct Ctx<'a> {
     /// Other project modules (snake-cased file stems). A `Module.func(...)` call
     /// on one rewrites to a qualified `crate::module::func(...)`.
     modules: &'a HashSet<String>,
+    /// Sibling modules' harvested interfaces (pass 1 of a project compile).
+    /// A qualified call whose module has an entry here gets the full local
+    /// argument treatment; a `.rs` module has none and stays name-only.
+    interfaces: &'a ProjectInterfaces,
     /// Enum names. `Color.Red` (a field access on an enum name) rewrites to the
     /// path `Color::Red`.
     enums: &'a HashSet<String>,
@@ -1090,14 +1203,34 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`.
             let qualified = match &**recv {
-                Expr::Ident(m) if ctx.modules.contains(&snake(m)) => {
-                    Some(format!("crate::{}::{}", snake(m), snake(method)))
-                }
+                Expr::Ident(m) if ctx.modules.contains(&snake(m)) => Some(snake(m)),
                 _ => None,
             };
-            if let Some(path) = qualified {
+            if let Some(module) = qualified {
+                // With the sibling's harvested interface (any transpiled `.vbr`
+                // module), the call gets the same argument treatment as a local
+                // one — `&mut` for ByRef, `&` for ByVal collections/strings. A
+                // verbatim `.rs` module has no interface: name-only, as before.
+                if let Some(iface) = ctx.interfaces.get(&module) {
+                    if let Some(sig) = iface.fns.get(&snake(method)) {
+                        apply_fn_sig(sig, args, ctx);
+                    } else if iface.private_fns.contains(&snake(method)) {
+                        ctx.diags.error_once(
+                            &format!("private-fn-{}-{}", module, snake(method)),
+                            format!(
+                                "'{}' is Private to its file — a module's private \
+                                 functions can't be called from another module. Declare \
+                                 it `Public Function {}(…)` to share it.",
+                                method, method
+                            ),
+                        );
+                    }
+                }
                 let taken = std::mem::take(args);
-                *e = Expr::Call { name: path, args: taken };
+                *e = Expr::Call {
+                    name: format!("crate::{}::{}", module, snake(method)),
+                    args: taken,
+                };
             }
         }
         Expr::Call { name, args } => {
@@ -1136,51 +1269,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
             }
             if let Some(sig) = ctx.fns.get(&snake(name)) {
-                for (i, arg) in args.iter_mut().enumerate() {
-                    match sig.modes.get(i) {
-                        // ByRef: borrow mutably; the local must be `mut`.
-                        Some(ParamMode::ByRef) => {
-                            if !is_lvalue(arg) {
-                                ctx.diags.error_once(
-                                    "byref-lvalue",
-                                    "A ByRef parameter must be given a variable (so it can be \
-                                     borrowed and changed in place), not a literal or an \
-                                     expression.",
-                                );
-                            }
-                            if let Expr::Ident(v) = arg {
-                                // Forwarding our own ByRef collection/struct
-                                // param: it is already the `&mut` the callee
-                                // wants — pass it bare and let Rust reborrow.
-                                if ctx.env.get(&snake(v)).map_or(false, |b| b.byref) {
-                                    continue;
-                                }
-                                ctx.passed.insert(snake(v));
-                            }
-                            let inner = std::mem::replace(arg, Expr::Int(0));
-                            *arg = Expr::MutRef(Box::new(inner));
-                        }
-                        // ByVal of an unknown-size type borrows immutably (`&arg`).
-                        Some(ParamMode::ByVal) => {
-                            let needs_ref = match sig.param_types.get(i) {
-                                Some(
-                                    DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..),
-                                ) => true,
-                                // A `&str` param: borrow an owned String, but leave an
-                                // existing slice (literal, `&str` param, `Trim(..)`) alone.
-                                Some(DeclType::Plain(Type::Text)) => {
-                                    infer(arg, ctx) != VType::Str
-                                }
-                                _ => false,
-                            };
-                            if needs_ref {
-                                let inner = std::mem::replace(arg, Expr::Int(0));
-                                *arg = Expr::Ref(Box::new(inner));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                apply_fn_sig(sig, args, ctx);
             }
         }
         // `Color.Red` (a field on an enum name) is an enum variant → the path
@@ -1190,6 +1279,41 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         {
             if let Expr::Ident(n) = &**inner {
                 *e = Expr::ConstRef(format!("{}::{}", n, variant));
+            }
+        }
+        // `Life.WIDTH` (a field on a module name) is that module's public
+        // constant → `crate::life::WIDTH`.
+        Expr::Field(inner, cname)
+            if matches!(&**inner, Expr::Ident(m) if ctx.modules.contains(&snake(m))) =>
+        {
+            if let Expr::Ident(m) = &**inner {
+                let module = snake(m);
+                if let Some(iface) = ctx.interfaces.get(&module) {
+                    if let Some(screaming) = iface.consts.get(cname) {
+                        *e = Expr::ConstRef(format!("crate::{}::{}", module, screaming));
+                    } else if iface.private_consts.contains(cname) {
+                        ctx.diags.error_once(
+                            &format!("private-const-{}-{}", module, cname),
+                            format!(
+                                "The constant '{}' is Private to its file. Declare it \
+                                 `Public Const {} As …` to read it from another module.",
+                                cname, cname
+                            ),
+                        );
+                    } else {
+                        ctx.diags.error_once(
+                            &format!("module-member-{}-{}", module, cname),
+                            format!(
+                                "Module '{}' has no public constant '{}'. A function \
+                                 call needs parentheses (`{}.{}()`); a constant crosses \
+                                 modules when declared `Public Const`.",
+                                m, cname, m, cname
+                            ),
+                        );
+                    }
+                }
+                // A verbatim `.rs` module has no harvested interface — leave
+                // the access as written and let rustc judge it.
             }
         }
         Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Ref(inner) | Expr::Cast(inner, _)
@@ -1526,6 +1650,21 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
             }
         },
         Expr::Call { name, .. } => builtin_vtype(name).unwrap_or_else(|| {
+            // A qualified cross-module call (`crate::life::steplife`) — the
+            // sibling's harvested interface knows the return type.
+            if let Some(rest) = name.strip_prefix("crate::") {
+                if let Some((module, func)) = rest.split_once("::") {
+                    return match ctx
+                        .interfaces
+                        .get(module)
+                        .and_then(|i| i.fns.get(func))
+                        .and_then(|s| s.ret.clone())
+                    {
+                        Some(ty) => VType::Decl(ty),
+                        None => VType::Unknown,
+                    };
+                }
+            }
             // Not a builtin? Use the user function's declared return type.
             match ctx.fns.get(&snake(name)).and_then(|s| s.ret.clone()) {
                 Some(ty) => VType::Decl(ty),
