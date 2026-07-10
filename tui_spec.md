@@ -100,6 +100,15 @@ branches all rewrite to `state.field` (`examples/tui_life.vbr`). This is shared
 with the GUI backend (`src/surface.rs`); a `Screen` event and a `Window` event
 lower identically. *(BUILT — 2026-07-04.)*
 
+**Multi-file projects.** A `Screen` joins a project like any other entry: put
+the UI in `main.vbr` and the logic in sibling modules, and call them qualified
+— from State initialisers (`Dim grid As Vec<Long> = Life.NewGrid()`), events
+(`Life.SetCell(grid, x, y, 1)` → `crate::life::setcell(&mut state.grid, …)`),
+and helper functions, all with the full cross-module argument treatment
+(`projects_and_run_spec.md`). One limit: a *view* expression can't read
+`Life.WIDTH` directly (views don't run the resolver) — mirror the value into
+state or read it through a helper. Example: `examples/life_screen/`.
+
 ---
 
 ## 3. Layout

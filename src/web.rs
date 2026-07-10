@@ -43,9 +43,18 @@ struct PageCtx<'a> {
 
 /// Emit a complete web program: shared items, each page's component, then
 /// `fn main`, which mounts the page launched by `<Page>.Run` in `Function Main()`.
-pub fn emit_web_program(program: &Program, diags: &mut Diagnostics) -> String {
+pub fn emit_web_program(
+    program: &Program,
+    modules: &[String],
+    interfaces: &crate::resolver::ProjectInterfaces,
+    is_entry: bool,
+    diags: &mut Diagnostics,
+) -> String {
     let mut out = String::new();
-    let t = surface::build_tables(program);
+    // The crate root of a multi-file project declares its sibling modules,
+    // exactly as a plain program's entry does.
+    surface::emit_mod_decls(modules, is_entry, &mut out);
+    let t = surface::build_tables(program, modules, interfaces);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
     for p in &program.pages {
@@ -110,7 +119,7 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     validate_page(p, &field_ty, diags);
     // A fallible `State` initialiser needs a startup moment to fail cleanly in;
     // a browser component has none (and vbr_stdlib isn't on wasm anyway).
-    if surface::state_fallible(&p.state, &t.fns) {
+    if surface::state_fallible(&p.state, &t) {
         diags.error_once(
             "page-fallible-init",
             "A fallible `State` initialiser (a call returning a Result, like \

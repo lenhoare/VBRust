@@ -29,9 +29,19 @@ use std::collections::{HashMap, HashSet};
 /// each screen's definition, then `fn main`, which runs the screen launched by
 /// `<Screen>.Run` inside `Function Main()`. With `web`, `fn main` is the
 /// Ratzilla browser shell instead of the crossterm loop.
-pub fn emit_tui_program(program: &Program, web: bool, diags: &mut Diagnostics) -> String {
+pub fn emit_tui_program(
+    program: &Program,
+    modules: &[String],
+    interfaces: &crate::resolver::ProjectInterfaces,
+    is_entry: bool,
+    web: bool,
+    diags: &mut Diagnostics,
+) -> String {
     let mut out = String::new();
-    let t = surface::build_tables(program);
+    // The crate root of a multi-file project declares its sibling modules,
+    // exactly as a plain program's entry does.
+    surface::emit_mod_decls(modules, is_entry, &mut out);
+    let t = surface::build_tables(program, modules, interfaces);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
     // Mark every stdlib namespace the program names, so the file-top
@@ -61,7 +71,7 @@ pub fn emit_tui_program(program: &Program, web: bool, diags: &mut Diagnostics) -
             out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_top.join(", ")));
         }
     }
-    if web && program.screens.iter().any(|sc| surface::state_fallible(&sc.state, &t.fns)) {
+    if web && program.screens.iter().any(|sc| surface::state_fallible(&sc.state, &t)) {
         diags.error_once(
             "web-fallible-init",
             "A fallible `State` initialiser (a call returning a Result, like \
@@ -192,7 +202,7 @@ fn emit_screen(
     // call returning a Result, like `Database.Open`) switches the constructor
     // to `fn init() -> Result<Self, String>` — `?` on the fallible fields —
     // which `main` runs *before* the terminal starts, bailing out cleanly.
-    let fallible = surface::state_fallible(&sc.state, &t.fns);
+    let fallible = surface::state_fallible(&sc.state, &t);
     if fallible {
         out.push_str(&format!(
             "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
@@ -205,7 +215,7 @@ fn emit_screen(
     }
     for f in &sc.state {
         let mut init = render_init(f.init.as_ref(), &f.ty, t, diags);
-        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t.fns)) {
+        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t)) {
             init.push('?');
         }
         out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));
@@ -901,7 +911,7 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     let draw_arg = if has_sel { "&mut state" } else { "&state" };
     out.push_str("fn main() -> std::io::Result<()> {\n");
     out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
-    if surface::state_fallible(&sc.state, &t.fns) {
+    if surface::state_fallible(&sc.state, &t) {
         // Fallible state construction runs *before* the terminal takes over,
         // so a failure prints normally and the app never starts half-alive.
         out.push_str(&format!("    {} = match {}::init() {{\n", let_state, ty));

@@ -58,7 +58,7 @@ pub fn transpile_module(
                  kind of app. Split them into separate programs.",
             );
         }
-        let rust = crate::web::emit_web_program(program, diags);
+        let rust = crate::web::emit_web_program(program, modules, interfaces, is_entry, diags);
         diags.clear_line_map();
         return rust;
     }
@@ -66,7 +66,7 @@ pub fn transpile_module(
     // window definitions plus a `fn main` that launches the one `Function Main()`
     // names with `<Window>.Run`.
     if !program.windows.is_empty() {
-        let rust = crate::gui::emit_gui_program(program, diags);
+        let rust = crate::gui::emit_gui_program(program, modules, interfaces, is_entry, diags);
         // The GUI emitter assembles sections out of order, so its line
         // checkpoints would mislead — drop them rather than lie.
         diags.clear_line_map();
@@ -76,7 +76,7 @@ pub fn transpile_module(
     // in the terminal (crossterm) by default, in the browser (Ratzilla) for
     // `vbr runweb`. Same state, same view; only the shell differs.
     if !program.screens.is_empty() {
-        let rust = crate::tui::emit_tui_program(program, web, diags);
+        let rust = crate::tui::emit_tui_program(program, modules, interfaces, is_entry, web, diags);
         diags.clear_line_map();
         return rust;
     }

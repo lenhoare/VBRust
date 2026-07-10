@@ -282,12 +282,33 @@ Match guards, Set/destructure, inline Rust/Python as opaque "uses everything")
 and names the binding `_` when the counter is never read. Companion to #21 —
 the two together make the whole Dim-and-For VB6 habit warning-free.
 
-### 24. `Screen`/`Window` programs ignore sibling modules (OPEN — slice 3)
+### 24. `Screen`/`Window` programs ignore sibling modules (fixed — slice 3)
 
-`surface::build_tables` hard-codes `modules: HashSet::new()` and the surface
-emitters never emit `mod life;` — a multi-file project can't put its `Screen`
-in `main.vbr` and its logic in `life.vbr`. Depends on #23's project table;
-phase 2 of the same work.
+`surface::build_tables` hard-coded `modules: HashSet::new()` and the surface
+emitters never emitted `mod life;` — a multi-file project couldn't put its
+`Screen` in `main.vbr` and its logic in `life.vbr`. **Fix**: the three surface
+emitters (Window / native+web Screen / Page) take the module set + interfaces,
+`build_tables` carries them, the entry emits `mod` declarations
+(`surface::emit_mod_decls`, shared), and `resolve_event_body` resolves against
+them — so a **State initialiser** (`Dim grid As Vec<Long> = Life.NewGrid()`),
+an **event** (`Life.SetCell(grid, …)` → `crate::life::setcell(&mut state.grid,
+…)`), and a **helper function** all call siblings with the full local argument
+treatment. `fallible_init` also learned cross-module Result-returners, so
+`Dim db As Database = Store.OpenDb()` gets the clean-bail `init()` like a local
+call would. Example + guards: `examples/life_screen/` (Screen in main.vbr,
+logic in life.vbr; snapshot `screen_project_matches_snapshot` + a real project
+build in the compile guard). Zero churn in single-file surface snapshots
+(empty module set = no-op).
+
+### 26. View expressions can't read a sibling module's constant (OPEN)
+
+`Text "grid " & Life.WIDTH & " wide"` in a `View` emits broken `life.width` —
+views are declarative and never run the resolver, and their lightweight
+expression rewrite doesn't know modules. Events, State initialisers, and
+helper functions all resolve `Life.WIDTH` fine — so the workaround is to
+mirror the value into state or read it through a helper. Fixing it means
+teaching the view expression path about module consts (a view-tree rewrite
+pass) — small, self-contained, deferred until it actually bites someone.
 
 ### Watch: a temporary struct literal moves its String fields
 

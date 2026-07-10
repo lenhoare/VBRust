@@ -309,6 +309,24 @@ fn crossmodule_interfaces_compile() {
     }
 }
 
+/// A Screen driving a sibling logic module — surfaces join projects: the entry
+/// emits `mod life;`, State initialisers and events call `Life.…` with the full
+/// argument treatment, rewritten onto `state.…`. Snapshot-only here (linking
+/// needs ratatui); the compile guard builds the whole project for real.
+#[test]
+fn screen_project_matches_snapshot() {
+    let proj = examples_dir().join("life_screen");
+    let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
+    let life_src = fs::read_to_string(proj.join("life.vbr")).unwrap();
+    let modules = vec![vbr::module_name("life")];
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert(vbr::module_name("life"), vbr::module_interface(&life_src));
+
+    let main_rs = vbr::compile_module(&main_src, &modules, &interfaces, true);
+    assert!(!main_rs.has_errors, "main.vbr errors: {:?}", main_rs.diagnostics);
+    check_snapshot("life_screen_main", "rs", &main_rs.rust);
+}
+
 /// A mixed project: a `.vbr` entry calling a hand-written `.rs` module. The `.rs`
 /// file is included verbatim; we snapshot the generated entry, then compile the
 /// two together to prove the qualified call into hand-written Rust links.

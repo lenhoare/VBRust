@@ -1,0 +1,30 @@
+' The logic module behind a Screen (see main.vbr) — plain functions and
+' constants, testable on their own, no UI anywhere in this file.
+
+Public Const WIDTH As Long = 10
+Public Const HEIGHT As Long = 4
+
+Public Function NewGrid() As Vec<Long>
+    Dim g As Vec<Long> = []
+    Dim i As Long
+    For i = 1 To WIDTH * HEIGHT
+        g.push(0)
+    Next
+    Return g
+End Function
+
+Public Function SetCell(ByRef grid As Vec<Long>, ByVal x As Long, ByVal y As Long, ByVal v As Long)
+    grid[y * WIDTH + x] = v
+End Function
+
+Public Function CountLive(ByVal grid As Vec<Long>) As Long
+    Dim total As Long = 0
+    For Each cell In grid
+        total = total + cell
+    Next
+    Return total
+End Function
+
+Public Function FormatRule(ByVal birth As String, ByVal survive As String) As String
+    Return "B" & birth & "/S" & survive
+End Function

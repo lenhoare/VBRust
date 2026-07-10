@@ -64,6 +64,13 @@ Two deliberate limits:
 Example: `examples/life_project/` (a miniature Game of Life split into
 `main.vbr` + `life.vbr`); guarded by `crossmodule_interfaces_compile`.
 
+**Surfaces join projects too**: a `Screen`/`Window`/`Page` entry emits the
+`mod` declarations and resolves qualified calls from its State initialisers,
+events, and helper functions — so the natural shape "UI in `main.vbr`, logic
+in `life.vbr`" works (`examples/life_screen/`). A fallible cross-module
+initialiser (`Dim db As Database = Store.OpenDb()`) gets the clean-bail
+`init()` exactly like a local one.
+
 ---
 
 ## Mixed `.vbr` + `.rs` projects (and stateful libraries)
@@ -208,7 +215,9 @@ VBR is for (the transition to Rust).
 - `build/` is generated — should be treated as disposable (gitignore-style).
 - Cross-module **types** (`Public Type` / `Enum` used from another file) — the
   interface harvest covers functions and consts; types are the next slice.
-- A `Screen`/`Window` program can't call sibling modules yet (the surface
-  emitters don't emit `mod` declarations) — `projects/vbr_gaps.md` #24.
+- A surface *view* expression can't read a sibling module's constant (views
+  don't run the resolver) — mirror it into state or read it through a helper
+  (`projects/vbr_gaps.md` #26). Events, State initialisers, and helpers all
+  resolve cross-module fine.
 - Depends on inline Rust (`inline_rust_spec.md`) for `Use`'d crate calls to be
   worth anything.

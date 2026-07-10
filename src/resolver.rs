@@ -25,6 +25,7 @@ use crate::transpiler::rust_name as snake;
 use crate::transpiler::{stdlib_type, to_screaming};
 
 /// One user function's signature — enough to fix up its call sites.
+#[derive(Clone)]
 pub struct FnSig {
     pub modes: Vec<ParamMode>,
     pub param_types: Vec<DeclType>,
@@ -38,6 +39,7 @@ pub type FnTable = HashMap<String, FnSig>;
 /// constant against it. Public items resolve with the same argument treatment
 /// a local call gets; private names are kept so calling one earns a teaching
 /// error instead of rustc's bare "function is private".
+#[derive(Clone)]
 pub struct ModuleInterface {
     /// Public functions, by Rust (lowercase) name.
     pub fns: FnTable,
@@ -449,6 +451,8 @@ pub fn resolve_event_body(
     fns: &FnTable,
     methods: &MethodTable,
     consts: &HashMap<String, String>,
+    modules: &HashSet<String>,
+    interfaces: &ProjectInterfaces,
     enums: &HashSet<String>,
     structs: &StructTable,
     diags: &mut Diagnostics,
@@ -460,10 +464,6 @@ pub fn resolve_event_body(
     for (name, ty) in state {
         env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false, byref: false });
     }
-    // Surfaces don't join multi-module projects yet (a Screen/Window program
-    // is self-contained), so event bodies resolve with no sibling modules.
-    let modules = HashSet::new();
-    let interfaces = ProjectInterfaces::new();
     let mut passed = HashSet::new();
     let mut ctx = Ctx {
         deref: HashSet::new(),
@@ -475,8 +475,8 @@ pub fn resolve_event_body(
         diags,
         env: &mut env,
         passed: &mut passed,
-        modules: &modules,
-        interfaces: &interfaces,
+        modules,
+        interfaces,
         enums,
         structs,
     };

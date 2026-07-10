@@ -28,9 +28,18 @@ struct ViewCtx<'a> {
 
 /// Emit a complete GUI program: each window's definition, then `fn main`, which
 /// launches the window named by `<Window>.Run` inside `Function Main()`.
-pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
+pub fn emit_gui_program(
+    program: &Program,
+    modules: &[String],
+    interfaces: &crate::resolver::ProjectInterfaces,
+    is_entry: bool,
+    diags: &mut Diagnostics,
+) -> String {
     let mut out = String::new();
-    let t = surface::build_tables(program);
+    // The crate root of a multi-file project declares its sibling modules,
+    // exactly as a plain program's entry does.
+    surface::emit_mod_decls(modules, is_entry, &mut out);
+    let t = surface::build_tables(program, modules, interfaces);
     // Paint functions (those that issue drawing verbs) are emitted specially —
     // they take an extra `frame` and their draw commands lower to `frame.*` calls.
     let paint_fns = paint_fn_set(program);
@@ -62,7 +71,7 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
         program.windows.iter().find(|w| w.name.eq_ignore_ascii_case(name))
     });
     match launched_window {
-        Some(w) => out.push_str(&emit_main(w, surface::state_fallible(&w.state, &t.fns))),
+        Some(w) => out.push_str(&emit_main(w, surface::state_fallible(&w.state, &t))),
         None => diags.error_once(
             "gui-no-launch",
             "A window is never launched. Add `Function Main()` containing `<Window>.Run`, \
@@ -232,7 +241,7 @@ fn emit_window(
     // Infallible initialisers make a plain `Default`; any fallible one (a call
     // returning a Result, like `Database.Open`) switches to
     // `fn init() -> Result<Self, String>`, run at boot with a clean bail-out.
-    let fallible = surface::state_fallible(&w.state, &t.fns);
+    let fallible = surface::state_fallible(&w.state, &t);
     if fallible {
         out.push_str(&format!(
             "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
@@ -250,7 +259,7 @@ fn emit_window(
         } else {
             render_init(f.init.as_ref(), &f.ty, t, diags)
         };
-        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t.fns)) {
+        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t)) {
             init.push('?');
         }
         out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));

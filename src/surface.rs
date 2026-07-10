@@ -20,9 +20,10 @@ use crate::transpiler::{
 use std::collections::{HashMap, HashSet};
 
 /// The program-wide lookup tables every backend builds before emitting: enum
-/// names, function/method signatures, constants, and struct fields. `modules`
-/// and `interfaces` are always empty for a surface program (a Window/Screen is
-/// single-file).
+/// names, function/method signatures, constants, and struct fields — plus, in
+/// a multi-file project, the sibling module names and their harvested
+/// interfaces, so a helper function or event can call `Life.StepLife(…)`
+/// with the same argument treatment a plain program gets.
 pub(crate) struct Tables {
     pub enums: HashSet<String>,
     pub fns: resolver::FnTable,
@@ -33,16 +34,34 @@ pub(crate) struct Tables {
     pub interfaces: resolver::ProjectInterfaces,
 }
 
-pub(crate) fn build_tables(program: &Program) -> Tables {
+pub(crate) fn build_tables(
+    program: &Program,
+    modules: &[String],
+    interfaces: &resolver::ProjectInterfaces,
+) -> Tables {
     Tables {
         enums: program.enums.iter().map(|e| e.name.clone()).collect(),
         fns: resolver::build_fn_table(program),
         methods: resolver::build_method_table(program),
         consts: resolver::build_const_map(program),
         structs: resolver::build_struct_table(program),
-        modules: HashSet::new(),
-        interfaces: resolver::ProjectInterfaces::new(),
+        modules: modules.iter().cloned().collect(),
+        interfaces: interfaces.clone(),
     }
+}
+
+/// The `mod <name>;` declarations a multi-file project's crate root carries —
+/// one per sibling module, alphabetical, mirroring the plain-program entry.
+pub(crate) fn emit_mod_decls(modules: &[String], is_entry: bool, out: &mut String) {
+    if !is_entry || modules.is_empty() {
+        return;
+    }
+    let mut mods: Vec<&String> = modules.iter().collect();
+    mods.sort();
+    for m in mods {
+        out.push_str(&format!("mod {};\n", m));
+    }
+    out.push('\n');
 }
 
 /// Emit the items a surface program defines around its windows/screens: leading
@@ -157,24 +176,33 @@ pub(crate) fn event_std_imports(events: &[GuiEvent]) -> String {
 
 /// True when a `State` field initialiser is a *fallible* call — one returning a
 /// `Result` that the generated `init()` unwraps with `?`: a known stdlib
-/// constructor (`Database.Open`, `Json.Parse`, …) or one of the program's own
-/// functions whose declared return type is a `Result`.
-pub(crate) fn fallible_init(e: &Expr, fns: &resolver::FnTable) -> bool {
+/// constructor (`Database.Open`, `Json.Parse`, …), one of the program's own
+/// functions whose declared return type is a `Result`, or a sibling module's
+/// public function returning one (`Life.LoadDb()`).
+pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
     match e {
         Expr::MethodCall { recv, method, .. } => {
             let Expr::Ident(r) = &**recv else { return false };
-            let Some(canon) = stdlib_type(r) else { return false };
+            if let Some(canon) = stdlib_type(r) {
+                return matches!(
+                    (canon, rust_name(method).as_str()),
+                    ("Database", "open")
+                        | ("Json", "parse")
+                        | ("DateTime", "parse")
+                        | ("FileSystem", "read")
+                        | ("FileSystem", "read_lines")
+                );
+            }
             matches!(
-                (canon, rust_name(method).as_str()),
-                ("Database", "open")
-                    | ("Json", "parse")
-                    | ("DateTime", "parse")
-                    | ("FileSystem", "read")
-                    | ("FileSystem", "read_lines")
+                t.interfaces
+                    .get(&rust_name(r))
+                    .and_then(|i| i.fns.get(&rust_name(method)))
+                    .and_then(|s| s.ret.as_ref()),
+                Some(DeclType::Result(..))
             )
         }
         Expr::Call { name, .. } => matches!(
-            fns.get(&rust_name(name)).and_then(|s| s.ret.as_ref()),
+            t.fns.get(&rust_name(name)).and_then(|s| s.ret.as_ref()),
             Some(DeclType::Result(..))
         ),
         _ => false,
@@ -182,8 +210,8 @@ pub(crate) fn fallible_init(e: &Expr, fns: &resolver::FnTable) -> bool {
 }
 
 /// Does any `State` field need the fallible `init()` constructor?
-pub(crate) fn state_fallible(state: &[StateField], fns: &resolver::FnTable) -> bool {
-    state.iter().any(|f| f.init.as_ref().map_or(false, |e| fallible_init(e, fns)))
+pub(crate) fn state_fallible(state: &[StateField], t: &Tables) -> bool {
+    state.iter().any(|f| f.init.as_ref().map_or(false, |e| fallible_init(e, t)))
 }
 
 /// The stdlib namespaces used by `State` initialisers (e.g. `Database` for
@@ -325,7 +353,8 @@ pub(crate) fn emit_event_stmts(
 ) {
     let mut body: Vec<Stmt> = stmts.to_vec();
     resolver::resolve_event_body(
-        &mut body, params, field_ty, &t.fns, &t.methods, &t.consts, &t.enums, &t.structs, diags,
+        &mut body, params, field_ty, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces,
+        &t.enums, &t.structs, diags,
     );
     // A `Dim`'d For counter would be shadowed by the loop's own binding —
     // drop the dead `let`, exactly as in a plain function body.
@@ -382,8 +411,8 @@ pub(crate) fn render_init(
             line: 0,
         }];
         resolver::resolve_event_body(
-            &mut body, &[], &HashMap::new(), &t.fns, &t.methods, &t.consts, &t.enums, &t.structs,
-            diags,
+            &mut body, &[], &HashMap::new(), &t.fns, &t.methods, &t.consts, &t.modules,
+            &t.interfaces, &t.enums, &t.structs, diags,
         );
         match body.pop() {
             Some(Stmt::Dim { init: Some(e), .. }) => e,

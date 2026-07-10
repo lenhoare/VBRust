@@ -89,6 +89,13 @@ resolution pass as a function-body `Dim`, so calling your own functions works
 with full argument treatment (`Dim living As Long = CountLive(SeedGrid())`
 borrows the ByVal `Vec` exactly as anywhere else).
 
+**Multi-file projects.** A `Window` (like a `Screen`) joins a project: UI in
+`main.vbr`, logic in sibling modules, called qualified from State
+initialisers, events, and helper functions with the full cross-module
+argument treatment (`projects_and_run_spec.md`). A *view* expression can't
+read a module constant directly (views don't run the resolver) — mirror it
+into state or read it through a helper.
+
 ### 2.2 View
 
 The `View` block declares the visible widget tree.

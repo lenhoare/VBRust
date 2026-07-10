@@ -1,0 +1,45 @@
+' A Screen driving logic that lives in another file — the shape a real project
+' wants: main.vbr owns the terminal, life.vbr owns the rules. Cross-module
+' calls work from State initialisers and events alike, with the same argument
+' treatment as local calls (`Life.SetCell(grid, …)` borrows `&mut state.grid`).
+' One current limit: a *view* expression can't read `Life.WIDTH` directly —
+' mirror it into state or read it through an event (see projects/vbr_gaps.md).
+
+Screen LifeLab
+    Title "Life Lab"
+
+    State
+        Dim grid As Vec<Long> = Life.NewGrid()
+        Dim living As Long = 0
+        Dim status As String = "ready"
+    End State
+
+    View
+        Column
+            Text "Living: " & living
+            Text status
+            Text ""
+            Text "s = seed a blinker, c = count, q = quit"
+        End Column
+    End View
+
+    On Key "s" Seed
+    On Key "c" Count
+    On Key "q" Quit
+
+    Event Seed
+        Life.SetCell(grid, 1, 1, 1)
+        Life.SetCell(grid, 2, 1, 1)
+        Life.SetCell(grid, 3, 1, 1)
+        status = "seeded " & Life.FormatRule("3", "23")
+    End Event
+
+    Event Count
+        living = Life.CountLive(grid)
+        status = "counted"
+    End Event
+End Screen
+
+Function Main()
+    LifeLab.Run
+End Function
