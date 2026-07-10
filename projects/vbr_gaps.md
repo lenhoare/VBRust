@@ -340,24 +340,27 @@ them. So the default string must stay literal. Newlines/tabs are covered by
 prefixed form** (a distinct syntax, so normal strings stay path-safe) rather
 than changing the default. Parked by choice, not blocking anything.
 
-### 14. A comment between `Screen`/`Window` members is rejected
+### 14. A comment between `Screen`/`Window` members is rejected (fixed)
 
-Inside a `Screen`/`Window` block, a `'` comment line between members (e.g. above
-an `Event`) is a parse error: "Unexpected Comment … expected Title, State, View,
-`On Key`, `Every`, Event, or `End Screen`." Comments are fine inside function
-bodies and above the block, just not between surface members — so you can't
-document individual events in place. Small parser papercut; the block member
-loop should skip comment tokens. Worked around by moving the comment.
+Inside a `Screen`/`Window`/`Page` block, a `'` comment line between members
+(e.g. above an `Event`) was a parse error — you couldn't document individual
+events in place. **Fix** (`parser.rs`): both surface member loops skip comment
+tokens (they aren't carried into the generated Rust — member-level comment
+preservation would be its own small feature). `examples/life_screen/main.vbr`
+documents its events in place as the regression test.
 
-### 15. Projects don't copy data files into `build/`
+### 15. Projects don't copy data files into `build/` (fixed)
 
 A project that reads a data file at runtime (the idea engine reads
-`config.json`) looks for it in the *current working directory*, which for
-`vbr runproject`/`build` is the generated `build/` folder — not the project
-folder where the file lives. Today you copy `config.json` into `build/` by hand.
-`runproject`/`build` could copy non-`.vbr`/`.rs` files (or a declared data dir)
-into `build/`, or the run could set the working directory to the project root.
-Found building the idea engine; documented in its README meanwhile.
+`config.json`) looked for it in the *current working directory* — the generated
+`build/` folder — so you copied it there by hand. **Fix** (`main.rs`): a folder
+project's build copies its data across on every build (the project folder is
+the source of truth): top-level files that aren't sources (`.vbr`/`.rs`) or
+docs (`.md`), and whole subdirectories (`data/…`), skipping dotfiles and
+`build/` itself. So `config.json` is just *there*, and a `data/rules.txt` opens
+as `"data/rules.txt"`. A failed copy warns instead of killing the build.
+Guarded: the compile guard asserts the idea engine's `config.json` lands in
+`build/` and its `README.md` doesn't.
 
 ### 7. No map literal — "no headers" / empty-HashMap calls are clunky
 

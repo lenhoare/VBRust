@@ -27,6 +27,7 @@ Screen LifeLab
     On Key "c" Count
     On Key "q" Quit
 
+    ' Drop a horizontal blinker onto the middle row.
     Event Seed
         Life.SetCell(grid, 1, 1, 1)
         Life.SetCell(grid, 2, 1, 1)
@@ -34,6 +35,7 @@ Screen LifeLab
         status = "seeded " & Life.FormatRule("3", "23")
     End Event
 
+    ' Recount the living cells (the status line shows the result).
     Event Count
         living = Life.CountLive(grid)
         status = "counted"

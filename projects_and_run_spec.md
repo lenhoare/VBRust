@@ -185,6 +185,14 @@ You edit `.vbr` files; `build/` is regenerated each run. It's visible on purpose
 ignore it while comfortable, peek when curious, run `cargo run` yourself when
 ready, keep it and graduate to Rust one day. Honest, not hidden.
 
+**Data files ride along.** The program runs with `build/` as its working
+directory, so a folder project's build copies its data files there on every
+build — the project folder is the source of truth. Copied: top-level files
+that aren't sources (`.vbr`/`.rs`) or docs (`.md`), and whole subdirectories
+(so `data/rules.txt` opens as `"data/rules.txt"`). Skipped: dotfiles and
+`build/` itself. Edit `config.json` next to `main.vbr` and the next run sees
+it; files the *program* writes (a SQLite database, say) live in `build/`.
+
 ---
 
 ## Cargo.toml generation

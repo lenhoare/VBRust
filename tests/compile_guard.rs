@@ -202,6 +202,18 @@ fn transpile_only_examples_compile() {
         assert!(!stderr.contains("warning:"), "cargo emitted warnings for {name}:\n{stderr}");
         eprintln!("✔ {name} compiled clean");
     }
+    // A folder project's data files ride along into build/ (the program's
+    // working directory) — the idea engine's config.json must be there, and
+    // its README.md (docs, not data) must not.
+    let engine_build = Path::new(env!("CARGO_MANIFEST_DIR")).join("projects/idea-engine/build");
+    assert!(
+        engine_build.join("config.json").exists(),
+        "config.json was not copied into the idea-engine build/"
+    );
+    assert!(
+        !engine_build.join("README.md").exists(),
+        "README.md (docs) should not be copied into build/"
+    );
 
     // The playground — the transpiler itself compiled to WebAssembly behind a
     // Yew UI (playground/). Guarding it keeps `vbr::compile` wasm-clean: a new

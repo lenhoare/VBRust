@@ -32,17 +32,13 @@ merging ideas across generations, and inspecting lineage.
 2. Build and run:
 
    ```sh
-   cargo run -- build projects/idea-engine
-   cd projects/idea-engine/build
-   cp ../config.json .        # the app reads config.json from where it runs
-   cargo run
+   vbr runproject projects/idea-engine
    ```
 
-   > **Note:** the program reads `config.json` (and writes `ideas.db`) in the
-   > *current working directory*, which for a project build is `build/`. Copy
-   > your `config.json` there, or run the built binary from a folder that has
-   > one. (VBR projects don't yet copy data files into `build/` — logged in
-   > `../vbr_gaps.md`.)
+   > The program runs with `build/` as its working directory; the build copies
+   > `config.json` (and any other data files next to `main.vbr`) in there
+   > automatically, so editing the project's `config.json` takes effect on the
+   > next run. The database (`ideas.db`) lives in `build/` too.
 
 If `config.json` is missing or malformed, or the database can't be opened, the
 app stops at startup with `could not start: <why>` — it never launches with

@@ -522,6 +522,15 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
         }
     }
 
+    // The program runs with `build/` as its working directory, so the project's
+    // *data files* — `config.json`, a `data/` folder — must be there to be
+    // found. Copy them across on every build (the project folder is the source
+    // of truth): top-level files that aren't sources (`.vbr`/`.rs`) or docs
+    // (`.md`), and whole subdirectories, skipping dotfiles and `build/` itself.
+    if is_project {
+        copy_data_files(project_dir, &build);
+    }
+
     let mut cargo = format!(
         "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
         pkg_name(entry)
@@ -702,6 +711,51 @@ fn stem_name(p: &Path) -> String {
 /// The Rust module name for a project file (`MyHelpers.vbr` → `my_helpers`).
 fn module_of(p: &Path) -> String {
     vbr::module_name(&stem_name(p))
+}
+
+/// Copy a folder project's data files into `build/` (see the call site).
+/// A failed copy warns rather than kills the build — the program may not even
+/// read the file.
+fn copy_data_files(project_dir: &Path, build: &Path) {
+    let Ok(entries) = fs::read_dir(project_dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        let name = match p.file_name().and_then(|s| s.to_str()) {
+            Some(n) if !n.starts_with('.') => n.to_string(),
+            _ => continue,
+        };
+        if p.is_dir() {
+            if name != "build" {
+                copy_dir_recursive(&p, &build.join(&name));
+            }
+        } else if !matches!(p.extension().and_then(|s| s.to_str()), Some("vbr" | "rs" | "md")) {
+            if let Err(err) = fs::copy(&p, build.join(&name)) {
+                eprintln!("⚠ Could not copy {} into build/: {}", p.display(), err);
+            }
+        }
+    }
+}
+
+/// Recursively copy a data directory (e.g. `data/`) into the build folder.
+/// Everything inside is data — only dotfiles are skipped.
+fn copy_dir_recursive(from: &Path, to: &Path) {
+    if let Err(err) = fs::create_dir_all(to) {
+        eprintln!("⚠ Could not create {}: {}", to.display(), err);
+        return;
+    }
+    let Ok(entries) = fs::read_dir(from) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        let name = match p.file_name().and_then(|s| s.to_str()) {
+            Some(n) if !n.starts_with('.') => n.to_string(),
+            _ => continue,
+        };
+        if p.is_dir() {
+            copy_dir_recursive(&p, &to.join(&name));
+        } else if let Err(err) = fs::copy(&p, to.join(&name)) {
+            eprintln!("⚠ Could not copy {} into build/: {}", p.display(), err);
+        }
+    }
 }
 
 /// Read + compile one project file (as entry or module), printing diagnostics

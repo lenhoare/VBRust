@@ -532,6 +532,12 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                     break;
                 }
+                // A `'` comment between members documents the next one (an
+                // Event, say) — fine anywhere; not carried into the output.
+                Tok::Comment(_) => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
                     self.advance();
                     title = Some(self.expect_string("after `Title`")?);
@@ -626,6 +632,12 @@ impl<'a> Parser<'a> {
                     self.expect_kw_ident("Screen")?;
                     self.eat(&Tok::Newline);
                     break;
+                }
+                // A `'` comment between members documents the next one (an
+                // Event, say) — fine anywhere; not carried into the output.
+                Tok::Comment(_) => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
                     self.advance();
