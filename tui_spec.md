@@ -94,9 +94,11 @@ Terminal input is keyboard-driven. There are three ways an event fires:
 
 Event bodies are ordinary VBR — the same resolution pass a function body gets
 (stdlib methods, string/numeric coercions, iterator chains, teaching
-diagnostics), with the screen's state fields in scope. This is shared with the
-GUI backend (`src/surface.rs`); a `Screen` event and a `Window` event lower
-identically. *(BUILT — 2026-07-04.)*
+diagnostics), with the screen's state fields in scope — at any statement depth:
+state fields inside `For`/`For Each`/`Do` bodies, `Match` arms, and `If`
+branches all rewrite to `state.field` (`examples/tui_life.vbr`). This is shared
+with the GUI backend (`src/surface.rs`); a `Screen` event and a `Window` event
+lower identically. *(BUILT — 2026-07-04.)*
 
 ---
 

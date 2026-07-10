@@ -1,0 +1,51 @@
+' VB6 habits, translated. This example locks in four fixes found building a
+' Game of Life:
+'  - a ByRef collection forwarded into another ByRef call is already the
+'    `&mut` the callee wants — it passes bare, and Rust reborrows;
+'  - `Dim i As Long` ahead of `For i = …` would be a dead `let` (the For makes
+'    its own binding), so VBR drops it;
+'  - an owned-String needle (`Mid` returns a String) borrows for
+'    contains/starts_with — a bare String isn't a Pattern;
+'  - `Dim x = lines[i]` clones the element out of a Vec instead of moving it.
+
+Function SetCell(ByRef grid As Vec<Long>, ByVal idx As Long, ByVal v As Long)
+    grid[idx] = v
+End Function
+
+Function PlaceBlinker(ByRef grid As Vec<Long>, ByVal at As Long)
+    SetCell(grid, at, 1)
+    SetCell(grid, at + 1, 1)
+    SetCell(grid, at + 2, 1)
+End Function
+
+Function DigitCount(ByVal s As String) As Long
+    Dim digits As String = "0123456789"
+    Dim total As Long = 0
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim ch As String = Mid(s, i, 1)
+        If digits.contains(ch) Then
+            total = total + 1
+        End If
+    Next
+    Return total
+End Function
+
+Function Main()
+    Dim grid As Vec<Long> = [0, 0, 0, 0, 0]
+    PlaceBlinker(grid, 1)
+
+    Dim live As Long = 0
+    For Each cell In grid
+        live = live + cell
+    Next
+    Debug.Print "live cells: " & live
+
+    Debug.Print "digits in b3s23: " & DigitCount("b3s23")
+
+    Dim rules As Vec<String> = ["B3/S23", "B36/S23"]
+    Dim rule As String = rules[1]
+    If rule.starts_with("B36") Then
+        Debug.Print "highlife: " & rule
+    End If
+End Function

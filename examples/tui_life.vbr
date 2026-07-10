@@ -1,0 +1,61 @@
+' A miniature Game of Life screen. Two things live here:
+'  - loops inside an Event — the state rewrite recurses into For / For Each /
+'    Do bodies, so `grid[i]` becomes `state.grid[i]` at any depth;
+'  - a State field initialised by *calling* a helper — the initialiser runs
+'    the same resolver pass as a function body, so `CountLive(SeedGrid())`
+'    borrows its ByVal Vec argument exactly as it would anywhere else.
+
+Function SeedGrid() As Vec<Long>
+    Return [0, 1, 0, 1, 0, 1, 0, 1, 0]
+End Function
+
+Function CountLive(ByVal grid As Vec<Long>) As Long
+    Dim total As Long = 0
+    For Each cell In grid
+        total = total + cell
+    Next
+    Return total
+End Function
+
+Screen Life
+    Title "VBR Life"
+
+    State
+        Dim grid As Vec<Long> = SeedGrid()
+        Dim living As Long = CountLive(SeedGrid())
+        Dim ticks As Long = 0
+    End State
+
+    View
+        Column
+            Text "Living: " & living
+            Text "Ticks: " & ticks
+            Text ""
+            Text "Press s to step, q to quit"
+        End Column
+    End View
+
+    On Key "s" Advance
+    On Key "q" Quit
+
+    Event Advance
+        Dim i As Long
+        For i = 0 To 8
+            grid[i] = 1 - grid[i]
+        Next
+
+        living = 0
+        For Each cell In grid
+            living = living + cell
+        Next
+
+        ticks = ticks + 1
+        Do While ticks > 99
+            ticks = ticks - 100
+        Loop
+    End Event
+End Screen
+
+Function Main()
+    Life.Run
+End Function

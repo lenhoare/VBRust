@@ -97,8 +97,17 @@ impl Json {
     }
 
     /// Set a field to another Json value.
-    pub fn set(&mut self, key: &str, val: &Json) {
-        self.0[key] = val.0.clone();
+    pub fn set(&mut self, key: &str, val: Json) {
+        self.0[key] = val.0;
+    }
+
+    /// Append a value to a JSON array (build one with `Json.Array()`). Used to
+    /// assemble arrays like an LLM request's `messages`. No-op if this isn't an
+    /// array. VBA: like `.Add` on a Collection.
+    pub fn push(&mut self, val: Json) {
+        if let Value::Array(items) = &mut self.0 {
+            items.push(val.0);
+        }
     }
 
     /// Read this value itself as a string (for array elements / scalars).
@@ -131,7 +140,9 @@ impl Json {
     }
 
     /// Wrap a raw serde_json value — for sibling modules (the database wrapper
-    /// builds one Json object per query row).
+    /// builds one Json object per query row). Only the `database` feature uses
+    /// it, so it's gated to stay dead-code-free in a json-only build.
+    #[cfg(feature = "database")]
     pub(crate) fn from_value(v: Value) -> Json {
         Json(v)
     }

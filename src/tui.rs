@@ -19,7 +19,7 @@
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::surface::{
-    self, analyze_events, event_stdlib_imports, launched, match_scrutinee, render_init,
+    self, analyze_events, launched, match_scrutinee, render_init,
     rewrite_expr, state_maps, AwaitSplit,
 };
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
@@ -34,21 +34,32 @@ pub fn emit_tui_program(program: &Program, web: bool, diags: &mut Diagnostics) -
     let t = surface::build_tables(program);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
-    // Stdlib types named at item level (function signatures/bodies, `State`
-    // fields) need a file-top `use`; `State` initialiser calls (`Database.Open`)
-    // add their namespace too. Marked either way (it drives Cargo features and
-    // the web fence); the `use` line is native-only — wasm has no vbr_stdlib.
-    let mut std_top = crate::transpiler::stdlib_types_declared(program, diags);
+    // Mark every stdlib namespace the program names, so the file-top
+    // `use vbr_stdlib::{…}` is complete: declared types + `State` inits + call
+    // receivers in the helper functions (emit_shared_items above already ran
+    // note_builtins on them) + call receivers in event bodies. One `use` line
+    // for the whole native program, so nothing is imported twice. (The `use` is
+    // native-only — wasm has no vbr_stdlib; marks still drive Cargo features and
+    // the browser fence.)
+    crate::transpiler::stdlib_types_declared(program, diags);
     for sc in &program.screens {
-        for ns in surface::state_stdlib(&sc.state, diags) {
-            if !std_top.contains(&ns) {
-                std_top.push(ns);
+        surface::state_stdlib(&sc.state, diags);
+        if !web {
+            // Event bodies (Await-aware — `Await Http.Post` counts as `Http`).
+            let mut used = Vec::new();
+            for e in &sc.events {
+                surface::collect_event_stdlib(&e.body, &mut used);
+            }
+            for ns in used {
+                diags.mark(&format!("stdlib:{}", ns));
             }
         }
     }
-    std_top.sort();
-    if !web && !std_top.is_empty() {
-        out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_top.join(", ")));
+    if !web {
+        let std_top = crate::transpiler::stdlib_used(diags);
+        if !std_top.is_empty() {
+            out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_top.join(", ")));
+        }
     }
     if web && program.screens.iter().any(|sc| surface::state_fallible(&sc.state, &t.fns)) {
         diags.error_once(
@@ -193,7 +204,7 @@ fn emit_screen(
         out.push_str(&format!("        {} {{\n", ty));
     }
     for f in &sc.state {
-        let mut init = render_init(f.init.as_ref(), &f.ty, enums);
+        let mut init = render_init(f.init.as_ref(), &f.ty, t, diags);
         if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t.fns)) {
             init.push('?');
         }
@@ -863,12 +874,9 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     let mut out = String::new();
     let mut dummy = Diagnostics::new();
 
-    // Async preamble: the stdlib import + a `Message` enum of continuations.
+    // Async preamble: the `Message` enum of continuations. (The stdlib `use` is
+    // emitted once at file top for the whole program — see emit_tui_program.)
     if any_async {
-        let std_used = event_stdlib_imports(&sc.events, diags);
-        if !std_used.is_empty() {
-            out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_used.join(", ")));
-        }
         out.push_str("enum Message {\n");
         for (e, split) in sc.events.iter().zip(&splits) {
             if let Some(s) = split {

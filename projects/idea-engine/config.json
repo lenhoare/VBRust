@@ -1,0 +1,7 @@
+{
+  "endpoint": "https://api.openai.com/v1/chat/completions",
+  "api_key": "sk-REPLACE-ME",
+  "model": "gpt-4o-mini",
+  "challenge": "Create a useful, monetisable software project",
+  "context": "I am an experienced programmer returning to work. I want something buildable alone, potentially earning about 2000 GBP per month, preferably science, data or developer-tooling related."
+}

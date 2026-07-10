@@ -84,6 +84,11 @@ Events use the ready value (`db` is `state.db`); passing it to one of your
 functions borrows it (`&Database`). This is native-only — a browser `Page` or
 `Screen` has no startup moment to fail in, and gets a teaching error.
 
+More generally, an initialiser is **ordinary VBR** — it runs the same
+resolution pass as a function-body `Dim`, so calling your own functions works
+with full argument treatment (`Dim living As Long = CountLive(SeedGrid())`
+borrows the ByVal `Vec` exactly as anywhere else).
+
 ### 2.2 View
 
 The `View` block declares the visible widget tree.

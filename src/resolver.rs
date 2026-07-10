@@ -155,6 +155,10 @@ struct Binding {
     /// String, `&Vec`/`&HashMap` for a collection) — already a reference, so
     /// uses of it must not borrow it a second time.
     borrowed: bool,
+    /// A ByRef collection/struct parameter — already the `&mut` a callee
+    /// wants, so forwarding it into another ByRef slot passes it bare (Rust
+    /// reborrows); `&mut grid` there would borrow the reference itself.
+    byref: bool,
 }
 
 /// A resolved expression type: a full `DeclType` where we know it, plus the
@@ -277,12 +281,28 @@ fn to_owned_string(e: &mut Expr) {
     };
 }
 
+/// A built-in VB string constant → the literal text it stands for. `vbNewLine`
+/// is `\n` (a plain LF — the cross-platform choice; `vbCrLf` is there for a
+/// literal CRLF). These read better than `Chr(10)` in concatenations.
+fn vb_string_constant(name: &str) -> Option<String> {
+    Some(
+        match name.to_ascii_lowercase().as_str() {
+            "vbnewline" | "vblf" => "\n",
+            "vbcrlf" => "\r\n",
+            "vbcr" => "\r",
+            "vbtab" => "\t",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
 /// Result type of a known builtin, used so e.g. `Len` into a `Long` casts.
 fn builtin_vtype(name: &str) -> Option<VType> {
     Some(match name.to_ascii_lowercase().as_str() {
         "len" => VType::Usize,
         "left" | "right" | "mid" | "trim" => VType::Str,
-        "ucase" | "lcase" | "replace" | "str" | "cstr" | "inputbox" => vt(Type::Text),
+        "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "inputbox" => vt(Type::Text),
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => vt(Type::Double),
         // instr → Option, val → Result: not a plain value type yet.
         _ => return None,
@@ -324,16 +344,19 @@ pub fn resolve_body(
                 p.ty,
                 DeclType::Plain(Type::Text) | DeclType::Vec(_) | DeclType::Map(..)
             );
+        // A ByRef collection/struct is already `&mut` (primitives stay out:
+        // they're deref-tracked, and `&mut *n` reborrows correctly).
+        let byref = p.mode == ParamMode::ByRef && !matches!(p.ty, DeclType::Plain(_));
         env.insert(
             snake(&p.name),
-            Binding { ty: Some(p.ty.clone()), borrowed },
+            Binding { ty: Some(p.ty.clone()), borrowed, byref },
         );
     }
     // Inside a method, `Me` is the receiver struct — so `Me.field` infers.
     if let Some(recv) = receiver {
         env.insert(
             "me".to_string(),
-            Binding { ty: Some(DeclType::Named(recv.to_string())), borrowed: false },
+            Binding { ty: Some(DeclType::Named(recv.to_string())), borrowed: false, byref: false },
         );
     }
 
@@ -376,10 +399,10 @@ pub fn resolve_event_body(
 ) {
     let mut env: HashMap<String, Binding> = HashMap::new();
     for p in params {
-        env.insert(snake(&p.name), Binding { ty: Some(p.ty.clone()), borrowed: false });
+        env.insert(snake(&p.name), Binding { ty: Some(p.ty.clone()), borrowed: false, byref: false });
     }
     for (name, ty) in state {
-        env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false });
+        env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false, byref: false });
     }
     let modules = HashSet::new();
     let mut passed = HashSet::new();
@@ -429,7 +452,7 @@ struct Ctx<'a> {
 impl Ctx<'_> {
     /// Record a declared variable.
     fn bind(&mut self, name: &str, ty: DeclType) {
-        self.env.insert(snake(name), Binding { ty: Some(ty), borrowed: false });
+        self.env.insert(snake(name), Binding { ty: Some(ty), borrowed: false, byref: false });
     }
 
     fn binding(&self, name: &str) -> Option<&Binding> {
@@ -507,6 +530,28 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 } else if let Some(e) = init {
                     resolve_expr(e, ctx);
                 }
+                // Indexing *moves* the element out of a collection (E0507), so
+                // a `Dim` from an index clones non-Copy elements: Strings,
+                // nested collections, and user structs (they derive Clone).
+                // Numbers and Booleans are Copy — no clone needed.
+                if let Some(e) = init {
+                    if matches!(e, Expr::Index(..)) {
+                        let cloneable = match infer(e, ctx) {
+                            VType::Decl(DeclType::Plain(Type::Text)) => true,
+                            VType::Decl(DeclType::Vec(_) | DeclType::Map(..)) => true,
+                            VType::Decl(DeclType::Named(n)) => ctx.structs.contains_key(&n),
+                            _ => false,
+                        };
+                        if cloneable {
+                            let inner = std::mem::replace(e, Expr::Int(0));
+                            *e = Expr::MethodCall {
+                                recv: Box::new(inner),
+                                method: "clone".to_string(),
+                                args: Vec::new(),
+                            };
+                        }
+                    }
+                }
                 ctx.bind(name, ty.clone());
             }
             Stmt::DestructureDim { names, ty, value } => {
@@ -522,7 +567,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             // just record the name so later value-uses of it are caught.
             Stmt::HandleDim { name, .. } => {
                 ctx.env
-                    .insert(snake(name), Binding { ty: None, borrowed: false });
+                    .insert(snake(name), Binding { ty: None, borrowed: false, byref: false });
             }
             Stmt::Assign { target, value, .. } => {
                 // Writing to a ByVal String parameter — it's a read-only `&str`.
@@ -778,6 +823,11 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         }
     }
     match e {
+        // Built-in VB string constants (`vbNewLine`, `vbTab`, …) become the
+        // string they stand for — flows on as a normal owned-String literal.
+        Expr::Ident(name) if vb_string_constant(name).is_some() => {
+            *e = Expr::Str(vb_string_constant(name).unwrap());
+        }
         // An opaque Rust handle appearing as a value — the one thing it can't do.
         Expr::Ident(name) if ctx.is_handle(name) => {
             ctx.diags.error_once(
@@ -964,6 +1014,25 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
+            // `s.contains(needle)` on a *string* takes a `Pattern` — an owned
+            // `String` needle (a `Mid(…)` result, a String local) isn't one,
+            // but a borrow of it is. A literal or a `&str` slice already
+            // patterns, so only owned strings get the `&`.
+            let stringy = |v: &VType| {
+                matches!(v, VType::Str | VType::Decl(DeclType::Plain(Type::Text)))
+            };
+            if matches!(snake(method).as_str(), "contains" | "starts_with" | "ends_with")
+                && stringy(&infer(recv, ctx))
+            {
+                for arg in args.iter_mut() {
+                    if infer(arg, ctx) == VType::Decl(DeclType::Plain(Type::Text))
+                        && !matches!(arg, Expr::Str(_) | Expr::Ref(_))
+                    {
+                        let inner = std::mem::replace(arg, Expr::Int(0));
+                        *arg = Expr::Ref(Box::new(inner));
+                    }
+                }
+            }
             // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
             // not an owned String — use `.to_string()` so it fits a String slot.
             if method.eq_ignore_ascii_case("clone") {
@@ -1080,6 +1149,12 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                                 );
                             }
                             if let Expr::Ident(v) = arg {
+                                // Forwarding our own ByRef collection/struct
+                                // param: it is already the `&mut` the callee
+                                // wants — pass it bare and let Rust reborrow.
+                                if ctx.env.get(&snake(v)).map_or(false, |b| b.byref) {
+                                    continue;
+                                }
                                 ctx.passed.insert(snake(v));
                             }
                             let inner = std::mem::replace(arg, Expr::Int(0));
@@ -1281,7 +1356,7 @@ fn resolve_iter_closure(
     let mut prev: Option<Binding> = None;
     let mut deref_added = false;
     if let (Some(k), VType::Decl(d)) = (&key, elem) {
-        prev = ctx.env.insert(k.clone(), Binding { ty: Some(d.clone()), borrowed: false });
+        prev = ctx.env.insert(k.clone(), Binding { ty: Some(d.clone()), borrowed: false, byref: false });
         if deref_uses {
             deref_added = ctx.deref.insert(k.clone());
         }

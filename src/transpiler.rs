@@ -434,6 +434,10 @@ pub(crate) fn emit_fn(
         diags,
     );
 
+    // A `Dim`'d For counter would be shadowed by the loop's own binding —
+    // drop the dead `let` (after resolution, so the Dim still fed inference).
+    elide_for_counter_dims(&mut body);
+
     // Which locals need `let mut`: those reassigned, plus those lent mutably.
     let mut mutated = HashSet::new();
     collect_mutated(&body, &mut mutated);
@@ -526,6 +530,96 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
             Stmt::Match { arms, .. } => {
                 for arm in arms.iter_mut() {
                     convert_returns(&mut arm.body, fn_name);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `Dim dy As Long` directly ahead of `For dy = …` is Option Explicit muscle
+/// memory — but Rust's `for` introduces its own binding, so the bare `let`
+/// would sit shadowed and warn as unused. Drop such a `Dim` (no initialiser,
+/// scalar, the name is a `For` counter) — unless the name is also assigned
+/// *outside* a `For` that binds it, which needs the outer `let` after all.
+pub(crate) fn elide_for_counter_dims(stmts: &mut [Stmt]) {
+    let mut counters = HashSet::new();
+    let mut assigned_outside = HashSet::new();
+    scan_for_counters(stmts, &mut Vec::new(), &mut counters, &mut assigned_outside);
+    drop_counter_dims(stmts, &counters, &assigned_outside);
+}
+
+fn scan_for_counters(
+    stmts: &[Stmt],
+    bound: &mut Vec<String>,
+    counters: &mut HashSet<String>,
+    assigned_outside: &mut HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::For { var, body, .. } => {
+                let v = rust_name(var);
+                counters.insert(v.clone());
+                bound.push(v);
+                scan_for_counters(body, bound, counters, assigned_outside);
+                bound.pop();
+            }
+            Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                scan_for_counters(body, bound, counters, assigned_outside)
+            }
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    scan_for_counters(b, bound, counters, assigned_outside);
+                }
+                if let Some(b) = else_body {
+                    scan_for_counters(b, bound, counters, assigned_outside);
+                }
+            }
+            Stmt::Match { arms, .. } => {
+                for a in arms {
+                    scan_for_counters(&a.body, bound, counters, assigned_outside);
+                }
+            }
+            Stmt::Assign { target: Expr::Ident(n), .. } => {
+                let v = rust_name(n);
+                if !bound.contains(&v) {
+                    assigned_outside.insert(v);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn drop_counter_dims(
+    stmts: &mut [Stmt],
+    counters: &HashSet<String>,
+    assigned_outside: &HashSet<String>,
+) {
+    for s in stmts.iter_mut() {
+        match s {
+            Stmt::Dim { name, ty: DeclType::Plain(_), init: None, line }
+                if counters.contains(&rust_name(name))
+                    && !assigned_outside.contains(&rust_name(name)) =>
+            {
+                // A LineMark emits nothing (the next statement's own mark
+                // supersedes it), so the Dim vanishes from the output.
+                *s = Stmt::LineMark(*line);
+            }
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                drop_counter_dims(body, counters, assigned_outside)
+            }
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    drop_counter_dims(b, counters, assigned_outside);
+                }
+                if let Some(b) = else_body {
+                    drop_counter_dims(b, counters, assigned_outside);
+                }
+            }
+            Stmt::Match { arms, .. } => {
+                for a in arms {
+                    drop_counter_dims(&mut a.body, counters, assigned_outside);
                 }
             }
             _ => {}
@@ -1265,6 +1359,8 @@ pub(crate) fn is_mutating_method(m: &str) -> bool {
             | "retain" | "resize" | "truncate" | "append" | "dedup"
             // String mutators.
             | "push_str" | "insert_str" | "make_ascii_uppercase" | "make_ascii_lowercase"
+            // Json builders (`Json.Object()` / `Json.Array()` then set/push).
+            | "set" | "set_string" | "set_int" | "set_bool"
     )
 }
 
@@ -1826,6 +1922,8 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         // `CStr` was VB's recommended conversion (Str added a leading space);
         // in VBR both are plain `.to_string()`.
         ("str", 1) | ("cstr", 1) => Some(method0(&args[0], "to_string")),
+        // Chr(n) → the one-character string for code point n (Chr(10) = newline).
+        ("chr", 1) => Some(format!("(({} as u8) as char).to_string()", r(0))),
         // InStr → .find() (returns Option); Val → .parse() (returns Result).
         ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
         ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),

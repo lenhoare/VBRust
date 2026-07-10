@@ -243,8 +243,13 @@ For i = 1 To 5            →     for i in 1..=5 {
 Next                            }
 ```
 
-A `Step` clause changes the stride. `For Each` walks a collection, borrowing each
-element:
+A `Step` clause changes the stride. If VB6 habit makes you `Dim i As Long`
+before the loop, VBR quietly drops that line — Rust's `for` creates its own
+`i`, so the separate declaration would just sit unused. One difference from
+VB6 follows: the counter is gone after `Next` (copy it to another variable
+inside the loop if you need its final value).
+
+`For Each` walks a collection, borrowing each element:
 
 ```vb
 For Each name In names           →     for name in &names {
@@ -428,6 +433,11 @@ String elements are owned for you; numbers take their type from the `As Vec<…>
 you wrote. This is a *prefix* `[…]`; the *postfix* `x[i]` you'd use to index a
 list is a different thing in a different place, so the two never collide — just
 like Rust.
+
+Reading an element out by index copies it, as VB assignment always does:
+`Dim first As String = names[0]` becomes `names[0].clone()` — Rust would
+otherwise *move* the string out of the list and leave a hole, which it refuses
+to do. Numbers and Booleans copy for free; no `.clone()` appears.
 
 (VB's `New` is unnecessary here and earns a gentle warning if you write it; the
 value is created by the declaration itself.) A `HashMap` maps keys to values:

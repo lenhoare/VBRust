@@ -43,18 +43,16 @@ pub fn emit_gui_program(program: &Program, diags: &mut Diagnostics) -> String {
         }
     });
 
-    // Stdlib types named at item level (function signatures/bodies, `State`
-    // fields) and `State` initialiser namespaces (`Database.Open`) — for the
-    // file-top `use` and the Cargo features.
-    let mut std_top = crate::transpiler::stdlib_types_declared(program, diags);
+    // Every non-event stdlib namespace the program names: declared types +
+    // `State` inits + call receivers in the helper functions (emit_shared_items
+    // above already ran note_builtins on them). Read from the marks so a
+    // namespace used only *inside* a helper (e.g. `FileSystem.Read`) is imported
+    // too. Event namespaces are merged in per-window below (they mark later).
+    crate::transpiler::stdlib_types_declared(program, diags);
     for w in &program.windows {
-        for ns in surface::state_stdlib(&w.state, diags) {
-            if !std_top.contains(&ns) {
-                std_top.push(ns);
-            }
-        }
+        surface::state_stdlib(&w.state, diags);
     }
-    std_top.sort();
+    let std_top = crate::transpiler::stdlib_used(diags);
 
     for w in &program.windows {
         out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, &std_top, diags));
@@ -136,7 +134,7 @@ fn emit_window(
     t: &surface::Tables,
     canvases: &[CanvasDef],
     paint_fns: &HashSet<String>,
-    std_top: &[&'static str],
+    std_top: &[String],
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -206,7 +204,7 @@ fn emit_window(
     let mut std_used = event_stdlib_imports(&w.events, diags);
     for ns in std_top {
         if !std_used.iter().any(|u| u == ns) {
-            std_used.push(ns.to_string());
+            std_used.push(ns.clone());
         }
     }
     if !std_used.is_empty() {
@@ -250,7 +248,7 @@ fn emit_window(
             let text = f.init.as_ref().map(|e| render_expr(e, None)).unwrap_or_else(|| "\"\"".to_string());
             format!("iced::widget::text_editor::Content::with_text({})", text)
         } else {
-            render_init(f.init.as_ref(), &f.ty, enums)
+            render_init(f.init.as_ref(), &f.ty, t, diags)
         };
         if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t.fns)) {
             init.push('?');

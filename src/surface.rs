@@ -324,6 +324,9 @@ pub(crate) fn emit_event_stmts(
     resolver::resolve_event_body(
         &mut body, params, field_ty, &t.fns, &t.methods, &t.consts, &t.enums, &t.structs, diags,
     );
+    // A `Dim`'d For counter would be shadowed by the loop's own binding —
+    // drop the dead `let`, exactly as in a plain function body.
+    crate::transpiler::elide_for_counter_dims(&mut body);
     // A local reassigned or mutated in place (`headers.insert(…)`) needs
     // `let mut`, exactly as in a plain function body.
     let mut mutated: HashSet<String> = HashSet::new();
@@ -357,14 +360,45 @@ pub(crate) fn match_scrutinee(
 /// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
 /// an enum variant (`Size.Small`) resolves to its path (`Size::Small`), and a
 /// `Vec` with no initialiser starts empty.
-pub(crate) fn render_init(init: Option<&Expr>, ty: &DeclType, enums: &HashSet<String>) -> String {
-    let empty = HashSet::new();
+///
+/// The initialiser first runs the ordinary resolver pass (as a synthetic `Dim`
+/// of the field's type) — an initialiser and a function-body `Dim` are the same
+/// language, so a call initialiser gets the same argument treatment (`&` on a
+/// ByVal collection, owned strings, numeric casts) it would get anywhere else.
+pub(crate) fn render_init(
+    init: Option<&Expr>,
+    ty: &DeclType,
+    t: &Tables,
+    diags: &mut Diagnostics,
+) -> String {
+    let init = init.map(|e| {
+        let mut body = vec![Stmt::Dim {
+            name: "field".to_string(),
+            ty: ty.clone(),
+            init: Some(e.clone()),
+            line: 0,
+        }];
+        resolver::resolve_event_body(
+            &mut body, &[], &HashMap::new(), &t.fns, &t.methods, &t.consts, &t.enums, &t.structs,
+            diags,
+        );
+        match body.pop() {
+            Some(Stmt::Dim { init: Some(e), .. }) => e,
+            _ => e.clone(),
+        }
+    });
     match (ty, init) {
         (DeclType::Vec(_), None) => "Vec::new()".to_string(),
-        (DeclType::Plain(Type::Text), Some(e)) => format!("{}.to_string()", render_expr(e, None)),
-        (DeclType::Plain(t), Some(e)) => render_expr(e, Some(*t)),
-        // Enum / Vec-with-initialiser / other — rewrite `Size.Small` → `Size::Small`.
-        (_, Some(e)) => render_expr(&rewrite_expr(e.clone(), &empty, enums), None),
+        // A bare string literal still needs owning; anything else the resolver
+        // has already made owned where needed.
+        (DeclType::Plain(Type::Text), Some(e @ Expr::Str(_))) => {
+            format!("{}.to_string()", render_expr(&e, None))
+        }
+        (DeclType::Plain(Type::Text), Some(e)) => render_expr(&e, None),
+        (DeclType::Plain(t), Some(e)) => render_expr(&e, Some(*t)),
+        // Enum / Vec-with-initialiser / other — the resolver has rewritten
+        // `Size.Small` → `Size::Small` and referenced call arguments.
+        (_, Some(e)) => render_expr(&e, None),
         // A non-collection field without an initialiser shouldn't reach here (the
         // parser requires one); fall back to Default.
         (_, None) => "Default::default()".to_string(),
@@ -1024,6 +1058,33 @@ pub(crate) fn rewrite_stmt(
             init: init.map(re),
             line,
         },
+        Stmt::For { var, from, to, step, body } => Stmt::For {
+            var,
+            from: re(from),
+            to: re(to),
+            step: step.map(&re),
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+        },
+        Stmt::ForEach { var1, var2, iter, body } => Stmt::ForEach {
+            var1,
+            var2,
+            iter: re(iter),
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+        },
+        Stmt::DoLoop { cond, body } => Stmt::DoLoop {
+            cond: cond.map(|c| match c {
+                DoCond::PreWhile(e) => DoCond::PreWhile(re(e)),
+                DoCond::PreUntil(e) => DoCond::PreUntil(re(e)),
+                DoCond::PostWhile(e) => DoCond::PostWhile(re(e)),
+                DoCond::PostUntil(e) => DoCond::PostUntil(re(e)),
+            }),
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+        },
+        Stmt::Set { name, mutable, value } => Stmt::Set { name, mutable, value: re(value) },
+        Stmt::DestructureDim { names, ty, value } => {
+            Stmt::DestructureDim { names, ty, value: re(value) }
+        }
+        Stmt::Return(e) => Stmt::Return(e.map(re)),
         other => other,
     }
 }

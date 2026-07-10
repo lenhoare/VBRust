@@ -197,7 +197,7 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
         out.push_str(&format!(
             "            {}: {},\n",
             rust_name(&f.name),
-            render_init(f.init.as_ref(), &f.ty, &t.enums)
+            render_init(f.init.as_ref(), &f.ty, t, diags)
         ));
     }
     out.push_str("        }\n");

@@ -119,6 +119,11 @@ owned automatically, numeric elements take their type from the target. Prefix
 `[…]` (a literal) and postfix `x[i]` (indexing) never clash — the brackets start
 an expression in one case and follow one in the other, as in Rust.
 
+`Dim x As T = v[i]` **copies** the element, as VB assignment always does:
+numbers and Booleans are Rust `Copy`; a `String`, nested collection, or struct
+element gets an automatic `.clone()` (indexing would otherwise *move* it out of
+the collection, which Rust rejects).
+
 ### Constants — `Const`
 ```
 Const Name As Type = literalExpr
@@ -163,6 +168,9 @@ End Function
 - **Writing to a `ByVal String` parameter is rejected** (it is read-only) — use
   `ByRef` to modify the caller's string. Passing a literal to a `ByRef` parameter
   is also rejected.
+- **Forwarding:** a `ByRef` struct/collection parameter passed on into another
+  `ByRef` call goes bare (it is already the `&mut` the callee wants; Rust
+  reborrows) — never `&mut` again. `ByRef` primitives forward as `&mut *n`.
 
 ---
 
@@ -341,6 +349,11 @@ Do While cond … Loop           ' pre-test
 Do … Loop Until cond           ' post-test
 ```
 A condition may sit on the `Do` **or** the `Loop`, not both.
+
+A `Dim i As Long` written ahead of `For i = …` (Option Explicit habit) emits
+nothing — Rust's `for` introduces its own binding, so the bare `let` would sit
+shadowed and warn as unused. The counter therefore doesn't exist after the loop
+(unlike VB6); read it out through a separate variable if the exit value matters.
 
 ### Loop control
 `Exit Do`, `Exit For`, `Exit Function`, `Continue`.

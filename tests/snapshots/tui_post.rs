@@ -4,6 +4,8 @@
 // show the reply, without freezing the screen — `Await` runs the request off the
 // UI thread, exactly like `Await Http.Get`. This is the shape of an LLM call.
 
+use vbr_stdlib::{Http};
+
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
@@ -37,8 +39,6 @@ fn view(state: &Poster, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(format!("{}", state.reply)), chunks_0[1]);
     frame.render_widget(Paragraph::new("Enter to POST • q to quit"), chunks_0[2]);
 }
-
-use vbr_stdlib::{Http};
 
 enum Message {
     SendDone(Result<String, String>),

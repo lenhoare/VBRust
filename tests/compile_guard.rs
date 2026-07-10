@@ -41,6 +41,9 @@ const GUARDED: &[&str] = &[
     // (built before the terminal starts, clean bail-out on Err), events using
     // the handle via `state.db`, and the file-top stdlib-type imports.
     "tui_ideas",
+    // Loops inside an Event (the state rewrite recurses into For/For Each/Do
+    // bodies) and a State field initialised by a call with ByVal arguments.
+    "tui_life",
 ];
 
 #[test]
@@ -170,6 +173,31 @@ fn transpile_only_examples_compile() {
         );
         eprintln!("✔ {name} compiled clean (wasm32, ratzilla)");
     }
+
+    // The Idea Evolution Engine — a real multi-feature project (a Screen with a
+    // Database + Json config in fallible State, an awaited Http.Post to an LLM,
+    // the Json builder, list-literal params, Chr/vbNewLine). Built as a project
+    // (folder), not a single example, so it exercises the project path too.
+    let engine = Path::new(env!("CARGO_MANIFEST_DIR")).join("projects/idea-engine");
+    let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
+        .arg("build")
+        .arg(&engine)
+        .output()
+        .expect("failed to run vbr");
+    assert!(
+        vbr.status.success(),
+        "vbr build failed for idea-engine:\n{}",
+        String::from_utf8_lossy(&vbr.stderr)
+    );
+    let out = Command::new("cargo")
+        .arg("build")
+        .current_dir(engine.join("build"))
+        .output()
+        .expect("failed to run cargo");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "cargo rejected the idea-engine:\n{stderr}");
+    assert!(!stderr.contains("warning:"), "cargo emitted warnings for the idea-engine:\n{stderr}");
+    eprintln!("✔ idea-engine compiled clean");
 
     // The playground — the transpiler itself compiled to WebAssembly behind a
     // Yew UI (playground/). Guarding it keeps `vbr::compile` wasm-clean: a new

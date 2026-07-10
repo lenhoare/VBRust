@@ -147,6 +147,24 @@ the rewrite stopped at the `&`. The same hole affected any state field inside a
 **Fix** (`surface.rs`): the rewrite recurses through all wrapper/aggregate
 expression forms. Zero snapshot churn (no existing example hit any of them).
 
+### 13. Surface helpers calling stdlib weren't imported at the file top
+
+A `Window`/`Screen` *helper function* that only *calls* a stdlib namespace
+(e.g. `FileSystem.Read` inside `LoadConfig()`) didn't get its
+`use vbr_stdlib::{FileSystem}` — the file-top `use` was built from declared
+*types* (`stdlib_types_declared`) and event bodies, but a call receiver inside a
+plain function is neither. Json/Database only worked because they were also
+field types. Found building the idea engine (`FileSystem.Read` in a config helper
+→ E0433).
+
+**Fix** (`tui.rs`/`gui.rs`): the file-top `use` is now built from the marks —
+`stdlib_used(diags)` — after `emit_shared_items` has run `note_builtins` on the
+helpers (which marks call receivers), plus `State` inits and event bodies
+(collected Await-aware via `collect_event_stdlib`). One `use` line per native
+program/window, so nothing imports twice. Zero snapshot churn on GUI (every GUI
+example's stdlib is event-only); TUI async examples just moved their `use` to
+the file top.
+
 ### 11. Surface programs never ran the stdlib-type marking pass
 
 `mark_stdlib_types` (which turns declared types like `As Database` /
@@ -164,6 +182,97 @@ keep their scope-local imports — the two never collide.
 
 ---
 
+## Project 2: Cellular Automata Lab (Conway's Life) — 2026-07-10
+
+Len built a Game of Life (`projects/1_cellular_automata_lab` in the projects
+checkout): flat-Vec grid, B/S rule strings, text serialisation, a TUI with
+cursor/step/run. It surfaced a *cluster* of real bugs. Three of its findings
+were already fixed by then-uncommitted work (`Chr`/`vb…` constants, the
+sync-Screen stdlib `use` from #13, the `build/` cwd = #15) — the checkout
+predated them.
+
+### 16. Event state-rewrite skipped loop bodies (fixed)
+
+`rewrite_stmt` (the `field` → `state.field` pass over event bodies) recursed
+into `If`/`Match` but had a catch-all that swallowed `For`, `For Each`,
+`Do…Loop`, `Set`, `Dim (a,b) = …`, and `Return` — so `grid[i] = 1` inside an
+event's `For` emitted bare `grid` → E0425. Any loop in any event on any
+surface. **Fix** (`surface.rs`): recurse through every statement form that
+carries expressions or bodies. Zero snapshot churn (no existing example looped
+in an event — that's how it hid). Example: `examples/tui_life.vbr`.
+
+### 17. State initialisers skipped the resolver (fixed)
+
+A `State` field initialised by a *call with arguments* emitted the args raw —
+no `&` on a ByVal `Vec`/struct, no owned strings, no numeric casts:
+`Dim status As String = StatusLine(RuleLife(), 0, SeedGrid(), 5, 5)` → five
+type errors. **Fix** (`surface::render_init`): the initialiser runs the
+ordinary resolver pass first, as a synthetic `Dim` of the field's type — an
+initialiser and a function-body `Dim` are the same language. All three emitters
+(Window/Screen/Page) share it. Zero snapshot churn.
+
+### 18. Forwarding a ByRef param emitted `&mut` again (fixed)
+
+`PlaceBlinker(ByRef grid)` calling `SetCell(ByRef grid)` emitted
+`setcell(&mut grid, …)` where `grid` is *already* `&mut Vec<_>` → E0596
+("not declared as mutable"). **Fix** (`resolver.rs`): `Binding` now records
+ByRef-collection/struct params; forwarding one passes it bare and Rust
+reborrows. ByRef *primitives* keep their `&mut *n` (already correct).
+
+### 19. An owned `String` isn't a `Pattern` (fixed)
+
+`digits.contains(ch)` with `ch` from `Mid(…)` (an owned `String`) failed —
+`str::contains` wants a `Pattern` (`&str`, `char`, `&String`…). **Fix**
+(`resolver.rs`): on a string receiver, an owned-String argument to
+`contains`/`starts_with`/`ends_with` is borrowed (`&ch`); literals and slices
+stay bare. (The Vec arm of `contains` already borrowed — strings didn't.)
+
+### 20. `Dim x = lines[i]` moved the element (fixed)
+
+Indexing moves the element out of a `Vec` (E0507), so a `Dim` from an index
+failed for any non-Copy element. **Fix** (`resolver.rs`): the `Dim` clones —
+`String`, nested collections, and user structs (they derive `Clone`); numbers
+and Booleans are Copy and stay bare. VB assignment semantics (a copy) preserved.
+
+### 21. A `Dim`'d For counter warned as unused (fixed)
+
+`Dim dy As Long` + `For dy = -1 To 1` — Option Explicit muscle memory — emitted
+a `let dy: i64;` that the `For`'s own binding shadows → unused-variable warning
+in otherwise clean output. **Fix** (`transpiler.rs`): the dead `Dim` is elided
+(scalar, no initialiser, never assigned outside a `For` that binds it). Spec
+notes the VB6 difference: the counter doesn't exist after the loop.
+
+### 22. Cross-module `Module.Const` isn't lowered (OPEN — slice 2)
+
+`Life.WIDTH` parses as field access on a value; the resolver never tries it as
+a const of a sibling module → "cannot find value life". Root cause below (#23).
+
+### 23. Cross-module calls skip the ByVal/ByRef rewrite (OPEN — slice 2)
+
+`Life.StepLife(g)` rewrites by *name* to `crate::life::steplife(g)`, but the
+argument treatment looks the signature up under the qualified name and misses —
+no `&`/`&mut`, no coercions, so `Vec`/`String` args can't cross modules. Root
+cause: `compile_module` compiles each file alone, knowing only sibling module
+*names*. **Agreed fix**: a two-pass project compile — pass 1 parses every
+module and harvests its interface (fn signatures with modes/types, consts,
+structs, enums); pass 2 compiles each module with the sibling interfaces in the
+resolver's tables, so a qualified call resolves exactly like a local one.
+
+### 24. `Screen`/`Window` programs ignore sibling modules (OPEN — slice 3)
+
+`surface::build_tables` hard-codes `modules: HashSet::new()` and the surface
+emitters never emit `mod life;` — a multi-file project can't put its `Screen`
+in `main.vbr` and its logic in `life.vbr`. Depends on #23's project table;
+phase 2 of the same work.
+
+### Watch: a temporary struct literal moves its String fields
+
+`FormatRule(Rule { birth: birthPart, … })` then reusing `birthPart` is a
+use-after-move — a genuine ownership lesson, left to rustc's translated error
+(the backstop). If it keeps biting, consider a teaching note.
+
+---
+
 ## Open bugs (not yet fixed)
 
 ### 5. Fallible call assigned straight to a non-`Result` `Dim` isn't caught
@@ -175,6 +284,35 @@ won't compile (`Result<String, String>` ≠ `String`). VBR should either require
 the result be handled (`Match` / `?`) or teach the mismatch. Found while
 explaining why a `Database` handle can't sit in a `State` field (same shape:
 `Open` returns `Result`, the slot wants the bare type). Not yet fixed.
+
+### 12. Optional Rust-style escaped strings (todo, not a bug)
+
+VBR strings have no backslash escapes, deliberately — a VB dev writes Windows
+paths like `"C:\new\table"` constantly, and Rust escaping would silently corrupt
+them. So the default string must stay literal. Newlines/tabs are covered by
+`Chr(n)` and the `vb…` constants (`vbNewLine`/`vbLf`/`vbCrLf`/`vbCr`/`vbTab`).
+*Someday*, if a Rust-escaped literal is genuinely wanted, add it as an **opt-in
+prefixed form** (a distinct syntax, so normal strings stay path-safe) rather
+than changing the default. Parked by choice, not blocking anything.
+
+### 14. A comment between `Screen`/`Window` members is rejected
+
+Inside a `Screen`/`Window` block, a `'` comment line between members (e.g. above
+an `Event`) is a parse error: "Unexpected Comment … expected Title, State, View,
+`On Key`, `Every`, Event, or `End Screen`." Comments are fine inside function
+bodies and above the block, just not between surface members — so you can't
+document individual events in place. Small parser papercut; the block member
+loop should skip comment tokens. Worked around by moving the comment.
+
+### 15. Projects don't copy data files into `build/`
+
+A project that reads a data file at runtime (the idea engine reads
+`config.json`) looks for it in the *current working directory*, which for
+`vbr runproject`/`build` is the generated `build/` folder — not the project
+folder where the file lives. Today you copy `config.json` into `build/` by hand.
+`runproject`/`build` could copy non-`.vbr`/`.rs` files (or a declared data dir)
+into `build/`, or the run could set the working directory to the project root.
+Found building the idea engine; documented in its README meanwhile.
 
 ### 7. No map literal — "no headers" / empty-HashMap calls are clunky
 

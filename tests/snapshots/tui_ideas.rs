@@ -12,7 +12,7 @@ fn addidea(db: &Database) -> Result<i64, String> {
     Ok(rows[0].get_int("n")?)
 }
 
-use vbr_stdlib::{Database, Json};
+use vbr_stdlib::{Json, Database};
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};

@@ -1,0 +1,156 @@
+' Idea Evolution Engine — slice 1
+' ================================
+' A terminal app that asks an LLM for scored project ideas, stores them in
+' SQLite, and shows the current best. Press `g` to generate a new generation.
+'
+' Config lives in config.json next to where you run it (endpoint, api_key,
+' model, challenge, context). Both config and the database are opened when the
+' app starts — if either fails you get "could not start: <why>" and a clean
+' exit, never a half-working screen.
+'
+' This is the thin vertical slice: generate + score (in one LLM call) + store +
+' rank. Mutating, merging and lineage come in later slices.
+
+Screen IdeaEngine
+    Title "Idea Evolution Engine"
+
+    State
+        Dim db As Database = Database.Open("ideas.db")
+        Dim config As Json = LoadConfig()
+        Dim generation As Long = 0
+        Dim status As String = "Press g to generate a batch of ideas  -  q to quit"
+        Dim results As String = "No ideas yet. Press g."
+    End State
+
+    View
+        Column
+            Length 1
+            Text "Idea Evolution Engine"
+            Length 1
+            Text status
+            Length 1
+            Text ""
+            Fill
+            Text results
+        End Column
+    End View
+
+    On Key "g" Generate
+    On Key "q" Quit
+
+    Event Generate
+        status = "Generating ideas... (calling the LLM)"
+
+        Dim endpoint As String = ConfigStr(config, "endpoint")
+        Dim model As String = ConfigStr(config, "model")
+        Dim apikey As String = ConfigStr(config, "api_key")
+        Dim challenge As String = ConfigStr(config, "challenge")
+        Dim context As String = ConfigStr(config, "context")
+
+        Dim prompt As String = BuildPrompt(challenge, context)
+        Dim body As String = RequestBody(model, prompt)
+
+        Dim headers As HashMap<String, String>
+        headers.insert("Content-Type", "application/json")
+        headers.insert("Authorization", "Bearer " & apikey)
+
+        Match Await Http.Post(endpoint, body, headers)
+            Ok(response) =>
+                generation = generation + 1
+                Match IngestResponse(db, generation, response)
+                    Ok(formatted) =>
+                        results = formatted
+                        status = "Generation " & generation & " ready  -  g for more, q to quit"
+                    Err(problem) => status = "Could not read the reply: " & problem
+                End Match
+            Err(problem) => status = "Request failed: " & problem
+        End Match
+    End Event
+End Screen
+
+Function Main()
+    IdeaEngine.Run
+End Function
+
+' ---- config -----------------------------------------------------------------
+
+' Read and parse config.json. Fallible, so it can seed a State field: a bad or
+' missing config stops the app at startup with a clear message.
+Function LoadConfig() As Result<Json>
+    Dim raw As String = FileSystem.Read("config.json")?
+    Return Json.Parse(raw)
+End Function
+
+' Pull a string setting, or "" if it's missing — keeps the event code simple.
+Function ConfigStr(ByVal cfg As Json, ByVal key As String) As String
+    Match cfg.GetString(key)
+        Ok(value) => Return value
+        Err(_) => Return ""
+    End Match
+End Function
+
+' ---- the LLM request --------------------------------------------------------
+
+Function BuildPrompt(ByVal challenge As String, ByVal context As String) As String
+    Dim p As String = "You are an idea generation engine. "
+    p = p & "Challenge: " & challenge & " "
+    p = p & "Context and constraints for judging ideas: " & context & " "
+    p = p & "Generate 5 distinct, specific ideas. For each give a short title, a "
+    p = p & "one-sentence description, a score from 1 to 10 for how well it fits the "
+    p = p & "context, and a one-sentence rationale. "
+    p = p & "Respond with ONLY a JSON object of exactly this shape, no markdown fences: "
+    p = p & "{""ideas"":[{""title"":""..."",""description"":""..."",""score"":7,""rationale"":""...""}]}"
+    Return p
+End Function
+
+' Build the chat-completions request body with the Json builder (Object/Array/
+' Set/Push) so the prompt text is escaped correctly.
+Function RequestBody(ByVal model As String, ByVal prompt As String) As String
+    Dim message As Json = Json.Object()
+    message.SetString("role", "user")
+    message.SetString("content", prompt)
+
+    Dim messages As Json = Json.Array()
+    messages.Push(message)
+
+    Dim body As Json = Json.Object()
+    body.SetString("model", model)
+    body.Set("messages", messages)
+
+    Match body.ToString()
+        Ok(text) => Return text
+        Err(_) => Return "{}"
+    End Match
+End Function
+
+' ---- the reply --------------------------------------------------------------
+
+' Parse the LLM reply, store each idea, and return the ranked display text.
+Function IngestResponse(ByVal db As Database, ByVal gen As Long, ByVal response As String) As Result<String>
+    ' The chat-completions envelope: choices[0].message.content holds the JSON
+    ' we asked the model to produce.
+    Dim envelope As Json = Json.Parse(response)?
+    Dim choices As Vec<Json> = envelope.GetArray("choices")?
+    Dim content As String = choices[0].Get("message")?.GetString("content")?
+
+    Dim parsed As Json = Json.Parse(content)?
+    Dim ideas As Vec<Json> = parsed.GetArray("ideas")?
+
+    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, generation INTEGER, title TEXT, description TEXT, score INTEGER, rationale TEXT)", [])?
+    For Each idea In ideas
+        db.Execute("INSERT INTO ideas (generation, title, description, score, rationale) VALUES (?, ?, ?, ?, ?)", [CStr(gen), idea.GetString("title")?, idea.GetString("description")?, CStr(idea.GetInt("score")?), idea.GetString("rationale")?])?
+    Next
+
+    Return FormatTop(db)
+End Function
+
+' The current best ideas across all generations, newest wins ties.
+Function FormatTop(ByVal db As Database) As Result<String>
+    Dim rows As Vec<Json> = db.Query("SELECT title, description, score FROM ideas ORDER BY score DESC, id DESC LIMIT 8", [])?
+    Dim out As String = ""
+    For Each row In rows
+        out = out & "[" & CStr(row.GetInt("score")?) & "/10] " & row.GetString("title")? & vbNewLine
+        out = out & "       " & row.GetString("description")? & vbNewLine & vbNewLine
+    Next
+    Return Ok(out)
+End Function

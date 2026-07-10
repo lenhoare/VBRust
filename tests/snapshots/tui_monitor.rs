@@ -1,3 +1,5 @@
+use vbr_stdlib::{Http};
+
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
@@ -28,8 +30,6 @@ fn view(state: &Monitor, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(format!("{}", state.status)), chunks_0[1]);
     frame.render_widget(Paragraph::new("ticks every 1s, refreshes every 5s • q to quit"), chunks_0[2]);
 }
-
-use vbr_stdlib::{Http};
 
 enum Message {
     PollDone(Result<String, String>),
