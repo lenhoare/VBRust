@@ -168,7 +168,10 @@ End Match
   headers map — the one shape that needs no reference-plumbing). Bound to `?`
   placeholders positionally; numbers go in as text and land in typed columns via
   **SQLite column affinity** (so declare columns `INTEGER`/`REAL`). Real bound
-  parameters, never string concatenation — injection-safe.
+  parameters, never string concatenation — injection-safe. A `&str` element in the
+  params list — a `ByVal As String` param (`db.Execute(sql, [id, name])`), a
+  `Trim(x)` — is **owned for you** (`.to_string()`), so no manual `.clone()`; a
+  string literal is already owned, a `Long` needs `CStr(n)` to become text.
 - **`Database` handle**: passes into functions as `&Database` (a ByVal struct
   param already lowers to a shared borrow — rusqlite methods take `&self`, so
   this is exactly right) and holds fine as a local. **Holding it on surface

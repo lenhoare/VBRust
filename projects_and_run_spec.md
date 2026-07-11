@@ -1,7 +1,7 @@
 # VBR Projects & Run Modes — Spec
 
 How VBR programs are organised into projects, and how they're built and run.
-(Companion to `inline_rust_spec.md` and `stdlib_spec.md`. Agreed, not yet built.)
+(Companion to `inline_rust_spec.md` and `stdlib_spec.md`.)
 
 ---
 

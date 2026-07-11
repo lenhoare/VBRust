@@ -179,9 +179,9 @@ Widgets do not directly call arbitrary procedures. They emit events/messages, an
 An event (or the view) **may call your own top-level `Function`/`Sub`s**
 *(BUILT — slice 10)* — they're emitted alongside the window, so helper logic
 (validation, formatting, computation) lives in a procedure rather than being
-inlined. (V1: call sites in events aren't resolved, so pass values rather than
-`ByRef`/struct args; helpers should avoid stdlib/HashMap for now — imports aren't
-unified across the GUI yet.)
+inlined. Event bodies run the full resolver (coercions, stdlib calls, `&`/`&mut`
+argument treatment), and a helper may freely use stdlib namespaces and `HashMap` —
+their imports are scanned from helper bodies too, not only events.
 
 #### Async events — `Await` *(BUILT — slice 4)*
 
@@ -209,7 +209,13 @@ Rules:
 - **Fallible** async (`Http.Get` returns a `Result`) **must** be handled with
   `Match Await …` — a GUI must not crash on a failed request. **Infallible**
   async can use `Dim x As T = Await …`.
-- **One `Await` per event** (V1). Multiple/looped awaits are a future state machine.
+- **One `Await` per event, and it must be a top-level statement** — the value of
+  a `Match`/`Dim`, not nested inside an `If`/`For`/`Match`. This is deliberate: a
+  top-level `Await` lowers to a plain kick-off/continuation pair with no hidden
+  state machine. To guard the call, check *before* the `Await` (`If busy Then
+  Return` / set a flag), or move the guard into the awaited helper. Nesting one
+  earns a teaching error listing these options. (Multiple/looped awaits are a
+  future state machine.)
 - `Await` works on a **known stdlib call** (`Http.Get`) **or one of your own
   functions** (its return type is known, so the result message is generated;
   it runs off-thread via `spawn_blocking`).
