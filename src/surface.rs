@@ -171,9 +171,17 @@ pub(crate) fn launched<'a, T>(
 /// once. Today that's `HashMap` (e.g. an `Http.Post` headers map built in an
 /// event). A new surface gets this by calling it in its preamble; a new std type
 /// is added here, not re-discovered in every emitter.
-pub(crate) fn event_std_imports(events: &[GuiEvent]) -> String {
+/// The `std` `use` lines a surface needs — scanning both **event bodies** and
+/// **helper functions/methods** (a `HashMap` `Dim` in a helper like
+/// `ChatComplete` needs the import just as much as one built in an event; the
+/// old scan saw only events). `helpers` is the program's free functions and
+/// methods; `Main` carries no state and is fine to include (it's just more body
+/// to scan).
+pub(crate) fn surface_std_imports(events: &[GuiEvent], helpers: &[Function]) -> String {
     let mut out = String::new();
-    if events.iter().any(|e| crate::transpiler::body_uses_hashmap(&e.body)) {
+    let in_event = events.iter().any(|e| crate::transpiler::body_uses_hashmap(&e.body));
+    let in_helper = helpers.iter().any(|f| crate::transpiler::body_uses_hashmap(&f.body));
+    if in_event || in_helper {
         out.push_str("use std::collections::HashMap;\n");
     }
     out
@@ -583,8 +591,12 @@ pub(crate) fn await_split(
         _ => {
             diags.error_once(
                 "await-position",
-                "`Await` must be the value of a `Match` (`Match Await Http.Get(url)`) or a \
-                 `Dim` (`Dim x = Await …`) inside an event.",
+                "`Await` must be a *top-level* statement in an event — the value of a `Match` \
+                 (`Match Await Http.Get(url)`) or a `Dim` (`Dim x = Await …`), not nested inside \
+                 an `If`/`For`/`Match`. To guard the call, put the check *before* the `Await` \
+                 (`If busy Then Return` / set a flag first), or move it into the awaited helper \
+                 (return early on the guard). VBR keeps async deliberately simple: one `Await` \
+                 per event, at the top.",
             );
             None
         }

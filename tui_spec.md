@@ -211,6 +211,12 @@ Match tab
 End Match
 ```
 
+A **focusable** widget (`List`/`Input`/`Table`) may live inside a `Match` arm or
+an `If` branch, not only at the top level — its selection/typing state and its
+built-in keys are wired up wherever it appears. So a per-tab list (a different
+`List` shown in each arm) works, and each arm's list keeps its own selection.
+Example: `examples/tui_list_tabs.vbr`.
+
 ---
 
 ## 5. Focus
@@ -270,7 +276,14 @@ drains results with `try_recv`. No `tokio`/async-`main`. A blocking stdlib call
 used **without** `Await` is a friendly error ("would freeze the UI, use `Await`").
 
 Forms: `Match Await …` (fallible, e.g. `Http.Get`) and `Dim x = Await …`
-(infallible). V1 is one `Await` per event.
+(infallible). One `Await` per event, and it must be a **top-level** statement —
+not nested inside an `If`/`For`/`Match`. This is deliberate: a top-level `Await`
+lowers to a plain "kick off the work, resume in the continuation" pair with no
+hidden state machine, keeping the generated loop readable. To guard the call, put
+the check *before* the `Await` (`If busy Then Return`, or set a flag first), or
+move the guard into the awaited helper (return early). Nesting an `Await` earns a
+teaching error that points at these options — VBR keeps async simple on purpose;
+reach for real Rust when you need more.
 
 ---
 

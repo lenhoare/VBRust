@@ -85,7 +85,7 @@ pub fn emit_tui_program(
         program.structs.iter().map(|s| (s.name.clone(), s)).collect();
 
     for sc in &program.screens {
-        out.push_str(&emit_screen(sc, &t, &structs, diags));
+        out.push_str(&emit_screen(sc, &t, &structs, &program.functions, diags));
         out.push('\n');
     }
     let launched_screen = launched(program, |name| {
@@ -141,6 +141,7 @@ fn emit_screen(
     sc: &Screen,
     t: &surface::Tables,
     structs: &HashMap<String, &StructDef>,
+    helpers: &[Function],
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -177,9 +178,9 @@ fn emit_screen(
         out.push_str("use ratatui::layout::{Constraint, Layout};\n");
     }
     out.push_str("use ratatui::Frame;\n");
-    // `std` types used in event bodies (e.g. an `Http.Post` headers HashMap) —
-    // shared across every surface, native and web alike.
-    out.push_str(&surface::event_std_imports(&sc.events));
+    // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
+    // headers HashMap) — shared across every surface, native and web alike.
+    out.push_str(&surface::surface_std_imports(&sc.events, helpers));
     out.push('\n');
 
     // ── State struct ──
@@ -308,7 +309,39 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
                 children.iter().for_each(|c| walk(c, out))
             }
-            _ => {}
+            // `Match`/`If` view nodes carry child widgets in their arms/branches —
+            // a `List` (or `Input`/`Table`) inside one is just as focusable, and
+            // needs its `<field>_state` declared, as one at the top level. The
+            // renderer recurses into these, so the collector must too, or the
+            // render code references a state field that was never emitted.
+            ViewNode::Match { arms, .. } => {
+                arms.iter().for_each(|a| a.body.iter().for_each(|c| walk(c, out)))
+            }
+            ViewNode::If { branches, else_body } => {
+                branches.iter().for_each(|(_, body)| body.iter().for_each(|c| walk(c, out)));
+                if let Some(body) = else_body {
+                    body.iter().for_each(|c| walk(c, out));
+                }
+            }
+            // Leaves and display-only widgets — nothing focusable nested inside.
+            // Listed explicitly (no `_`) so a future container-shaped view node is
+            // forced to decide here rather than silently hiding its focusables.
+            ViewNode::Space { .. }
+            | ViewNode::Image { .. }
+            | ViewNode::Gauge { .. }
+            | ViewNode::Sparkline { .. }
+            | ViewNode::BarChart { .. }
+            | ViewNode::Chart { .. }
+            | ViewNode::Canvas { .. }
+            | ViewNode::Text(_)
+            | ViewNode::Button { .. }
+            | ViewNode::TextInput { .. }
+            | ViewNode::TextArea { .. }
+            | ViewNode::Checkbox { .. }
+            | ViewNode::Slider { .. }
+            | ViewNode::Toggler { .. }
+            | ViewNode::ProgressBar { .. }
+            | ViewNode::Radio { .. } => {}
         }
     }
     walk(view, &mut out);

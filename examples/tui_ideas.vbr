@@ -27,7 +27,7 @@ Screen Ideas
         Match AddIdea(db)
             Ok(n) =>
                 count = n
-                status = "added — " & n & " ideas now"
+                status = "added — " & n & " ideas now (+" & BonusPoints() & " bonus)"
             Err(e) => status = "error: " & e
         End Match
     End Event
@@ -38,6 +38,17 @@ Function AddIdea(ByVal db As Database) As Result<Long>
     db.Execute("INSERT INTO ideas (text) VALUES (?)", ["a fresh idea"])?
     Dim rows As Vec<Json> = db.Query("SELECT COUNT(*) AS n FROM ideas", [])?
     Return Ok(rows[0].GetInt("n")?)
+End Function
+
+' A HashMap built inside a plain helper (not an event) still needs the file-top
+' `use std::collections::HashMap;`. The surface import scan reads helper bodies
+' too now, not only events — before, a Screen whose only HashMap lived in a
+' helper compiled to code referencing an unimported type.
+Function BonusPoints() As Long
+    Dim weights As HashMap<String, Long>
+    weights.Insert("base", 3)
+    weights.Insert("streak", 2)
+    Return weights.Len()
 End Function
 
 Function Main()

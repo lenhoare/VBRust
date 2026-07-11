@@ -4,6 +4,10 @@
 // "could not start: <why>" and a clean exit, never a half-alive UI. Events
 // just use the open handle (db here is state.db), and passing it to a helper
 // function borrows it (&Database).
+// A HashMap built inside a plain helper (not an event) still needs the file-top
+// `use std::collections::HashMap;`. The surface import scan reads helper bodies
+// too now, not only events — before, a Screen whose only HashMap lived in a
+// helper compiled to code referencing an unimported type.
 
 fn addidea(db: &Database) -> Result<i64, String> {
     db.execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", vec![])?;
@@ -12,11 +16,19 @@ fn addidea(db: &Database) -> Result<i64, String> {
     Ok(rows[0].get_int("n")?)
 }
 
+fn bonuspoints() -> i64 {
+    let mut weights: HashMap<String, i64> = HashMap::new();
+    weights.insert("base".to_string(), 3);
+    weights.insert("streak".to_string(), 2);
+    weights.len() as i64
+}
+
 use vbr_stdlib::{Json, Database};
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
+use std::collections::HashMap;
 
 struct Ideas {
     db: Database,
@@ -63,7 +75,7 @@ fn main() -> std::io::Result<()> {
                         match addidea(&state.db) {
                             Ok ( n ) => {
                                 state.count = n;
-                                state.status = format!("added — {} ideas now", n);
+                                state.status = format!("added — {} ideas now (+{} bonus)", n, bonuspoints());
                             }
                             Err ( e ) => {
                                 state.status = format!("error: {}", e);

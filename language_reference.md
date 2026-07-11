@@ -259,8 +259,14 @@ Match n
 End Match
 ```
 
-Bindings are written lowercase — that's how the body refers to them. `Match` over
-`Ok`/`Err` and `Some`/`None` is where it earns its keep, and is covered in §8.
+Write pattern bindings **lowercase**. A pattern is raw Rust passed through
+verbatim, so a binding you write as `Ok(runId)` stays `runId` in the pattern — but
+the arm's *body* runs through VBR's usual lowercasing, where `runId` becomes
+`runid`, and the two no longer refer to the same variable (the body reads an
+unknown `runid`). Keep the binding lowercase in both places — `Ok(runid)` — and
+they line up. (This bites hardest in an `Await` continuation, where the bound name
+crosses into generated code.) `Match` over `Ok`/`Err` and `Some`/`None` is where
+it earns its keep, and is covered in §8.
 
 ### Loops
 
@@ -670,6 +676,39 @@ allowed, and flagged as training wheels; real code should handle or propagate.
 The rule of thumb: `?` when the failure belongs to someone above you; `Match`
 at the level that knows how to recover or report. `On Error` is rejected with a
 nudge toward all of the above.
+
+### A worked example: turning text into a number
+
+VB gave you two tools for this, and the difference between them *is* the
+error-handling choice made concrete. `Val` is the forgiving one — it was always a
+`Double`, it skipped surrounding spaces, and it returned `0` for anything that
+wasn't a number. It cannot fail, so you never handle it:
+
+```vb
+Dim n As Double = Val(" 42x ")     ' 42 — bad tail ignored, 0 if hopeless
+```
+
+The strict conversions — `CDbl`, `CLng`, `CInt` — are the other choice. In VB
+they raised a runtime error on junk; in VBR that error becomes a value, so they
+return a `Result` and you pick one of the three moves above:
+
+```vb
+Function PriceOf(ByVal txt As String) As Result<Double>
+    Dim price As Double = CDbl(txt)?          ' propagate a bad price upward
+    Return Ok(price)
+End Function
+
+Match CLng(userField)                          ' or branch on it right here
+    Ok(v) => Debug.Print "got " & v
+    Err(e) => Debug.Print "not a number: " & e
+End Match
+```
+
+So the choice of function *is* the design decision: reach for `Val` when garbage
+should quietly become `0`, and for `CDbl`/`CLng`/`CInt` when it's a real error you
+want to catch. (Assigning a strict conversion straight into a plain `Dim` —
+forgetting the `Result` — is the mismatch the compiler stops you on.) These
+currently handle text; VB's number-rounding `CInt(2.5)` is a later addition.
 
 ---
 

@@ -64,7 +64,7 @@ pub fn emit_gui_program(
     let std_top = crate::transpiler::stdlib_used(diags);
 
     for w in &program.windows {
-        out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, &std_top, diags));
+        out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, &std_top, &program.functions, diags));
         out.push('\n');
     }
     let launched_window = launched(program, |name| {
@@ -144,6 +144,7 @@ fn emit_window(
     canvases: &[CanvasDef],
     paint_fns: &HashSet<String>,
     std_top: &[String],
+    helpers: &[Function],
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -206,8 +207,9 @@ fn emit_window(
     if any_async {
         out.push_str("use iced::Task;\n");
     }
-    // `std` types used in event bodies (e.g. an `Http.Post` headers HashMap).
-    out.push_str(&surface::event_std_imports(&w.events));
+    // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
+    // headers HashMap, or one built in a helper like `ChatComplete`).
+    out.push_str(&surface::surface_std_imports(&w.events, helpers));
     // vbr_stdlib namespaces: those called in events, plus item-level types /
     // `State` initialisers (`Database` for a db held in state).
     let mut std_used = event_stdlib_imports(&w.events, diags);

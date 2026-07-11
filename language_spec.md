@@ -266,6 +266,36 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
 - Methods outside the curated set still pass through verbatim; they simply skip
   the auto-coercion, and `rustc` is the backstop if a type doesn't line up.
 
+### Text → number: `Val` (lenient) vs `CDbl`/`CLng`/`CInt` (strict)
+
+VB has two ways to read a number out of text, and VBR keeps both — they differ in
+what they do with bad input:
+
+- **`Val(x)`** is the *forgiving* one: always a `Double`, surrounding whitespace
+  ignored, and **`0` for text that isn't a number**. It never fails, so there is
+  nothing to handle. Lowers to `x.trim().parse::<f64>().unwrap_or(0.0)`. A `Double`
+  flowing into a `Long` (`Dim n As Long = Val(x)`) gets the usual automatic `as`
+  cast.
+- **`CDbl(x)` / `CLng(x)` / `CInt(x)`** are the *strict* conversions (VB raised a
+  runtime "type mismatch" here): on non-numeric text they **fail**, returning a
+  `Result<_, String>` you handle with `?` (propagate) or `Match` (branch). Lower
+  to `x.trim().parse::<…>().map_err(|e| e.to_string())`, so the error joins VBR's
+  String-error convention. As with any fallible call, assigning one straight to a
+  non-`Result` `Dim` is a mismatch `rustc` catches.
+
+```vb
+Dim n As Double = Val("  42x ")      ' 42.0 — lenient, never fails
+Dim p As Double = CDbl(userText)?    ' bails with the error on bad input
+Match CLng(field)                    ' or branch on it
+    Ok(v) => …
+    Err(e) => …
+End Match
+```
+
+*Scope:* the `Cxxx` forms currently cover the **string-parse** case, not VB's
+number→number rounding (`CInt(2.5)`); that's a later refinement. Example:
+`examples/conversions.vbr`.
+
 ---
 
 ## 6. Statements & control flow
@@ -346,7 +376,10 @@ End Match
   covering `Ok`/`Err` is complete; a missing case is a compile error that names
   exactly what you left out.
 - Name bindings should be written lowercase — that's how the body refers to
-  them (the pattern is verbatim Rust; the body lowercases names).
+  them. The pattern is verbatim Rust, so `Ok(runId)` keeps `runId`; the body,
+  however, lowercases names (`runId` → `runid`), so a mixed-case binding and its
+  use no longer match. Write `Ok(runid)` in both. (Most visible in an `Await`
+  continuation, where the binding crosses into generated code.)
 
 ### Loops
 ```

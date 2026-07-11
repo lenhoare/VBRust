@@ -44,6 +44,10 @@ const GUARDED: &[&str] = &[
     // Loops inside an Event (the state rewrite recurses into For/For Each/Do
     // bodies) and a State field initialised by a call with ByVal arguments.
     "tui_life",
+    // A focusable `List` nested inside a view `Match` arm — the focusable
+    // collector recurses into Match/If, so the widget's `<field>_state` is
+    // declared, inited, and key-wired even when it isn't top-level.
+    "tui_list_tabs",
     // Shell: run-and-capture in Main plus a background Process behind a
     // Screen (fallible Shell.Start in State, IsRunning/Kill from events).
     "shell",

@@ -1,0 +1,65 @@
+' tui_list_tabs.vbr — a selectable List nested inside a view `Match`. The List
+' is a focusable widget wherever it sits: VBR declares its `<field>_state`
+' (the ratatui ListState) and wires Up/Down/Enter even when the widget only
+' appears in one arm of a `Match` (or a branch of a view `If`). Switch tabs to
+' show a different list; the selection state rides along.
+Screen ListTabs
+    Title "Tabbed lists"
+
+    State
+        Dim tab As Integer = 1
+        Dim fruit As Vec<String> = ["apple", "pear", "plum"]
+        Dim veg As Vec<String> = ["kale", "leek", "bean"]
+        Dim picked As String = "nothing yet"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " 1/2 switch tab • Up/Down move • Enter pick • q quits"
+            Length 1
+            Text " Picked: " & picked
+            Fill
+            Match tab
+                1 =>
+                    Column
+                        Text "── Fruit ──"
+                        List fruit
+                            On Select PickFruit
+                        End List
+                    End Column
+                _ =>
+                    Column
+                        Text "── Veg ──"
+                        List veg
+                            On Select PickVeg
+                        End List
+                    End Column
+            End Match
+        End Column
+    End View
+
+    On Key "1" One
+    On Key "2" Two
+    On Key "q" Quit
+
+    Event One
+        tab = 1
+    End Event
+
+    Event Two
+        tab = 2
+    End Event
+
+    Event PickFruit(choice As String)
+        picked = "fruit: " & choice
+    End Event
+
+    Event PickVeg(choice As String)
+        picked = "veg: " & choice
+    End Event
+End Screen
+
+Function Main()
+    ListTabs.Run
+End Function

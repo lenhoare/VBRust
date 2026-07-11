@@ -54,6 +54,18 @@ wants an owned `String`). Only the key position was owned. The existing
 argument position, not just the key. The `Expr::Str` guard keeps it to literals
 (a Vec's numeric index is never a string literal, so it's untouched).
 
+*(2026-07-11: the sibling case in a **list argument to a stdlib method** —
+`db.Execute(sql, [id, name])` where `id`/`name` are `ByVal As String` (`&str`)
+params. The list emitter already owns a string *literal* element, but a `&str`
+*variable* rendered bare → mismatch with the `Vec<String>` slot, so you had to
+`.clone()` or `CStr(...)` each one. **Fix** (`resolver.rs`, the `stdlib_recv`
+arg block): a non-literal `&str` element (`VType::Str`) in a `List` argument to a
+stdlib method is owned with `.to_string()`; literals stay with the emitter and
+owned-String locals move in as-is (no needless clone). Guarded warning-free:
+`examples/database.vbr` gained an `AddScored(ByVal text, ByVal score)` helper that
+inserts its `&str` params through the params list — compiled *and run* in the
+guard. Zero churn on the existing literal/`CStr` inserts.)*
+
 ### 2. `HashMap` import missing in `Screen`/`Window`/`Page` output
 
 The `use std::collections::HashMap;` auto-import only scanned top-level
@@ -73,6 +85,16 @@ lines a surface's event bodies need. All three emitters call it in their
 preamble → all four surfaces covered, and a new surface opts in with one line
 instead of rediscovering the bug. `std` types are common across renderers; only
 the crate imports (Iced/ratatui/Yew) stay per-emitter.
+
+*(2026-07-11: the scan looked only at **event bodies**, so a `HashMap` `Dim` in a
+surface **helper function/method** — like an idea engine's `ChatComplete` building
+request headers — still compiled to code referencing an unimported `HashMap`.
+Renamed `event_std_imports` → **`surface_std_imports(events, helpers)`** and it now
+scans helper bodies too; the three emitters pass `&program.functions` through
+`emit_window`/`emit_screen`/`emit_page`. The old workaround — a dummy
+`Dim _headers As HashMap` in an event to trigger the scan — is no longer needed.
+Guarded warning-free: `examples/tui_ideas.vbr` gained a `BonusPoints()` helper
+whose only HashMap lives in that plain function, called from the `Add` event.)*
 
 ### 3. Event-body locals never got `let mut`
 
@@ -134,6 +156,9 @@ have been kinder).
 "unknown function passes through silently" behaviour is by design (rustc is the
 backstop) but worth watching — if it keeps biting, known VB6 names (`CInt`,
 `CLng`, `CDbl`…) deserve mappings or teaching notes.
+
+*(2026-07-11: the numeric `Cxxx` family is now mapped — see "`Val` semantics" in
+the fixed-bugs section below.)*
 
 ### 10. The state-field rewrite didn't recurse through wrapper expressions
 
@@ -388,6 +413,80 @@ Agreed three-tier plan:
 - **Tier 3 — async model (its own project).** A real `Await`-anywhere lowering
   (a small CPS/state-machine transform) would make every "Await can't sit in X"
   vanish together. Larger; separate design; only if the narrow model bites hard.
+
+**Same class, found later (2026-07-11): a focusable `List`/`Input`/`Table` inside
+a view `Match`/`If` lost its state field.** `tui::collect_focusables`'s `walk`
+recursed `Column`/`Row`/`Constrained` but its `_ => {}` swallowed the `Match` and
+`If` view nodes — so a `List` nested in a `Match` arm was never collected, its
+`<field>_state` (the ratatui `ListState`) never declared/inited/key-wired, yet the
+*renderer* (which does recurse into `Match`/`If`) still emitted
+`state.<field>_state` → a reference to an undeclared field. Textbook coverage hole:
+one walker recurses a node the sibling walker drops. **Fix**: `walk` now recurses
+into `Match` arms and `If` branches/else, and lists every leaf `ViewNode`
+explicitly (no `_`), so a future container-shaped view node must decide there.
+Proven by stash-diff (pre-fix: `<field>_state` declared 0×, rendered 1×) and a
+real ratatui build. Guarded: `examples/tui_list_tabs.vbr` (two Lists in two Match
+arms, both fully wired). The lesson reinforces Tier 1: **exhaustive matches in
+every structural walker** — the view tree has its own family of them
+(`collect_focusables`, `render_view_node`, the keymap collector), and they must
+agree on which nodes carry children.
+
+---
+
+## `Val` semantics + the strict `Cxxx` conversions — 2026-07-11
+
+Reported as a bug ("`Val(x)?` error type isn't `String`"), but interrogating it
+found the real problem was deeper: `Val(x)` lowered to `x.parse::<f64>()` — a
+**`Result<f64, ParseFloatError>`**, which is (a) un-VB (VB's `Val` is *infallible*,
+returns a `Double`, `0` on garbage) and (b) already broken against our own
+`examples/string_options.vbr` (`Dim num As Double = Val("3.14")` assigned a
+`Result` to an `f64`; hidden because that example is transpile-only). Len's
+instinct — "`Val` should return a number, the strict conversion should be the
+fallible one" — was right, pinned to the wrong name (there's no `CVal` in VB6;
+the strict family is `CInt`/`CLng`/`CDbl`, which raised a runtime "type mismatch"
+→ a natural `Result`).
+
+**Fix — two homes, not one forced path:**
+
+- `Val(x)` → `x.trim().parse::<f64>().unwrap_or(0.0)` — a lenient `Double`, `0` on
+  non-numeric text, whitespace ignored, **never fails**. Inference now types `Val`
+  as `Double`, so `Dim n As Long = Val(x)` gets the automatic `as i64` cast. No
+  more `Result`, so nothing to `Match`/`?` — the reported awkwardness is gone
+  because the operation was never fallible in VB.
+- `CDbl`/`CLng`/`CInt` → `x.trim().parse::<…>().map_err(|e| e.to_string())` — the
+  *strict* conversions return `Result<_, String>`, so `?` propagates and `Match`
+  branches, joining VBR's String-error convention. `ignored_result` now flags a
+  dropped `Result` from these (teaching diagnostic), and `Val` is removed from it.
+
+This also closes the "`Cxxx` family unmapped, falls through to rustc" half of #9.
+`transpiler.rs` (`lower_builtin`), `resolver.rs` (`builtin_vtype` + `ignored_result`).
+Scope: **string-parse only** — VB's number→number rounding (`CInt(2.5)` = 2,
+banker's rounding) is a later refinement, noted in both specs. Example +
+compile-guarded snapshot: `examples/conversions.vbr` (in `HAPPY`); `string_options`
+snapshot updated to the infallible `Val`. Rust-checked end to end (`Val("  42  ")`
+= 42, `Val("nonsense")` = 0, `CDbl(x)?` compiles in a `Result<_,String>` fn).
+
+---
+
+## Two "bugs" that are teaching points, not fixes — 2026-07-11
+
+Reviewing the idea-engine findings, two were correctly reclassified (Len: "they
+aren't really bugs, they're teaching points") — the behaviour is *by design*; what
+was missing was clear teaching. So we sharpened the diagnostic/docs, not the codegen.
+
+- **`Await` can't sit inside `If`/`For`/`Match`.** Deliberate (see the Tier 3
+  note): a top-level `Await` lowers to a plain kick-off/continuation pair with no
+  hidden state machine — VBR keeps async simple on purpose. The rough failure was
+  already a single clean teaching error (`await-position`), now **enriched** to say
+  *why* (top-level only) and *how to fix it* (guard before the `Await` — `If busy
+  Then Return` / set a flag — or move the guard into the awaited helper). Design
+  note added to `tui_spec.md` §7. `surface.rs`.
+- **Match-arm bindings are lowercase.** A pattern is verbatim Rust, so `Ok(runId)`
+  keeps `runId`, but the body lowercases names (`runId` → `runid`) and the two stop
+  matching — worst in an `Await` continuation. This is the case-insensitive-VB /
+  case-sensitive-Rust seam, a genuine lesson, not a bug to paper over. Sharpened
+  the teaching note in `language_spec.md` §Match and `language_reference.md` §3
+  (write `Ok(runid)` in both places). No codegen change.
 
 ---
 

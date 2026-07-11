@@ -5,5 +5,5 @@
 fn main() {
     println!("{}", "hello".chars().skip(1).take(3).collect::<String>());
     let pos: i64 = "hello".find("l");
-    let num: f64 = "3.14".parse::<f64>();
+    let num: f64 = "3.14".trim().parse::<f64>().unwrap_or(0.0);
 }

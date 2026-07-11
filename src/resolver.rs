@@ -484,7 +484,10 @@ fn builtin_vtype(name: &str) -> Option<VType> {
         "left" | "right" | "mid" | "trim" => VType::Str,
         "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "inputbox" => vt(Type::Text),
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => vt(Type::Double),
-        // instr → Option, val → Result: not a plain value type yet.
+        // `Val` is a lenient `Double` (`0.0` on failure), so `Dim n As Long =
+        // Val(x)` casts f64 → i64 like any other Double would.
+        "val" => vt(Type::Double),
+        // instr → Option; the `Cxxx` conversions → Result: not plain value types.
         _ => return None,
     })
 }
@@ -1041,7 +1044,10 @@ fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
         }
         match name.to_ascii_lowercase().as_str() {
             "instr" => return Some("Option"),
-            "val" => return Some("Result"),
+            // `Val` is infallible now (a `Double`, `0.0` on failure). The strict
+            // `Cxxx` conversions are the fallible ones whose `Result` must be
+            // handled with `?` or `Match`.
+            "cdbl" | "clng" | "cint" => return Some("Result"),
             _ => {}
         }
     }
@@ -1298,6 +1304,19 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     if infer(arg, ctx).is_owned_string() {
                         let inner = std::mem::replace(arg, Expr::Int(0));
                         *arg = Expr::Ref(Box::new(inner));
+                    } else if let Expr::List(elems) = arg {
+                        // A list argument fills a stdlib `Vec<String>` slot
+                        // (`db.Execute(sql, [id, name])`), so each string element
+                        // must be an *owned* String. A `&str` element — a ByVal
+                        // String param, or a `&str`-returning call — is converted
+                        // with `.to_string()`. A string *literal* is already owned
+                        // by the list emitter, and an owned-String local moves in
+                        // as-is; both are left alone (no needless clone).
+                        for el in elems.iter_mut() {
+                            if infer(el, ctx) == VType::Str && !matches!(el, Expr::Str(_)) {
+                                to_owned_string(el);
+                            }
+                        }
                     }
                 }
             }

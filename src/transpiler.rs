@@ -2218,9 +2218,21 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
             "std::thread::sleep(std::time::Duration::from_millis(({}) as u64))",
             r(0)
         )),
-        // InStr → .find() (returns Option); Val → .parse() (returns Result).
+        // InStr → .find() (returns Option).
         ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
-        ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),
+        // `Val` is VB's *lenient* numeric read: a `Double`, `0.0` on non-numeric
+        // text, never fails (VB6 semantics — `Val` was the forgiving one). Leading
+        // and trailing whitespace is ignored, as in VB. The strict, *fallible*
+        // conversions are the `Cxxx` family just below.
+        ("val", 1) => Some(format!("{}.trim().parse::<f64>().unwrap_or(0.0)", r(0))),
+        // `CDbl`/`CLng`/`CInt` — VB's strict conversions (a runtime "type
+        // mismatch" on bad input). Here they parse and hand back a
+        // `Result<_, String>`, so a failure is handled with `?` or `Match`, like
+        // every other fallible call in VBR. Scope: the string-parse case (not
+        // VB's number→number rounding — a later refinement).
+        ("cdbl", 1) => Some(format!("{}.trim().parse::<f64>().map_err(|e| e.to_string())", r(0))),
+        ("clng", 1) => Some(format!("{}.trim().parse::<i64>().map_err(|e| e.to_string())", r(0))),
+        ("cint", 1) => Some(format!("{}.trim().parse::<i32>().map_err(|e| e.to_string())", r(0))),
         // InputBox → a generated helper that prompts and reads a line.
         ("inputbox", 1) => Some(format!("input_box({})", r(0))),
         // Mid is 1-indexed in VB; Rust slices are 0-indexed, so shift by one.

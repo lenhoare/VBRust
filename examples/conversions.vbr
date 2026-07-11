@@ -1,0 +1,37 @@
+' VB's two ways to turn text into a number, and how they differ.
+'
+'   Val   — the *lenient* one. Always a Double, ignores surrounding spaces,
+'           and returns 0 for text that isn't a number. It never fails, so
+'           there is nothing to handle.
+'   CDbl / CLng / CInt — the *strict* conversions. On text that isn't a
+'           number they fail, handing back a Result you deal with using `?`
+'           (propagate) or `Match` (branch). Use these when bad input is an
+'           error you want to catch, not silently turn into 0.
+
+Function PriceOf(ByVal txt As String) As Result<Double>
+    ' `?` bails out of this function with the error string on bad input.
+    Dim price As Double = CDbl(txt)?
+    Return Ok(price)
+End Function
+
+Function Main()
+    ' Lenient: 0 on nonsense, spaces ignored, always a Double.
+    Debug.Print Val("3.14")
+    Debug.Print Val("  42  ")
+    Debug.Print Val("nonsense")
+
+    ' A Double flows into a Long with VBR's automatic numeric cast.
+    Dim count As Long = Val("100")
+    Debug.Print count
+
+    ' Strict: branch on success or failure.
+    Match CLng("77")
+        Ok(v) => Debug.Print "parsed " & v
+        Err(e) => Debug.Print "not a number: " & e
+    End Match
+
+    Match PriceOf("9.99")
+        Ok(p) => Debug.Print "price is " & p
+        Err(e) => Debug.Print e
+    End Match
+End Function

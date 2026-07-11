@@ -58,7 +58,7 @@ pub fn emit_web_program(
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
     for p in &program.pages {
-        out.push_str(&emit_page(p, &t, diags));
+        out.push_str(&emit_page(p, &t, &program.functions, diags));
         out.push('\n');
     }
 
@@ -110,7 +110,7 @@ fn emit_main(p: &Window) -> String {
 
 /// Emit one page as a Yew struct component: the state struct, the `Message`
 /// enum, and `impl Component` (create / update / view).
-fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String {
+fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut Diagnostics) -> String {
     let mut out = String::new();
     let ty = &p.name; // the component struct is named after the page
     let (fields, field_ty) = state_maps(&p.state);
@@ -161,8 +161,9 @@ fn emit_page(p: &Window, t: &surface::Tables, diags: &mut Diagnostics) -> String
     }
 
     out.push_str("use yew::prelude::*;\n");
-    // `std` types used in event bodies (e.g. a HashMap built in an event).
-    out.push_str(&surface::event_std_imports(&p.events));
+    // `std` types used in event bodies or helper functions (e.g. a HashMap
+    // built in an event or a helper).
+    out.push_str(&surface::surface_std_imports(&p.events, helpers));
     out.push('\n');
 
     // ── State struct: a Yew component holds its state directly ──

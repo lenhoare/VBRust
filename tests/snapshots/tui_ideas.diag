@@ -1,2 +1,5 @@
 ℹ Indexing with `x[i]` panics if `i` is out of bounds. When you're not sure the index is valid, use `x.get(i)` — it returns an Option you can handle.
+ℹ HashMap keys are owned Strings — VBR adds `.to_string()` to a string-literal key for you, so `dict.insert("key", v)` becomes `dict.insert("key".to_string(), v)`.
 ⚠ [line 36] Function 'AddIdea' is 'addidea' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+⚠ [line 47] Function 'BonusPoints' is 'bonuspoints' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VB converts between number types silently; Rust wants it spelled out, so VBR inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float to an integer) can lose data.

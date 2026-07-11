@@ -1,2 +1,3 @@
 ℹ The standard library is a Rust crate — `FileSystem.Read(...)` becomes `FileSystem::read(...)` and `use vbr_stdlib::…;` is added for you.
 ⚠ [line 11] Function 'Run' is 'run' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+⚠ [line 43] Function 'AddScored' is 'addscored' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
