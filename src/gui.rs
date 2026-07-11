@@ -1184,6 +1184,8 @@ fn rewrite_canvas_stmt(
         leaf @ (Stmt::HandleDim { .. }
         | Stmt::Break
         | Stmt::Continue
+        // `Assert` only appears in a `Test` block, never a canvas `Draw` body.
+        | Stmt::Assert(_)
         | Stmt::Comment(_)
         | Stmt::LineMark(_)) => leaf,
     }

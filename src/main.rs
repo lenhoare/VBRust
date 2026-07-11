@@ -25,6 +25,7 @@ fn main() {
         Some("runproject") => cmd_project(&args[1..], true),
         Some("runweb") => cmd_runweb(&args[1..]),
         Some("build") => cmd_project(&args[1..], false),
+        Some("test") => cmd_test(&args[1..]),
         Some("transpile") => cmd_transpile(&args[1..]),
         Some("emit") => cmd_emit(&args[1..]),
         _ => {
@@ -41,6 +42,7 @@ fn usage() {
          \tvbr runproject [path]   generate a cargo project in build/ and run it\n\
          \tvbr runweb [path]       build a Page or Screen for WebAssembly and serve it (trunk)\n\
          \tvbr build [path]        generate the cargo project without running (--web for the browser form)\n\
+         \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)"
     );
@@ -203,7 +205,7 @@ fn cmd_project(args: &[String], run: bool) {
         eprintln!("✘ `--web` builds a browser app — serve it with `vbr runweb` instead.");
         exit(1);
     }
-    let (build, file_maps) = generate_project(&entry, web);
+    let (build, file_maps) = generate_project(&entry, web, false);
     eprintln!("→ project: {}", build.display());
 
     if !run {
@@ -281,6 +283,210 @@ fn cmd_project(args: &[String], run: bool) {
     }
 }
 
+/// One `Test` block, flattened across the project for the runner: its generated
+/// `#[test] fn` name, the human description, and the source file + line-map for
+/// translating a failure location back to `.vbr`.
+struct TestRec {
+    fn_name: String,
+    description: String,
+    source: PathBuf,
+    map: Vec<(usize, usize)>,
+}
+
+/// `vbr test`: generate the project (its `Test` blocks are already emitted as
+/// `#[cfg(test)]` `#[test] fn`s), build the test binary, run it, and translate
+/// `cargo test`'s output back to the VBR descriptions and `.vbr` lines.
+fn cmd_test(args: &[String]) {
+    let entry = match resolve_entry(args.first().map(String::as_str).unwrap_or(".")) {
+        Some(e) => e,
+        None => exit(1),
+    };
+    let (build, file_maps) = generate_project(&entry, false, true);
+
+    // Flatten every file's tests into one lookup keyed by the generated fn name.
+    let mut recs: Vec<TestRec> = Vec::new();
+    for fm in &file_maps {
+        for t in &fm.tests {
+            recs.push(TestRec {
+                fn_name: t.fn_name.clone(),
+                description: t.description.clone(),
+                source: fm.source.clone(),
+                map: fm.map.clone(),
+            });
+        }
+    }
+    if recs.is_empty() {
+        eprintln!(
+            "· No `Test` blocks found. Add a `Test \"what it should do\" … End Test` block \
+             (with `Assert …` inside) and run `vbr test` again."
+        );
+        return;
+    }
+
+    // Build the test binary first with JSON diagnostics, so a compile failure is
+    // translated back to `.vbr` lines (same as `vbr run`). `--no-run` keeps the
+    // run's output clean of cargo's build JSON.
+    let built = Command::new("cargo")
+        .args(["test", "--no-run", "--message-format", "json", "--quiet"])
+        .current_dir(&build)
+        .output();
+    match built {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let errors = parse_cargo_json(&stdout);
+            report_errors(&errors, |e| {
+                let name = e.file.as_deref()?;
+                file_maps
+                    .iter()
+                    .find(|m| name.ends_with(&m.rs_name))
+                    .map(|m| (m.source.clone(), m.map.clone()))
+            });
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("✘ Could not run cargo (is it installed?): {}", e);
+            exit(1);
+        }
+    }
+
+    // Run the tests. The build is cached, so this only executes them; the plain
+    // stdout is the libtest report (one `test NAME ... ok` line each) we
+    // translate. No `--quiet` here — that switches libtest to terse dots.
+    let run = Command::new("cargo")
+        .args(["test"])
+        .current_dir(&build)
+        .output();
+    let run = match run {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("✘ Could not run cargo (is it installed?): {}", e);
+            exit(1);
+        }
+    };
+    let out = String::from_utf8_lossy(&run.stdout);
+    report_test_results(&out, &recs);
+    exit(if run.status.success() { 0 } else { 1 });
+}
+
+/// Translate libtest's plain output into VBR terms: one `✓ / ✗` line per test,
+/// keyed by the human description, with the failure's operand values and the
+/// `.vbr` line beneath a `✗`. Tests are shown in **source order** (libtest runs
+/// them in parallel, but the suite reads as a spec, so order matters).
+fn report_test_results(out: &str, recs: &[TestRec]) {
+    // fn name → passed?  (from the `test NAME ... ok/FAILED` lines)
+    let mut passed_of: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    for line in out.lines() {
+        let Some(rest) = line.strip_prefix("test ") else { continue };
+        let Some((path, result)) = rest.split_once(" ... ") else { continue };
+        let fn_name = path.rsplit("::").next().unwrap_or(path).to_string();
+        let result = result.trim();
+        if result == "ok" {
+            passed_of.insert(fn_name, true);
+        } else if result.starts_with("FAILED") {
+            passed_of.insert(fn_name, false);
+        }
+    }
+    let failures = parse_failure_blocks(out, recs);
+
+    let (mut passed, mut failed) = (0usize, 0usize);
+    eprintln!();
+    for rec in recs {
+        match passed_of.get(&rec.fn_name) {
+            Some(true) => {
+                passed += 1;
+                eprintln!("  ✓ {}", rec.description);
+            }
+            Some(false) => {
+                failed += 1;
+                eprintln!("  ✗ {}", rec.description);
+                if let Some(d) = failures.get(&rec.fn_name) {
+                    for m in &d.message {
+                        eprintln!("      {}", m);
+                    }
+                    if let Some(loc) = &d.location {
+                        eprintln!("      {}", loc);
+                    }
+                }
+            }
+            None => {} // not run (filtered/ignored) — skip quietly
+        }
+    }
+    eprintln!();
+    if failed == 0 {
+        eprintln!("  {} passed", passed);
+    } else {
+        eprintln!("  {} passed, {} failed", passed, failed);
+    }
+}
+
+/// A failed test's human detail: the assertion + operand values, and the mapped
+/// `.vbr` location (shown last).
+struct FailureDetail {
+    message: Vec<String>,
+    location: Option<String>,
+}
+
+/// Pull each failed test's operand values (`left`/`right`) and mapped `.vbr`
+/// location out of libtest's `failures:` detail blocks.
+fn parse_failure_blocks(
+    out: &str,
+    recs: &[TestRec],
+) -> std::collections::HashMap<String, FailureDetail> {
+    let mut map: std::collections::HashMap<String, FailureDetail> = std::collections::HashMap::new();
+    let lines: Vec<&str> = out.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        // `---- vbr_tests::a stdout ----`
+        if let Some(rest) = lines[i].strip_prefix("---- ") {
+            if let Some(path) = rest.strip_suffix(" stdout ----") {
+                let fn_name = path.rsplit("::").next().unwrap_or(path).to_string();
+                let rec = recs.iter().find(|r| r.fn_name == fn_name);
+                let mut message: Vec<String> = Vec::new();
+                let mut location: Option<String> = None;
+                i += 1;
+                while i < lines.len()
+                    && !lines[i].starts_with("---- ")
+                    && lines[i].trim() != "failures:"
+                {
+                    let l = lines[i].trim();
+                    if l.contains("panicked at ") {
+                        // `…panicked at src/main.rs:14:9:` → map back to `.vbr`.
+                        if let Some(loc) = l.split("panicked at ").nth(1) {
+                            location = rec.and_then(|r| map_panic_location(loc, r));
+                        }
+                    } else if l.starts_with("assertion") {
+                        message.push(
+                            l.trim_end_matches(" failed")
+                                .replace("assertion `", "expected ")
+                                .replace('`', ""),
+                        );
+                    } else if let Some(v) = l.strip_prefix("left: ") {
+                        message.push(format!("left:  {}", v));
+                    } else if let Some(v) = l.strip_prefix("right: ") {
+                        message.push(format!("right: {}", v));
+                    }
+                    i += 1;
+                }
+                map.insert(fn_name, FailureDetail { message, location });
+                continue;
+            }
+        }
+        i += 1;
+    }
+    map
+}
+
+/// `src/main.rs:14:9:` → `at <source>:<vbr line>` if the line maps.
+fn map_panic_location(loc: &str, rec: &TestRec) -> Option<String> {
+    // loc looks like `src/main.rs:14:9:` — take the file and the first number.
+    let mut parts = loc.split(':');
+    let _file = parts.next()?;
+    let rs_line: usize = parts.next()?.trim().parse().ok()?;
+    let vbr_line = vbr_line_for(&rec.map, rs_line)?;
+    Some(format!("at {}:{}", rec.source.display(), vbr_line))
+}
+
 /// `vbr runweb`: generate the project, build it for WebAssembly (translating
 /// errors back to `.vbr` lines), and serve it in the browser with trunk.
 fn cmd_runweb(args: &[String]) {
@@ -288,7 +494,7 @@ fn cmd_runweb(args: &[String]) {
         Some(e) => e,
         None => exit(1),
     };
-    let (build, file_maps) = generate_project(&entry, true);
+    let (build, file_maps) = generate_project(&entry, true, false);
     eprintln!("→ project: {}", build.display());
 
     let cargo_toml = fs::read_to_string(build.join("Cargo.toml")).unwrap_or_default();
@@ -400,11 +606,12 @@ struct FileMap {
     rs_name: String,
     source: PathBuf,
     map: Vec<(usize, usize)>,
+    tests: Vec<vbr::TestInfo>,
 }
 
 /// Generate the cargo project under `<project>/build/` and return its path
 /// plus the per-file line maps (for translating build errors).
-fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
+fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, Vec<FileMap>) {
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
 
     // A multi-module project is a folder whose entry is `main.vbr`; its siblings
@@ -414,10 +621,14 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
     let is_project = entry.file_name().and_then(|s| s.to_str()) == Some("main.vbr");
 
     // Discover sibling modules: every other `.vbr` file (transpiled), plus any
-    // `.rs` file (included verbatim — a hand-written Rust module).
+    // `.rs` file (included verbatim — a hand-written Rust module). A `*.test.vbr`
+    // file is a **test module** — the dedicated home for `Test` blocks; it is
+    // compiled (as `#[cfg(test)]`) only for `vbr test`, and skipped entirely by
+    // `vbr run`/`build` so tested-only logic never counts as unused in the app.
     let entry_canon = entry.canonicalize().ok();
     let mut vbr_files: Vec<PathBuf> = Vec::new();
     let mut rs_files: Vec<PathBuf> = Vec::new();
+    let mut test_files: Vec<PathBuf> = Vec::new();
     if is_project {
         if let Ok(entries) = fs::read_dir(project_dir) {
             for e in entries.flatten() {
@@ -425,7 +636,9 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
                 if p.canonicalize().ok() == entry_canon {
                     continue;
                 }
+                let is_test = p.file_name().and_then(|s| s.to_str()).is_some_and(|n| n.ends_with(".test.vbr"));
                 match p.extension().and_then(|s| s.to_str()) {
+                    Some("vbr") if is_test => test_files.push(p),
                     Some("vbr") => vbr_files.push(p),
                     // A stray `main.rs` would clobber the generated entry — skip it.
                     Some("rs") if stem_name(&p) != "main" => rs_files.push(p),
@@ -434,8 +647,13 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
             }
         }
     }
+    // A single test file passed directly (`vbr test foo.test.vbr`) is its own
+    // project — treat the entry itself as the test module below is not needed;
+    // the entry compiles normally and any inline `Test` blocks are emitted.
     vbr_files.sort();
     rs_files.sort();
+    test_files.sort();
+    let test_names: Vec<String> = test_files.iter().map(|p| test_module_of(p)).collect();
     let vbr_names: Vec<String> = vbr_files.iter().map(|p| module_of(p)).collect();
     let rs_names: Vec<String> = rs_files.iter().map(|p| module_of(p)).collect();
     // Every sibling module is a possible qualified-call target and a `mod` decl.
@@ -462,7 +680,18 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
     // Entry → main.rs (crate root: `mod` declarations + `fn main`).
     let mut file_maps: Vec<FileMap> = Vec::new();
     let entry_compiled = compile_path(entry, &module_names, &interfaces, true, web);
-    if let Err(e) = fs::write(src.join("main.rs"), &entry_compiled.rust) {
+    // For `vbr test`, declare each `*.test.vbr` file as a `#[cfg(test)]` module —
+    // so `cargo test` compiles it, but a plain build never sees it. Appended at
+    // the end (item order is free in Rust) so main.rs's line map — which
+    // translates its errors back to `.vbr` — keeps its offsets.
+    let mut entry_rust = entry_compiled.rust.clone();
+    if include_tests && !test_names.is_empty() {
+        entry_rust.push('\n');
+        for n in &test_names {
+            entry_rust.push_str(&format!("#[cfg(test)]\nmod {};\n", n));
+        }
+    }
+    if let Err(e) = fs::write(src.join("main.rs"), &entry_rust) {
         eprintln!("✘ Could not write main.rs: {}", e);
         exit(1);
     }
@@ -470,6 +699,7 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
         rs_name: "src/main.rs".to_string(),
         source: entry.to_path_buf(),
         map: entry_compiled.line_map.clone(),
+        tests: entry_compiled.tests.clone(),
     });
     let mut any_stdlib = needs_project(&entry_compiled.rust);
     // An async GUI (an event with `Await`) runs blocking work via tokio, so Iced
@@ -492,6 +722,7 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
             rs_name: format!("src/{}.rs", name),
             source: file.clone(),
             map: compiled.line_map.clone(),
+            tests: compiled.tests.clone(),
         });
         any_stdlib |= needs_project(&compiled.rust);
         deps.extend(compiled.dependencies);
@@ -519,6 +750,29 @@ fn generate_project(entry: &Path, web: bool) -> (PathBuf, Vec<FileMap>) {
             if content.contains(ns) {
                 stdlib_ns.push(ns.to_string());
             }
+        }
+    }
+
+    // Each `*.test.vbr` → `<name>_test.rs` (only for `vbr test`). It's compiled
+    // with the real modules in scope, so its `Test` blocks call them by the
+    // qualified name (`Life.StepCell`); its output is all `#[cfg(test)]`.
+    if include_tests {
+        for (file, name) in test_files.iter().zip(&test_names) {
+            let compiled = compile_path(file, &module_names, &interfaces, false, web);
+            let path = src.join(format!("{}.rs", name));
+            if let Err(e) = fs::write(&path, &compiled.rust) {
+                eprintln!("✘ Could not write {}: {}", path.display(), e);
+                exit(1);
+            }
+            file_maps.push(FileMap {
+                rs_name: format!("src/{}.rs", name),
+                source: file.clone(),
+                map: compiled.line_map.clone(),
+                tests: compiled.tests.clone(),
+            });
+            any_stdlib |= needs_project(&compiled.rust);
+            deps.extend(compiled.dependencies);
+            stdlib_ns.extend(compiled.stdlib_used);
         }
     }
 
@@ -711,6 +965,14 @@ fn stem_name(p: &Path) -> String {
 /// The Rust module name for a project file (`MyHelpers.vbr` → `my_helpers`).
 fn module_of(p: &Path) -> String {
     vbr::module_name(&stem_name(p))
+}
+
+/// The Rust module name for a `foo.test.vbr` test file — `foo_test`, kept
+/// distinct from the real `foo` module it exercises.
+fn test_module_of(p: &Path) -> String {
+    let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("mod.test.vbr");
+    let base = name.strip_suffix(".test.vbr").unwrap_or(name);
+    vbr::module_name(&format!("{}_test", base))
 }
 
 /// Copy a folder project's data files into `build/` (see the call site).

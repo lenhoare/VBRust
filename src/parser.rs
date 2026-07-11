@@ -92,6 +92,7 @@ impl<'a> Parser<'a> {
         let mut screens = Vec::new();
         let mut pages = Vec::new();
         let mut css = Vec::new();
+        let mut tests = Vec::new();
         let mut top_comments = Vec::new();
         loop {
             self.skip_newlines();
@@ -199,6 +200,12 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Test") => {
+                    match self.parse_test() {
+                        Some(t) => tests.push(t),
+                        None => break,
+                    }
+                }
                 Tok::Ident(w) if w == "Option" => {
                     self.diags.error(
                         self.line(),
@@ -233,6 +240,7 @@ impl<'a> Parser<'a> {
             screens,
             pages,
             css,
+            tests,
         }
     }
 
@@ -402,6 +410,42 @@ impl<'a> Parser<'a> {
             return None;
         }
         Some(EnumDef { name, public, variants })
+    }
+
+    /// `Test "description"` … `End Test` — an executable specification. The body
+    /// is an ordinary statement block (Arrange-Act-`Assert`).
+    fn parse_test(&mut self) -> Option<TestBlock> {
+        let line = self.line();
+        self.expect_ident("to start a test")?; // the `Test` word
+        let description = match self.advance() {
+            Tok::Str(s) => s,
+            other => {
+                self.diags.error(
+                    line,
+                    format!(
+                        "A `Test` needs a description in quotes — the sentence it verifies, \
+                         e.g. `Test \"a blinker oscillates\"`. Found {:?}.",
+                        other
+                    ),
+                );
+                return None;
+            }
+        };
+        self.expect(&Tok::Newline, "after the test description")?;
+        let body = self.parse_block()?;
+        self.expect(&Tok::End, "to close the test")?;
+        // `End Test` — the terminator word is an identifier, like `Test` itself.
+        match self.peek().clone() {
+            Tok::Ident(w) if w.eq_ignore_ascii_case("Test") => {
+                self.advance();
+            }
+            other => {
+                self.diags.error(self.line(), format!("Expected `Test` after `End`, found {:?}.", other));
+                return None;
+            }
+        }
+        self.eat(&Tok::Newline);
+        Some(TestBlock { description, body, line })
     }
 
     fn parse_function(&mut self, public: bool, is_sub: bool) -> Option<Function> {
@@ -1953,6 +1997,14 @@ impl<'a> Parser<'a> {
                     self.advance();
                 }
                 None
+            }
+            // `Assert <expr>` inside a `Test` block. `Assert` isn't a reserved
+            // word globally (only recognised at statement start), so a variable
+            // elsewhere is unaffected; what follows is a full expression, so
+            // `Assert x = 3` reads the `=` as equality (→ `assert_eq!`).
+            Tok::Ident(w) if w.eq_ignore_ascii_case("assert") => {
+                self.advance();
+                Some(Stmt::Assert(self.parse_expr()?))
             }
             Tok::Ident(name) => self.parse_ident_stmt(name),
             other => {

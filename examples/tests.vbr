@@ -1,0 +1,45 @@
+' A `Test "description" … End Test` block is an executable specification: run it
+' with `vbr test`, which reports `✓ / ✗` by description and shows the operand
+' values on a failure. Each `Assert <expr>` lowers to a Rust assertion — `=` and
+' `<>` become `assert_eq!`/`assert_ne!` (so you see `left` vs `right`), anything
+' else an `assert!`. Tests live under `#[cfg(test)]`, so `vbr run`/`build` ignore
+' them; only `vbr test` builds and runs them. In a project, gather a module's
+' tests in a `<module>.test.vbr` file beside it.
+
+Function FizzBuzz(ByVal n As Long) As String
+    If n Mod 15 = 0 Then
+        Return "fizzbuzz"
+    End If
+    If n Mod 3 = 0 Then
+        Return "fizz"
+    End If
+    If n Mod 5 = 0 Then
+        Return "buzz"
+    End If
+    Return CStr(n)
+End Function
+
+Test "multiples of three are fizz"
+    Assert FizzBuzz(9) = "fizz"
+End Test
+
+Test "multiples of five are buzz"
+    Assert FizzBuzz(10) = "buzz"
+End Test
+
+Test "multiples of fifteen are fizzbuzz"
+    Assert FizzBuzz(30) = "fizzbuzz"
+End Test
+
+Test "an ordinary number is its own text"
+    Assert FizzBuzz(7) = "7"
+    Assert FizzBuzz(7) <> "fizz"
+End Test
+
+Function Main()
+    Dim i As Long = 1
+    Do While i <= 15
+        Debug.Print FizzBuzz(i)
+        i = i + 1
+    Loop
+End Function

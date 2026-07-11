@@ -589,3 +589,44 @@ events via `state.db`, helper functions borrowing `&Database`) compiles clean,
 and the failure path prints and exits before the terminal is touched. The
 considered-and-shelved alternative (`Run`-args seeding from `Main`) is
 documented in stdlib_spec §8 Deferred — only needed for custom failure UI.
+
+---
+
+## Capability: test harness — `vbr test` — BUILT (2026-07-11)
+
+Framed by Len as the **trust protocol** for the collaboration model: "I write the
+code and the tests, you read the tests as a specification you can verify me
+against." Conway had faked this with a `tests.vbr` called from `Main`; this makes
+it first-class.
+
+- **`Test "description" … End Test`** blocks (top-level, ordinary statement body)
+  and **`Assert <expr>`**. The operator picks the Rust assertion — `=` →
+  `assert_eq!`, `<>` → `assert_ne!` (operand-level failure messages, the point
+  for the trust protocol), else `assert!`. `Test`/`Assert` are recognised only at
+  their positions (top-level / statement start), not reserved globally.
+- Lowering: each `Test` → a `#[test] fn` (deduped description slug) in a
+  `#[cfg(test)] mod vbr_tests`, body resolved exactly like a function body. So
+  `vbr run`/`build` compile them out; only `vbr test` runs them.
+- **`vbr test [path]`**: generates the project (tests active), `cargo test --no-run`
+  (compile errors translated to `.vbr` like `vbr run`), then `cargo test`, and
+  translates libtest output → `✓ / ✗` by **description**, in **source order**,
+  with operand values and the **`.vbr` line** on a failure. Exits non-zero on any
+  failure (CI-ready).
+- **Placement — `<module>.test.vbr` sibling files** (the agreed model: the suite
+  reads as a module's contract, gathered, not scattered). A `.test.vbr` file is
+  discovered only by `vbr test` — declared `#[cfg(test)] mod <name>_test;`, skipped
+  entirely by `vbr run`/`build`, so tested-only logic never counts as unused in the
+  app build. Tests call the code by qualified name (`Life.StepCell`), so the tested
+  function must be `Public` — you test the public surface. Inline `Test` blocks in
+  any file also work; the sibling file is the recommended home.
+- Scope: **logic, not surfaces** (test pure functions / public API, not
+  GUI/TUI/web rendering). Deferred: setup/fixtures, custom `Assert` messages.
+
+Files: `ast.rs` (`TestBlock`, `Stmt::Assert`, `Program.tests`), `parser.rs`
+(`parse_test`, the `Assert` stmt arm), `resolver.rs` (`Stmt::Assert` resolves its
+expr), `transpiler.rs` (`emit_tests`, `test_fn_names`, the `Assert` emit arm),
+`lib.rs` (`TestInfo` on `Compiled`), `main.rs` (`cmd_test`, `.test.vbr` discovery
++ `#[cfg(test)]` mod injection, libtest-output translation). Spec: `testing_spec.md`
+(+ `language_spec.md` §13, `language_reference.md`). Example: `examples/tests.vbr`
+(HAPPY snapshot). Guard: `vbr_test_runs_specs` (single-file + `.test.vbr`, pass and
+fail, and the app build stays warning-free).

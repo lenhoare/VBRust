@@ -45,6 +45,22 @@ pub struct Compiled {
     /// Local files the pages reference (`Image "logo.png"`) — each becomes a
     /// trunk copy-file directive in the generated `index.html`.
     pub web_assets: Vec<String>,
+    /// The `Test` blocks in this file, paired with their generated `#[test] fn`
+    /// name — so `vbr test` can translate a `cargo test` result line back to the
+    /// human description and `.vbr` line.
+    pub tests: Vec<TestInfo>,
+}
+
+/// One `Test` block's identity, bridging the VBR source and the generated
+/// `#[test] fn`.
+#[derive(Debug, Clone)]
+pub struct TestInfo {
+    /// The generated Rust function name (a slug of the description).
+    pub fn_name: String,
+    /// The human description — the spec sentence shown in `vbr test` output.
+    pub description: String,
+    /// The `.vbr` source line of the `Test` block.
+    pub line: usize,
 }
 
 /// Run the full pipeline over `source` as a single standalone file (the entry,
@@ -159,6 +175,18 @@ fn compile_with(
     }
     let stdlib_used = transpiler::stdlib_used(&diags);
     let line_map = diags.take_line_map();
+    // Pair each `Test` block with its generated `#[test] fn` name (the same slug
+    // the emitter used), so the runner can map a `cargo test` line to it.
+    let tests: Vec<TestInfo> = program
+        .tests
+        .iter()
+        .zip(transpiler::test_fn_names(&program.tests))
+        .map(|(t, fn_name)| TestInfo {
+            fn_name,
+            description: t.description.clone(),
+            line: t.line,
+        })
+        .collect();
 
     Compiled {
         rust,
@@ -171,6 +199,7 @@ fn compile_with(
         web_title,
         web_style,
         web_assets,
+        tests,
     }
 }
 

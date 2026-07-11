@@ -90,6 +90,9 @@ pub fn transpile_module(
     for func in &program.functions {
         note_builtins(&func.body, diags);
     }
+    for test in &program.tests {
+        note_builtins(&test.body, diags);
+    }
     mark_stdlib_types(program, diags);
     let module_set: HashSet<String> = modules.iter().cloned().collect();
     // Enum names — a reference like `Color.Red` resolves to the path `Color::Red`.
@@ -119,8 +122,10 @@ pub fn transpile_module(
         }
         out.push('\n');
     }
-    // Pull in HashMap automatically when it's used.
-    if program.functions.iter().any(|f| body_uses_hashmap(&f.body)) {
+    // Pull in HashMap automatically when it's used — in a function or a test.
+    if program.functions.iter().any(|f| body_uses_hashmap(&f.body))
+        || program.tests.iter().any(|t| body_uses_hashmap(&t.body))
+    {
         out.push_str("use std::collections::HashMap;\n\n");
     }
     // Pull in the stdlib namespaces that were used (marked during note_builtins).
@@ -199,6 +204,15 @@ pub fn transpile_module(
             &mut out, 0, None,
         );
     }
+
+    // `Test` blocks → a `#[cfg(test)] mod` of `#[test] fn`s. Under `#[cfg(test)]`
+    // so `vbr run`/`build` compile them out entirely; only `vbr test` (which runs
+    // `cargo test`) builds and runs them.
+    emit_tests(
+        program, &fns, &methods, &consts, &module_set, interfaces, &enum_set, &structs, diags,
+        &mut out,
+    );
+
     add_sibling_type_uses(out, &type_providers, &private_types, diags)
 }
 
@@ -507,6 +521,71 @@ pub(crate) fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
         Stmt::Match { arms, .. } => arms.iter().any(|a| body_uses_hashmap(&a.body)),
         _ => false,
     })
+}
+
+/// The Rust `#[test]` function name for each `Test` block: a slug of its
+/// description, deduped so two identically-described tests still compile. Shared
+/// by the emitter and `Compiled.tests` so the runner can pair a `cargo test`
+/// result line back to its VBR description.
+pub(crate) fn test_fn_names(tests: &[TestBlock]) -> Vec<String> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut names = Vec::new();
+    for t in tests {
+        let mut slug: String = t
+            .description
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+            .collect();
+        while slug.contains("__") {
+            slug = slug.replace("__", "_");
+        }
+        let slug = slug.trim_matches('_');
+        let base = if slug.is_empty() { "test".to_string() } else { slug.to_string() };
+        let count = seen.entry(base.clone()).or_insert(0);
+        let name = if *count == 0 { base.clone() } else { format!("{}_{}", base, count) };
+        *count += 1;
+        names.push(name);
+    }
+    names
+}
+
+/// Emit the `Test` blocks as a `#[cfg(test)] mod vbr_tests` of `#[test] fn`s.
+/// Each body is resolved exactly like a function body (coercions, stdlib calls,
+/// cross-module argument treatment), then emitted statement-by-statement — a
+/// test returns `()`, so there is no tail-expression handling.
+#[allow(clippy::too_many_arguments)]
+fn emit_tests(
+    program: &Program,
+    fns: &FnTable,
+    methods: &resolver::MethodTable,
+    consts: &HashMap<String, String>,
+    modules: &HashSet<String>,
+    interfaces: &resolver::ProjectInterfaces,
+    enums: &HashSet<String>,
+    structs: &resolver::StructTable,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    if program.tests.is_empty() {
+        return;
+    }
+    let names = test_fn_names(&program.tests);
+    out.push_str("\n#[cfg(test)]\nmod vbr_tests {\n    #[allow(unused_imports)]\n    use super::*;\n");
+    for (test, name) in program.tests.iter().zip(&names) {
+        let mut body = test.body.clone();
+        resolver::resolve_body(
+            &mut body, &[], fns, methods, consts, modules, interfaces, enums, structs, None, None,
+            false, diags,
+        );
+        elide_for_counter_dims(&mut body);
+        let mut mutated = HashSet::new();
+        collect_mutated(&body, &mut mutated);
+        let empty = HashSet::new();
+        out.push_str(&format!("    #[test]\n    fn {}() {{\n", name));
+        emit_block(&body, &mutated, &empty, 2, diags, out);
+        out.push_str("    }\n");
+    }
+    out.push_str("}\n");
 }
 
 pub(crate) fn emit_fn(
@@ -1294,6 +1373,20 @@ pub(crate) fn emit_stmt(
         }
         Stmt::Draw(cmd) => {
             out.push_str(&format!("{}{}\n", pad, render_draw_cmd(cmd, diags)));
+        }
+        // `Assert <expr>` → the Rust assertion whose shape matches the operator,
+        // so `=`/`<>` give operand-level failure messages ("left: .., right: ..").
+        Stmt::Assert(e) => {
+            let line = match e {
+                Expr::Binary { op: BinOp::Eq, lhs, rhs } => {
+                    format!("assert_eq!({}, {});", render_expr(lhs, None), render_expr(rhs, None))
+                }
+                Expr::Binary { op: BinOp::Ne, lhs, rhs } => {
+                    format!("assert_ne!({}, {});", render_expr(lhs, None), render_expr(rhs, None))
+                }
+                _ => format!("assert!({});", render_expr(e, None)),
+            };
+            out.push_str(&format!("{}{}\n", pad, line));
         }
     }
 }

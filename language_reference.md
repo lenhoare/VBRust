@@ -941,8 +941,29 @@ ones you use — so a program that just reads a file compiles nothing extra.
 | `vbr run file.vbr` | compile one file with `rustc` and run it |
 | `vbr runproject [dir]` | build the visible `build/` Cargo project and run it |
 | `vbr build [dir]` | generate the project without running |
+| `vbr test [dir]` | run the `Test` blocks and report `✓ / ✗` |
 | `vbr transpile file.vbr` | write the generated Rust to a file |
 | `vbr emit file.vbr` | print the generated Rust |
+
+### Tests you can read as a specification
+
+You describe what the code should do in a `Test` block, and check it with
+`Assert`:
+
+```vb
+Test "a dead cell with three neighbours is born"
+    Assert Life.StepCell(False, 3) = True
+End Test
+```
+
+`Assert a = b` becomes Rust's `assert_eq!` (so a failure shows you both values);
+`a <> b` becomes `assert_ne!`; anything else a plain `assert!`. `vbr test` runs
+them and reports each by its sentence, with the `.vbr` line and the `left`/`right`
+values when one fails — so a test reads as a promise, and a failure tells you
+which promise broke without your having to open the code. Keep a module's tests in
+a `life.test.vbr` file beside `life.vbr`; they run only under `vbr test` (never in
+`vbr run`/`build`). This is the collaboration contract: the tests are what a reader
+verifies you against. The whole surface is in `testing_spec.md`.
 
 The `build/` directory is generated, visible, and yours to explore. Nothing is
 hidden. You can ignore it while you are comfortable, read it when you are curious,

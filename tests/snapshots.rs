@@ -67,6 +67,7 @@ const HAPPY: &[&str] = &[
     "grid_logic",
     "text_block",
     "conversions",
+    "tests",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

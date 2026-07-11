@@ -75,6 +75,19 @@ pub struct Program {
     /// `Css … End Css` blocks, verbatim — a `Page`'s stylesheet, injected into
     /// the generated `index.html` (`web_spec.md` §6).
     pub css: Vec<String>,
+    /// `Test "description" … End Test` blocks — executable specifications. Each
+    /// lowers to a Rust `#[test] fn` (gathered in a `#[cfg(test)] mod`), so
+    /// `vbr run`/`build` ignore them and only `vbr test` runs them.
+    pub tests: Vec<TestBlock>,
+}
+
+/// A `Test "description" … End Test` block. The description is the spec sentence
+/// a reader verifies against; the body is ordinary VBR (Arrange-Act-`Assert`).
+#[derive(Debug, Clone)]
+pub struct TestBlock {
+    pub description: String,
+    pub body: Vec<Stmt>,
+    pub line: usize,
 }
 
 /// A terminal UI app: the same State/View/Events model as a `Window`, but
@@ -533,6 +546,11 @@ pub enum Stmt {
     },
     /// A drawing verb inside a `Draw` block / paint function (canvas codegen).
     Draw(DrawCmd),
+    /// `Assert <expr>` inside a `Test` block. The expression's shape picks the
+    /// Rust assertion: `a = b` → `assert_eq!`, `a <> b` → `assert_ne!`, anything
+    /// else → `assert!` — so the `=`/`<>` you'd write anyway give operand-level
+    /// failure messages.
+    Assert(Expr),
     Comment(String),
     /// Not a statement: marks that whatever is emitted next came from this VBR
     /// source line. The parser drops one before each statement; the emitter

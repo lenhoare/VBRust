@@ -845,6 +845,10 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Set { value, .. } => resolve_expr(value, ctx),
             Stmt::Print(e) => resolve_expr(e, ctx),
+            // `Assert <expr>` — resolve the asserted expression like any other
+            // (coercions, stdlib calls, comparisons). Its `=`/`<>` shape is read
+            // by the emitter to pick assert_eq!/assert_ne!/assert!.
+            Stmt::Assert(e) => resolve_expr(e, ctx),
             Stmt::Return(Some(e)) => {
                 resolve_expr(e, ctx);
                 match ctx.ret_coerce {

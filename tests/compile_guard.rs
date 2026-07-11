@@ -242,3 +242,81 @@ fn transpile_only_examples_compile() {
     );
     eprintln!("✔ playground compiled clean (wasm32)");
 }
+
+/// `vbr test` end to end: the runner parses `Test`/`Assert`, emits `#[test]`
+/// functions, runs `cargo test`, and translates the result back to VBR terms.
+/// Covers the single-file form (the `tests.vbr` example) and the `.test.vbr`
+/// sibling placement — including a deliberate failure, to prove the operand
+/// values and `.vbr` line come through.
+#[test]
+#[ignore = "runs cargo test on generated projects — run with `cargo test -- --ignored`"]
+fn vbr_test_runs_specs() {
+    use std::fs;
+    let vbr = env!("CARGO_BIN_EXE_vbr");
+
+    // 1. The single-file example: all four specs pass.
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/tests.vbr");
+    let single = std::env::temp_dir().join(format!("vbr_test_single_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&single);
+    fs::create_dir_all(&single).unwrap();
+    fs::copy(&example, single.join("main.vbr")).unwrap();
+    let out = Command::new(vbr).arg("test").arg(&single).output().expect("run vbr test");
+    let report = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "vbr test (single) exited non-zero:\n{report}");
+    assert!(report.contains("4 passed"), "expected 4 passed:\n{report}");
+    assert!(
+        report.contains("multiples of three are fizz"),
+        "expected the description in the report:\n{report}"
+    );
+
+    // 2. A project with a `.test.vbr` sibling: one spec passes, one fails. The
+    //    failure must name the `.test.vbr` line and show the operand values, and
+    //    the process must exit non-zero (usable in CI).
+    let proj = std::env::temp_dir().join(format!("vbr_test_proj_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&proj);
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(
+        proj.join("life.vbr"),
+        "Public Function StepCell(ByVal alive As Boolean, ByVal neighbours As Long) As Boolean\n\
+         \x20   If alive Then\n\
+         \x20       Return neighbours = 2 Or neighbours = 3\n\
+         \x20   End If\n\
+         \x20   Return neighbours = 3\n\
+         End Function\n",
+    )
+    .unwrap();
+    fs::write(
+        proj.join("main.vbr"),
+        "Function Main()\n    Debug.Print CStr(Life.StepCell(True, 2))\nEnd Function\n",
+    )
+    .unwrap();
+    fs::write(
+        proj.join("life.test.vbr"),
+        "Test \"a live cell with two neighbours survives\"\n\
+         \x20   Assert Life.StepCell(True, 2) = True\n\
+         End Test\n\n\
+         Test \"a lone cell wrongly expected to survive\"\n\
+         \x20   Assert Life.StepCell(True, 0) = True\n\
+         End Test\n",
+    )
+    .unwrap();
+    let out = Command::new(vbr).arg("test").arg(&proj).output().expect("run vbr test");
+    let report = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "a failing suite must exit non-zero:\n{report}");
+    assert!(report.contains("1 passed, 1 failed"), "expected 1 passed, 1 failed:\n{report}");
+    assert!(report.contains("left:  false"), "expected operand values:\n{report}");
+    assert!(report.contains("life.test.vbr:6"), "expected the .test.vbr line:\n{report}");
+
+    // 3. A plain `vbr build` of that project excludes the `.test.vbr` file and is
+    //    warning-free (tested-only logic must not leak into the app build).
+    let out = Command::new(vbr).arg("build").arg(&proj).output().expect("run vbr build");
+    assert!(out.status.success(), "vbr build failed:\n{}", String::from_utf8_lossy(&out.stderr));
+    let built = Command::new("cargo").arg("build").current_dir(proj.join("build")).output().unwrap();
+    let stderr = String::from_utf8_lossy(&built.stderr);
+    assert!(built.status.success(), "cargo build failed:\n{stderr}");
+    assert!(!stderr.contains("warning:"), "the app build should be warning-free:\n{stderr}");
+
+    let _ = fs::remove_dir_all(&single);
+    let _ = fs::remove_dir_all(&proj);
+    eprintln!("✔ vbr test ran specs (single-file + .test.vbr, pass and fail)");
+}

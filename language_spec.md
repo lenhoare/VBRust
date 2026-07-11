@@ -666,8 +666,20 @@ The CLI compiles a `.vbr` source through lexer → parser → resolver → trans
 | `run <file>`  | Transpile a single file with `rustc` and execute. **Errors** if it uses the stdlib or any `Use` crate (those can't be linked by `rustc` alone — use `runproject`). |
 | `runproject [dir]` | Generate a visible `build/` Cargo project — multifile `.vbr`/`.rs` modules, the stdlib, and `Use` crates — then `cargo run` it. Defaults to the current directory. |
 | `build [dir]` | Generate the project without running.                           |
+| `test [dir]`  | Run the program's `Test` blocks and report `✓ / ✗` by description (see below). |
 | `transpile <file>` | Write the generated Rust to `<file>.rs` (or `-o`).         |
 | `emit <file>` | Print the generated Rust to stdout.                             |
+
+### Testing (`Test` / `Assert` / `vbr test`)
+
+A `Test "description" … End Test` block is an executable specification; `Assert
+<expr>` checks a condition, with `=`/`<>` lowering to `assert_eq!`/`assert_ne!`
+(operand-level failure messages) and anything else to `assert!`. Tests lower to
+Rust `#[test]` functions under `#[cfg(test)]`, so `run`/`build` ignore them and
+only `vbr test` runs them (via `cargo test`), reporting each by its description
+with the `.vbr` line and operand values on a failure. Gather a module's tests in
+a `<module>.test.vbr` file beside it — compiled only for `vbr test`, skipped by
+normal builds. Full detail in `testing_spec.md`.
 
 ### Projects (multifile)
 
