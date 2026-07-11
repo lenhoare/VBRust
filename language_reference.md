@@ -273,6 +273,17 @@ Loop Until done
 `Exit Do`, `Exit For`, and `Exit Function` break out early; `Continue` skips to the
 next turn of the loop.
 
+And the pause every VB6 module declared by hand — `Declare Sub Sleep Lib
+"kernel32"` — is simply built in:
+
+```vb
+Sleep 500                        →     std::thread::sleep(std::time::Duration::from_millis(500))
+```
+
+Milliseconds, as always. (In a `Window` or `Screen` *event* it's rejected with
+an explanation — sleeping there would freeze the interface; a timer, `Every
+<ms> <Event>`, is the way to run something later.)
+
 ---
 
 ## 4. Functions

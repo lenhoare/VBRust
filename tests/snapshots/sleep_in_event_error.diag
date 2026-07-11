@@ -1,0 +1,1 @@
+✘ `Sleep` pauses the whole UI thread — the screen freezes and keys go unanswered. To run something after a delay, use a timer instead: `Every <ms> <Event>`.

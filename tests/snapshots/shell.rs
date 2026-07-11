@@ -38,6 +38,8 @@ fn main() {
 
 fn runchild() -> Result<i64, String> {
     let mut child: Process = Shell::start("sleep 2")?;
+    std::thread::sleep(std::time::Duration::from_millis((100) as u64));
+    // VB6's kernel32 Sleep, no Declare needed (milliseconds)
     println!("running: {}", child.is_running());
     child.kill();
     println!("after kill: {}", child.is_running());

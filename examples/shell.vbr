@@ -26,6 +26,7 @@ End Function
 ' process is a harmless no-op; `Wait` returns the exit code (-1 after a kill).
 Function RunChild() As Result<Long>
     Dim child As Process = Shell.Start("sleep 2")?
+    Sleep 100    ' VB6's kernel32 Sleep, no Declare needed (milliseconds)
     Debug.Print "running: " & child.IsRunning()
     child.Kill()
     Debug.Print "after kill: " & child.IsRunning()

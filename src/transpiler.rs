@@ -2073,6 +2073,11 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("str", 1) | ("cstr", 1) => Some(method0(&args[0], "to_string")),
         // Chr(n) → the one-character string for code point n (Chr(10) = newline).
         ("chr", 1) => Some(format!("(({} as u8) as char).to_string()", r(0))),
+        // Sleep ms — VB6's kernel32 `Declare Sub Sleep`, no Declare needed.
+        ("sleep", 1) => Some(format!(
+            "std::thread::sleep(std::time::Duration::from_millis(({}) as u64))",
+            r(0)
+        )),
         // InStr → .find() (returns Option); Val → .parse() (returns Result).
         ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
         ("val", 1) => Some(format!("{}.parse::<f64>()", r(0))),

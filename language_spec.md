@@ -362,6 +362,12 @@ shadowed and warn as unused. The counter therefore doesn't exist after the loop
 `Debug.Print expr` → `println!`. `MsgBox` / `InputBox` are lowered to terminal
 output and prompted input (no GUI), as built-ins — not part of the stdlib crate.
 
+### Pausing
+`Sleep ms` (paren-less, like VB6's kernel32 `Declare Sub Sleep` — no Declare
+needed) or `Sleep(ms)` → `std::thread::sleep`. Milliseconds. Rejected inside a
+`Window`/`Screen`/`Page` **event** with a teaching error (it would freeze the
+UI) — the surface way to run something later is a timer, `Every <ms> <Event>`.
+
 ---
 
 ## 7. User-defined types (`Type`)

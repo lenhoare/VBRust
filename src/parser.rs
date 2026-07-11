@@ -2268,6 +2268,14 @@ impl<'a> Parser<'a> {
             return Some(Stmt::Print(value));
         }
 
+        // `Sleep 500` — VB6's kernel32 Sleep (milliseconds), paren-less like
+        // the original Sub call. `Sleep(500)` parses the same way.
+        if name.eq_ignore_ascii_case("Sleep") {
+            self.advance(); // Sleep
+            let ms = self.parse_expr()?;
+            return Some(Stmt::Expr(Expr::Call { name: "Sleep".to_string(), args: vec![ms] }));
+        }
+
         // Parse a place expression (Ident or `a.field`) or a call. `parse_primary`
         // stops before binary operators, so a top-level `=` isn't mistaken for the
         // equality operator.

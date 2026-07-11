@@ -1,0 +1,20 @@
+Screen P
+    State
+        Dim n As Long = 0
+    End State
+    View
+        Column
+            Text "hi " & n
+        End Column
+    End View
+    On Key "s" Snooze
+    On Key "q" Quit
+    Event Snooze
+        Sleep 1000
+        n = n + 1
+    End Event
+End Screen
+
+Function Main()
+    P.Run
+End Function

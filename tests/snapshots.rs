@@ -103,6 +103,7 @@ const ERRORS: &[&str] = &[
     "closure_capture_error",
     "use_no_version_error",
     "blocking_no_await_error",
+    "sleep_in_event_error",
 ];
 
 fn examples_dir() -> PathBuf {

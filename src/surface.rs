@@ -765,6 +765,18 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
                  — e.g. `Match Await Http.Get(url) … End Match`.",
             );
         }
+        // `Sleep` in an event freezes the whole UI — and unlike I/O there's
+        // nothing to await; the surface way to "do something later" is a timer.
+        if let Expr::Call { name, .. } = e {
+            if rust_name(name) == "sleep" {
+                diags.error_once(
+                    "sleep-in-event",
+                    "`Sleep` pauses the whole UI thread — the screen freezes and keys go \
+                     unanswered. To run something after a delay, use a timer instead: \
+                     `Every <ms> <Event>`.",
+                );
+            }
+        }
         // Children are never "awaited" by this expression.
         match e {
             Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
