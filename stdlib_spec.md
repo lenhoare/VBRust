@@ -49,6 +49,7 @@ Dim text As String = FileSystem.Read("notes.txt")
 | `regex` (`Regex`) | `regex` | include |
 | `http` (`Http`) | `ureq` blocking | include |
 | `database` (`Database`) | `rusqlite` (bundled SQLite) | include — see §8 |
+| `shell` (`Shell`, `Process`) | `std::process` | include — see §9 |
 
 HTTP is built on **`ureq`** (blocking, no async runtime, minimal deps) rather
 than `reqwest`, so the crate stays fast and offline-friendly; it lives behind a
@@ -218,3 +219,43 @@ stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`), fixing
   statement passes `[]` (there are no `Optional` params). This was built ahead of
   the SQLite module so the API is pleasant from day one — see `list_literal.vbr`,
   `language_spec.md` (Collections).
+
+---
+
+## 9. Shell — commands and child processes — **BUILT 2026-07-11**
+
+VB6's `Shell`, grown up: `std::process` behind two verbs. Std-only (no Cargo
+feature, like `FileSystem`), so it's always available.
+
+- **`Shell.Run(cmd)`** → `Result<String, String>` — run `cmd`, **wait** for
+  it, capture output: `Ok(stdout)` (trailing newline trimmed) on exit 0,
+  `Err(stderr)` (or the exit status when stderr is empty) otherwise.
+- **`Shell.Start(cmd)`** → `Result<Process, String>` — launch and **don't
+  wait**: VB6's actual `Shell` semantics. The child's stdin/stdout/stderr are
+  detached, so a background server can't scribble over a terminal UI. Dropping
+  the handle does *not* stop the process — call `Kill`.
+- **`proc.IsRunning()`** → `Boolean` — a snapshot (`try_wait`), safe in a UI
+  event. **`proc.Kill()`** — stop and reap it (a no-op if already dead).
+  **`proc.Wait()`** → `Long` — block for the exit code (`-1` when unknowable,
+  e.g. after a kill).
+
+Commands go **through the system shell** (`sh -c` / `cmd /C`), so pipes,
+redirects, and PATH behave like a terminal.
+
+Integration: `Shell.Run` joins the blocking-call check (un-`Await`ed in an
+event is a teaching error) **and** the awaitable set (`Match Await
+Shell.Run(cmd)` runs off the UI thread, same shape as `Http.Get`).
+`Shell.Start`/`Shell.Run` are fallible `State` initialisers — a `Process` can
+live in a `Screen`'s state, started before the terminal opens with the clean
+`could not start` bail-out (the local-LLM-server shape: `examples/tui_shell.vbr`).
+`Kill`/`Wait`/`IsRunning` are registered mutating methods (`let mut`, `&mut`
+through state).
+
+Deferred: capturing a started process's output (a log pane wants a pipe +
+non-blocking reads); `proc.Wait()` inside an event isn't caught by the
+blocking check (it only sees stdlib-*type* receivers, not instances); an
+`Await Shell.Run` browser story (no processes in a sandbox — permanent fence).
+
+Examples: `examples/shell.vbr` (run/capture, failure, start/check/kill — runs
+end-to-end), `examples/tui_shell.vbr` (a `Process` behind a `Screen`). Both in
+the compile guard; 4 hermetic stdlib tests.

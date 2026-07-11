@@ -191,6 +191,8 @@ pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
                         | ("DateTime", "parse")
                         | ("FileSystem", "read")
                         | ("FileSystem", "read_lines")
+                        | ("Shell", "run")
+                        | ("Shell", "start")
                 );
             }
             matches!(
@@ -662,7 +664,7 @@ fn awaitable_info(
                 });
             }
             let (ret_type, blocking) = match (canon, m.as_str()) {
-                ("Http", "get") | ("Http", "post") => {
+                ("Http", "get") | ("Http", "post") | ("Shell", "run") => {
                     ("Result<String, String>".to_string(), true)
                 }
                 _ => {
@@ -738,7 +740,7 @@ fn is_blocking_stdlib_call(e: &Expr) -> bool {
             if let Some(c) = stdlib_type(r) {
                 return matches!(
                     (c, rust_name(method).as_str()),
-                    ("Http", "get") | ("Http", "post")
+                    ("Http", "get") | ("Http", "post") | ("Shell", "run")
                 );
             }
         }

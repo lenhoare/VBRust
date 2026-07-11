@@ -362,6 +362,19 @@ as `"data/rules.txt"`. A failed copy warns instead of killing the build.
 Guarded: the compile guard asserts the idea engine's `config.json` lands in
 `build/` and its `README.md` doesn't.
 
+### 27. TODO: example + docs for calling C libraries via inline Rust
+
+Not a gap — a documentation debt. The capability already exists: Rust speaks
+the C ABI natively, so a C library is called with `Use <binding-crate>
+<version>` + an inline `Rust` block + an **opaque handle** for any stateful
+library object — no new VBR feature needed. What's missing: a worked example
+(a small binding crate — `libc` is the zero-setup candidate; a llama.cpp
+binding like `llama-cpp-2` is the motivating one) and a section in
+`inline_rust_spec.md` ("Calling C libraries") walking the pattern: pick the
+binding crate, `Use` it, hold the handle, thread it through blocks. Companion
+idea parked with it: a native inline `C … End C` block (via the `cc` crate +
+generated build.rs) — motivated by the do-it-all identity, not by any library.
+
 ### 7. No map literal — "no headers" / empty-HashMap calls are clunky
 
 The new list literal (`[]`) covers `Vec`, but there's no `HashMap` literal, so

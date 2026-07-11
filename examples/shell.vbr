@@ -1,0 +1,33 @@
+' Shell — VB6's `Shell`, grown up. Two verbs:
+'   Shell.Run(cmd)   — run through the system shell, WAIT, capture the output:
+'                      Ok(stdout) on success, Err(stderr) on a nonzero exit.
+'   Shell.Start(cmd) — launch and DON'T wait (VB6's actual Shell semantics):
+'                      you get a Process handle to check on or stop.
+' Pipes and PATH work — the command line goes through sh -c / cmd /C.
+
+Function Main()
+    Match Shell.Run("echo hello from VBR")
+        Ok(output) => Debug.Print "said: " & output
+        Err(why) => Debug.Print "echo failed: " & why
+    End Match
+
+    Match Shell.Run("ls /vbr/definitely/missing")
+        Ok(output) => Debug.Print output
+        Err(_) => Debug.Print "as expected, that failed"
+    End Match
+
+    Match RunChild()
+        Ok(code) => Debug.Print "child finished with exit code " & code
+        Err(why) => Debug.Print "child failed: " & why
+    End Match
+End Function
+
+' A background child: start it, peek at it, stop it. `Kill` on an already-dead
+' process is a harmless no-op; `Wait` returns the exit code (-1 after a kill).
+Function RunChild() As Result<Long>
+    Dim child As Process = Shell.Start("sleep 2")?
+    Debug.Print "running: " & child.IsRunning()
+    child.Kill()
+    Debug.Print "after kill: " & child.IsRunning()
+    Return Ok(child.Wait())
+End Function

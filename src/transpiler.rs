@@ -1508,6 +1508,8 @@ pub(crate) fn is_mutating_method(m: &str) -> bool {
             | "push_str" | "insert_str" | "make_ascii_uppercase" | "make_ascii_lowercase"
             // Json builders (`Json.Object()` / `Json.Array()` then set/push).
             | "set" | "set_string" | "set_int" | "set_bool"
+            // A child Process (`Shell.Start`) — kill/wait/poll all take `&mut`.
+            | "kill" | "wait" | "is_running"
     )
 }
 
@@ -2347,6 +2349,8 @@ pub(crate) fn stdlib_method(squashed: &str) -> Option<&'static str> {
         "diffhours" => "diff_hours",
         // Database
         "lastinsertid" => "last_insert_id",
+        // Shell / Process
+        "isrunning" => "is_running",
         "isnull" => "is_null",
         // Json (`to_string` is also the universal Rust method — same mapping).
         "tostring" => "to_string",
@@ -2379,13 +2383,16 @@ pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
         "http" => Some("Http"),
         "dataframe" => Some("DataFrame"),
         "database" => Some("Database"),
+        "shell" => Some("Shell"),
+        "process" => Some("Process"),
         _ => None,
     }
 }
 
 /// All stdlib namespace names, for emitting `use vbr_stdlib::{…}`.
-const STDLIB_TYPES: [&str; 7] =
-    ["FileSystem", "Json", "DateTime", "Regex", "Http", "DataFrame", "Database"];
+const STDLIB_TYPES: [&str; 9] = [
+    "FileSystem", "Json", "DateTime", "Regex", "Http", "DataFrame", "Database", "Shell", "Process",
+];
 
 /// The stdlib namespaces a compiled program uses (for enabling Cargo features).
 /// `FileSystem` is std-only and needs no feature; the rest map to a feature.

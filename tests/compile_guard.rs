@@ -44,6 +44,10 @@ const GUARDED: &[&str] = &[
     // Loops inside an Event (the state rewrite recurses into For/For Each/Do
     // bodies) and a State field initialised by a call with ByVal arguments.
     "tui_life",
+    // Shell: run-and-capture in Main plus a background Process behind a
+    // Screen (fallible Shell.Start in State, IsRunning/Kill from events).
+    "shell",
+    "tui_shell",
 ];
 
 #[test]

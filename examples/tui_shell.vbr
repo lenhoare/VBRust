@@ -1,0 +1,43 @@
+' A background process behind a Screen — the local-server shape: start a
+' long-running command when the app boots (a fallible State initialiser, so a
+' failed launch stops the program cleanly before the terminal opens), check on
+' it from events, and stop it from a key. The child is detached from the
+' terminal, so it can't scribble over the UI.
+
+Screen ProcessPanel
+    Title "Process Panel"
+
+    State
+        Dim worker As Process = Shell.Start("sleep 300")
+        Dim status As String = "worker started"
+    End State
+
+    View
+        Column
+            Text status
+            Text ""
+            Text "c = check on it, k = kill it, q = quit"
+        End Column
+    End View
+
+    On Key "c" Check
+    On Key "k" Halt
+    On Key "q" Quit
+
+    Event Check
+        If worker.IsRunning() Then
+            status = "worker is running"
+        Else
+            status = "worker has stopped"
+        End If
+    End Event
+
+    Event Halt
+        worker.Kill()
+        status = "worker killed"
+    End Event
+End Screen
+
+Function Main()
+    ProcessPanel.Run
+End Function

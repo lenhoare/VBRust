@@ -10,9 +10,11 @@
 // Every fallible function returns `Result<T, String>`, which maps onto VBR's
 // `As Result<T>`.
 
-// `FileSystem` is std-only and always available; the rest are behind features
-// (see Cargo.toml) so a project compiles only the wrappers it actually uses.
+// `FileSystem` and `Shell` are std-only and always available; the rest are
+// behind features (see Cargo.toml) so a project compiles only the wrappers it
+// actually uses.
 pub mod filesystem;
+pub mod shell;
 #[cfg(feature = "datetime")]
 pub mod datetime;
 #[cfg(feature = "json")]
@@ -27,6 +29,7 @@ pub mod dataframe;
 pub mod database;
 
 pub use filesystem::FileSystem;
+pub use shell::{Process, Shell};
 #[cfg(feature = "datetime")]
 pub use datetime::DateTime;
 #[cfg(feature = "json")]
