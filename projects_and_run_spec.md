@@ -53,16 +53,62 @@ local call. Visibility is enforced with teaching errors: calling a `Private`
 function or reading a private `Const` from another file says to mark it
 `Public`; an unknown member points out that a function call needs parentheses.
 
-Two deliberate limits:
+One deliberate limit:
 
-- **Types don't cross modules yet** — a `Type`/`Enum` is usable only in the
-  file that declares it; pass primitives, `String`s, and collections across.
-  (Own slice, when a project demands it.)
 - **A verbatim `.rs` module has no VBR interface** — calls into it stay
   name-qualified only, and its argument types are matched by hand (as before).
 
 Example: `examples/life_project/` (a miniature Game of Life split into
 `main.vbr` + `life.vbr`); guarded by `crossmodule_interfaces_compile`.
+
+### Types are PROJECT-GLOBAL (bare names) — BUILT
+
+Functions are qualified; types are not. A `Public Type` or `Public Enum` in
+any module is usable **by its bare name in every file** — exactly VB6's
+semantics (a Public UDT/Enum in any `.bas` was global; `Module.Type` syntax
+never existed), and *also* exactly idiomatic Rust, which imports types and
+qualifies functions:
+
+```vb
+' life.vbr                                 ' main.vbr — no prefix on a type
+Public Type Rule                           Dim r As Rule = Life.ClassicRule()
+    Public Birth As String                 Debug.Print r.Describe()
+    Public Survive As String               Match Life.StateOf(v)
+End Type                                       CellState.Alive => …
+```
+```rust
+// generated main.rs
+mod life;
+
+use crate::life::CellState;   // ← the translation of "Public Type is global"
+use crate::life::Rule;
+```
+
+The interface harvest (pass 1) carries each Public `Type`'s fields, each
+Public `Enum`'s name, and the public methods (with their `&self`/`&mut self`),
+so a foreign type infers, borrows, and pattern-matches exactly like a local
+one. The generated file gets one `use crate::module::Name;` per foreign type
+it actually mentions. This works on every surface — a `Screen`'s State can
+hold a sibling's type (`examples/life_screen/`).
+
+The rules, each a teaching error when broken:
+
+- **Local wins** — a file's own `Type X` shadows a sibling's Public `X` (no
+  `use` is emitted).
+- **Two siblings exporting the same name** is ambiguous the moment a third
+  file uses it: *"'Rule' is Public in more than one file — rename one."*
+- **A sibling's Private type** stays home: *"'Hidden' is Private to
+  'life.vbr' — declare it Public Type to use it from another file."*
+- **Qualifying a type** (`Life.Rule`) is redirected: *"types are shared across
+  the whole project by their bare name — write `Rule`."*
+
+Two practical notes: fields another file touches must be `Public` (they become
+`pub` on the Rust side; a private field trips rustc's own error, translated
+back). And a public struct's methods cross only when declared
+`Public Function Type.Method` — like any function.
+
+Guarded by `crossmodule_interfaces_compile` (happy path, in the snapshots) and
+`crossmodule_type_diagnostics` (the errors).
 
 **Surfaces join projects too**: a `Screen`/`Window`/`Page` entry emits the
 `mod` declarations and resolves qualified calls from its State initialisers,

@@ -16,4 +16,15 @@ Function Main()
     Dim survive As String = "23"
     Debug.Print "rule: " & Life.FormatRule(birth, survive)
     Debug.Print "checksum: " & Life.Checksum()
+
+    ' life.vbr's Public Type, by bare name — VB6 semantics, and also exactly
+    ' how Rust does it (a `use crate::life::Rule;` up top, then just `Rule`).
+    Dim r As Rule = Life.ClassicRule()
+    Debug.Print "classic: " & r.Describe()
+
+    ' Its Public Enum crosses the same way — variants, and `Match` patterns.
+    Match Life.StateOf(grid[8])
+        CellState.Alive => Debug.Print "centre cell is alive"
+        CellState.Dead => Debug.Print "centre cell is dead"
+    End Match
 End Function

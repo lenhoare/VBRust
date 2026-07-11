@@ -120,6 +120,13 @@ pub enum Tok {
     /// `"df, n"`), the VBR variables passed into the block; `body` is the source.
     InlinePython { args: String, body: String },
 
+    /// A `Text … End Text` block — a multi-line string literal, captured
+    /// verbatim (nothing inside is escaped, ever). Triggered only when `Text`
+    /// ends its line, so the `Text` view widget (`Text "hi"`) and member
+    /// access (`row.Text`) are untouched. `terminated` is false when the
+    /// closing `End Text` is missing (the parser turns that into an error).
+    TextBlock { body: String, terminated: bool },
+
     /// A `Use <crate> <version>` line, captured raw (the parser splits it).
     Use(String),
 
@@ -291,7 +298,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                 if word.eq_ignore_ascii_case("Rust") {
                     // Inline Rust: capture the body verbatim (do NOT tokenise it)
                     // until a line that reads `End Rust`.
-                    let (raw, resume, newlines) = capture_inline_block(&chars, j, "rust");
+                    let (raw, resume, newlines, _) = capture_inline_block(&chars, j, "rust");
                     tokens.push(Token {
                         tok: Tok::InlineRust(raw),
                         line,
@@ -301,7 +308,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                 } else if word.eq_ignore_ascii_case("Css") {
                     // A Page's stylesheet: capture verbatim until `End Css` —
                     // it's real CSS, not VBR.
-                    let (raw, resume, newlines) = capture_inline_block(&chars, j, "css");
+                    let (raw, resume, newlines, _) = capture_inline_block(&chars, j, "css");
                     tokens.push(Token {
                         tok: Tok::InlineCss(raw),
                         line,
@@ -312,9 +319,31 @@ pub fn lex(src: &str) -> Vec<Token> {
                     // Inline Python: optional `(args)` (VBR vars passed in), then the
                     // verbatim body terminated by `End Python`.
                     let (args, after_args) = capture_call_args(&chars, j);
-                    let (body, resume, newlines) = capture_inline_block(&chars, after_args, "python");
+                    let (body, resume, newlines, _) =
+                        capture_inline_block(&chars, after_args, "python");
                     tokens.push(Token {
                         tok: Tok::InlinePython { args, body },
+                        line,
+                    });
+                    line += newlines;
+                    i = resume;
+                } else if word.eq_ignore_ascii_case("Text")
+                    && !matches!(tokens.last().map(|t| &t.tok), Some(Tok::Dot))
+                    && rest_of_line_is_blank(&chars, j)
+                    && text_block_content_follows(&chars, start, j)
+                {
+                    // A multi-line string literal: `Text` alone at the end of a
+                    // line opens a verbatim block, closed by `End Text`. (With
+                    // an argument on the same line it's the view widget, and
+                    // after a dot it's a member — both fall through below.)
+                    // The content-follows guard keeps a *variable* named `text`
+                    // at end of line (`"say: " & text`) from opening a block —
+                    // VB is case-insensitive, so `text` and `Text` are one word,
+                    // and only a block indents its next line under the opener.
+                    let (raw, resume, newlines, terminated) =
+                        capture_inline_block(&chars, j, "text");
+                    tokens.push(Token {
+                        tok: Tok::TextBlock { body: raw, terminated },
                         line,
                     });
                     line += newlines;
@@ -396,11 +425,12 @@ fn capture_call_args(chars: &[char], start: usize) -> (String, usize) {
     (inner.trim().to_string(), e + 1)
 }
 
-/// Capture an inline block (`Rust`/`Python`) verbatim. `start` is just after the
-/// opening keyword; the block runs until an `End <term>` terminator, which may sit
-/// on its own line (multi-line block) or trail the body on one line
-/// (`Rust … End Rust`). Returns (raw body, index to resume at, newlines consumed).
-fn capture_inline_block(chars: &[char], start: usize, term: &str) -> (String, usize, usize) {
+/// Capture an inline block (`Rust`/`Python`/`Text`) verbatim. `start` is just
+/// after the opening keyword; the block runs until an `End <term>` terminator,
+/// which may sit on its own line (multi-line block) or trail the body on one
+/// line (`Rust … End Rust`). Returns (raw body, index to resume at, newlines
+/// consumed, whether the terminator was found).
+fn capture_inline_block(chars: &[char], start: usize, term: &str) -> (String, usize, usize, bool) {
     let mut i = start;
     while i < chars.len() {
         if let Some(resume) = match_end_block(chars, i, term) {
@@ -411,14 +441,62 @@ fn capture_inline_block(chars: &[char], start: usize, term: &str) -> (String, us
             }
             let raw: String = chars[start..body_end].iter().collect();
             let newlines = chars[start..resume].iter().filter(|&&c| c == '\n').count();
-            return (raw, resume, newlines);
+            return (raw, resume, newlines, true);
         }
         i += 1;
     }
     // Unterminated — capture to end of file.
     let raw: String = chars[start..].iter().collect();
     let newlines = chars[start..].iter().filter(|&&c| c == '\n').count();
-    (raw, chars.len(), newlines)
+    (raw, chars.len(), newlines, false)
+}
+
+/// Is the rest of the current line (from `start`) only spaces/tabs? Decides
+/// whether a bare `Text` opens a multi-line string block.
+fn rest_of_line_is_blank(chars: &[char], start: usize) -> bool {
+    let mut p = start;
+    while p < chars.len() && matches!(chars[p], ' ' | '\t' | '\r') {
+        p += 1;
+    }
+    p >= chars.len() || chars[p] == '\n'
+}
+
+/// Does a `Text` at end of line open a block, or is it a variable named `text`?
+/// A block always indents its content under the opener; a bare identifier is
+/// followed by the next statement at the same or lesser indent. `opener` points
+/// at the `T`; `after` is just past the word. We compare the opener's column to
+/// the first following non-blank line's leading indentation.
+fn text_block_content_follows(chars: &[char], opener: usize, after: usize) -> bool {
+    // The opener line's own leading indentation (content is compared against
+    // this, not the column of the `Text` word — the word may sit far to the
+    // right after `Dim body As String = `, while the content indents under the
+    // statement).
+    let mut ls = opener;
+    while ls > 0 && chars[ls - 1] != '\n' {
+        ls -= 1;
+    }
+    let mut opener_col = 0;
+    while ls + opener_col < chars.len() && matches!(chars[ls + opener_col], ' ' | '\t') {
+        opener_col += 1;
+    }
+    // Advance to the start of the next line.
+    let mut p = after;
+    while p < chars.len() && chars[p] != '\n' {
+        p += 1;
+    }
+    // Skip blank lines, then measure the first non-blank line's indent.
+    while p < chars.len() {
+        p += 1; // step over the '\n'
+        let mut q = p;
+        while q < chars.len() && matches!(chars[q], ' ' | '\t' | '\r') {
+            q += 1;
+        }
+        if q >= chars.len() || chars[q] == '\n' {
+            continue; // blank line — keep looking
+        }
+        return q - p > opener_col;
+    }
+    false
 }
 
 /// If `chars[i..]` begins a whole-word `End` <ws> `<term>` terminator (at a word

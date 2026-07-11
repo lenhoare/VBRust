@@ -45,10 +45,22 @@ pub struct ModuleInterface {
     pub fns: FnTable,
     /// Public constants: original name → SCREAMING Rust name.
     pub consts: HashMap<String, String>,
+    /// Public `Type`s: name → fields, same shape as the local struct table.
+    /// A Public Type is project-global by its bare name (as in VB6) — the
+    /// generated Rust gets a `use crate::module::Name;` where it's used.
+    pub structs: StructTable,
+    /// Public `Enum` names (the resolver only needs the name — variants ride
+    /// along in `Match` patterns and `Name.Variant` paths).
+    pub enums: HashSet<String>,
+    /// Public methods on public `Type`s, with their `&mut self`-ness — so a
+    /// cross-module `r.Grow()` knows to borrow the receiver mutably.
+    pub methods: MethodTable,
     /// Private function names (Rust-cased), for the visibility diagnostic.
     pub private_fns: HashSet<String>,
     /// Private constant names (as written), for the visibility diagnostic.
     pub private_consts: HashSet<String>,
+    /// Private `Type`/`Enum` names, for the visibility diagnostic.
+    pub private_types: HashSet<String>,
 }
 
 /// Module (Rust) name → its interface. A verbatim `.rs` module has no entry —
@@ -86,7 +98,119 @@ pub fn module_interface(program: &Program) -> ModuleInterface {
             private_consts.insert(c.name.clone());
         }
     }
-    ModuleInterface { fns, consts, private_fns, private_consts }
+    let mut structs = StructTable::new();
+    let mut private_types = HashSet::new();
+    for s in &program.structs {
+        if s.public {
+            structs.insert(
+                s.name.clone(),
+                s.fields.iter().map(|f| (snake(&f.name), f.ty.clone())).collect(),
+            );
+        } else {
+            private_types.insert(s.name.clone());
+        }
+    }
+    let mut enums = HashSet::new();
+    for e in &program.enums {
+        if e.public {
+            enums.insert(e.name.clone());
+        } else {
+            private_types.insert(e.name.clone());
+        }
+    }
+    // A public struct's public methods cross with it (`pub fn` in the impl);
+    // private ones stay home, like any bare `Function`.
+    let methods = program
+        .functions
+        .iter()
+        .filter(|f| f.public)
+        .filter_map(|f| {
+            f.receiver
+                .as_ref()
+                .filter(|recv| structs.contains_key(*recv))
+                .map(|recv| ((recv.clone(), snake(&f.name)), method_mutates_self(&f.body)))
+        })
+        .collect();
+    ModuleInterface {
+        fns,
+        consts,
+        structs,
+        enums,
+        methods,
+        private_fns,
+        private_consts,
+        private_types,
+    }
+}
+
+/// Fold the siblings' Public `Type`s/`Enum`s (and their methods) into this
+/// module's lookup tables, so a foreign type infers, borrows, and pattern-matches
+/// exactly like a local one. A local definition wins over a sibling's; between
+/// siblings, the first module alphabetically wins (`sibling_type_providers`
+/// reports the clash so using an ambiguous name is an error, not a dice roll).
+pub fn merge_sibling_types(
+    enums: &mut HashSet<String>,
+    structs: &mut StructTable,
+    methods: &mut MethodTable,
+    interfaces: &ProjectInterfaces,
+) {
+    let local: HashSet<String> = structs.keys().cloned().chain(enums.iter().cloned()).collect();
+    let mut mods: Vec<&String> = interfaces.keys().collect();
+    mods.sort();
+    for m in mods {
+        let iface = &interfaces[m];
+        for (name, fields) in &iface.structs {
+            if !local.contains(name) && !structs.contains_key(name) {
+                structs.insert(name.clone(), fields.clone());
+                for ((recv, meth), mutates) in &iface.methods {
+                    if recv == name {
+                        methods.entry((recv.clone(), meth.clone())).or_insert(*mutates);
+                    }
+                }
+            }
+        }
+        for name in &iface.enums {
+            if !local.contains(name) && !structs.contains_key(name) {
+                enums.insert(name.clone());
+            }
+        }
+    }
+}
+
+/// Which sibling module provides each foreign type name — the input for the
+/// generated `use crate::module::Name;` lines and the ambiguity/visibility
+/// diagnostics. Returns `(public type → providing modules, private type →
+/// its module)`; names this module defines itself are excluded (local wins).
+pub fn sibling_type_providers(
+    program: &Program,
+    interfaces: &ProjectInterfaces,
+) -> (HashMap<String, Vec<String>>, HashMap<String, String>) {
+    let local: HashSet<&str> = program
+        .structs
+        .iter()
+        .map(|s| s.name.as_str())
+        .chain(program.enums.iter().map(|e| e.name.as_str()))
+        .collect();
+    let mut mods: Vec<&String> = interfaces.keys().collect();
+    mods.sort();
+    let mut public: HashMap<String, Vec<String>> = HashMap::new();
+    for m in &mods {
+        let iface = &interfaces[*m];
+        for name in iface.structs.keys().chain(iface.enums.iter()) {
+            if !local.contains(name.as_str()) {
+                public.entry(name.clone()).or_default().push((*m).clone());
+            }
+        }
+    }
+    let mut private: HashMap<String, String> = HashMap::new();
+    for m in &mods {
+        for name in &interfaces[*m].private_types {
+            if !local.contains(name.as_str()) && !public.contains_key(name) {
+                private.entry(name.clone()).or_insert_with(|| (*m).clone());
+            }
+        }
+    }
+    (public, private)
 }
 
 /// `(struct name, method snake name)` → does it take `&mut self`?
@@ -1298,6 +1422,19 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                                 "The constant '{}' is Private to its file. Declare it \
                                  `Public Const {} As …` to read it from another module.",
                                 cname, cname
+                            ),
+                        );
+                    } else if iface.structs.contains_key(cname) || iface.enums.contains(cname) {
+                        // A Public Type/Enum is project-global by its bare
+                        // name (as in VB6) — it isn't reached through the
+                        // module.
+                        ctx.diags.error_once(
+                            &format!("module-type-{}-{}", module, cname),
+                            format!(
+                                "'{}' is a Public type — types are shared across the \
+                                 whole project by their bare name. Write `{}`, not \
+                                 `{}.{}`.",
+                                cname, cname, m, cname
                             ),
                         );
                     } else {

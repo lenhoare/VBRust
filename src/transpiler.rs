@@ -41,6 +41,11 @@ pub fn transpile_module(
     web: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    // Which sibling types this module could be borrowing (Public Types/Enums
+    // are project-global, VB6-style) — the generated code gets a
+    // `use crate::module::Name;` for each one it actually mentions.
+    let (type_providers, private_types) = resolver::sibling_type_providers(program, interfaces);
+
     // A `Css` block is a Page's stylesheet — it has no meaning anywhere else.
     if !program.css.is_empty() && program.pages.is_empty() {
         diags.error_once(
@@ -60,7 +65,7 @@ pub fn transpile_module(
         }
         let rust = crate::web::emit_web_program(program, modules, interfaces, is_entry, diags);
         diags.clear_line_map();
-        return rust;
+        return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
     }
     // A GUI program (one with a `Window`) compiles to an Iced application: the
     // window definitions plus a `fn main` that launches the one `Function Main()`
@@ -70,7 +75,7 @@ pub fn transpile_module(
         // The GUI emitter assembles sections out of order, so its line
         // checkpoints would mislead — drop them rather than lie.
         diags.clear_line_map();
-        return rust;
+        return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
     }
     // A TUI program (one with a `Screen`) compiles to a ratatui application —
     // in the terminal (crossterm) by default, in the browser (Ratzilla) for
@@ -78,7 +83,7 @@ pub fn transpile_module(
     if !program.screens.is_empty() {
         let rust = crate::tui::emit_tui_program(program, modules, interfaces, is_entry, web, diags);
         diags.clear_line_map();
-        return rust;
+        return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
     }
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
@@ -88,12 +93,15 @@ pub fn transpile_module(
     mark_stdlib_types(program, diags);
     let module_set: HashSet<String> = modules.iter().cloned().collect();
     // Enum names — a reference like `Color.Red` resolves to the path `Color::Red`.
-    let enum_set: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
+    let mut enum_set: HashSet<String> = program.enums.iter().map(|e| e.name.clone()).collect();
 
     let fns = resolver::build_fn_table(program);
-    let methods = resolver::build_method_table(program);
+    let mut methods = resolver::build_method_table(program);
     let consts = resolver::build_const_map(program);
-    let structs = resolver::build_struct_table(program);
+    let mut structs = resolver::build_struct_table(program);
+    // Siblings' Public Types/Enums join the tables under their bare names —
+    // a foreign type infers and borrows exactly like a local one.
+    resolver::merge_sibling_types(&mut enum_set, &mut structs, &mut methods, interfaces);
 
     let mut out = String::new();
     for comment in &program.leading_comments {
@@ -191,7 +199,139 @@ pub fn transpile_module(
             &mut out, 0, None,
         );
     }
+    add_sibling_type_uses(out, &type_providers, &private_types, diags)
+}
+
+/// Add `use crate::module::Name;` for each sibling Public Type/Enum this
+/// module's generated code actually mentions — the Rust translation of VB6's
+/// "a Public Type is global": the type is *defined* in its home module and
+/// *imported* by bare name everywhere else, exactly as a Rust developer would
+/// write it. Also the natural spot for the two visibility diagnostics: a name
+/// two siblings both export (ambiguous), and a sibling's Private type.
+pub(crate) fn add_sibling_type_uses(
+    rust: String,
+    providers: &HashMap<String, Vec<String>>,
+    private_types: &HashMap<String, String>,
+    diags: &mut Diagnostics,
+) -> String {
+    if providers.is_empty() && private_types.is_empty() {
+        return rust;
+    }
+    // Scan the *generated* code — every use of a type, wherever it came from
+    // (a signature, a view, a `Match` pattern), lands there by its bare name.
+    // String literals and comments are blanked first so prose can't match.
+    let scannable = strip_strings_and_comments(&rust);
+    let mut uses: Vec<String> = Vec::new();
+    for (name, mods) in providers {
+        if !mentions_word(&scannable, name) {
+            continue;
+        }
+        if let [one] = mods.as_slice() {
+            uses.push(format!("use crate::{}::{};\n", one, name));
+        } else {
+            ambiguous_type_error(name, mods, diags);
+        }
+    }
+    for (name, module) in private_types {
+        if mentions_word(&scannable, name) {
+            diags.error_once(
+                &format!("private-type-{}-{}", module, name),
+                format!(
+                    "The type '{}' is Private to '{}.vbr'. Declare it `Public Type {}` \
+                     (or `Public Enum {}`) to use it from another file.",
+                    name, module, name, name
+                ),
+            );
+        }
+    }
+    if uses.is_empty() {
+        return rust;
+    }
+    uses.sort();
+    // Land the imports where a Rust developer would put them: after the
+    // leading comment block and any `mod x;` declarations.
+    let mut insert_at = 0;
+    let mut offset = 0;
+    for line in rust.split_inclusive('\n') {
+        let t = line.trim_end();
+        if t.starts_with("//") || (t.starts_with("mod ") && t.ends_with(';')) {
+            offset += line.len();
+            insert_at = offset;
+        } else if t.is_empty() {
+            offset += line.len();
+        } else {
+            break;
+        }
+    }
+    let block = if insert_at == 0 {
+        format!("{}\n", uses.concat())
+    } else {
+        format!("\n{}", uses.concat())
+    };
+    format!("{}{}{}", &rust[..insert_at], block, &rust[insert_at..])
+}
+
+fn ambiguous_type_error(name: &str, mods: &[String], diags: &mut Diagnostics) {
+    diags.error_once(
+        &format!("ambiguous-type-{}", name),
+        format!(
+            "The type '{}' is Public in more than one file ({}) — VBR can't tell \
+             which one you mean. Rename one of them.",
+            name,
+            mods.iter().map(|m| format!("'{}.vbr'", m)).collect::<Vec<_>>().join(" and "),
+        ),
+    );
+}
+
+/// Blank out string literals and `//` comments so a type-name scan of generated
+/// code can't match prose. (Generated code has neither raw strings nor block
+/// comments outside inline-Rust escape hatches, where a stray match only risks
+/// an unused import.)
+fn strip_strings_and_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut chars = src.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                out.push(' ');
+                while let Some(c2) = chars.next() {
+                    if c2 == '\\' {
+                        chars.next();
+                    } else if c2 == '"' {
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                for c2 in chars.by_ref() {
+                    if c2 == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
     out
+}
+
+/// Does `text` contain `word` as a whole identifier (not as a substring of a
+/// longer name)?
+fn mentions_word(text: &str, word: &str) -> bool {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(word) {
+        let i = start + pos;
+        let j = i + word.len();
+        let before_ok = i == 0 || !text[..i].chars().next_back().map_or(false, is_ident);
+        let after_ok = j >= text.len() || !text[j..].chars().next().map_or(false, is_ident);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = i + 1;
+    }
+    false
 }
 
 pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics) {
@@ -2220,7 +2360,14 @@ fn fmt_float(f: f64) -> String {
 }
 
 fn escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    // `\n`/`\t` only ever arrive via a `Text … End Text` block (a quoted VBR
+    // literal is one line and never interprets escapes) — spelled out so the
+    // generated literal stays on one line, incidentally showing the Rust
+    // escapes VBR source never makes you write.
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
 }
 
 /// Escape a string literal for use *inside* a format string: the usual

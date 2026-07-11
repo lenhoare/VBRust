@@ -105,7 +105,9 @@ the UI in `main.vbr` and the logic in sibling modules, and call them qualified
 — from State initialisers (`Dim grid As Vec<Long> = Life.NewGrid()`), events
 (`Life.SetCell(grid, x, y, 1)` → `crate::life::setcell(&mut state.grid, …)`),
 and helper functions, all with the full cross-module argument treatment
-(`projects_and_run_spec.md`). One limit: a *view* expression can't read
+(`projects_and_run_spec.md`). A sibling's `Public Type`/`Enum` is used by its
+bare name — State can hold one (`Dim rule As Rule = Life.ClassicRule()`) and
+events can call its methods. One limit: a *view* expression can't read
 `Life.WIDTH` directly (views don't run the resolver) — mirror the value into
 state or read it through a helper. Example: `examples/life_screen/`.
 

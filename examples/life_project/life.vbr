@@ -1,12 +1,42 @@
 ' The logic module of a miniature Game of Life project. Everything marked
 ' Public crosses the module boundary — including its *signature*: a caller in
 ' another file gets the same argument treatment as a local one (`&mut` for the
-' ByRef grid, `&` for a ByVal Vec or String). `Hidden` and `SECRET` stay
-' file-local; calling them from main.vbr earns a teaching error.
+' ByRef grid, `&` for a ByVal Vec or String). A Public Type or Enum is
+' project-global by its bare name, exactly as in VB6 — main.vbr writes `Rule`,
+' not `Life.Rule`, and the generated Rust gets `use crate::life::Rule;`.
+' `Hidden` and `SECRET` stay file-local; using them from main.vbr earns a
+' teaching error.
 
 Public Const WIDTH As Long = 5
 Public Const HEIGHT As Long = 3
 Const SECRET As Long = 99
+
+' Crosses with its public methods — an `impl` block on the Rust side, `pub fn`
+' for each Public Function. Fields main.vbr touches must be Public too.
+Public Type Rule
+    Public Birth As String
+    Public Survive As String
+End Type
+
+Public Function Rule.Describe() As String
+    Return "B" & Me.Birth & "/S" & Me.Survive
+End Function
+
+Public Function ClassicRule() As Rule
+    Return Rule { birth: "3", survive: "23" }
+End Function
+
+Public Enum CellState
+    Dead
+    Alive
+End Enum
+
+Public Function StateOf(v As Long) As CellState
+    If v = 0 Then
+        Return CellState.Dead
+    End If
+    Return CellState.Alive
+End Function
 
 Public Function NewGrid() As Vec<Long>
     Dim g As Vec<Long> = []

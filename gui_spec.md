@@ -92,9 +92,10 @@ borrows the ByVal `Vec` exactly as anywhere else).
 **Multi-file projects.** A `Window` (like a `Screen`) joins a project: UI in
 `main.vbr`, logic in sibling modules, called qualified from State
 initialisers, events, and helper functions with the full cross-module
-argument treatment (`projects_and_run_spec.md`). A *view* expression can't
-read a module constant directly (views don't run the resolver) — mirror it
-into state or read it through a helper.
+argument treatment (`projects_and_run_spec.md`). A sibling's `Public
+Type`/`Enum` is used by its bare name — State can hold one, events can call
+its methods. A *view* expression can't read a module constant directly (views
+don't run the resolver) — mirror it into state or read it through a helper.
 
 ### 2.2 View
 

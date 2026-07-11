@@ -6,6 +6,9 @@
 
 mod life;
 
+use crate::life::CellState;
+use crate::life::Rule;
+
 fn main() {
     let mut grid: Vec<i64> = crate::life::newgrid();
     crate::life::setcell(&mut grid, 1, 1, 1);
@@ -17,4 +20,17 @@ fn main() {
     let survive: String = "23".to_string();
     println!("rule: {}", crate::life::formatrule(&birth, &survive));
     println!("checksum: {}", crate::life::checksum());
+    // life.vbr's Public Type, by bare name — VB6 semantics, and also exactly
+    // how Rust does it (a `use crate::life::Rule;` up top, then just `Rule`).
+    let r: Rule = crate::life::classicrule();
+    println!("classic: {}", r.describe());
+    // Its Public Enum crosses the same way — variants, and `Match` patterns.
+    match crate::life::stateof(grid[8]) {
+        CellState :: Alive => {
+            println!("centre cell is alive");
+        }
+        CellState :: Dead => {
+            println!("centre cell is dead");
+        }
+    }
 }

@@ -1174,7 +1174,16 @@ fn rewrite_canvas_stmt(
             line,
         },
         Stmt::DoLoop { cond, body } => Stmt::DoLoop { cond, body: body.into_iter().map(rec).collect() },
-        other => other,
+        Stmt::Set { name, mutable, value } => Stmt::Set { name, mutable, value: re(value) },
+        Stmt::DestructureDim { names, ty, value } => Stmt::DestructureDim { names, ty, value: re(value) },
+        Stmt::Return(e) => Stmt::Return(e.map(re)),
+        // Leaves — no `self`-field expression to rewrite. Listed explicitly (no
+        // `_`) so a new statement carrying an expression must be handled here.
+        leaf @ (Stmt::HandleDim { .. }
+        | Stmt::Break
+        | Stmt::Continue
+        | Stmt::Comment(_)
+        | Stmt::LineMark(_)) => leaf,
     }
 }
 

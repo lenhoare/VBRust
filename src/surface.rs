@@ -39,7 +39,7 @@ pub(crate) fn build_tables(
     modules: &[String],
     interfaces: &resolver::ProjectInterfaces,
 ) -> Tables {
-    Tables {
+    let mut t = Tables {
         enums: program.enums.iter().map(|e| e.name.clone()).collect(),
         fns: resolver::build_fn_table(program),
         methods: resolver::build_method_table(program),
@@ -47,7 +47,12 @@ pub(crate) fn build_tables(
         structs: resolver::build_struct_table(program),
         modules: modules.iter().cloned().collect(),
         interfaces: interfaces.clone(),
-    }
+    };
+    // Siblings' Public Types/Enums join the tables under their bare names —
+    // state fields, events, and views use a foreign type like a local one
+    // (`transpile_module` adds the matching `use crate::module::Name;`).
+    resolver::merge_sibling_types(&mut t.enums, &mut t.structs, &mut t.methods, interfaces);
+    t
 }
 
 /// The `mod <name>;` declarations a multi-file project's crate root carries —
@@ -482,7 +487,30 @@ pub(crate) fn coerce_state_strings(
                 }
             }
         }
-        _ => {}
+        // Loop bodies carry statements too — descend into them, or an
+        // `entry = "..."` inside a `For`/`Do` in an event never gets coerced
+        // (the #16-shaped hole, one pass over).
+        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            for s2 in body {
+                coerce_state_strings(s2, state_recv, field_ty);
+            }
+        }
+        // Statements with no nested statements — nothing to descend into. Listed
+        // explicitly (no `_`) so a future block-bearing statement is forced to
+        // decide here rather than silently skipping coercion inside it.
+        Stmt::Assign { .. }
+        | Stmt::Dim { .. }
+        | Stmt::Set { .. }
+        | Stmt::DestructureDim { .. }
+        | Stmt::HandleDim { .. }
+        | Stmt::Return(_)
+        | Stmt::Expr(_)
+        | Stmt::Print(_)
+        | Stmt::Break
+        | Stmt::Continue
+        | Stmt::Draw(_)
+        | Stmt::Comment(_)
+        | Stmt::LineMark(_) => {}
     }
 }
 
@@ -1050,7 +1078,21 @@ pub(crate) fn rewrite_expr_with(
             body: Box::new(go(*body)),
             by_ref_params,
         },
-        other => other,
+        Expr::TupleIndex(inner, i) => Expr::TupleIndex(Box::new(go(*inner)), i),
+        // Leaves — nothing inside to rewrite. Listed explicitly (no `_`) so that
+        // a new `Expr` variant carrying a child fails to compile here rather than
+        // silently dropping a state field, the way #10/#16 once did. `InlineRust`
+        // and `InlinePython` are opaque bodies; `InlinePython`'s `inputs` are
+        // variable *names* (strings), not `Expr`s, so a state field passed into a
+        // Python block still can't be rewritten — a known, separate limitation.
+        leaf @ (Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Bool(_)
+        | Expr::Str(_)
+        | Expr::Ident(_)
+        | Expr::ConstRef(_)
+        | Expr::InlineRust(_)
+        | Expr::InlinePython { .. }) => leaf,
     }
 }
 
@@ -1131,6 +1173,15 @@ pub(crate) fn rewrite_stmt(
             Stmt::DestructureDim { names, ty, value: re(value) }
         }
         Stmt::Return(e) => Stmt::Return(e.map(re)),
-        other => other,
+        // Leaves and canvas-only forms — no bare state field to rewrite. Listed
+        // explicitly (no `_`) so a new statement carrying an expression or a body
+        // must be handled here, not swallowed. `Draw` only appears in a canvas
+        // `Draw` block, rewritten by `gui::rewrite_canvas_stmt`, never in an event.
+        leaf @ (Stmt::HandleDim { .. }
+        | Stmt::Break
+        | Stmt::Continue
+        | Stmt::Draw(_)
+        | Stmt::Comment(_)
+        | Stmt::LineMark(_)) => leaf,
     }
 }

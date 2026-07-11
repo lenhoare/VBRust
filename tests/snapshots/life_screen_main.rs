@@ -7,12 +7,15 @@ mod life;
 // One current limit: a *view* expression can't read `Life.WIDTH` directly —
 // mirror it into state or read it through an event (see projects/vbr_gaps.md).
 
+use crate::life::Rule;
+
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 
 struct LifeLab {
     grid: Vec<i64>,
+    rule: Rule,
     living: i64,
     status: String,
 }
@@ -21,6 +24,7 @@ impl Default for LifeLab {
     fn default() -> Self {
         LifeLab {
             grid: crate::life::newgrid(),
+            rule: crate::life::classicrule(),
             living: 0,
             status: "ready".to_string(),
         }
@@ -52,11 +56,11 @@ fn main() -> std::io::Result<()> {
                         crate::life::setcell(&mut state.grid, 1, 1, 1);
                         crate::life::setcell(&mut state.grid, 2, 1, 1);
                         crate::life::setcell(&mut state.grid, 3, 1, 1);
-                        state.status = format!("seeded {}", crate::life::formatrule("3", "23"));
+                        state.status = format!("seeded {}", state.rule.describe());
                     }
                     KeyCode::Char('c') => {
                         state.living = crate::life::countlive(&state.grid);
-                        state.status = "counted".to_string();
+                        state.status = format!("counted under {}", crate::life::formatrule("3", "23"));
                     }
                     KeyCode::Char('q') => {
                         break;

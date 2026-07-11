@@ -27,6 +27,18 @@ semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rule
 - **Comments:** `'` to end of line. Emitted as `//` in the output.
 - **String literals:** `"…"`. A doubled quote `""` inside a literal denotes one
   `"` (VBA escaping). No backslash escapes.
+- **Multi-line string blocks:** `Text` alone at the end of a line opens a
+  verbatim block, closed by `End Text` on its own line. Everything between is
+  the string exactly as written — quotes, backslashes, and braces are all
+  literal (nothing is ever escaped), so JSON bodies, SQL, and LLM prompts go in
+  untouched. The block dedents to its shallowest line (common leading
+  indentation is stripped), blank lines survive, and there is no trailing
+  newline. It lowers to an ordinary string, so it composes with `&` and coerces
+  like any other. `Text` opens a block only when the whole rest of its line is
+  blank *and* the next line indents under it — `Text "hi"` (the view widget),
+  `row.Text` (a member), and a variable named `text` at end of line
+  (`"say: " & text`) are all left alone (VB is case-insensitive, so `text` and
+  `Text` are one word).
 - **Numeric literals:** integer (`42`, `-7`) and float (`3.14`). A float literal
   in a numeric expression is tagged `f64` in output to avoid f32/f64 ambiguity.
 - **Booleans:** `True`, `False`.
@@ -640,8 +652,16 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
   treatment as a local one — `&mut` for ByRef, `&` for ByVal
   collections/strings, return-type inference — so `Vec`, `String`, and
   struct arguments cross modules freely. `Module.CONST` reads a
-  `Public Const` (→ `crate::module::CONST`). **Types don't cross yet**: a
-  `Type`/`Enum` is usable only in its own file.
+  `Public Const` (→ `crate::module::CONST`).
+- **Types are project-global by bare name** (VB6 semantics): a `Public Type`
+  or `Public Enum` in any file is used everywhere as just `Rule` — never
+  `Life.Rule` — with its public methods and `Match` patterns. The generated
+  Rust imports it idiomatically: `use crate::life::Rule;` in each file that
+  mentions it. A local definition shadows a sibling's; the same name Public in
+  two files is an ambiguity error; a Private type used elsewhere and a
+  qualified type each earn a teaching error. Fields another file touches must
+  be `Public` (they become `pub`), and methods cross only when declared
+  `Public Function Type.Method` — like any function.
 - A sibling **`.rs` file is a hand-written module**, included **verbatim** (it
   skips transpilation) and called with the same qualified syntax —
   `Text.Shout(s)` → `crate::text::shout(s)`. This is the in-project "wrapper"

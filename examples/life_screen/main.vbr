@@ -10,6 +10,8 @@ Screen LifeLab
 
     State
         Dim grid As Vec<Long> = Life.NewGrid()
+        ' life.vbr's Public Type, by bare name — types are project-global.
+        Dim rule As Rule = Life.ClassicRule()
         Dim living As Long = 0
         Dim status As String = "ready"
     End State
@@ -32,13 +34,13 @@ Screen LifeLab
         Life.SetCell(grid, 1, 1, 1)
         Life.SetCell(grid, 2, 1, 1)
         Life.SetCell(grid, 3, 1, 1)
-        status = "seeded " & Life.FormatRule("3", "23")
+        status = "seeded " & rule.Describe()
     End Event
 
     ' Recount the living cells (the status line shows the result).
     Event Count
         living = Life.CountLive(grid)
-        status = "counted"
+        status = "counted under " & Life.FormatRule("3", "23")
     End Event
 End Screen
 

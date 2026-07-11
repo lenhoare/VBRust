@@ -266,8 +266,9 @@ that treats local call arguments treats qualified ones — `&mut` ByRef, `&`
 ByVal collections/strings, return types feeding inference. Calling a `Private`
 function cross-module now earns a teaching error instead of rustc's raw
 "function is private". Scope drawn deliberately: **types don't cross modules
-yet** (structs/enums stay file-local — own slice), and verbatim `.rs` modules
-stay name-only (no VBR interface to harvest). Example + guard:
+yet** (structs/enums stay file-local — became its own slice, #28 below), and
+verbatim `.rs` modules stay name-only (no VBR interface to harvest). Example +
+guard:
 `examples/life_project/`, `crossmodule_interfaces_compile`. Zero churn in the
 existing geometry/mixed project snapshots (they cross only primitives).
 
@@ -300,6 +301,37 @@ logic in life.vbr; snapshot `screen_project_matches_snapshot` + a real project
 build in the compile guard). Zero churn in single-file surface snapshots
 (empty module set = no-op).
 
+### 28. Types don't cross modules (fixed — types are project-global, VB6-style)
+
+The scope line drawn in #22/#23, erased 2026-07-11. The design question was
+whether types should be module-qualified like functions (`Life.Rule`) — answer:
+**no**. In VB6 a Public UDT/Enum in any module was global by bare name
+(`Module.Type` syntax never existed); in idiomatic Rust, types are *imported*
+(`use crate::life::Rule;`) and used bare while functions stay path-qualified.
+Both agree, so VBR does both at once. **Fix**: `ModuleInterface` also harvests
+public `Type` fields, `Enum` names, and public methods (with `&mut self`-ness);
+`merge_sibling_types` folds them into the same bare-name tables local types use
+(so inference, ByVal `&`, struct literals, and `Match` patterns just work,
+plain programs and surfaces alike); `add_sibling_type_uses` scans the
+*generated* code (strings/comments blanked) and inserts one
+`use crate::module::Name;` per foreign type actually mentioned. Rules: local
+definition wins; same name Public in two files = ambiguity error on use; a
+sibling's Private type or a module-qualified type (`Life.Rule`) each earn a
+teaching error. Fields another file touches must be `Public` → `pub`.
+Examples: `examples/life_project/` (Rule + CellState cross, method + Match),
+`examples/life_screen/` (a Screen holds a sibling's type in State). Guards:
+`crossmodule_interfaces_compile`, `crossmodule_type_diagnostics`.
+
+### 29. A Rust reserved word as a field/variable name breaks the build (OPEN)
+
+Found probing #28: `Dim box As Rect` in a Screen's State emits
+`box: Rect` — `box` is a *reserved* Rust keyword, so the generated struct
+doesn't compile (raw `r#box` isn't even allowed for it). Same risk for any
+keyword VBR's lowercasing lands on: `type`, `match`, `loop`, `move`, `ref`,
+`impl`, … The fix wants a rename pass (`box` → `box_`, with a one-time note)
+or a teaching error listing the reserved names. Rare in practice, ugly when
+hit — the rustc error at least points at the right line today.
+
 ### 26. View expressions can't read a sibling module's constant (OPEN)
 
 `Text "grid " & Life.WIDTH & " wide"` in a `View` emits broken `life.width` —
@@ -315,6 +347,47 @@ pass) — small, self-contained, deferred until it actually bites someone.
 `FormatRule(Rule { birth: birthPart, … })` then reusing `birthPart` is a
 use-after-move — a genuine ownership lesson, left to rustc's translated error
 (the backstop). If it keeps biting, consider a teaching note.
+
+---
+
+## Architecture: the surface path vs the plain-function path — 2026-07-11
+
+A design conversation (not a single bug) about *why* bugs like #10 and #16 keep
+recurring in the same shape. Diagnosis: VBR has **one shared resolver core**
+(`resolve_stmts`) and **one shared statement emitter** (`emit_stmt`), but the
+surface path (Window/Screen/Page events) bolts a surface-only **post-pass**
+between them — the bare-field → `state.field` rewrite (`rewrite_stmt` /
+`rewrite_expr_with` / `coerce_state_strings`) plus the genuinely-separate `Await`
+split. That post-pass is a second tree-walker, and every coverage hole in it
+(a node variant its `_ =>` catch-all silently dropped) is a #10/#16-shaped bug.
+The async model staying deliberately narrow (`Await` only as a top-level `Match`
+/ `Dim` value) is a *choice* — VBR is a teaching tool, not a second Rust — so
+"Await can't sit in `If`" is a known trade, not an accident.
+
+Agreed three-tier plan:
+
+- **Tier 1 — make the rewrite passes total (DONE 2026-07-11).** Removed the
+  silent-drop `_ =>`/`other =>` wildcards from `surface::rewrite_expr_with`,
+  `surface::rewrite_stmt`, `surface::coerce_state_strings`, and the sibling
+  `gui::rewrite_canvas_stmt`; every `Expr`/`Stmt` variant is now listed, so
+  Rust's exhaustiveness check *forces* a new node to be handled instead of
+  dropped. Two real holes closed: `rewrite_expr_with` never recursed
+  `TupleIndex` (defensive — a tuple *State* field is rejected upstream today, so
+  not yet reachable), and `coerce_state_strings` only descended `If`/`Match`, not
+  `For`/`ForEach`/`DoLoop` — so a `String` field assigned a literal inside a loop
+  in an event emitted `state.s = "x"` (missing `.to_string()`) → won't compile.
+  Proven with a probe: `status = "running"` inside a `For` now emits
+  `state.status = "running".to_string();`. Zero snapshot churn; compile guard
+  green. This *closes the class* at compile time — the "million patches" fear.
+- **Tier 2 — unify (deferred, deliberate).** Delete the rewrite post-pass by
+  teaching the shared emitter about "receiver fields" (emit `state.field` inline,
+  as it already does `Me.field` for methods), so there is one walker, not two.
+  Medium work (thread a receiver-fields context through `render_expr`/`emit_stmt`,
+  manage snapshot churn); do it as a standalone refactor when there's appetite,
+  not forced by any one bug.
+- **Tier 3 — async model (its own project).** A real `Await`-anywhere lowering
+  (a small CPS/state-machine transform) would make every "Await can't sit in X"
+  vanish together. Larger; separate design; only if the narrow model bites hard.
 
 ---
 
@@ -340,6 +413,18 @@ them. So the default string must stay literal. Newlines/tabs are covered by
 prefixed form** (a distinct syntax, so normal strings stay path-safe) rather
 than changing the default. Parked by choice, not blocking anything.
 
+**Update (2026-07-11): the *multi-line* half of this is now built — `Text …
+End Text`.** The block is the most-literal string form (backslashes/quotes/braces
+stay verbatim — ideal for JSON/SQL/prompts), dedents to its shallowest line, and
+lowers to an ordinary `Expr::Str` (`\n` between lines is the *only* way a newline
+enters a VBR string; a quoted literal still never grows escapes). It opens only
+when bare `Text` ends its line **and** the next line indents under it — so the
+`Text` widget, `.Text` members, and a variable named `text` at end of line are
+all untouched (VB is case-insensitive, so `text`/`Text` are one word — the
+indentation guard is what tells a block from a value). What remains parked is the
+*inline* escaped literal (`\n`/`\t` inside a one-line `"…"`), still deferred to a
+future opt-in prefix. Examples: `examples/text_block.vbr`; guarded in `HAPPY`.
+
 ### 14. A comment between `Screen`/`Window` members is rejected (fixed)
 
 Inside a `Screen`/`Window`/`Page` block, a `'` comment line between members
@@ -347,7 +432,9 @@ Inside a `Screen`/`Window`/`Page` block, a `'` comment line between members
 events in place. **Fix** (`parser.rs`): both surface member loops skip comment
 tokens (they aren't carried into the generated Rust — member-level comment
 preservation would be its own small feature). `examples/life_screen/main.vbr`
-documents its events in place as the regression test.
+documents its events in place as the regression test. *(2026-07-11: the same
+fix applied to `State` blocks — a comment between `Dim` fields was still a
+parse error; `life_screen`'s State now carries one as the regression.)*
 
 ### 15. Projects don't copy data files into `build/` (fixed)
 

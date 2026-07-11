@@ -165,6 +165,34 @@ Where VB would quietly convert one number to another, VBR inserts an explicit Ru
 `as` cast — the conversion VB hides, made visible. Assign a `Long` to a `Double`
 and you will see `as f64` appear; this is a teaching moment, not a wart.
 
+### Multi-line strings
+
+A `"…"` literal stays on one line, and it has no backslash escapes — you write a
+Windows path as `"C:\new\table"` and it means exactly that. When you need a
+*block* of text — a JSON body, a chunk of SQL, an LLM prompt — write `Text` on
+its own at the end of a line, the text below it, and `End Text` to close:
+
+```vb
+Dim body As String = Text
+    {"model": "llama3",
+     "prompt": "say hello",
+     "stream": false}
+End Text
+```
+
+Everything between the two markers is the string, **exactly as written** —
+quotes, backslashes and braces are all literal, so you never double a `""` or
+escape anything. VBR strips the common indentation (the block lines up with your
+code without dragging the indent into the string), keeps blank lines, and adds no
+trailing newline. The result is an ordinary `String`, so `Text … End Text & " → " & who`
+concatenates like any other.
+
+`Text` only opens a block when the rest of its line is blank *and* the next line
+indents beneath it, so the `Text` view widget (`Text "hi"`), a member (`row.Text`),
+and a plain variable named `text` (`"said: " & text`) are never mistaken for one.
+This is the only place a `\n` ever enters a VBR string — a quoted literal never
+grows one behind your back.
+
 ---
 
 ## 3. Control Flow
@@ -756,6 +784,29 @@ modules are qualified by the module name:
 ' in main.vbr
 Debug.Print Geometry.Area(r)       →     crate::geometry::area(r)
 ```
+
+The whole signature crosses with the call: a ByRef `Vec` still borrows `&mut`,
+a ByVal `String` still borrows `&`, and the return type still infers — moving a
+function to another file changes nothing at the call site.
+
+**Types are different: they don't take the module prefix.** A `Public Type` or
+`Public Enum` in any file belongs to the whole project by its bare name — write
+`Dim r As Rule`, never `Geometry.Rule` — with its `Public` methods and `Match`
+patterns along for the ride. This is exactly how VB6 treated a Public UDT in a
+`.bas` module, and it is also exactly what a Rust developer writes: the type
+stays defined in its home module, and every file that mentions it gets an
+idiomatic import:
+
+```rust
+use crate::geometry::Rule;
+```
+
+So the VB6 habit and the Rust idiom agree: *functions say where they came from;
+types are simply vocabulary.* If two files both export the same type name, VBR
+asks you to rename one; a type you didn't mark `Public` stays private to its
+file, and using it elsewhere earns a friendly correction. Remember that fields
+another file touches need `Public` too — `Public Width As Double` becomes
+`pub width: f64`.
 
 A module need not be VBR. A `.rs` file dropped in the same folder is included
 **verbatim** as a hand-written Rust module, called with the same qualified syntax.

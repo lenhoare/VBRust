@@ -28,3 +28,18 @@ End Function
 Public Function FormatRule(ByVal birth As String, ByVal survive As String) As String
     Return "B" & birth & "/S" & survive
 End Function
+
+' A Public Type is project-global (VB6 semantics): the Screen in main.vbr
+' keeps a `Rule` in its State by bare name — no `Life.` prefix on a type.
+Public Type Rule
+    Public Birth As String
+    Public Survive As String
+End Type
+
+Public Function Rule.Describe() As String
+    Return "B" & Me.Birth & "/S" & Me.Survive
+End Function
+
+Public Function ClassicRule() As Rule
+    Return Rule { birth: "3", survive: "23" }
+End Function

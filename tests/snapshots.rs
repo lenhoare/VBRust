@@ -65,6 +65,7 @@ const HAPPY: &[&str] = &[
     "opaque_handle",
     "logic",
     "grid_logic",
+    "text_block",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
@@ -306,6 +307,34 @@ fn crossmodule_interfaces_compile() {
     assert!(bad_rs.has_errors);
     let all = bad_rs.diagnostics.join("\n");
     for expect in ["'Hidden' is Private", "'SECRET' is Private", "no public constant 'Wdith'"] {
+        assert!(all.contains(expect), "missing diagnostic {expect:?} in:\n{all}");
+    }
+}
+
+/// Types across modules: a Public Type/Enum is project-global by its bare name
+/// (VB6 semantics) — the wrong ways each earn a teaching error: qualifying a
+/// type through its module, using a sibling's Private type, and a name two
+/// siblings both export.
+#[test]
+fn crossmodule_type_diagnostics() {
+    let life = "Public Type Rule\n    Public Birth As String\nEnd Type\n\
+                Type Hidden\n    x As Long\nEnd Type\n";
+    let grid = "Public Type Rule\n    Public Birth As String\nEnd Type\n";
+    let modules = vec![vbr::module_name("life"), vbr::module_name("grid")];
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert(vbr::module_name("life"), vbr::module_interface(life));
+    interfaces.insert(vbr::module_name("grid"), vbr::module_interface(grid));
+
+    let bad = "Function Main()\n    Dim h As Hidden = Hidden { x: 1 }\n    \
+               Dim r As Rule = Rule { birth: \"3\" }\n    Debug.Print Life.Rule\nEnd Function\n";
+    let bad_rs = vbr::compile_module(bad, &modules, &interfaces, true);
+    assert!(bad_rs.has_errors);
+    let all = bad_rs.diagnostics.join("\n");
+    for expect in [
+        "'Rule' is a Public type — types are shared across the whole project",
+        "'Rule' is Public in more than one file",
+        "'Hidden' is Private to 'life.vbr'",
+    ] {
         assert!(all.contains(expect), "missing diagnostic {expect:?} in:\n{all}");
     }
 }

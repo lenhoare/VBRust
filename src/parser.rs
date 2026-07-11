@@ -900,6 +900,12 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 break;
             }
+            // A comment line between fields is fine, as anywhere else.
+            if matches!(self.peek(), Tok::Comment(_)) {
+                self.advance();
+                self.eat(&Tok::Newline);
+                continue;
+            }
             if !matches!(self.peek(), Tok::Dim) {
                 self.diags
                     .error(self.line(), "A `State` block may only contain `Dim` declarations.");
@@ -2756,6 +2762,22 @@ impl<'a> Parser<'a> {
             self.advance();
             return Some(Expr::InlineRust(raw));
         }
+        // A `Text … End Text` block — a multi-line string literal. Dedented
+        // here (common leading indentation stripped), then an ordinary string
+        // from every other angle: `&` concatenation, `.to_string()` coercion.
+        if let Tok::TextBlock { body, terminated } = self.peek().clone() {
+            let opened_at = self.line();
+            self.advance();
+            if !terminated {
+                self.diags.error(
+                    opened_at,
+                    "This `Text` block never ends — close it with `End Text` on \
+                     its own line.",
+                );
+                return None;
+            }
+            return Some(Expr::Str(dedent_text_block(&body)));
+        }
         // A backtick-quoted column name in a dataframe formula — sugar for
         // `Col("Unit Price")`; the resolver lowers both to polars `col(...)`.
         if let Tok::Backtick(name) = self.peek().clone() {
@@ -2922,6 +2944,35 @@ fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
 
 /// Split the raw text inside `Python(…)` into the variable names passed in.
 /// Slice 2 inputs are bare identifiers (`Python(df, count)`); commas separate them.
+/// Assemble a `Text … End Text` body into its string value: drop the (blank)
+/// remainder of the opening line, strip the common leading indentation — so
+/// the block indents with the surrounding code without the indent leaking
+/// into the string — and join with `\n`. Blank lines survive; there is no
+/// trailing newline (`Debug.Print` adds its own).
+fn dedent_text_block(raw: &str) -> String {
+    let lines: Vec<&str> = raw
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
+    // The capture starts just after the word `Text`, so the first "line" is
+    // the blank tail of the opening line — drop it.
+    let lines = match lines.split_first() {
+        Some((first, rest)) if first.trim().is_empty() => rest,
+        _ => &lines[..],
+    };
+    let indent = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    lines
+        .iter()
+        .map(|l| if l.trim().is_empty() { "" } else { &l[indent..] })
+        .collect::<Vec<&str>>()
+        .join("\n")
+}
+
 fn split_py_args(args: &str) -> Vec<String> {
     args.split(',')
         .map(|s| s.trim().to_string())
