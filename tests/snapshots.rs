@@ -68,6 +68,7 @@ const HAPPY: &[&str] = &[
     "text_block",
     "conversions",
     "tests",
+    "logging",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

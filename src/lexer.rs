@@ -4,6 +4,8 @@
 //! so keywords are matched on a lowercased copy while identifier spelling is
 //! preserved. Newlines are significant — in VB a statement ends at end of line.
 
+use crate::span::Span;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
     // Literals
@@ -139,10 +141,27 @@ pub enum Tok {
 pub struct Token {
     pub tok: Tok,
     pub line: usize,
+    /// The token's byte range in the source (`[start, end)`), for
+    /// column-precise diagnostics and cursor→token lookup.
+    pub span: Span,
 }
 
 pub fn lex(src: &str) -> Vec<Token> {
     let chars: Vec<char> = src.chars().collect();
+    // The lexer scans by char index, but spans are byte offsets (what slices
+    // a `&str`) — this table converts. One extra entry so `chars.len()` maps
+    // to the end of the source.
+    let byte_of: Vec<usize> = {
+        let mut v = Vec::with_capacity(chars.len() + 1);
+        let mut b = 0usize;
+        for &c in &chars {
+            v.push(b);
+            b += c.len_utf8();
+        }
+        v.push(b);
+        v
+    };
+    let sp = |s: usize, e: usize| Span::new(byte_of[s], byte_of[e]);
     let mut tokens = Vec::new();
     let mut i = 0usize;
     let mut line = 1usize;
@@ -151,7 +170,7 @@ pub fn lex(src: &str) -> Vec<Token> {
         let c = chars[i];
         match c {
             '\n' => {
-                tokens.push(Token { tok: Tok::Newline, line });
+                tokens.push(Token { tok: Tok::Newline, line, span: sp(i, i + 1) });
                 line += 1;
                 i += 1;
             }
@@ -167,6 +186,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                 tokens.push(Token {
                     tok: Tok::Comment(text.trim().to_string()),
                     line,
+                    span: sp(i, j),
                 });
                 i = j;
             }
@@ -192,7 +212,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                         }
                     }
                 }
-                tokens.push(Token { tok: Tok::Str(s), line });
+                tokens.push(Token { tok: Tok::Str(s), line, span: sp(i, j) });
                 i = j;
             }
             '`' => {
@@ -208,59 +228,59 @@ pub fn lex(src: &str) -> Vec<Token> {
                     s.push(*c);
                     j += 1;
                 }
-                tokens.push(Token { tok: Tok::Backtick(s), line });
+                tokens.push(Token { tok: Tok::Backtick(s), line, span: sp(i, j) });
                 i = j;
             }
-            '+' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::PlusEq, line, &mut i),
-            '-' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::MinusEq, line, &mut i),
-            '*' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::StarEq, line, &mut i),
-            '/' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::SlashEq, line, &mut i),
-            '+' => push(&mut tokens, Tok::Plus, line, &mut i),
-            '-' => push(&mut tokens, Tok::Minus, line, &mut i),
-            '*' => push(&mut tokens, Tok::Star, line, &mut i),
-            '/' => push(&mut tokens, Tok::Slash, line, &mut i),
-            '^' => push(&mut tokens, Tok::Caret, line, &mut i),
-            '&' => push(&mut tokens, Tok::Amp, line, &mut i),
-            '=' if chars.get(i + 1) == Some(&'>') => two(&mut tokens, Tok::FatArrow, line, &mut i),
-            '=' => push(&mut tokens, Tok::Eq, line, &mut i),
-            '(' => push(&mut tokens, Tok::LParen, line, &mut i),
-            ')' => push(&mut tokens, Tok::RParen, line, &mut i),
-            '{' => push(&mut tokens, Tok::LBrace, line, &mut i),
-            '}' => push(&mut tokens, Tok::RBrace, line, &mut i),
-            '[' => push(&mut tokens, Tok::LBracket, line, &mut i),
-            ']' => push(&mut tokens, Tok::RBracket, line, &mut i),
-            ',' => push(&mut tokens, Tok::Comma, line, &mut i),
+            '+' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::PlusEq, line, sp(i, i + 2), &mut i),
+            '-' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::MinusEq, line, sp(i, i + 2), &mut i),
+            '*' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::StarEq, line, sp(i, i + 2), &mut i),
+            '/' if chars.get(i + 1) == Some(&'=') => two(&mut tokens, Tok::SlashEq, line, sp(i, i + 2), &mut i),
+            '+' => push(&mut tokens, Tok::Plus, line, sp(i, i + 1), &mut i),
+            '-' => push(&mut tokens, Tok::Minus, line, sp(i, i + 1), &mut i),
+            '*' => push(&mut tokens, Tok::Star, line, sp(i, i + 1), &mut i),
+            '/' => push(&mut tokens, Tok::Slash, line, sp(i, i + 1), &mut i),
+            '^' => push(&mut tokens, Tok::Caret, line, sp(i, i + 1), &mut i),
+            '&' => push(&mut tokens, Tok::Amp, line, sp(i, i + 1), &mut i),
+            '=' if chars.get(i + 1) == Some(&'>') => two(&mut tokens, Tok::FatArrow, line, sp(i, i + 2), &mut i),
+            '=' => push(&mut tokens, Tok::Eq, line, sp(i, i + 1), &mut i),
+            '(' => push(&mut tokens, Tok::LParen, line, sp(i, i + 1), &mut i),
+            ')' => push(&mut tokens, Tok::RParen, line, sp(i, i + 1), &mut i),
+            '{' => push(&mut tokens, Tok::LBrace, line, sp(i, i + 1), &mut i),
+            '}' => push(&mut tokens, Tok::RBrace, line, sp(i, i + 1), &mut i),
+            '[' => push(&mut tokens, Tok::LBracket, line, sp(i, i + 1), &mut i),
+            ']' => push(&mut tokens, Tok::RBracket, line, sp(i, i + 1), &mut i),
+            ',' => push(&mut tokens, Tok::Comma, line, sp(i, i + 1), &mut i),
             // `..=` and `..` for Rust range patterns (`1..=10`). Plain `.` stays
             // member access / float point.
             '.' if chars.get(i + 1) == Some(&'.') => {
                 if chars.get(i + 2) == Some(&'=') {
-                    tokens.push(Token { tok: Tok::DotDotEq, line });
+                    tokens.push(Token { tok: Tok::DotDotEq, line, span: sp(i, i + 3) });
                     i += 3;
                 } else {
-                    two(&mut tokens, Tok::DotDot, line, &mut i);
+                    two(&mut tokens, Tok::DotDot, line, sp(i, i + 2), &mut i);
                 }
             }
-            '.' => push(&mut tokens, Tok::Dot, line, &mut i),
-            ':' => push(&mut tokens, Tok::Colon, line, &mut i),
-            '?' => push(&mut tokens, Tok::Question, line, &mut i),
-            '|' => push(&mut tokens, Tok::Pipe, line, &mut i),
+            '.' => push(&mut tokens, Tok::Dot, line, sp(i, i + 1), &mut i),
+            ':' => push(&mut tokens, Tok::Colon, line, sp(i, i + 1), &mut i),
+            '?' => push(&mut tokens, Tok::Question, line, sp(i, i + 1), &mut i),
+            '|' => push(&mut tokens, Tok::Pipe, line, sp(i, i + 1), &mut i),
             '<' => {
                 if chars.get(i + 1) == Some(&'>') {
-                    tokens.push(Token { tok: Tok::Ne, line });
+                    tokens.push(Token { tok: Tok::Ne, line, span: sp(i, i + 2) });
                     i += 2;
                 } else if chars.get(i + 1) == Some(&'=') {
-                    tokens.push(Token { tok: Tok::Le, line });
+                    tokens.push(Token { tok: Tok::Le, line, span: sp(i, i + 2) });
                     i += 2;
                 } else {
-                    push(&mut tokens, Tok::Lt, line, &mut i);
+                    push(&mut tokens, Tok::Lt, line, sp(i, i + 1), &mut i);
                 }
             }
             '>' => {
                 if chars.get(i + 1) == Some(&'=') {
-                    tokens.push(Token { tok: Tok::Ge, line });
+                    tokens.push(Token { tok: Tok::Ge, line, span: sp(i, i + 2) });
                     i += 2;
                 } else {
-                    push(&mut tokens, Tok::Gt, line, &mut i);
+                    push(&mut tokens, Tok::Gt, line, sp(i, i + 1), &mut i);
                 }
             }
             c if c.is_ascii_digit() => {
@@ -285,7 +305,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                 } else {
                     Tok::Int(text.parse().unwrap_or(0))
                 };
-                tokens.push(Token { tok, line });
+                tokens.push(Token { tok, line, span: sp(start, j) });
                 i = j;
             }
             c if c.is_alphabetic() || c == '_' => {
@@ -302,6 +322,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     tokens.push(Token {
                         tok: Tok::InlineRust(raw),
                         line,
+                        span: sp(start, resume),
                     });
                     line += newlines;
                     i = resume;
@@ -312,6 +333,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     tokens.push(Token {
                         tok: Tok::InlineCss(raw),
                         line,
+                        span: sp(start, resume),
                     });
                     line += newlines;
                     i = resume;
@@ -324,6 +346,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     tokens.push(Token {
                         tok: Tok::InlinePython { args, body },
                         line,
+                        span: sp(start, resume),
                     });
                     line += newlines;
                     i = resume;
@@ -345,6 +368,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     tokens.push(Token {
                         tok: Tok::TextBlock { body: raw, terminated },
                         line,
+                        span: sp(start, resume),
                     });
                     line += newlines;
                     i = resume;
@@ -355,6 +379,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     tokens.push(Token {
                         tok: Tok::Use(rest),
                         line,
+                        span: sp(start, resume),
                     });
                     i = resume;
                 } else {
@@ -367,7 +392,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     } else {
                         keyword_or_ident(&word)
                     };
-                    tokens.push(Token { tok, line });
+                    tokens.push(Token { tok, line, span: sp(start, j) });
                     i = j;
                 }
             }
@@ -378,7 +403,7 @@ pub fn lex(src: &str) -> Vec<Token> {
         }
     }
 
-    tokens.push(Token { tok: Tok::Eof, line });
+    tokens.push(Token { tok: Tok::Eof, line, span: sp(chars.len(), chars.len()) });
     tokens
 }
 
@@ -536,14 +561,14 @@ fn match_end_block(chars: &[char], i: usize, term: &str) -> Option<usize> {
     }
 }
 
-fn push(tokens: &mut Vec<Token>, tok: Tok, line: usize, i: &mut usize) {
-    tokens.push(Token { tok, line });
+fn push(tokens: &mut Vec<Token>, tok: Tok, line: usize, span: Span, i: &mut usize) {
+    tokens.push(Token { tok, line, span });
     *i += 1;
 }
 
 /// Push a two-character operator token and advance past both characters.
-fn two(tokens: &mut Vec<Token>, tok: Tok, line: usize, i: &mut usize) {
-    tokens.push(Token { tok, line });
+fn two(tokens: &mut Vec<Token>, tok: Tok, line: usize, span: Span, i: &mut usize) {
+    tokens.push(Token { tok, line, span });
     *i += 2;
 }
 

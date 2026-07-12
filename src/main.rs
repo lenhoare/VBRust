@@ -269,6 +269,11 @@ fn cmd_project(args: &[String], run: bool) {
         }
     }
 
+    // If the program uses `Log`, point at the file it writes (the run's cwd is
+    // `build/`), so a `Screen` you can't `Debug.Print` from is still diagnosable.
+    if project_logs(&build) {
+        eprintln!("→ logging to {}/vbr.log", build.display());
+    }
     eprintln!("→ cargo run\n");
     match Command::new("cargo")
         .args(["run", "--quiet"])
@@ -579,6 +584,20 @@ fn cmd_runweb(args: &[String]) {
             exit(1);
         }
     }
+}
+
+/// Does the generated project use `Log` (so the run writes `vbr.log`)? Scans the
+/// emitted `src/*.rs` for the sink helper.
+fn project_logs(build: &Path) -> bool {
+    fs::read_dir(build.join("src"))
+        .map(|entries| {
+            entries.flatten().any(|e| {
+                fs::read_to_string(e.path())
+                    .map(|s| s.contains("fn vbr_log("))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// Resolve a path argument to the entry `.vbr` file.

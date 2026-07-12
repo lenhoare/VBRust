@@ -6,6 +6,7 @@
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::lexer::{Tok, Token};
+use crate::span::Span;
 
 pub fn parse(tokens: Vec<Token>, diags: &mut Diagnostics) -> Program {
     let mut p = Parser {
@@ -31,6 +32,18 @@ impl<'a> Parser<'a> {
         self.toks[self.pos].line
     }
 
+    /// The current token's source byte range — where an "unexpected token"
+    /// style error should point.
+    fn span(&self) -> Span {
+        self.toks[self.pos].span
+    }
+
+    /// The span of the last token consumed — the natural *end* of whatever
+    /// was just parsed (a closing paren, a member name).
+    fn prev_span(&self) -> Span {
+        self.toks[self.pos.saturating_sub(1)].span
+    }
+
     fn advance(&mut self) -> Tok {
         let t = self.toks[self.pos].tok.clone();
         if self.pos < self.toks.len() - 1 {
@@ -53,7 +66,8 @@ impl<'a> Parser<'a> {
             self.advance();
             Some(())
         } else {
-            self.diags.error(
+            self.diags.error_at(
+                self.span(),
                 self.line(),
                 format!("Expected {:?} {}, found {:?}.", want, ctx, self.peek()),
             );
@@ -66,7 +80,8 @@ impl<'a> Parser<'a> {
             self.advance();
             Some(name)
         } else {
-            self.diags.error(
+            self.diags.error_at(
+                self.span(),
                 self.line(),
                 format!("Expected a name {}, found {:?}.", ctx, self.peek()),
             );
@@ -111,23 +126,25 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Function => match self.parse_function(false, false) {
                     Some(f) => functions.push(f),
-                    None => break, // error already recorded
+                    // Error already recorded — resync at the next item so the
+                    // rest of the file still gets diagnostics.
+                    None => self.recover_to_item(),
                 },
                 Tok::Sub => match self.parse_function(false, true) {
                     Some(f) => functions.push(f),
-                    None => break,
+                    None => self.recover_to_item(),
                 },
                 Tok::Type => match self.parse_struct(false) {
                     Some(s) => structs.push(s),
-                    None => break,
+                    None => self.recover_to_item(),
                 },
                 Tok::Enum => match self.parse_enum(false) {
                     Some(e) => enums.push(e),
-                    None => break,
+                    None => self.recover_to_item(),
                 },
                 Tok::Const => match self.parse_const(false) {
                     Some(c) => constants.push(c),
-                    None => break,
+                    None => self.recover_to_item(),
                 },
                 Tok::Public | Tok::Private => {
                     let public = matches!(self.peek(), Tok::Public);
@@ -135,26 +152,27 @@ impl<'a> Parser<'a> {
                     match self.peek() {
                         Tok::Function => match self.parse_function(public, false) {
                             Some(f) => functions.push(f),
-                            None => break,
+                            None => self.recover_to_item(),
                         },
                         Tok::Sub => match self.parse_function(public, true) {
                             Some(f) => functions.push(f),
-                            None => break,
+                            None => self.recover_to_item(),
                         },
                         Tok::Type => match self.parse_struct(public) {
                             Some(s) => structs.push(s),
-                            None => break,
+                            None => self.recover_to_item(),
                         },
                         Tok::Enum => match self.parse_enum(public) {
                             Some(e) => enums.push(e),
-                            None => break,
+                            None => self.recover_to_item(),
                         },
                         Tok::Const => match self.parse_const(public) {
                             Some(c) => constants.push(c),
-                            None => break,
+                            None => self.recover_to_item(),
                         },
                         _ => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 "Module-level variables (global state) aren't supported. Rust \
                                  avoids global mutable state because it makes data races easy to \
@@ -163,7 +181,7 @@ impl<'a> Parser<'a> {
                                  or wrap related state in a struct (`Type`) and give it methods. \
                                  (Module-level `Const` is fine — it's immutable and shared safely.)",
                             );
-                            break;
+                            self.recover_to_item();
                         }
                     }
                 }
@@ -171,14 +189,14 @@ impl<'a> Parser<'a> {
                     if let Some(win) = self.parse_window("Window") {
                         windows.push(win);
                     } else {
-                        break;
+                        self.recover_to_item();
                     }
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Page") => {
                     if let Some(pg) = self.parse_window("Page") {
                         pages.push(pg);
                     } else {
-                        break;
+                        self.recover_to_item();
                     }
                 }
                 Tok::InlineCss(_) => {
@@ -190,33 +208,35 @@ impl<'a> Parser<'a> {
                     if let Some(cv) = self.parse_canvas() {
                         canvases.push(cv);
                     } else {
-                        break;
+                        self.recover_to_item();
                     }
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Screen") => {
                     if let Some(sc) = self.parse_screen() {
                         screens.push(sc);
                     } else {
-                        break;
+                        self.recover_to_item();
                     }
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Test") => {
                     match self.parse_test() {
                         Some(t) => tests.push(t),
-                        None => break,
+                        None => self.recover_to_item(),
                     }
                 }
                 Tok::Ident(w) if w == "Option" => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         "`Option` directives (Option Base, Option Explicit, …) aren't \
                          supported and aren't needed — Rust is always zero-indexed and \
                          always explicit about types.",
                     );
-                    break;
+                    self.recover_to_eol();
                 }
                 other => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         format!(
                             "Top level may only contain functions, found {:?}. \
@@ -224,7 +244,10 @@ impl<'a> Parser<'a> {
                             other
                         ),
                     );
-                    break;
+                    // One error for the stray line, then resync — don't repeat
+                    // it for every line of whatever this block turns out to be.
+                    self.advance();
+                    self.recover_to_item();
                 }
             }
         }
@@ -300,7 +323,8 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Type, "to start a struct")?;
         let name = self.expect_ident("for the struct")?;
         if matches!(self.peek(), Tok::Lt) {
-            self.diags.error(
+            self.diags.error_at(
+                self.span(),
                 self.line(),
                 "Generic types (`Type Pair<T>`) aren't supported — declare concrete \
                  field types, or define the generic type in a `.rs` module (real Rust) \
@@ -332,7 +356,8 @@ impl<'a> Parser<'a> {
                 ty,
             });
             if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !matches!(self.peek(), Tok::End) {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!("Expected end of line after the field, found {:?}.", self.peek()),
                 );
@@ -354,7 +379,8 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Enum, "to start an enum")?;
         let name = self.expect_ident("for the enum")?;
         if matches!(self.peek(), Tok::Lt) {
-            self.diags.error(
+            self.diags.error_at(
+                self.span(),
                 self.line(),
                 "Generic enums (`Enum Maybe<T>`) aren't supported — for \"a value or \
                  nothing\" use the built-in `Option<T>`/`Result<T>`, give the variant a \
@@ -393,7 +419,8 @@ impl<'a> Parser<'a> {
             }
             variants.push(EnumVariant { name: vname, payload });
             if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !matches!(self.peek(), Tok::End) {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!("Expected end of line after the variant, found {:?}.", self.peek()),
                 );
@@ -406,7 +433,7 @@ impl<'a> Parser<'a> {
         self.eat(&Tok::Newline);
         if variants.is_empty() {
             self.diags
-                .error(self.line(), "An enum needs at least one variant.");
+                .error_at(self.span(), self.line(), "An enum needs at least one variant.");
             return None;
         }
         Some(EnumDef { name, public, variants })
@@ -440,7 +467,7 @@ impl<'a> Parser<'a> {
                 self.advance();
             }
             other => {
-                self.diags.error(self.line(), format!("Expected `Test` after `End`, found {:?}.", other));
+                self.diags.error_at(self.span(), self.line(), format!("Expected `Test` after `End`, found {:?}.", other));
                 return None;
             }
         }
@@ -469,7 +496,8 @@ impl<'a> Parser<'a> {
             (None, first)
         };
         if matches!(self.peek(), Tok::Lt) {
-            self.diags.error(
+            self.diags.error_at(
+                self.span(),
                 self.line(),
                 "Generic functions (`Function Largest<T>(…)`) aren't supported. A useful \
                  generic needs trait bounds (`T: PartialOrd` to compare, `T: Clone` to \
@@ -495,7 +523,8 @@ impl<'a> Parser<'a> {
         // A Sub never returns a value; a Function may declare a return type.
         let ret = if is_sub {
             if matches!(self.peek(), Tok::As) {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     "A `Sub` returns nothing — to return a value, use `Function … As T`.",
                 );
@@ -536,7 +565,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(w) if w.eq_ignore_ascii_case(name) => Some(()),
             other => {
                 self.diags
-                    .error(self.line(), format!("Expected `{}`, found {:?}.", name, other));
+                    .error_at(self.span(), self.line(), format!("Expected `{}`, found {:?}.", name, other));
                 None
             }
         }
@@ -548,7 +577,7 @@ impl<'a> Parser<'a> {
             Tok::Str(s) => Some(s),
             other => {
                 self.diags
-                    .error(self.line(), format!("Expected a string {}, found {:?}.", ctx, other));
+                    .error_at(self.span(), self.line(), format!("Expected a string {}, found {:?}.", ctx, other));
                 None
             }
         }
@@ -623,7 +652,8 @@ impl<'a> Parser<'a> {
                     events.push(GuiEvent { name: ev_name, params, body });
                 }
                 other => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         format!(
                             "Unexpected {:?} inside a {kind} — expected Title, Theme, State, \
@@ -640,7 +670,7 @@ impl<'a> Parser<'a> {
             Some(v) => v,
             None => {
                 self.diags
-                    .error(self.line(), format!("A {kind} needs a `View` block."));
+                    .error_at(self.span(), self.line(), format!("A {kind} needs a `View` block."));
                 return None;
             }
         };
@@ -735,7 +765,8 @@ impl<'a> Parser<'a> {
                     events.push(GuiEvent { name: ev_name, params, body });
                 }
                 other => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         format!(
                             "Unexpected {:?} inside a Screen — expected Title, State, View, \
@@ -751,7 +782,7 @@ impl<'a> Parser<'a> {
         let view = match view {
             Some(v) => v,
             None => {
-                self.diags.error(self.line(), "A Screen needs a `View` block.");
+                self.diags.error_at(self.span(), self.line(), "A Screen needs a `View` block.");
                 return None;
             }
         };
@@ -771,7 +802,8 @@ impl<'a> Parser<'a> {
                 Some(name)
             }
             other => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!(
                         "Expected a key after `On Key` — a character like \"q\" or a named key \
@@ -809,7 +841,8 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                 }
                 other => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         format!(
                             "Inside a Canvas expected a `Draw` block or `End Canvas`, found {:?}.",
@@ -825,7 +858,7 @@ impl<'a> Parser<'a> {
             Some(b) => b,
             None => {
                 self.diags
-                    .error(self.line(), "A Canvas needs a `Draw` block.");
+                    .error_at(self.span(), self.line(), "A Canvas needs a `Draw` block.");
                 return None;
             }
         };
@@ -835,6 +868,11 @@ impl<'a> Parser<'a> {
     /// Peek the token one past the cursor (for small look-ahead decisions).
     fn peek2(&self) -> &Tok {
         let i = (self.pos + 1).min(self.toks.len() - 1);
+        &self.toks[i].tok
+    }
+
+    fn peek3(&self) -> &Tok {
+        let i = (self.pos + 2).min(self.toks.len() - 1);
         &self.toks[i].tok
     }
 
@@ -894,7 +932,7 @@ impl<'a> Parser<'a> {
                 match it.next() {
                     Some(e) => e,
                     None => {
-                        self.diags.error(self.line(), $what);
+                        self.diags.error_at(self.span(), self.line(), $what);
                         return None;
                     }
                 }
@@ -919,7 +957,8 @@ impl<'a> Parser<'a> {
                 next_arg!("Line needs (x1, y1, x2, y2)."),
             ),
             other => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!("Unknown shape `{}` — use Circle, Rect, or Line.", other),
                 );
@@ -928,7 +967,7 @@ impl<'a> Parser<'a> {
         };
         if it.next().is_some() {
             self.diags
-                .error(self.line(), "Too many arguments for this shape.");
+                .error_at(self.span(), self.line(), "Too many arguments for this shape.");
             return None;
         }
         Some(shape)
@@ -952,7 +991,7 @@ impl<'a> Parser<'a> {
             }
             if !matches!(self.peek(), Tok::Dim) {
                 self.diags
-                    .error(self.line(), "A `State` block may only contain `Dim` declarations.");
+                    .error_at(self.span(), self.line(), "A `State` block may only contain `Dim` declarations.");
                 return None;
             }
             match self.parse_dim()? {
@@ -969,7 +1008,8 @@ impl<'a> Parser<'a> {
                     fields.push(StateField { name, ty, init })
                 }
                 _ => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         "A State field must be a typed value with an initial value \
                          (`Dim count As Integer = 0`), or a collection that may start empty \
@@ -996,7 +1036,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(w) => w,
             other => {
                 self.diags
-                    .error(self.line(), format!("Expected a widget, found {:?}.", other));
+                    .error_at(self.span(), self.line(), format!("Expected a widget, found {:?}.", other));
                 return None;
             }
         };
@@ -1021,7 +1061,8 @@ impl<'a> Parser<'a> {
                     "width" => true,
                     "height" => false,
                     _ => {
-                        self.diags.error(
+                        self.diags.error_at(
+                            self.span(),
                             self.line(),
                             format!("`Space` takes `Height` or `Width`, found `{}`.", dim),
                         );
@@ -1115,7 +1156,8 @@ impl<'a> Parser<'a> {
                                 y_bounds = Some((lo, hi));
                             }
                             other => {
-                                self.diags.error(
+                                self.diags.error_at(
+                                    self.span(),
                                     self.line(),
                                     format!(
                                         "Inside a Chart expected `Series <field>`, `XAxis min..=max`, \
@@ -1168,7 +1210,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside an Input expected `On Submit <event>` or `End Input`, \
@@ -1205,7 +1248,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a List expected `On Select <event>` or `End List`, \
@@ -1241,7 +1285,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a Table expected `On Select <event>` or `End Table`, \
@@ -1298,7 +1343,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a Button expected `On Click <event>` or `End Button`, \
@@ -1336,7 +1382,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a TextInput expected `On Input <event>` or \
@@ -1382,7 +1429,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a Checkbox expected `On Toggle <event>` or \
@@ -1422,7 +1470,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a Slider expected `On Change <event>` or `End Slider`, \
@@ -1438,7 +1487,8 @@ impl<'a> Parser<'a> {
                 let on_change = match on_change {
                     Some(ev) => ev,
                     None => {
-                        self.diags.error(
+                        self.diags.error_at(
+                            self.span(),
                             self.line(),
                             "A Slider needs `On Change <event>` — Iced sliders always report \
                              movement, so there must be an event to receive the new value.",
@@ -1471,7 +1521,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a Toggler expected `On Toggle <event>` or \
@@ -1512,7 +1563,8 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         other => {
-                            self.diags.error(
+                            self.diags.error_at(
+                                self.span(),
                                 self.line(),
                                 format!(
                                     "Inside a Radio expected `On Select <event>` or `End Radio`, \
@@ -1527,7 +1579,8 @@ impl<'a> Parser<'a> {
                 let on_select = match on_select {
                     Some(ev) => ev,
                     None => {
-                        self.diags.error(
+                        self.diags.error_at(
+                            self.span(),
                             self.line(),
                             "A Radio needs `On Select <event>` — selecting it must report which \
                              option was chosen.",
@@ -1549,7 +1602,8 @@ impl<'a> Parser<'a> {
                 Some(ViewNode::ProgressBar { min, max, value })
             }
             other => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
@@ -1636,7 +1690,8 @@ impl<'a> Parser<'a> {
                 }
                 Tok::End => break,
                 other => {
-                    self.diags.error(
+                    self.diags.error_at(
+                        self.span(),
                         self.line(),
                         format!("Inside a view `If` expected `ElseIf`, `Else`, or `End If`, found {:?}.", other),
                     );
@@ -1866,7 +1921,13 @@ impl<'a> Parser<'a> {
             if !matches!(self.peek(), Tok::Comment(_)) {
                 stmts.push(Stmt::LineMark(self.line()));
             }
-            let s = self.parse_stmt()?;
+            let Some(s) = self.parse_stmt() else {
+                // The error is already recorded — resync at end of line and
+                // keep going, so a half-typed statement costs one diagnostic,
+                // not everything below it.
+                self.recover_to_eol();
+                continue;
+            };
             stmts.push(s);
 
             if let Tok::Comment(text) = self.peek().clone() {
@@ -1875,11 +1936,12 @@ impl<'a> Parser<'a> {
             }
 
             if !matches!(self.peek(), Tok::Newline | Tok::Eof) && !self.at_block_end() {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!("Expected end of line after statement, found {:?}.", self.peek()),
                 );
-                return None;
+                self.recover_to_eol();
             }
         }
         Some(stmts)
@@ -1890,6 +1952,66 @@ impl<'a> Parser<'a> {
             self.peek(),
             Tok::End | Tok::ElseIf | Tok::Else | Tok::Case | Tok::Next | Tok::Loop | Tok::Eof
         )
+    }
+
+    /// Is the cursor at the first token of its line? Recovery uses this so a
+    /// variable named `test` mid-expression isn't mistaken for a `Test` block.
+    fn at_line_start(&self) -> bool {
+        self.pos == 0 || matches!(self.toks[self.pos - 1].tok, Tok::Newline)
+    }
+
+    /// After a statement fails to parse, skip to the end of its line so the
+    /// *next* statement is still analysed. The editor recompiles on every
+    /// keystroke — mid-word — so one half-typed line must cost one error, not
+    /// every diagnostic below it.
+    fn recover_to_eol(&mut self) {
+        while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
+            self.advance();
+        }
+    }
+
+    /// After a top-level item fails to parse, skip forward to the next thing
+    /// that can start one — so a broken function doesn't silence the whole
+    /// rest of the file. A closing `End Function`/`End Sub`/`End Type`/… on
+    /// the way belongs to the broken item and is consumed with it.
+    fn recover_to_item(&mut self) {
+        let surface_kw = |w: &str| {
+            matches!(
+                w.to_ascii_lowercase().as_str(),
+                "window" | "screen" | "page" | "canvas" | "test"
+            )
+        };
+        loop {
+            match self.peek() {
+                Tok::Eof => return,
+                Tok::Function
+                | Tok::Sub
+                | Tok::Type
+                | Tok::Enum
+                | Tok::Const
+                | Tok::Public
+                | Tok::Private
+                | Tok::Use(_)
+                    if self.at_line_start() =>
+                {
+                    return;
+                }
+                Tok::Ident(w) if self.at_line_start() && surface_kw(w) => return,
+                Tok::End
+                    if matches!(
+                        self.peek2(),
+                        Tok::Function | Tok::Sub | Tok::Type | Tok::Enum
+                    ) || matches!(self.peek2(), Tok::Ident(w) if surface_kw(w)) =>
+                {
+                    self.advance();
+                    self.advance();
+                    return;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
     }
 
     /// Parse a single statement. Line termination is handled by `parse_block`.
@@ -1921,7 +2043,8 @@ impl<'a> Parser<'a> {
             Tok::If => self.parse_if(),
             Tok::Match => self.parse_match(),
             Tok::Select => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     "`Select Case` has been replaced by `Match` … `End Match`, which maps \
                      straight to Rust's `match`. Each arm is `pattern => body` (no `Case`); \
@@ -1933,14 +2056,16 @@ impl<'a> Parser<'a> {
             // A standalone inline Rust block (side effects; no value used).
             Tok::InlineRust(_) => Some(Stmt::Expr(self.parse_primary()?)),
             Tok::Const => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     "Declare constants at the top of the file (module level), not inside a function.",
                 );
                 None
             }
             Tok::ReDim => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     "ReDim isn't supported. Use a Vec (`Dim x As Vec<T>`), which grows on \
                      demand with `.push(...)` — no resizing dance needed.",
@@ -1951,12 +2076,28 @@ impl<'a> Parser<'a> {
                 None
             }
             Tok::With => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     "`With` blocks aren't supported — write the variable name out each time \
                      (e.g. `p.x = 1` / `p.y = 2`, not `With p` … `.x = 1`). It's a little more \
                      typing but far clearer about what you're touching.",
                 );
+                // Swallow the whole block (through `End With`) so its body
+                // doesn't produce follow-on noise — this one error says it all.
+                loop {
+                    match self.peek() {
+                        Tok::Eof => break,
+                        Tok::End if matches!(self.peek2(), Tok::With) => {
+                            self.advance();
+                            self.advance();
+                            break;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
                 None
             }
             Tok::Do => self.parse_do(),
@@ -1976,7 +2117,8 @@ impl<'a> Parser<'a> {
                         Some(Stmt::Return(None))
                     }
                     other => {
-                        self.diags.error(
+                        self.diags.error_at(
+                            self.span(),
                             self.line(),
                             format!("`Exit {:?}` is not supported — use `Exit Do`, `Exit For`, or `Exit Function`.", other),
                         );
@@ -1985,7 +2127,8 @@ impl<'a> Parser<'a> {
                 }
             }
             Tok::On => {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     "`On Error` is not supported. Rust signals failure through return values, \
                      not jumps. Make the function return `As Result<T>`, `Return Err(\"...\")` on \
@@ -2006,10 +2149,40 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Some(Stmt::Assert(self.parse_expr()?))
             }
+            // `Log.<Level> <expr>` — a leveled log (like `Debug.Print`): `Log.Warn
+            // "…"`, `.Error`, `.Debug`, `.Info`. Recognised only when a known level
+            // follows the dot, so `log.Push(x)` on a variable is untouched.
+            Tok::Ident(w)
+                if w.eq_ignore_ascii_case("log")
+                    && matches!(self.peek2(), Tok::Dot)
+                    && log_level(self.peek3()).is_some() =>
+            {
+                self.advance(); // `Log`
+                self.advance(); // `.`
+                let level = log_level(self.peek()).unwrap();
+                self.advance(); // the level word
+                Some(Stmt::Log(level, self.parse_expr()?))
+            }
+            // `Log <expr>` — the bare logging verb (Info), like `Debug.Print` but
+            // to a file. Only at statement start, and only when what follows begins
+            // an expression *argument*: `Log "msg"`, `Log count`. A following
+            // `(`/`.`/`[`/`=` means `log` is being used as a value instead —
+            // `Log(x)` is the natural-log builtin, `log = 5` / `log.Push(x)` a
+            // variable — so those fall through untouched.
+            Tok::Ident(w)
+                if w.eq_ignore_ascii_case("log")
+                    && !matches!(
+                        self.peek2(),
+                        Tok::LParen | Tok::Dot | Tok::LBracket | Tok::Eq
+                    ) =>
+            {
+                self.advance();
+                Some(Stmt::Log(LogLevel::Info, self.parse_expr()?))
+            }
             Tok::Ident(name) => self.parse_ident_stmt(name),
             other => {
                 self.diags
-                    .error(self.line(), format!("Unexpected {:?} at start of statement.", other));
+                    .error_at(self.span(), self.line(), format!("Unexpected {:?} at start of statement.", other));
                 None
             }
         }
@@ -2034,7 +2207,7 @@ impl<'a> Parser<'a> {
             };
             self.expect(&Tok::Eq, "in a destructuring `Dim (a, b) = …`")?;
             let value = self.parse_expr()?;
-            if matches!(value, Expr::InlinePython { .. }) && ty.is_none() {
+            if matches!(value.kind, ExprKind::InlinePython { .. }) && ty.is_none() {
                 self.diags.error(
                     line,
                     "A `Python` block that returns several values needs their types: \
@@ -2046,6 +2219,7 @@ impl<'a> Parser<'a> {
             return Some(Stmt::DestructureDim { names, ty, value });
         }
 
+        let name_span = self.span();
         let name = self.expect_ident("after `Dim`")?;
 
         // `Dim a, b = expr` destructures a tuple (untyped, names inferred).
@@ -2070,14 +2244,19 @@ impl<'a> Parser<'a> {
             // the Python counterpart of the inline-Rust handle above. Holds a value
             // VBR has no type for; pass it back into a later `Python(h)` block.
             if let Tok::InlinePython { args, body } = self.peek().clone() {
+                let span = self.span();
                 self.advance();
                 return Some(Stmt::Dim {
                     name,
+                    name_span,
                     ty: DeclType::Named("PyObject".to_string()),
-                    init: Some(Expr::InlinePython {
-                        inputs: split_py_args(&args),
-                        body,
-                    }),
+                    init: Some(
+                        ExprKind::InlinePython {
+                            inputs: split_py_args(&args),
+                            body,
+                        }
+                        .at(span),
+                    ),
                     line,
                 });
             }
@@ -2141,6 +2320,7 @@ impl<'a> Parser<'a> {
         };
         Some(Stmt::Dim {
             name,
+            name_span,
             ty,
             init,
             line,
@@ -2177,7 +2357,8 @@ impl<'a> Parser<'a> {
             self.advance();
             Some(n)
         } else {
-            self.diags.error(
+            self.diags.error_at(
+                self.span(),
                 self.line(),
                 "An array size must be an integer literal, e.g. `Dim x(10) As Long`.",
             );
@@ -2304,7 +2485,8 @@ impl<'a> Parser<'a> {
             self.expect(&Tok::Dot, "after `Debug`")?;
             let method = self.expect_ident("after `Debug.`")?;
             if !method.eq_ignore_ascii_case("Print") {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!("`Debug.{}` is not supported yet — only `Debug.Print`.", method),
                 );
@@ -2331,7 +2513,10 @@ impl<'a> Parser<'a> {
         if name.eq_ignore_ascii_case("Sleep") {
             self.advance(); // Sleep
             let ms = self.parse_expr()?;
-            return Some(Stmt::Expr(Expr::Call { name: "Sleep".to_string(), args: vec![ms] }));
+            let span = ms.span;
+            return Some(Stmt::Expr(
+                ExprKind::Call { name: "Sleep".to_string(), args: vec![ms] }.at(span),
+            ));
         }
 
         // Parse a place expression (Ident or `a.field`) or a call. `parse_primary`
@@ -2465,7 +2650,7 @@ impl<'a> Parser<'a> {
         }
         if parts.is_empty() {
             self.diags
-                .error(self.line(), "Expected a pattern before `=>`.");
+                .error_at(self.span(), self.line(), "Expected a pattern before `=>`.");
             return None;
         }
         Some(parts.join(" "))
@@ -2493,7 +2678,8 @@ impl<'a> Parser<'a> {
                 && !matches!(self.peek(), Tok::End)
                 && !self.line_has_fat_arrow()
             {
-                self.diags.error(
+                self.diags.error_at(
+                    self.span(),
                     self.line(),
                     format!("Expected end of line after statement, found {:?}.", self.peek()),
                 );
@@ -2616,9 +2802,11 @@ impl<'a> Parser<'a> {
         // `Await <expr>` — a prefix that wraps the awaited expression (a stdlib
         // call). Only meaningful in a Window event; the GUI codegen handles it.
         if matches!(self.peek(), Tok::Await) {
+            let start = self.span();
             self.advance();
             let inner = self.parse_expr()?;
-            return Some(Expr::Await(Box::new(inner)));
+            let span = start.to(inner.span);
+            return Some(ExprKind::Await(Box::new(inner)).at(span));
         }
         self.parse_or()
     }
@@ -2657,9 +2845,11 @@ impl<'a> Parser<'a> {
 
     fn parse_not(&mut self) -> Option<Expr> {
         if matches!(self.peek(), Tok::Not) {
+            let start = self.span();
             self.advance();
             let inner = self.parse_not()?;
-            return Some(Expr::Not(Box::new(inner)));
+            let span = start.to(inner.span);
+            return Some(ExprKind::Not(Box::new(inner)).at(span));
         }
         self.parse_comparison()
     }
@@ -2729,13 +2919,16 @@ impl<'a> Parser<'a> {
 
     fn parse_unary(&mut self) -> Option<Expr> {
         if matches!(self.peek(), Tok::Minus) {
+            let start = self.span();
             self.advance();
             // `^` binds tighter than unary minus, so negate a whole power.
             let e = self.parse_unary()?;
-            return Some(match e {
-                Expr::Int(n) => Expr::Int(-n),
-                Expr::Float(f) => Expr::Float(-f),
-                other => bin(BinOp::Sub, Expr::Int(0), other),
+            let span = start.to(e.span);
+            let inner_span = e.span;
+            return Some(match e.kind {
+                ExprKind::Int(n) => ExprKind::Int(-n).at(span),
+                ExprKind::Float(f) => ExprKind::Float(-f).at(span),
+                other => bin(BinOp::Sub, ExprKind::Int(0).at(start), other.at(inner_span)),
             });
         }
         self.parse_power()
@@ -2764,7 +2957,8 @@ impl<'a> Parser<'a> {
                     if let Tok::Int(n) = self.peek() {
                         let n = *n as usize;
                         self.advance();
-                        e = Expr::TupleIndex(Box::new(e), n);
+                        let span = e.span.to(self.prev_span());
+                        e = ExprKind::TupleIndex(Box::new(e), n).at(span);
                         continue;
                     }
                     let member = self.expect_ident("after `.`")?;
@@ -2781,26 +2975,31 @@ impl<'a> Parser<'a> {
                             }
                         }
                         self.expect(&Tok::RParen, "to close the method arguments")?;
-                        e = Expr::MethodCall {
+                        let span = e.span.to(self.prev_span());
+                        e = ExprKind::MethodCall {
                             recv: Box::new(e),
                             method: member,
                             args,
-                        };
+                        }
+                        .at(span);
                     } else {
                         // field access: expr.field
-                        e = Expr::Field(Box::new(e), member);
+                        let span = e.span.to(self.prev_span());
+                        e = ExprKind::Field(Box::new(e), member).at(span);
                     }
                 }
                 Tok::Question => {
                     self.advance();
-                    e = Expr::Try(Box::new(e));
+                    let span = e.span.to(self.prev_span());
+                    e = ExprKind::Try(Box::new(e)).at(span);
                 }
                 // `expr[index]` — array/Vec indexing (chainable for 2D).
                 Tok::LBracket => {
                     self.advance();
                     let index = self.parse_expr()?;
                     self.expect(&Tok::RBracket, "to close the index")?;
-                    e = Expr::Index(Box::new(e), Box::new(index));
+                    let span = e.span.to(self.prev_span());
+                    e = ExprKind::Index(Box::new(e), Box::new(index)).at(span);
                 }
                 _ => break,
             }
@@ -2811,45 +3010,57 @@ impl<'a> Parser<'a> {
     fn parse_atom(&mut self) -> Option<Expr> {
         // An inline Rust block.
         if let Tok::InlineRust(raw) = self.peek().clone() {
+            let span = self.span();
             self.advance();
-            return Some(Expr::InlineRust(raw));
+            return Some(ExprKind::InlineRust(raw).at(span));
         }
         // A `Text … End Text` block — a multi-line string literal. Dedented
         // here (common leading indentation stripped), then an ordinary string
         // from every other angle: `&` concatenation, `.to_string()` coercion.
         if let Tok::TextBlock { body, terminated } = self.peek().clone() {
             let opened_at = self.line();
+            let span = self.span();
             self.advance();
             if !terminated {
-                self.diags.error(
+                self.diags.error_at(
+                    span,
                     opened_at,
                     "This `Text` block never ends — close it with `End Text` on \
                      its own line.",
                 );
                 return None;
             }
-            return Some(Expr::Str(dedent_text_block(&body)));
+            return Some(ExprKind::Str(dedent_text_block(&body)).at(span));
         }
         // A backtick-quoted column name in a dataframe formula — sugar for
         // `Col("Unit Price")`; the resolver lowers both to polars `col(...)`.
         if let Tok::Backtick(name) = self.peek().clone() {
+            let span = self.span();
             self.advance();
-            return Some(Expr::Call {
-                name: "Col".to_string(),
-                args: vec![Expr::Str(name)],
-            });
+            return Some(
+                ExprKind::Call {
+                    name: "Col".to_string(),
+                    args: vec![ExprKind::Str(name).at(span)],
+                }
+                .at(span),
+            );
         }
         // An inline Python block (run via pyo3; typed by the surrounding `As T`,
         // or an opaque `PyObject` handle when untyped).
         if let Tok::InlinePython { args, body } = self.peek().clone() {
+            let span = self.span();
             self.advance();
-            return Some(Expr::InlinePython {
-                inputs: split_py_args(&args),
-                body,
-            });
+            return Some(
+                ExprKind::InlinePython {
+                    inputs: split_py_args(&args),
+                    body,
+                }
+                .at(span),
+            );
         }
         // A closure: `|x| body` (or `|| body`).
         if matches!(self.peek(), Tok::Pipe) {
+            let start = self.span();
             self.advance();
             let mut params = Vec::new();
             if !matches!(self.peek(), Tok::Pipe) {
@@ -2862,32 +3073,37 @@ impl<'a> Parser<'a> {
             }
             self.expect(&Tok::Pipe, "to close the closure parameters")?;
             let body = self.parse_expr()?;
-            return Some(Expr::Closure {
-                params,
-                body: Box::new(body),
-                by_ref_params: false,
-            });
+            let span = start.to(body.span);
+            return Some(
+                ExprKind::Closure {
+                    params,
+                    body: Box::new(body),
+                    by_ref_params: false,
+                }
+                .at(span),
+            );
         }
+        let start = self.span();
         match self.peek().clone() {
             Tok::Int(n) => {
                 self.advance();
-                Some(Expr::Int(n))
+                Some(ExprKind::Int(n).at(start))
             }
             Tok::Float(f) => {
                 self.advance();
-                Some(Expr::Float(f))
+                Some(ExprKind::Float(f).at(start))
             }
             Tok::Str(s) => {
                 self.advance();
-                Some(Expr::Str(s))
+                Some(ExprKind::Str(s).at(start))
             }
             Tok::True => {
                 self.advance();
-                Some(Expr::Bool(true))
+                Some(ExprKind::Bool(true).at(start))
             }
             Tok::False => {
                 self.advance();
-                Some(Expr::Bool(false))
+                Some(ExprKind::Bool(false).at(start))
             }
             Tok::Ident(name) => {
                 self.advance();
@@ -2907,7 +3123,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                     self.expect(&Tok::RBrace, "to close the struct literal")?;
-                    return Some(Expr::StructLit { name, fields });
+                    return Some(ExprKind::StructLit { name, fields }.at(start.to(self.prev_span())));
                 }
                 // A name followed by `(` is a function call.
                 if matches!(self.peek(), Tok::LParen) {
@@ -2922,9 +3138,9 @@ impl<'a> Parser<'a> {
                         }
                     }
                     self.expect(&Tok::RParen, "to close the call arguments")?;
-                    Some(Expr::Call { name, args })
+                    Some(ExprKind::Call { name, args }.at(start.to(self.prev_span())))
                 } else {
-                    Some(Expr::Ident(name))
+                    Some(ExprKind::Ident(name).at(start))
                 }
             }
             // `[a, b, …]` — an inline list literal (primary position). Postfix
@@ -2941,14 +3157,14 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&Tok::RBracket, "to close the list literal")?;
-                Some(Expr::List(elems))
+                Some(ExprKind::List(elems).at(start.to(self.prev_span())))
             }
             Tok::LParen => {
                 self.advance();
                 // `()` — the unit value (e.g. `Ok(())` in a `Result<()>` function).
                 if matches!(self.peek(), Tok::RParen) {
                     self.advance();
-                    return Some(Expr::Tuple(Vec::new()));
+                    return Some(ExprKind::Tuple(Vec::new()).at(start.to(self.prev_span())));
                 }
                 let first = self.parse_expr()?;
                 if matches!(self.peek(), Tok::Comma) {
@@ -2962,7 +3178,7 @@ impl<'a> Parser<'a> {
                         elems.push(self.parse_expr()?);
                     }
                     self.expect(&Tok::RParen, "to close the tuple")?;
-                    Some(Expr::Tuple(elems))
+                    Some(ExprKind::Tuple(elems).at(start.to(self.prev_span())))
                 } else {
                     self.expect(&Tok::RParen, "to close `(`")?;
                     Some(first)
@@ -2970,7 +3186,7 @@ impl<'a> Parser<'a> {
             }
             other => {
                 self.diags
-                    .error(self.line(), format!("Expected an expression, found {:?}.", other));
+                    .error_at(self.span(), self.line(), format!("Expected an expression, found {:?}.", other));
                 None
             }
         }
@@ -2986,12 +3202,27 @@ enum DimSpec {
     Fixed2D(usize, usize), // x(R, C)
 }
 
+/// A `Log.<Level>` severity word, if `tok` names one (`Info`/`Warn`/`Error`/
+/// `Debug`, case-insensitive). None otherwise, so `log.Push(x)` isn't a log.
+fn log_level(tok: &Tok) -> Option<LogLevel> {
+    let Tok::Ident(w) = tok else { return None };
+    match w.to_ascii_lowercase().as_str() {
+        "debug" => Some(LogLevel::Debug),
+        "info" => Some(LogLevel::Info),
+        "warn" => Some(LogLevel::Warn),
+        "error" => Some(LogLevel::Error),
+        _ => None,
+    }
+}
+
 fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::Binary {
+    let span = lhs.span.to(rhs.span);
+    ExprKind::Binary {
         op,
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
     }
+    .at(span)
 }
 
 /// Split the raw text inside `Python(…)` into the variable names passed in.

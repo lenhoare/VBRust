@@ -87,6 +87,13 @@ pub(crate) fn emit_shared_items(
     if !program.leading_comments.is_empty() {
         out.push('\n');
     }
+    // The `Log` sink helper — a surface (a `Screen` especially) leans on `Log`
+    // because `Debug.Print` would corrupt its display. Emitted once here, shared
+    // by all three surface emitters, only when the program logs.
+    if crate::transpiler::program_uses_log(program) {
+        out.push_str(crate::transpiler::LOG_HELPER);
+        out.push('\n');
+    }
     for c in &program.constants {
         emit_const(c, out, diags);
     }
@@ -147,15 +154,15 @@ pub(crate) fn launched<'a, T>(
     let main = program.functions.iter().find(|f| f.name.eq_ignore_ascii_case("Main"))?;
     for stmt in &main.body {
         if let Stmt::Expr(e) = stmt {
-            let (recv, method) = match e {
-                Expr::Field(recv, m) => (recv.as_ref(), m),
-                Expr::MethodCall { recv, method, .. } => (recv.as_ref(), method),
+            let (recv, method) = match &e.kind {
+                ExprKind::Field(recv, m) => (recv.as_ref(), m),
+                ExprKind::MethodCall { recv, method, .. } => (recv.as_ref(), method),
                 _ => continue,
             };
             if !method.eq_ignore_ascii_case("run") {
                 continue;
             }
-            if let Expr::Ident(name) = recv {
+            if let ExprKind::Ident(name) = &recv.kind {
                 if let Some(found) = find(name) {
                     return Some(found);
                 }
@@ -193,9 +200,9 @@ pub(crate) fn surface_std_imports(events: &[GuiEvent], helpers: &[Function]) -> 
 /// functions whose declared return type is a `Result`, or a sibling module's
 /// public function returning one (`Life.LoadDb()`).
 pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
-    match e {
-        Expr::MethodCall { recv, method, .. } => {
-            let Expr::Ident(r) = &**recv else { return false };
+    match &e.kind {
+        ExprKind::MethodCall { recv, method, .. } => {
+            let ExprKind::Ident(r) = &(&**recv).kind else { return false };
             if let Some(canon) = stdlib_type(r) {
                 return matches!(
                     (canon, rust_name(method).as_str()),
@@ -216,7 +223,7 @@ pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
                 Some(DeclType::Result(..))
             )
         }
-        Expr::Call { name, .. } => matches!(
+        ExprKind::Call { name, .. } => matches!(
             t.fns.get(&rust_name(name)).and_then(|s| s.ret.as_ref()),
             Some(DeclType::Result(..))
         ),
@@ -235,8 +242,8 @@ pub(crate) fn state_fallible(state: &[StateField], t: &Tables) -> bool {
 pub(crate) fn state_stdlib(state: &[StateField], diags: &mut Diagnostics) -> Vec<&'static str> {
     let mut used = Vec::new();
     for f in state {
-        if let Some(Expr::MethodCall { recv, .. }) = &f.init {
-            if let Expr::Ident(r) = &**recv {
+        if let Some(Expr { kind: ExprKind::MethodCall { recv, .. }, .. }) = &f.init {
+            if let ExprKind::Ident(r) = &recv.kind {
                 if let Some(canon) = stdlib_type(r) {
                     if !used.contains(&canon) {
                         used.push(canon);
@@ -396,7 +403,7 @@ pub(crate) fn match_scrutinee(
     enums: &HashSet<String>,
 ) -> String {
     let rendered = render_expr(&rewrite_expr_with(scrutinee.clone(), recv, fields, enums), None);
-    if let Expr::Ident(name) = scrutinee {
+    if let ExprKind::Ident(name) = &scrutinee.kind {
         if matches!(field_ty.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) {
             return format!("{}.as_str()", rendered);
         }
@@ -421,6 +428,7 @@ pub(crate) fn render_init(
     let init = init.map(|e| {
         let mut body = vec![Stmt::Dim {
             name: "field".to_string(),
+            name_span: crate::span::Span::none(),
             ty: ty.clone(),
             init: Some(e.clone()),
             line: 0,
@@ -438,7 +446,7 @@ pub(crate) fn render_init(
         (DeclType::Vec(_), None) => "Vec::new()".to_string(),
         // A bare string literal still needs owning; anything else the resolver
         // has already made owned where needed.
-        (DeclType::Plain(Type::Text), Some(e @ Expr::Str(_))) => {
+        (DeclType::Plain(Type::Text), Some(e)) if matches!(e.kind, ExprKind::Str(_)) => {
             format!("{}.to_string()", render_expr(&e, None))
         }
         (DeclType::Plain(Type::Text), Some(e)) => render_expr(&e, None),
@@ -464,13 +472,13 @@ pub(crate) fn coerce_state_strings(
     field_ty: &HashMap<String, DeclType>,
 ) {
     match s {
-        Stmt::Assign { target: Expr::Field(recv, fname), value, .. }
-            if matches!(&**recv, Expr::Ident(n) if n == state_recv)
+        Stmt::Assign { target: Expr { kind: ExprKind::Field(recv, fname), .. }, value, .. }
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == state_recv)
                 && matches!(field_ty.get(&rust_name(fname)), Some(DeclType::Plain(Type::Text)))
-                && matches!(value, Expr::Str(_)) =>
+                && matches!(&value.kind, ExprKind::Str(_)) =>
         {
-            let inner = std::mem::replace(value, Expr::Int(0));
-            *value = Expr::MethodCall {
+            let inner = std::mem::replace(&mut value.kind, ExprKind::Int(0)).at(value.span);
+            value.kind = ExprKind::MethodCall {
                 recv: Box::new(inner),
                 method: "to_string".to_string(),
                 args: Vec::new(),
@@ -514,6 +522,7 @@ pub(crate) fn coerce_state_strings(
         | Stmt::Return(_)
         | Stmt::Expr(_)
         | Stmt::Print(_)
+        | Stmt::Log(..)
         | Stmt::Break
         | Stmt::Continue
         | Stmt::Draw(_)
@@ -559,11 +568,11 @@ pub(crate) fn await_split(
     // say) borrows as `&str` for the awaited call, like a state field does.
     let locals = local_types(&e.params, &e.body[..idx]);
     match &e.body[idx] {
-        Stmt::Match { scrutinee: Expr::Await(call), arms, line } => {
+        Stmt::Match { scrutinee: Expr { kind: ExprKind::Await(call), .. }, arms, line } => {
             let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
             // Continuation runs `match result { <arms> }`, then any trailing code.
             let mut cont = vec![Stmt::Match {
-                scrutinee: Expr::Ident("result".to_string()),
+                scrutinee: ExprKind::Ident("result".to_string()).synth(),
                 arms: arms.clone(),
                 line: *line,
             }];
@@ -578,7 +587,7 @@ pub(crate) fn await_split(
                 cont,
             })
         }
-        Stmt::Dim { name, init: Some(Expr::Await(call)), .. } => {
+        Stmt::Dim { name, init: Some(Expr { kind: ExprKind::Await(call), .. }), .. } => {
             let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
             Some(AwaitSplit {
                 pre: e.body[..idx].to_vec(),
@@ -631,8 +640,8 @@ fn snapshot_args(
     let mut snapshots = Vec::new();
     let mut arg_src = Vec::new();
     for a in args {
-        match a {
-            Expr::Ident(name) if field_ty.contains_key(&rust_name(name)) => {
+        match &a.kind {
+            ExprKind::Ident(name) if field_ty.contains_key(&rust_name(name)) => {
                 let f = rust_name(name);
                 snapshots.push(format!("let {} = {}.{}.clone();", f, recv, f));
                 if matches!(field_ty.get(&f), Some(DeclType::Plain(Type::Text))) {
@@ -644,10 +653,10 @@ fn snapshot_args(
             // A local (an event param or a `Dim` before the `Await`) is captured
             // by the async closure directly — no clone. An owned `String` still
             // borrows as `&str` for a stdlib `&str` param, just like a field.
-            Expr::Ident(name) if matches!(locals.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) => {
+            ExprKind::Ident(name) if matches!(locals.get(&rust_name(name)), Some(DeclType::Plain(Type::Text))) => {
                 arg_src.push(format!("&{}", rust_name(name)));
             }
-            other => arg_src.push(render_expr(other, None)),
+            _ => arg_src.push(render_expr(a, None)),
         }
     }
     (snapshots, arg_src)
@@ -666,11 +675,11 @@ fn awaitable_info(
     diags: &mut Diagnostics,
     backend: AsyncBackend,
 ) -> Option<AwaitInfo> {
-    match call {
+    match &call.kind {
         // A stdlib call: `Http.Get(url)`.
-        Expr::MethodCall { recv, method, args } => {
-            let canon = match &**recv {
-                Expr::Ident(r) => stdlib_type(r),
+        ExprKind::MethodCall { recv, method, args } => {
+            let canon = match &(&**recv).kind {
+                ExprKind::Ident(r) => stdlib_type(r),
                 _ => None,
             };
             let Some(canon) = canon else {
@@ -728,7 +737,7 @@ fn awaitable_info(
         }
         // One of the program's own functions — its return type comes from the
         // FnTable; it's synchronous Rust, so run it via `spawn_blocking`.
-        Expr::Call { name, args } => {
+        ExprKind::Call { name, args } => {
             if backend.is_browser() {
                 diags.error_once(
                     "page-await-fn",
@@ -777,8 +786,8 @@ fn awaitable_info(
 /// True if `e` is a stdlib call that blocks on I/O — so in a GUI event it must be
 /// `Await`ed, or it freezes the window. (Same set `awaitable_info` knows about.)
 fn is_blocking_stdlib_call(e: &Expr) -> bool {
-    if let Expr::MethodCall { recv, method, .. } = e {
-        if let Expr::Ident(r) = &**recv {
+    if let ExprKind::MethodCall { recv, method, .. } = &e.kind {
+        if let ExprKind::Ident(r) = &(&**recv).kind {
             if let Some(c) = stdlib_type(r) {
                 return matches!(
                     (c, rust_name(method).as_str()),
@@ -795,7 +804,7 @@ fn is_blocking_stdlib_call(e: &Expr) -> bool {
 pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
     fn ex(e: &Expr, awaited: bool, diags: &mut Diagnostics) {
         // The expression directly under `Await` is allowed to block.
-        if let Expr::Await(inner) = e {
+        if let ExprKind::Await(inner) = &e.kind {
             ex(inner, true, diags);
             return;
         }
@@ -809,7 +818,7 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
         }
         // `Sleep` in an event freezes the whole UI — and unlike I/O there's
         // nothing to await; the surface way to "do something later" is a timer.
-        if let Expr::Call { name, .. } = e {
+        if let ExprKind::Call { name, .. } = &e.kind {
             if rust_name(name) == "sleep" {
                 diags.error_once(
                     "sleep-in-event",
@@ -820,31 +829,31 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
             }
         }
         // Children are never "awaited" by this expression.
-        match e {
-            Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
-            | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
-            | Expr::Closure { body: i, .. } => ex(i, false, diags),
-            Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+        match &e.kind {
+            ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+            | ExprKind::Try(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
+            | ExprKind::Closure { body: i, .. } => ex(i, false, diags),
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
                 ex(lhs, false, diags);
                 ex(rhs, false, diags);
             }
-            Expr::MethodCall { recv, args, .. } => {
+            ExprKind::MethodCall { recv, args, .. } => {
                 ex(recv, false, diags);
                 for a in args {
                     ex(a, false, diags);
                 }
             }
-            Expr::Call { args, .. } => {
+            ExprKind::Call { args, .. } => {
                 for a in args {
                     ex(a, false, diags);
                 }
             }
-            Expr::Tuple(es) => {
+            ExprKind::Tuple(es) => {
                 for e2 in es {
                     ex(e2, false, diags);
                 }
             }
-            Expr::StructLit { fields, .. } => {
+            ExprKind::StructLit { fields, .. } => {
                 for (_, v) in fields {
                     ex(v, false, diags);
                 }
@@ -915,21 +924,21 @@ pub(crate) fn stmt_has_await(s: &Stmt) -> bool {
 }
 
 fn expr_has_await(e: &Expr) -> bool {
-    match e {
-        Expr::Await(_) => true,
-        Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
-        | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _) | Expr::Closure { body: i, .. } => {
+    match &e.kind {
+        ExprKind::Await(_) => true,
+        ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+        | ExprKind::Try(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _) | ExprKind::Closure { body: i, .. } => {
             expr_has_await(i)
         }
-        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
             expr_has_await(lhs) || expr_has_await(rhs)
         }
-        Expr::MethodCall { recv, args, .. } => {
+        ExprKind::MethodCall { recv, args, .. } => {
             expr_has_await(recv) || args.iter().any(expr_has_await)
         }
-        Expr::Call { args, .. } => args.iter().any(expr_has_await),
-        Expr::Tuple(es) => es.iter().any(expr_has_await),
-        Expr::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_await(v)),
+        ExprKind::Call { args, .. } => args.iter().any(expr_has_await),
+        ExprKind::Tuple(es) => es.iter().any(expr_has_await),
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_await(v)),
         _ => false,
     }
 }
@@ -938,9 +947,9 @@ fn expr_has_await(e: &Expr) -> bool {
 /// `use vbr_stdlib::{…}` line. Pure collection; marking is the caller's call.
 pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>) {
     fn ex(e: &Expr, out: &mut Vec<String>) {
-        match e {
-            Expr::MethodCall { recv, args, .. } => {
-                if let Expr::Ident(r) = &**recv {
+        match &e.kind {
+            ExprKind::MethodCall { recv, args, .. } => {
+                if let ExprKind::Ident(r) = &(&**recv).kind {
                     if let Some(c) = stdlib_type(r) {
                         out.push(c.to_string());
                     }
@@ -950,24 +959,24 @@ pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>) {
                     ex(a, out);
                 }
             }
-            Expr::Await(i) | Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i)
-            | Expr::Cast(i, _) | Expr::Try(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
-            | Expr::Closure { body: i, .. } => ex(i, out),
-            Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+            ExprKind::Await(i) | ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i)
+            | ExprKind::Cast(i, _) | ExprKind::Try(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
+            | ExprKind::Closure { body: i, .. } => ex(i, out),
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
                 ex(lhs, out);
                 ex(rhs, out);
             }
-            Expr::Call { args, .. } => {
+            ExprKind::Call { args, .. } => {
                 for a in args {
                     ex(a, out);
                 }
             }
-            Expr::Tuple(es) => {
+            ExprKind::Tuple(es) => {
                 for e2 in es {
                     ex(e2, out);
                 }
             }
-            Expr::StructLit { fields, .. } => {
+            ExprKind::StructLit { fields, .. } => {
                 for (_, v) in fields {
                     ex(v, out);
                 }
@@ -1033,81 +1042,85 @@ pub(crate) fn rewrite_expr_with(
     enums: &HashSet<String>,
 ) -> Expr {
     let go = |e: Expr| rewrite_expr_with(e, recv, fields, enums);
-    match e {
+    // Rewrites replace the *kind*; the span survives, so a rewritten
+    // `count` → `state.count` still points at the `count` the user wrote.
+    let span = e.span;
+    let kind = match e.kind {
         // `Color.Red` (field on an enum name) → the path `Color::Red`.
-        Expr::Field(inner, variant) if matches!(&*inner, Expr::Ident(n) if enums.contains(n)) => {
-            match *inner {
-                Expr::Ident(n) => Expr::ConstRef(format!("{}::{}", n, variant)),
+        ExprKind::Field(inner, variant) if matches!(&inner.kind, ExprKind::Ident(n) if enums.contains(n)) => {
+            match inner.kind {
+                ExprKind::Ident(n) => ExprKind::ConstRef(format!("{}::{}", n, variant)),
                 _ => unreachable!(),
             }
         }
-        Expr::Ident(name) if fields.contains(&rust_name(&name)) => {
-            Expr::Field(Box::new(Expr::Ident(recv.to_string())), name)
+        ExprKind::Ident(name) if fields.contains(&rust_name(&name)) => {
+            ExprKind::Field(Box::new(ExprKind::Ident(recv.to_string()).at(span)), name)
         }
-        Expr::Binary { op, lhs, rhs } => Expr::Binary {
+        ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
             op,
             lhs: Box::new(go(*lhs)),
             rhs: Box::new(go(*rhs)),
         },
-        Expr::Not(inner) => Expr::Not(Box::new(go(*inner))),
-        Expr::Call { name, args } => Expr::Call {
+        ExprKind::Not(inner) => ExprKind::Not(Box::new(go(*inner))),
+        ExprKind::Call { name, args } => ExprKind::Call {
             name,
             args: args.into_iter().map(go).collect(),
         },
         // `Shape.Circle(r)` on an enum → the variant constructor `Shape::Circle(r)`.
-        Expr::MethodCall { recv: r, method, args } if matches!(&*r, Expr::Ident(e) if enums.contains(e)) => {
-            let e = match *r {
-                Expr::Ident(n) => n,
+        ExprKind::MethodCall { recv: r, method, args } if matches!(&r.kind, ExprKind::Ident(e) if enums.contains(e)) => {
+            let e = match r.kind {
+                ExprKind::Ident(n) => n,
                 _ => unreachable!(),
             };
-            Expr::Call {
+            ExprKind::Call {
                 name: format!("{}::{}", e, method),
                 args: args.into_iter().map(go).collect(),
             }
         }
-        Expr::MethodCall { recv: r, method, args } => Expr::MethodCall {
+        ExprKind::MethodCall { recv: r, method, args } => ExprKind::MethodCall {
             recv: Box::new(go(*r)),
             method,
             args: args.into_iter().map(go).collect(),
         },
-        Expr::Field(inner, f) => Expr::Field(Box::new(go(*inner)), f),
-        Expr::Index(a, b) => Expr::Index(Box::new(go(*a)), Box::new(go(*b))),
-        Expr::Cast(inner, t) => Expr::Cast(Box::new(go(*inner)), t),
+        ExprKind::Field(inner, f) => ExprKind::Field(Box::new(go(*inner)), f),
+        ExprKind::Index(a, b) => ExprKind::Index(Box::new(go(*a)), Box::new(go(*b))),
+        ExprKind::Cast(inner, t) => ExprKind::Cast(Box::new(go(*inner)), t),
         // Wrappers the resolver may have added around a state field (`&db` for
         // a ByVal struct arg, `x?` chaining) — recurse through them all, or the
         // field inside never becomes `state.<field>`.
-        Expr::Ref(inner) => Expr::Ref(Box::new(go(*inner))),
-        Expr::MutRef(inner) => Expr::MutRef(Box::new(go(*inner))),
-        Expr::Deref(inner) => Expr::Deref(Box::new(go(*inner))),
-        Expr::Try(inner) => Expr::Try(Box::new(go(*inner))),
-        Expr::Await(inner) => Expr::Await(Box::new(go(*inner))),
-        Expr::Tuple(elems) => Expr::Tuple(elems.into_iter().map(go).collect()),
-        Expr::List(elems) => Expr::List(elems.into_iter().map(go).collect()),
-        Expr::StructLit { name, fields } => Expr::StructLit {
+        ExprKind::Ref(inner) => ExprKind::Ref(Box::new(go(*inner))),
+        ExprKind::MutRef(inner) => ExprKind::MutRef(Box::new(go(*inner))),
+        ExprKind::Deref(inner) => ExprKind::Deref(Box::new(go(*inner))),
+        ExprKind::Try(inner) => ExprKind::Try(Box::new(go(*inner))),
+        ExprKind::Await(inner) => ExprKind::Await(Box::new(go(*inner))),
+        ExprKind::Tuple(elems) => ExprKind::Tuple(elems.into_iter().map(go).collect()),
+        ExprKind::List(elems) => ExprKind::List(elems.into_iter().map(go).collect()),
+        ExprKind::StructLit { name, fields } => ExprKind::StructLit {
             name,
             fields: fields.into_iter().map(|(n, v)| (n, go(v))).collect(),
         },
-        Expr::Closure { params, body, by_ref_params } => Expr::Closure {
+        ExprKind::Closure { params, body, by_ref_params } => ExprKind::Closure {
             params,
             body: Box::new(go(*body)),
             by_ref_params,
         },
-        Expr::TupleIndex(inner, i) => Expr::TupleIndex(Box::new(go(*inner)), i),
+        ExprKind::TupleIndex(inner, i) => ExprKind::TupleIndex(Box::new(go(*inner)), i),
         // Leaves — nothing inside to rewrite. Listed explicitly (no `_`) so that
         // a new `Expr` variant carrying a child fails to compile here rather than
         // silently dropping a state field, the way #10/#16 once did. `InlineRust`
         // and `InlinePython` are opaque bodies; `InlinePython`'s `inputs` are
         // variable *names* (strings), not `Expr`s, so a state field passed into a
         // Python block still can't be rewritten — a known, separate limitation.
-        leaf @ (Expr::Int(_)
-        | Expr::Float(_)
-        | Expr::Bool(_)
-        | Expr::Str(_)
-        | Expr::Ident(_)
-        | Expr::ConstRef(_)
-        | Expr::InlineRust(_)
-        | Expr::InlinePython { .. }) => leaf,
-    }
+        leaf @ (ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::Ident(_)
+        | ExprKind::ConstRef(_)
+        | ExprKind::InlineRust(_)
+        | ExprKind::InlinePython { .. }) => leaf,
+    };
+    kind.at(span)
 }
 
 pub(crate) fn rewrite_stmt(
@@ -1124,6 +1137,7 @@ pub(crate) fn rewrite_stmt(
             op,
         },
         Stmt::Print(e) => Stmt::Print(re(e)),
+        Stmt::Log(level, e) => Stmt::Log(level, re(e)),
         Stmt::Expr(e) => Stmt::Expr(re(e)),
         Stmt::If { branches, else_body } => Stmt::If {
             branches: branches
@@ -1154,8 +1168,9 @@ pub(crate) fn rewrite_stmt(
                 .collect(),
             line,
         },
-        Stmt::Dim { name, ty, init, line } => Stmt::Dim {
+        Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim {
             name,
+            name_span,
             ty,
             init: init.map(re),
             line,

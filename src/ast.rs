@@ -3,6 +3,8 @@
 //! This is the vertical-slice subset of spec_01: functions, primitive `Dim`,
 //! `Debug.Print`, arithmetic, `If`, and `For`. It will grow one slice at a time.
 
+use crate::span::Span;
+
 /// A VBR primitive type. Spec_01 is authoritative on the Rust mapping
 /// (Rust-first: `Integer` → `i32`, `Long` → `i64` — not VBA's 16/32-bit widths).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -453,6 +455,27 @@ pub enum DeclType {
     Array2D(Type, usize, usize), // Dim grid(R, C) → [[T; C]; R]
 }
 
+impl DeclType {
+    /// The VB-facing spelling of this type, as a user would write it in an
+    /// `As` clause — for hovers and diagnostics.
+    pub fn vb(&self) -> String {
+        match self {
+            DeclType::Plain(t) => t.vb_name().to_string(),
+            DeclType::Named(n) => n.clone(),
+            DeclType::Vec(t) => format!("Vec<{}>", t.vb()),
+            DeclType::Map(k, v) => format!("Map<{}, {}>", k.vb(), v.vb()),
+            DeclType::Result(t, e) => format!("Result<{}, {}>", t.vb(), e.vb()),
+            DeclType::Option(t) => format!("Option<{}>", t.vb()),
+            DeclType::Tuple(ts) => format!(
+                "({})",
+                ts.iter().map(|t| t.vb()).collect::<Vec<_>>().join(", ")
+            ),
+            DeclType::Array(t, n) => format!("{}({})", t.vb_name(), n),
+            DeclType::Array2D(t, r, c) => format!("{}({}, {})", t.vb_name(), r, c),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
@@ -467,10 +490,37 @@ pub enum ParamMode {
     ByRef,
 }
 
+/// The severity tag on a `Log` line. Bare `Log` is `Info`; `Log.Warn`/`.Error`/
+/// `.Debug`/`.Info` set it explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    /// The tag written into the log line, padded to 5 chars so the messages
+    /// after it line up as a column (`INFO `, `WARN `, `ERROR`, `DEBUG`).
+    pub fn tag(self) -> &'static str {
+        match self {
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Info => "INFO ",
+            LogLevel::Warn => "WARN ",
+            LogLevel::Error => "ERROR",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Dim {
         name: String,
+        /// The byte range of the name itself — the go-to-definition target,
+        /// and where hovering the declaration answers. `Span::none()` on a
+        /// synthesized `Dim`.
+        name_span: Span,
         ty: DeclType,
         init: Option<Expr>,
         line: usize,
@@ -510,6 +560,11 @@ pub enum Stmt {
     /// e.g. `AddTo(total, 5)`.
     Expr(Expr),
     Print(Expr),
+    /// `Log <expr>` / `Log.Warn <expr>` — write a timestamped, level-tagged line
+    /// to the log file (`vbr.log` in the working directory). Safe under a surface
+    /// (unlike `Debug.Print`, which would scribble on a `Screen`'s terminal);
+    /// available everywhere. Bare `Log` is `Info`.
+    Log(LogLevel, Expr),
     If {
         branches: Vec<(Expr, Vec<Stmt>)>,
         else_body: Option<Vec<Stmt>>,
@@ -581,8 +636,35 @@ pub enum DoCond {
     PostUntil(Expr), // Do … Loop Until c      → loop { …; if c { break } }
 }
 
+/// An expression: what it is (`kind`) plus where it came from (`span`).
+///
+/// The span is the byte range of the expression's source text — parser-built
+/// nodes get their true range; nodes synthesized by later passes (a `Cast`
+/// the resolver inserts, a `state.field` rewrite) inherit the span of the
+/// expression they wrap, so a diagnostic or hover on them still points at
+/// real source. Passes that rewrite in place assign `e.kind = …`, which
+/// keeps the span untouched by construction.
 #[derive(Debug, Clone)]
-pub enum Expr {
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: Span,
+}
+
+impl ExprKind {
+    /// Attach a source span, making a full `Expr`.
+    pub fn at(self, span: Span) -> Expr {
+        Expr { kind: self, span }
+    }
+
+    /// A synthesized expression with no single source home (rare — prefer
+    /// `at` with an inherited span so tooling can still point somewhere).
+    pub fn synth(self) -> Expr {
+        Expr { kind: self, span: Span::none() }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ExprKind {
     Int(i64),
     Float(f64),
     Bool(bool),

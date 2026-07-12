@@ -1465,9 +1465,9 @@ fn key_pattern(key: &str) -> String {
 /// its `format!`, anything else stringified. State fields become `state.field`.
 fn text_content(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> String {
     let rewritten = rewrite_expr(e.clone(), fields, enums);
-    match e {
-        Expr::Str(_) => render_expr(&rewritten, None),
-        Expr::Binary { op: BinOp::Concat, .. } => render_expr(&rewritten, None),
+    match &e.kind {
+        ExprKind::Str(_) => render_expr(&rewritten, None),
+        ExprKind::Binary { op: BinOp::Concat, .. } => render_expr(&rewritten, None),
         _ => format!("format!(\"{{}}\", {})", render_expr(&rewritten, None)),
     }
 }

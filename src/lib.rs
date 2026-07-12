@@ -9,6 +9,7 @@ pub mod gui;
 pub mod lexer;
 pub mod parser;
 pub mod resolver;
+pub mod span;
 pub mod surface;
 pub mod transpiler;
 pub mod tui;
@@ -49,6 +50,12 @@ pub struct Compiled {
     /// name — so `vbr test` can translate a `cargo test` result line back to the
     /// human description and `.vbr` line.
     pub tests: Vec<TestInfo>,
+    /// What the resolver knows about each identifier use: (byte span, display
+    /// text like ``total As Long · Rust: `i64` ``). The language server answers
+    /// hover by finding the entry whose span covers the cursor.
+    pub hovers: Vec<(span::Span, String)>,
+    /// (use span, declaration span) pairs for identifiers — go-to-definition.
+    pub defs: Vec<(span::Span, span::Span)>,
 }
 
 /// One `Test` block's identity, bridging the VBR source and the generated
@@ -175,6 +182,8 @@ fn compile_with(
     }
     let stdlib_used = transpiler::stdlib_used(&diags);
     let line_map = diags.take_line_map();
+    let hovers = diags.take_hovers();
+    let defs = diags.take_defs();
     // Pair each `Test` block with its generated `#[test] fn` name (the same slug
     // the emitter used), so the runner can map a `cargo test` line to it.
     let tests: Vec<TestInfo> = program
@@ -200,6 +209,8 @@ fn compile_with(
         web_style,
         web_assets,
         tests,
+        hovers,
+        defs,
     }
 }
 

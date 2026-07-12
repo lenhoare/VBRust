@@ -584,8 +584,8 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         // path from state is cloned to own it (the handle takes it by value).
         ViewNode::Image { path } => {
             let p = render_expr(&rewrite_expr(path.clone(), ctx.fields, ctx.enums), None);
-            match path {
-                Expr::Str(_) => format!("iced::widget::image({})", p),
+            match &path.kind {
+                ExprKind::Str(_) => format!("iced::widget::image({})", p),
                 _ => format!("iced::widget::image({}.clone())", p),
             }
         }
@@ -1000,9 +1000,9 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
 /// anything else stringified with `format!("{}", …)`.
 fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
     let rendered = render_expr(&rewrite_expr(e.clone(), ctx.fields, ctx.enums), None);
-    match e {
-        Expr::Str(_) => format!("text({})", rendered),
-        Expr::Binary { op: BinOp::Concat, .. } => format!("text({})", rendered),
+    match &e.kind {
+        ExprKind::Str(_) => format!("text({})", rendered),
+        ExprKind::Binary { op: BinOp::Concat, .. } => format!("text({})", rendered),
         _ => format!("text(format!(\"{{}}\", {}))", rendered),
     }
 }
@@ -1063,7 +1063,7 @@ fn body_calls_any(stmts: &[Stmt], set: &HashSet<String>) -> bool {
 
 fn stmt_calls_any(s: &Stmt, set: &HashSet<String>) -> bool {
     match s {
-        Stmt::Expr(Expr::Call { name, .. }) => set.contains(&rust_name(name)),
+        Stmt::Expr(Expr { kind: ExprKind::Call { name, .. }, .. }) => set.contains(&rust_name(name)),
         Stmt::If { branches, else_body } => {
             branches.iter().any(|(_, b)| body_calls_any(b, set))
                 || else_body.as_ref().map_or(false, |b| body_calls_any(b, set))
@@ -1135,14 +1135,15 @@ fn rewrite_canvas_stmt(
     let re = |e: Expr| rewrite_expr_with(e, "self", fields, enums);
     let rec = |s: Stmt| rewrite_canvas_stmt(s, fields, enums, paint_fns);
     match s {
-        Stmt::Expr(Expr::Call { name, args }) if paint_fns.contains(&rust_name(&name)) => {
+        Stmt::Expr(Expr { kind: ExprKind::Call { name, args }, .. }) if paint_fns.contains(&rust_name(&name)) => {
             Stmt::Draw(DrawCmd::Paint { name, args: args.into_iter().map(re).collect() })
         }
         Stmt::Draw(cmd) => Stmt::Draw(rewrite_draw_cmd(cmd, fields, enums)),
         Stmt::Expr(e) => Stmt::Expr(re(e)),
         Stmt::Print(e) => Stmt::Print(re(e)),
+        Stmt::Log(level, e) => Stmt::Log(level, re(e)),
         Stmt::Assign { target, value, op } => Stmt::Assign { target: re(target), value: re(value), op },
-        Stmt::Dim { name, ty, init, line } => Stmt::Dim { name, ty, init: init.map(re), line },
+        Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim { name, name_span, ty, init: init.map(re), line },
         Stmt::If { branches, else_body } => Stmt::If {
             branches: branches
                 .into_iter()

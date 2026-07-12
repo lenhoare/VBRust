@@ -407,6 +407,22 @@ shadowed and warn as unused. The counter therefore doesn't exist after the loop
 `Debug.Print expr` → `println!`. `MsgBox` / `InputBox` are lowered to terminal
 output and prompted input (no GUI), as built-ins — not part of the stdlib crate.
 
+### Logging
+`Log expr` writes a timestamped, level-tagged line to **`vbr.log`** in the working
+directory (for a project run, `build/vbr.log`) via a small std-only sink emitted
+when `Log` is used — `[14:32:05.887 INFO ] message`. It composes with `&` exactly
+like `Debug.Print`, and is available everywhere — plain code, functions, methods,
+and surface events. It's the diagnostic channel for when stdout is taken: a
+**`Screen`** draws into the terminal, so `Debug.Print` there scribbles on the UI
+(VBR warns and points you at `Log`); `Log` writes to the file instead, so
+`tail -f build/vbr.log` in another terminal shows a running app's trace.
+
+Bare `Log expr` is `INFO`; **`Log.Debug` / `Log.Info` / `Log.Warn` / `Log.Error`**
+set the severity tag (padded to a column), so `grep WARN build/vbr.log` filters.
+`Log expr` (message with a space) is the verb; `Log(x)` with parentheses stays the
+natural-log builtin. *(Deferred: a runtime level threshold, an in-UI debug pane,
+and `console.log` for a browser `Page`.)*
+
 ### Pausing
 `Sleep ms` (paren-less, like VB6's kernel32 `Declare Sub Sleep` — no Declare
 needed) or `Sleep(ms)` → `std::thread::sleep`. Milliseconds. Rejected inside a

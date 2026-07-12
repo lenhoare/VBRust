@@ -1,0 +1,30 @@
+' `Log <message>` writes a timestamped line to `vbr.log` in the working
+' directory — a diagnostic channel separate from `Debug.Print`. `Debug.Print`
+' goes to the screen (fine for a console program); `Log` goes to a file, so it's
+' safe *everywhere*, including inside a `Screen` where printing would scribble
+' over the terminal UI. Watch a running app live with `tail -f build/vbr.log`.
+'
+' A bare `Log` is INFO; `Log.Debug` / `Log.Warn` / `Log.Error` tag the severity,
+' so you can `grep WARN build/vbr.log`. `Log` composes with `&` like
+' `Debug.Print` and is available in any function, method, or surface event.
+' (`Log(x)` with parentheses is still the natural-log builtin — the logging verb
+' takes its message with a space, as `Debug.Print` does.)
+
+Function Tally(ByVal items As Vec<Long>) As Long
+    Dim total As Long = 0
+    For Each n In items
+        total = total + n
+        Log.Debug "added " & n & ", running total " & total
+    Next
+    If total = 0 Then
+        Log.Warn "tally is empty"
+    End If
+    Log "done — final total " & total
+    Return total
+End Function
+
+Function Main()
+    Dim nums As Vec<Long> = [3, 5, 8]
+    Dim sum As Long = Tally(nums)
+    Debug.Print "sum = " & sum
+End Function

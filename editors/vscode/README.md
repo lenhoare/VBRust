@@ -1,17 +1,29 @@
-# VBR Language Support (VS Code) — proof of concept
+# VBR Language Support (VS Code)
 
-Live diagnostics for `.vbr` files: as you type, the VBR compiler runs and its
-errors, warnings, and teaching notes appear as squiggles — the same messages you
-get on the command line, now in the editor.
+Editor assistance for `.vbr` files, powered by the VBR compiler itself:
 
-This is **tier 1** (line-level diagnostics). Hover, completion, and
-go-to-definition come later, once the compiler tracks column spans.
+- **Live diagnostics** — as you type, the compiler runs and its errors,
+  warnings, and teaching notes appear as squiggles, underlining the exact
+  offending token (the same messages you get on the command line).
+- **Hover** — point at a variable to see its VB type *and* the Rust type it
+  lowers to (`total As Long · Rust: i64`), the same teaching pair the
+  diagnostics speak in. Constants and opaque `Rust …` handles explain
+  themselves too.
+- **Go to definition** — F12 on a variable use jumps to its `Dim`.
+- **Error recovery** — a half-typed line costs one error; everything below it
+  is still analysed, so the rest of your diagnostics don't vanish while you
+  type mid-statement.
+
+Not yet: completion (planned — needs receiver-type knowledge at the cursor),
+go-to-definition for functions and parameters.
 
 ## Architecture
 
 - **`vbr-lsp`** (a Rust crate at the repo root) — the language server. It speaks
   the Language Server Protocol over stdio and reuses the `vbr` library as its
-  compiler front-end (`vbr::compile` → structured diagnostics → LSP diagnostics).
+  compiler front-end. One `vbr::compile` gives it everything: structured
+  diagnostics with byte spans, a hover table (span → type display), and
+  go-to-definition pairs (use span → declaration span).
 - **this extension** — a thin VS Code client that launches the server and tells
   it which files are VBR. All the real work is in the server.
 
@@ -34,12 +46,8 @@ go-to-definition come later, once the compiler tracks column spans.
    ```
 
 3. Open `editors/vscode/` in VS Code and press **F5** to launch an Extension
-   Development Host. Open any `.vbr` file (e.g. from `examples/`) and introduce a
-   mistake — say `Dim x = 5` with no `As` type — to see a red squiggle with the
-   VBR error message.
-
-## Status
-
-Working: diagnostics on open and on every edit (errors, warnings, notes), each
-spanning its whole line. The line-level span is deliberately coarse for now;
-precise (column) squiggles arrive with the span work in the compiler.
+   Development Host. Open any `.vbr` file (e.g. from `examples/`) and:
+   - introduce a mistake — `Debug.Print 1 + ]` — to see the squiggle sit
+     exactly on the `]`;
+   - hover a variable to see its VB and Rust types;
+   - press F12 on a variable use to jump to its `Dim`.

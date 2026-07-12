@@ -630,3 +630,77 @@ expr), `transpiler.rs` (`emit_tests`, `test_fn_names`, the `Assert` emit arm),
 (+ `language_spec.md` §13, `language_reference.md`). Example: `examples/tests.vbr`
 (HAPPY snapshot). Guard: `vbr_test_runs_specs` (single-file + `.test.vbr`, pass and
 fail, and the app build stays warning-free).
+
+---
+
+## Capability: logging under surfaces — `Log` — BUILT (2026-07-11)
+
+A `Screen` owns the terminal, so `Debug.Print` scribbles on the UI — medium TUI
+apps had no way to diagnose a running app except guessing. Added `Log`.
+
+- **`Log <expr>`** — a logging verb (composes with `&` like `Debug.Print`),
+  available everywhere (plain code, functions, methods, all surface events),
+  writing a **timestamped line to `vbr.log`** in the working directory (project
+  run → `build/vbr.log`). `tail -f build/vbr.log` shows a running app's trace.
+- **Sink is std-only** (UTC `HH:MM:SS.mmm`, no crate), so `Log` works even under
+  `vbr run` — no dependency friction. Emitted once when `program_uses_log`, from
+  `transpile_module` (plain) and `surface::emit_shared_items` (all surfaces).
+- **Verb vs builtin:** `Log "msg"` (space) is the verb; `Log(x)` (parens) stays
+  the natural-log builtin. Parser: `log` at statement start is the verb unless the
+  next token is `(`/`.`/`[`/`=` (so `Log(x)`, `log = 5`, `log.Push(x)` fall
+  through untouched).
+- **`Debug.Print` in a `Screen` now warns** (⚠, `warn_print_in_screen`), pointing
+  at `Log`. `vbr run` prints `→ logging to build/vbr.log` when the project logs.
+- `Stmt::Log` handled through the surface rewrite passes (state fields rewrite in
+  a logged expr) and `collect_stmt_idents` (a `For i … Log i` counter stays read,
+  not `_`) — the exhaustive-match discipline caught these.
+
+Levels **BUILT** the same day: bare `Log` = INFO; `Log.Debug`/`Log.Info`/
+`Log.Warn`/`Log.Error` tag the severity (`[ts WARN ] msg`, padded column), so
+`grep WARN vbr.log` filters. `Stmt::Log(LogLevel, Expr)`; parser recognises
+`Log.<Level>` only when a known level follows the dot. **Deferred (agreed):** a
+runtime level threshold (`VBR_LOG_LEVEL`), an in-UI debug-pane widget, and
+`console.log` for a browser `Page`. Example `examples/logging.vbr` (HAPPY
+snapshot). Spec: `language_spec.md` §Logging, `tui_spec.md` §8.0,
+`language_reference.md`.
+
+## Capability: spans + LSP tier 2 — hover, go-to-definition, precise squiggles — BUILT (2026-07-12)
+
+The foundational spans refactor, then everything it unblocks. Before: tokens
+carried only a line number, so squiggles spanned whole lines and hover was
+impossible. Now the compiler knows *where* everything is.
+
+- **Byte spans everywhere.** `src/span.rs`: `Span` (half-open byte range) +
+  `LineIndex` (offset → line/col). Every `Token` carries one. `Expr` became
+  `struct Expr { kind: ExprKind, span: Span }` — parser-built nodes get their
+  true range; passes that rewrite in place assign `e.kind = …`, which keeps the
+  span *by construction*; synthesized wrappers inherit the inner span
+  (`ExprKind::…​.at(span)` / `.synth()`). `Stmt::Dim` gained `name_span` (the
+  go-to-definition target). ~380 sites across resolver/transpiler/surface/
+  gui/tui/web adapted — all type-driven; the snapshot suite proved generated
+  Rust byte-identical afterwards.
+- **Diagnostics carry spans.** `Diagnostic.span: Option<Span>`; parser errors
+  report the offending token's exact range (`error_at`). The LSP underlines
+  just that range (whole-line fallback where only a line is known).
+- **Hover.** The resolver records, for every identifier use *and* its `Dim`,
+  the teaching pair: ``total As Long · Rust: `i64` `` (plus ByVal/ByRef notes,
+  constants, opaque Rust handles). Rides `Diagnostics` like the line map;
+  surfaced as `Compiled.hovers: Vec<(Span, String)>`.
+- **Go-to-definition.** `Binding.decl_span` + `Compiled.defs: Vec<(use, decl)>`
+  — F12 on a variable use jumps to its `Dim`. (Functions/params: deferred,
+  mechanical now.)
+- **Parser error recovery.** A failed statement resyncs at end-of-line
+  (`recover_to_eol`); a failed top-level item resyncs at the next item start
+  (`recover_to_item`, line-start guarded). Mid-typing, one half-typed line
+  costs one diagnostic instead of silencing the rest of the file. The `With`
+  rejection swallows its whole block so one teaching error isn't diluted by
+  follow-on noise.
+- **vbr-lsp** gained document tracking, `hover`, and `goto_definition`;
+  verified over a real stdio session (hover text, def jump to the `Dim`,
+  squiggle exactly on a stray `]`). Tests: `tests/spans.rs` (token spans slice
+  back to source — byte offsets locked with non-ASCII; diagnostic spans;
+  hover; defs; recovery).
+
+Deferred: completion (tier 3 — needs receiver types at the cursor), def for
+functions/params, span-carrying resolver diagnostics beyond hover (the
+`error_at` plumbing exists; adopt per-site as they come up).

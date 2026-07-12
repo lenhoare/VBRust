@@ -5,6 +5,7 @@
 //!   ⚠ Warning — compiles, but you should know
 //!   ℹ Note    — a one-time teaching moment ("warn once, not repeatedly")
 
+use crate::span::Span;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +30,9 @@ pub struct Diagnostic {
     pub level: Level,
     pub message: String,
     pub line: Option<usize>,
+    /// The exact byte range in the source, when the reporter knows it — lets
+    /// an editor underline the offending word instead of the whole line.
+    pub span: Option<Span>,
 }
 
 impl Diagnostic {
@@ -51,6 +55,12 @@ pub struct Diagnostics {
     /// `.vbr` source. Lives here because the whole emission pipeline already
     /// threads `Diagnostics` through.
     line_map: Vec<(usize, usize)>,
+    /// What the resolver learned about each identifier use: (source span,
+    /// display text like `total As Long — Rust: i64`). The language server
+    /// answers hover from this. Rides here for the same reason as `line_map`.
+    hovers: Vec<(Span, String)>,
+    /// (use span, declaration span) pairs — go-to-definition jumps along these.
+    defs: Vec<(Span, Span)>,
 }
 
 impl Diagnostics {
@@ -63,6 +73,18 @@ impl Diagnostics {
             level: Level::Error,
             message: message.into(),
             line: Some(line),
+            span: None,
+        });
+    }
+
+    /// An error whose exact source range is known — editors underline just
+    /// that range. `line` still comes along for the CLI rendering.
+    pub fn error_at(&mut self, span: Span, line: usize, message: impl Into<String>) {
+        self.items.push(Diagnostic {
+            level: Level::Error,
+            message: message.into(),
+            line: Some(line),
+            span: Some(span),
         });
     }
 
@@ -71,6 +93,17 @@ impl Diagnostics {
             level: Level::Warning,
             message: message.into(),
             line: Some(line),
+            span: None,
+        });
+    }
+
+    /// A warning with an exact source range (see `error_at`).
+    pub fn warn_at(&mut self, span: Span, line: usize, message: impl Into<String>) {
+        self.items.push(Diagnostic {
+            level: Level::Warning,
+            message: message.into(),
+            line: Some(line),
+            span: Some(span),
         });
     }
 
@@ -90,6 +123,7 @@ impl Diagnostics {
                 level: Level::Error,
                 message: message.into(),
                 line: None,
+                span: None,
             });
         }
     }
@@ -102,6 +136,7 @@ impl Diagnostics {
                 level: Level::Warning,
                 message: message.into(),
                 line: None,
+                span: None,
             });
         }
     }
@@ -113,6 +148,7 @@ impl Diagnostics {
                 level: Level::Note,
                 message: message.into(),
                 line: None,
+                span: None,
             });
         }
     }
@@ -149,5 +185,25 @@ impl Diagnostics {
     /// order, where the checkpoints would mislead rather than help.
     pub fn clear_line_map(&mut self) {
         self.line_map.clear();
+    }
+
+    /// Record what an identifier at `span` is, for editor hover.
+    pub fn hover(&mut self, span: Span, text: impl Into<String>) {
+        self.hovers.push((span, text.into()));
+    }
+
+    /// Take the collected hover entries (leaves an empty list behind).
+    pub fn take_hovers(&mut self) -> Vec<(Span, String)> {
+        std::mem::take(&mut self.hovers)
+    }
+
+    /// Record that the name at `use_span` was declared at `decl_span`.
+    pub fn def(&mut self, use_span: Span, decl_span: Span) {
+        self.defs.push((use_span, decl_span));
+    }
+
+    /// Take the collected go-to-definition pairs.
+    pub fn take_defs(&mut self) -> Vec<(Span, Span)> {
+        std::mem::take(&mut self.defs)
     }
 }

@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
+use crate::span::Span;
 use crate::transpiler::rust_name as snake;
 use crate::transpiler::{stdlib_type, to_screaming};
 
@@ -277,8 +278,8 @@ pub fn method_mutates_self(stmts: &[Stmt]) -> bool {
 }
 
 fn is_me_field(e: &Expr) -> bool {
-    match e {
-        Expr::Field(inner, _) => matches!(&**inner, Expr::Ident(n) if n == "Me") || is_me_field(inner),
+    match &e.kind {
+        ExprKind::Field(inner, _) => matches!(&(&**inner).kind, ExprKind::Ident(n) if n == "Me") || is_me_field(inner),
         _ => false,
     }
 }
@@ -286,8 +287,8 @@ fn is_me_field(e: &Expr) -> bool {
 /// Does this expression call a mutating method on `Me` or a place rooted in it
 /// (`Me.items.Push(x)`, `Me.grid(r).sort()`)?
 fn expr_mutates_me(e: &Expr) -> bool {
-    match e {
-        Expr::MethodCall { recv, method, args } => {
+    match &e.kind {
+        ExprKind::MethodCall { recv, method, args } => {
             (crate::transpiler::is_mutating_method(&snake(method)) && is_me_rooted(recv))
                 || expr_mutates_me(recv)
                 || args.iter().any(expr_mutates_me)
@@ -298,9 +299,9 @@ fn expr_mutates_me(e: &Expr) -> bool {
 
 /// Is this place expression `Me` itself or reached through it?
 fn is_me_rooted(e: &Expr) -> bool {
-    match e {
-        Expr::Ident(n) => n == "Me",
-        Expr::Field(inner, _) | Expr::Index(inner, _) => is_me_rooted(inner),
+    match &e.kind {
+        ExprKind::Ident(n) => n == "Me",
+        ExprKind::Field(inner, _) | ExprKind::Index(inner, _) => is_me_rooted(inner),
         _ => false,
     }
 }
@@ -339,6 +340,10 @@ struct Binding {
     /// wants, so forwarding it into another ByRef slot passes it bare (Rust
     /// reborrows); `&mut grid` there would borrow the reference itself.
     byref: bool,
+    /// Where the name was declared (a `Dim`'s name token) — the target
+    /// go-to-definition jumps to. `Span::none()` where not yet tracked
+    /// (parameters, loop variables).
+    decl_span: Span,
 }
 
 /// A resolved expression type: a full `DeclType` where we know it, plus the
@@ -453,8 +458,8 @@ fn widen(a: NumTy, b: NumTy) -> Option<Type> {
 /// Wrap a `&str`-typed expression in `.to_string()`, making it an owned String.
 /// Used wherever a String is expected: Dim init, assignment, return, Ok/Some.
 fn to_owned_string(e: &mut Expr) {
-    let inner = std::mem::replace(e, Expr::Int(0));
-    *e = Expr::MethodCall {
+    let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
+    e.kind = ExprKind::MethodCall {
         recv: Box::new(inner),
         method: "to_string".to_string(),
         args: Vec::new(),
@@ -533,14 +538,14 @@ pub fn resolve_body(
         let byref = p.mode == ParamMode::ByRef && !matches!(p.ty, DeclType::Plain(_));
         env.insert(
             snake(&p.name),
-            Binding { ty: Some(p.ty.clone()), borrowed, byref },
+            Binding { ty: Some(p.ty.clone()), borrowed, byref, decl_span: Span::none() },
         );
     }
     // Inside a method, `Me` is the receiver struct — so `Me.field` infers.
     if let Some(recv) = receiver {
         env.insert(
             "me".to_string(),
-            Binding { ty: Some(DeclType::Named(recv.to_string())), borrowed: false, byref: false },
+            Binding { ty: Some(DeclType::Named(recv.to_string())), borrowed: false, byref: false, decl_span: Span::none() },
         );
     }
 
@@ -586,10 +591,10 @@ pub fn resolve_event_body(
 ) {
     let mut env: HashMap<String, Binding> = HashMap::new();
     for p in params {
-        env.insert(snake(&p.name), Binding { ty: Some(p.ty.clone()), borrowed: false, byref: false });
+        env.insert(snake(&p.name), Binding { ty: Some(p.ty.clone()), borrowed: false, byref: false, decl_span: Span::none() });
     }
     for (name, ty) in state {
-        env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false, byref: false });
+        env.insert(name.clone(), Binding { ty: Some(ty.clone()), borrowed: false, byref: false, decl_span: Span::none() });
     }
     let mut passed = HashSet::new();
     let mut ctx = Ctx {
@@ -628,7 +633,7 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
                          expression.",
                     );
                 }
-                if let Expr::Ident(v) = arg {
+                if let ExprKind::Ident(v) = &mut arg.kind {
                     // Forwarding our own ByRef collection/struct
                     // param: it is already the `&mut` the callee
                     // wants — pass it bare and let Rust reborrow.
@@ -637,8 +642,8 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
                     }
                     ctx.passed.insert(snake(v));
                 }
-                let inner = std::mem::replace(arg, Expr::Int(0));
-                *arg = Expr::MutRef(Box::new(inner));
+                let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                arg.kind = ExprKind::MutRef(Box::new(inner));
             }
             // ByVal of an unknown-size type borrows immutably (`&arg`).
             Some(ParamMode::ByVal) => {
@@ -650,8 +655,8 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
                     _ => false,
                 };
                 if needs_ref {
-                    let inner = std::mem::replace(arg, Expr::Int(0));
-                    *arg = Expr::Ref(Box::new(inner));
+                    let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                    arg.kind = ExprKind::Ref(Box::new(inner));
                 }
             }
             _ => {}
@@ -692,7 +697,16 @@ struct Ctx<'a> {
 impl Ctx<'_> {
     /// Record a declared variable.
     fn bind(&mut self, name: &str, ty: DeclType) {
-        self.env.insert(snake(name), Binding { ty: Some(ty), borrowed: false, byref: false });
+        self.bind_at(name, ty, Span::none());
+    }
+
+    /// Record a declared variable together with where its name is written —
+    /// the go-to-definition target for every later use.
+    fn bind_at(&mut self, name: &str, ty: DeclType, decl_span: Span) {
+        self.env.insert(
+            snake(name),
+            Binding { ty: Some(ty), borrowed: false, byref: false, decl_span },
+        );
     }
 
     fn binding(&self, name: &str) -> Option<&Binding> {
@@ -751,7 +765,7 @@ impl Ctx<'_> {
 fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
     for stmt in stmts {
         match stmt {
-            Stmt::Dim { name, ty, init, .. } => {
+            Stmt::Dim { name, name_span, ty, init, .. } => {
                 // Only plain scalars take part in numeric coercion / inference.
                 if let DeclType::Plain(t) = ty {
                     if let Some(e) = init {
@@ -762,7 +776,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         // emitter; an owned-String move still hits the ownership error.
                         if *t == Type::Text
                             && infer(e, ctx) == VType::Str
-                            && !matches!(e, Expr::Str(_))
+                            && !matches!(&mut e.kind, ExprKind::Str(_))
                         {
                             to_owned_string(e);
                         }
@@ -775,7 +789,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 // nested collections, and user structs (they derive Clone).
                 // Numbers and Booleans are Copy — no clone needed.
                 if let Some(e) = init {
-                    if matches!(e, Expr::Index(..)) {
+                    if matches!(&mut e.kind, ExprKind::Index(..)) {
                         let cloneable = match infer(e, ctx) {
                             VType::Decl(DeclType::Plain(Type::Text)) => true,
                             VType::Decl(DeclType::Vec(_) | DeclType::Map(..)) => true,
@@ -783,8 +797,8 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                             _ => false,
                         };
                         if cloneable {
-                            let inner = std::mem::replace(e, Expr::Int(0));
-                            *e = Expr::MethodCall {
+                            let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
+                            e.kind = ExprKind::MethodCall {
                                 recv: Box::new(inner),
                                 method: "clone".to_string(),
                                 args: Vec::new(),
@@ -792,7 +806,9 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         }
                     }
                 }
-                ctx.bind(name, ty.clone());
+                ctx.bind_at(name, ty.clone(), *name_span);
+                // The declaration itself hovers like a use (`Dim total As Long`).
+                record_hover(*name_span, name, ctx);
             }
             Stmt::DestructureDim { names, ty, value } => {
                 resolve_expr(value, ctx);
@@ -807,11 +823,16 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             // just record the name so later value-uses of it are caught.
             Stmt::HandleDim { name, .. } => {
                 ctx.env
-                    .insert(snake(name), Binding { ty: None, borrowed: false, byref: false });
+                    .insert(snake(name), Binding { ty: None, borrowed: false, byref: false, decl_span: Span::none() });
             }
             Stmt::Assign { target, value, .. } => {
                 // Writing to a ByVal String parameter — it's a read-only `&str`.
-                if let Expr::Ident(name) = &*target {
+                // A plain Ident target skips resolve_expr below, so give it
+                // its hover entry here (`total = …` should hover like a use).
+                if let ExprKind::Ident(name) = &(&*target).kind {
+                    record_hover(target.span, name, ctx);
+                }
+                if let ExprKind::Ident(name) = &(&*target).kind {
                     if ctx.is_str_param(name) {
                         ctx.diags.error_once(
                             &format!("byval-string-write-{}", snake(name)),
@@ -824,13 +845,13 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     }
                 }
                 // Coerce based on the target variable's type (plain Ident targets only).
-                let target_ty = match &*target {
-                    Expr::Ident(name) => ctx.scalar_of(name),
+                let target_ty = match &(&*target).kind {
+                    ExprKind::Ident(name) => ctx.scalar_of(name),
                     _ => None,
                 };
                 // A plain Ident target is dereferenced by the emitter (if ByRef);
                 // resolve other targets (e.g. field accesses).
-                if !matches!(&*target, Expr::Ident(_)) {
+                if !matches!(&(&*target).kind, ExprKind::Ident(_)) {
                     resolve_expr(target, ctx);
                 }
                 resolve_expr(value, ctx);
@@ -845,6 +866,8 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Set { value, .. } => resolve_expr(value, ctx),
             Stmt::Print(e) => resolve_expr(e, ctx),
+            // `Log <expr>` — resolve the logged expression like `Print`'s.
+            Stmt::Log(_, e) => resolve_expr(e, ctx),
             // `Assert <expr>` — resolve the asserted expression like any other
             // (coercions, stdlib calls, comparisons). Its `=`/`<>` shape is read
             // by the emitter to pick assert_eq!/assert_ne!/assert!.
@@ -924,10 +947,10 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 resolve_expr(iter, ctx);
                 // A ByVal collection param is already `&Vec`; reborrow it (`&*p`)
                 // so the emitter's `&` doesn't produce a `&&Vec` double-borrow.
-                if let Expr::Ident(n) = &*iter {
+                if let ExprKind::Ident(n) = &(&*iter).kind {
                     if ctx.is_borrowed_collection(n) {
-                        let inner = std::mem::replace(iter, Expr::Int(0));
-                        *iter = Expr::Deref(Box::new(inner));
+                        let inner = std::mem::replace(&mut iter.kind, ExprKind::Int(0)).at(iter.span);
+                        iter.kind = ExprKind::Deref(Box::new(inner));
                     }
                 }
                 // The loop variables carry the collection's element type, so
@@ -978,7 +1001,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
 /// Insert a numeric `as` cast if `value`'s type differs from `target`. Literals
 /// are left alone — the renderer already adapts them to their context.
 fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
-    if matches!(value, Expr::Int(_) | Expr::Float(_)) {
+    if matches!(&mut value.kind, ExprKind::Int(_) | ExprKind::Float(_)) {
         return;
     }
     let Some(target_n) = num_of_type(target) else {
@@ -994,8 +1017,8 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
              inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float \
              to an integer) can lose data.",
         );
-        let inner = std::mem::replace(value, Expr::Int(0));
-        *value = Expr::Cast(Box::new(inner), target);
+        let inner = std::mem::replace(&mut value.kind, ExprKind::Int(0)).at(value.span);
+        value.kind = ExprKind::Cast(Box::new(inner), target);
     }
 }
 
@@ -1008,7 +1031,53 @@ fn maths_needs_float(name: &str) -> bool {
 }
 
 fn is_literal(e: &Expr) -> bool {
-    matches!(e, Expr::Int(_) | Expr::Float(_))
+    matches!(&e.kind, ExprKind::Int(_) | ExprKind::Float(_))
+}
+
+/// Record what the identifier `name` at `span` is, for editor hover: the VB
+/// type it was declared with and the Rust type that lowers to — the same
+/// teaching pair the diagnostics speak in. Names the resolver doesn't know
+/// (a function name in call position handles itself) record nothing.
+fn record_hover(span: crate::span::Span, name: &str, ctx: &mut Ctx) {
+    if span.end <= span.start {
+        return; // synthesized node — nowhere to point
+    }
+    if let Some(b) = ctx.binding(name) {
+        // A use points back at its declaration (skip the declaration itself).
+        if b.decl_span.end > b.decl_span.start && b.decl_span != span {
+            let decl = b.decl_span;
+            ctx.diags.def(span, decl);
+        }
+    }
+    let text = match ctx.binding(name) {
+        Some(b) => match &b.ty {
+            Some(ty) => {
+                let mode = if b.byref {
+                    " — passed ByRef (a `&mut` borrow)"
+                } else if b.borrowed {
+                    " — passed ByVal (borrowed, read-only)"
+                } else {
+                    ""
+                };
+                format!(
+                    "{} As {} · Rust: `{}`{}",
+                    name,
+                    ty.vb(),
+                    crate::transpiler::decltype_rust(ty),
+                    mode
+                )
+            }
+            None => format!(
+                "{} — an opaque Rust handle (`Dim {} = Rust …`); its type lives in Rust",
+                name, name
+            ),
+        },
+        None if ctx.consts.contains_key(name) => {
+            format!("{} — a constant · Rust: `{}`", name, ctx.consts[name])
+        }
+        None => return,
+    };
+    ctx.diags.hover(span, text);
 }
 
 /// Operators whose operands must be the same numeric type (so a width mismatch
@@ -1033,14 +1102,14 @@ fn is_arith_or_cmp(op: BinOp) -> bool {
 /// Can this expression be borrowed mutably (i.e. is it a place)?
 fn is_lvalue(e: &Expr) -> bool {
     matches!(
-        e,
-        Expr::Ident(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleIndex(..) | Expr::Deref(_)
+        &e.kind,
+        ExprKind::Ident(_) | ExprKind::Field(..) | ExprKind::Index(..) | ExprKind::TupleIndex(..) | ExprKind::Deref(_)
     )
 }
 
 /// If `e` is a bare call yielding a Result/Option, returns its kind name.
 fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
-    if let Expr::Call { name, .. } = e {
+    if let ExprKind::Call { name, .. } = &e.kind {
         match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
             Some(DeclType::Result(..)) => return Some("Result"),
             Some(DeclType::Option(_)) => return Some("Option"),
@@ -1059,24 +1128,29 @@ fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
 }
 
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
+    // Every identifier use is a hover opportunity: record what it is before
+    // any rewrite below changes its kind (const ref, deref, string constant).
+    if let ExprKind::Ident(name) = &e.kind {
+        record_hover(e.span, name, ctx);
+    }
     // Iterator chains on a `Vec`/array (`nums.filter(|x| …).map(…)`) are
     // handled whole — the resolver knows the element type, so it builds the
     // chain root (`.iter().copied()` for Copy elements, `.cloned()` for owned
     // ones) and types the closure parameters. A receiver that turns out not
     // to be a sequence falls through to normal method resolution.
-    if let Expr::MethodCall { method, args, .. } = &*e {
+    if let ExprKind::MethodCall { method, args, .. } = &(&*e).kind {
         if is_iter_adapter(&snake(method), args) && resolve_iter_chain(e, ctx).is_some() {
             return;
         }
     }
-    match e {
+    match &mut e.kind {
         // Built-in VB string constants (`vbNewLine`, `vbTab`, …) become the
         // string they stand for — flows on as a normal owned-String literal.
-        Expr::Ident(name) if vb_string_constant(name).is_some() => {
-            *e = Expr::Str(vb_string_constant(name).unwrap());
+        ExprKind::Ident(name) if vb_string_constant(name).is_some() => {
+            e.kind = ExprKind::Str(vb_string_constant(name).unwrap());
         }
         // An opaque Rust handle appearing as a value — the one thing it can't do.
-        Expr::Ident(name) if ctx.is_handle(name) => {
+        ExprKind::Ident(name) if ctx.is_handle(name) => {
             ctx.diags.error_once(
                 &format!("handle-value-{}", snake(name)),
                 format!(
@@ -1087,15 +1161,16 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 ),
             );
         }
-        Expr::Ident(name) if ctx.deref.contains(&snake(name)) => {
-            *e = Expr::Deref(Box::new(Expr::Ident(name.clone())));
+        ExprKind::Ident(name) if ctx.deref.contains(&snake(name)) => {
+            let span = e.span;
+            e.kind = ExprKind::Deref(Box::new(ExprKind::Ident(name.clone()).at(span)));
         }
         // A reference to a module constant → its SCREAMING_SNAKE name, verbatim.
-        Expr::Ident(name) if ctx.consts.contains_key(name) => {
-            *e = Expr::ConstRef(ctx.consts[name].clone());
+        ExprKind::Ident(name) if ctx.consts.contains_key(name) => {
+            e.kind = ExprKind::ConstRef(ctx.consts[name].clone());
         }
-        Expr::Ident(_) | Expr::ConstRef(_) => {}
-        Expr::Binary { op, lhs, rhs } => {
+        ExprKind::Ident(_) | ExprKind::ConstRef(_) => {}
+        ExprKind::Binary { op, lhs, rhs } => {
             resolve_expr(lhs, ctx);
             resolve_expr(rhs, ctx);
             // Integer `^` → `base.pow(exp)` (Rust's integer pow); only a float base
@@ -1103,9 +1178,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             if *op == BinOp::Pow {
                 if let Some(base) = num_ty(&infer(lhs, ctx)) {
                     if !base.is_float() {
-                        let recv = std::mem::replace(&mut **lhs, Expr::Int(0));
-                        let exp = std::mem::replace(&mut **rhs, Expr::Int(0));
-                        *e = Expr::MethodCall {
+                        let recv = std::mem::replace(&mut lhs.kind, ExprKind::Int(0)).at(lhs.span);
+                        let exp = std::mem::replace(&mut rhs.kind, ExprKind::Int(0)).at(rhs.span);
+                        e.kind = ExprKind::MethodCall {
                             recv: Box::new(recv),
                             method: "pow".to_string(),
                             args: vec![exp],
@@ -1141,7 +1216,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 _ => {}
             }
         }
-        Expr::MethodCall { recv, method, args } => {
+        ExprKind::MethodCall { recv, method, args } => {
             // DataFrame transforms take column *formulas*, not ordinary
             // expressions: bare names are columns and operators broadcast. Lower
             // them here — where we know `recv` is a DataFrame — into polars
@@ -1179,8 +1254,8 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         let tag = format!("__df_{}", m);
                         if let Some(a) = args.first_mut() {
                             resolve_expr(a, ctx);
-                            let inner = std::mem::replace(a, Expr::Int(0));
-                            *a = Expr::Ref(Box::new(inner));
+                            let inner = std::mem::replace(&mut a.kind, ExprKind::Int(0)).at(a.span);
+                            a.kind = ExprKind::Ref(Box::new(inner));
                         }
                         for a in args.iter_mut().skip(1) {
                             resolve_expr(a, ctx);
@@ -1205,8 +1280,8 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 return;
             }
             // Calling a `&mut self` method on a variable means it must be `mut`.
-            let recv_var = match &**recv {
-                Expr::Ident(v) => Some(snake(v)),
+            let recv_var = match &(&**recv).kind {
+                ExprKind::Ident(v) => Some(snake(v)),
                 _ => None,
             };
             // A stdlib wrapper method keeps its real snake_case name
@@ -1228,7 +1303,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 // A closure argument to a pass-through method (`sort_by_key`,
                 // …) is legal — resolve its body directly (and check it only
                 // reads its captures); anything else resolves normally.
-                if let Expr::Closure { params, body, .. } = a {
+                if let ExprKind::Closure { params, body, .. } = &mut a.kind {
                     let params = params.clone();
                     resolve_expr(body, ctx);
                     check_closure_captures(&params, body, ctx);
@@ -1240,7 +1315,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // payload (a `Vec<String>`/`HashMap` slot owns its value).
             if matches!(snake(method).as_str(), "push" | "insert") {
                 for arg in args.iter_mut() {
-                    if infer(arg, ctx) == VType::Str && !matches!(arg, Expr::Str(_)) {
+                    if infer(arg, ctx) == VType::Str && !matches!(&mut arg.kind, ExprKind::Str(_)) {
                         to_owned_string(arg);
                     }
                 }
@@ -1249,14 +1324,14 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // argument when the receiver is a known collection — and own a string
             // element first (`Vec<String>` holds `String`, not `&str`).
             if snake(method) == "contains" {
-                if let Expr::Ident(r) = &**recv {
+                if let ExprKind::Ident(r) = &(&**recv).kind {
                     if ctx.is_indexable(r) {
                         for arg in args.iter_mut() {
                             if infer(arg, ctx) == VType::Str {
                                 to_owned_string(arg);
                             }
-                            let inner = std::mem::replace(arg, Expr::Int(0));
-                            *arg = Expr::Ref(Box::new(inner));
+                            let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                            arg.kind = ExprKind::Ref(Box::new(inner));
                         }
                     }
                 }
@@ -1273,17 +1348,17 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             {
                 for arg in args.iter_mut() {
                     if infer(arg, ctx) == VType::Decl(DeclType::Plain(Type::Text))
-                        && !matches!(arg, Expr::Str(_) | Expr::Ref(_))
+                        && !matches!(&mut arg.kind, ExprKind::Str(_) | ExprKind::Ref(_))
                     {
-                        let inner = std::mem::replace(arg, Expr::Int(0));
-                        *arg = Expr::Ref(Box::new(inner));
+                        let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                        arg.kind = ExprKind::Ref(Box::new(inner));
                     }
                 }
             }
             // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
             // not an owned String — use `.to_string()` so it fits a String slot.
             if method.eq_ignore_ascii_case("clone") {
-                if let Expr::Ident(n) = &**recv {
+                if let ExprKind::Ident(n) = &(&**recv).kind {
                     if ctx.is_str_param(n) {
                         *method = "to_string".to_string();
                     }
@@ -1295,9 +1370,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // methods on a stdlib *wrapper instance* (`doc.GetString(key)` with
             // `doc As Json`, `db.Query(sql, …)` with `db As Database`) — every
             // wrapper method takes its string args as `&str` too.
-            let stdlib_recv = match &**recv {
-                Expr::Ident(n) if stdlib_type(n).is_some() => true,
-                Expr::Ident(n) => matches!(
+            let stdlib_recv = match &(&**recv).kind {
+                ExprKind::Ident(n) if stdlib_type(n).is_some() => true,
+                ExprKind::Ident(n) => matches!(
                     ctx.binding(n).and_then(|b| b.ty.as_ref()),
                     Some(DeclType::Named(t)) if stdlib_type(t).is_some()
                 ),
@@ -1306,9 +1381,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             if stdlib_recv {
                 for arg in args.iter_mut() {
                     if infer(arg, ctx).is_owned_string() {
-                        let inner = std::mem::replace(arg, Expr::Int(0));
-                        *arg = Expr::Ref(Box::new(inner));
-                    } else if let Expr::List(elems) = arg {
+                        let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                        arg.kind = ExprKind::Ref(Box::new(inner));
+                    } else if let ExprKind::List(elems) = &mut arg.kind {
                         // A list argument fills a stdlib `Vec<String>` slot
                         // (`db.Execute(sql, [id, name])`), so each string element
                         // must be an *owned* String. A `&str` element — a ByVal
@@ -1317,7 +1392,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         // by the list emitter, and an owned-String local moves in
                         // as-is; both are left alone (no needless clone).
                         for el in elems.iter_mut() {
-                            if infer(el, ctx) == VType::Str && !matches!(el, Expr::Str(_)) {
+                            if infer(el, ctx) == VType::Str && !matches!(&mut el.kind, ExprKind::Str(_)) {
                                 to_owned_string(el);
                             }
                         }
@@ -1335,7 +1410,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // `Shape.Circle(r)` on an enum → the variant constructor
             // `Shape::Circle(r)` (variant kept PascalCase). A string payload is
             // owned — VBR enum text payloads are `String`, never `&str`.
-            if let Expr::Ident(m) = &**recv {
+            if let ExprKind::Ident(m) = &(&**recv).kind {
                 if ctx.enums.contains(m) {
                     let path = format!("{}::{}", m, method);
                     for arg in args.iter_mut() {
@@ -1344,13 +1419,13 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         }
                     }
                     let taken = std::mem::take(args);
-                    *e = Expr::Call { name: path, args: taken };
+                    e.kind = ExprKind::Call { name: path, args: taken };
                     return;
                 }
             }
             // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`.
-            let qualified = match &**recv {
-                Expr::Ident(m) if ctx.modules.contains(&snake(m)) => Some(snake(m)),
+            let qualified = match &(&**recv).kind {
+                ExprKind::Ident(m) if ctx.modules.contains(&snake(m)) => Some(snake(m)),
                 _ => None,
             };
             if let Some(module) = qualified {
@@ -1374,13 +1449,13 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
                 let taken = std::mem::take(args);
-                *e = Expr::Call {
+                e.kind = ExprKind::Call {
                     name: format!("crate::{}::{}", module, snake(method)),
                     args: taken,
                 };
             }
         }
-        Expr::Call { name, args } => {
+        ExprKind::Call { name, args } => {
             // `x(i)` where x is an array is the VB way — point at Rust indexing.
             if ctx.is_indexable(name) {
                 ctx.diags.error_once(
@@ -1410,8 +1485,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             if maths_needs_float(name) && args.len() == 1 && !is_literal(&args[0]) {
                 if let Some(t) = num_ty(&infer(&args[0], ctx)) {
                     if !t.is_float() {
-                        let inner = std::mem::replace(&mut args[0], Expr::Int(0));
-                        args[0] = Expr::Cast(Box::new(inner), Type::Double);
+                        let span = args[0].span;
+                        let inner = std::mem::replace(&mut args[0].kind, ExprKind::Int(0)).at(span);
+                        args[0].kind = ExprKind::Cast(Box::new(inner), Type::Double);
                     }
                 }
             }
@@ -1421,23 +1497,23 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         }
         // `Color.Red` (a field on an enum name) is an enum variant → the path
         // `Color::Red`, not a value field access.
-        Expr::Field(inner, variant)
-            if matches!(&**inner, Expr::Ident(n) if ctx.enums.contains(n)) =>
+        ExprKind::Field(inner, variant)
+            if matches!(&(&**inner).kind, ExprKind::Ident(n) if ctx.enums.contains(n)) =>
         {
-            if let Expr::Ident(n) = &**inner {
-                *e = Expr::ConstRef(format!("{}::{}", n, variant));
+            if let ExprKind::Ident(n) = &(&**inner).kind {
+                e.kind = ExprKind::ConstRef(format!("{}::{}", n, variant));
             }
         }
         // `Life.WIDTH` (a field on a module name) is that module's public
         // constant → `crate::life::WIDTH`.
-        Expr::Field(inner, cname)
-            if matches!(&**inner, Expr::Ident(m) if ctx.modules.contains(&snake(m))) =>
+        ExprKind::Field(inner, cname)
+            if matches!(&(&**inner).kind, ExprKind::Ident(m) if ctx.modules.contains(&snake(m))) =>
         {
-            if let Expr::Ident(m) = &**inner {
+            if let ExprKind::Ident(m) = &(&**inner).kind {
                 let module = snake(m);
                 if let Some(iface) = ctx.interfaces.get(&module) {
                     if let Some(screaming) = iface.consts.get(cname) {
-                        *e = Expr::ConstRef(format!("crate::{}::{}", module, screaming));
+                        e.kind = ExprKind::ConstRef(format!("crate::{}::{}", module, screaming));
                     } else if iface.private_consts.contains(cname) {
                         ctx.diags.error_once(
                             &format!("private-const-{}-{}", module, cname),
@@ -1476,12 +1552,12 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 // the access as written and let rustc judge it.
             }
         }
-        Expr::Deref(inner) | Expr::MutRef(inner) | Expr::Ref(inner) | Expr::Cast(inner, _)
-        | Expr::Field(inner, _) | Expr::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        ExprKind::Deref(inner) | ExprKind::MutRef(inner) | ExprKind::Ref(inner) | ExprKind::Cast(inner, _)
+        | ExprKind::Field(inner, _) | ExprKind::TupleIndex(inner, _) => resolve_expr(inner, ctx),
         // A closure anywhere except a method argument: its type has no name,
         // so it can't be stored in a variable, returned, or passed to a VBR
         // function. (Method arguments are consumed before reaching here.)
-        Expr::Closure { body, .. } => {
+        ExprKind::Closure { body, .. } => {
             ctx.diags.error_once(
                 "closure-value",
                 "A closure (`|x| …`) can't be stored in a variable or passed to a \
@@ -1491,7 +1567,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             );
             resolve_expr(body, ctx);
         }
-        Expr::Try(inner) => {
+        ExprKind::Try(inner) => {
             resolve_expr(inner, ctx);
             // `?` returns the error to the caller on failure, so the enclosing
             // function must itself be able to fail (return Result / Option).
@@ -1505,25 +1581,25 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 );
             }
         }
-        Expr::Tuple(elems) | Expr::List(elems) => {
+        ExprKind::Tuple(elems) | ExprKind::List(elems) => {
             for el in elems.iter_mut() {
                 resolve_expr(el, ctx);
             }
         }
-        Expr::Index(inner, idx) => {
+        ExprKind::Index(inner, idx) => {
             resolve_expr(inner, ctx);
             resolve_expr(idx, ctx);
         }
-        Expr::StructLit { fields, .. } => {
+        ExprKind::StructLit { fields, .. } => {
             for (_, v) in fields.iter_mut() {
                 resolve_expr(v, ctx);
             }
         }
         // Inline Rust/Python are opaque — no resolution.
-        Expr::InlineRust(_) | Expr::InlinePython { .. } => {}
-        Expr::Not(inner) => resolve_expr(inner, ctx),
-        Expr::Await(inner) => resolve_expr(inner, ctx),
-        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => {}
+        ExprKind::InlineRust(_) | ExprKind::InlinePython { .. } => {}
+        ExprKind::Not(inner) => resolve_expr(inner, ctx),
+        ExprKind::Await(inner) => resolve_expr(inner, ctx),
+        ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) | ExprKind::Str(_) => {}
     }
 }
 
@@ -1544,7 +1620,7 @@ fn is_iter_adapter(m: &str, args: &[Expr]) -> bool {
     match m {
         // Closure-taking links and consumers.
         "filter" | "map" | "any" | "all" | "find" | "position" => {
-            matches!(args.first(), Some(Expr::Closure { .. }))
+            matches!(args.first().map(|a| &a.kind), Some(ExprKind::Closure { .. }))
         }
         // Numeric-argument links.
         "take" | "skip" => args.len() == 1,
@@ -1556,7 +1632,7 @@ fn is_iter_adapter(m: &str, args: &[Expr]) -> bool {
 
 /// Is `e` itself an iterator link (so a method call on it continues a chain)?
 fn is_iter_chain(e: &Expr) -> bool {
-    matches!(e, Expr::MethodCall { method, args, .. } if is_iter_adapter(&snake(method), args))
+    matches!(&e.kind, ExprKind::MethodCall { method, args, .. } if is_iter_adapter(&snake(method), args))
 }
 
 /// A Copy element iterates with `.copied()` (and `filter` can destructure its
@@ -1571,7 +1647,7 @@ fn elem_is_copy(v: &VType) -> bool {
 /// isn't a sequence — then the caller falls back to normal resolution and
 /// nothing has been rewritten.
 fn resolve_iter_chain(e: &mut Expr, ctx: &mut Ctx) -> Option<VType> {
-    let Expr::MethodCall { recv, method, args } = e else {
+    let ExprKind::MethodCall { recv, method, args } = &mut e.kind else {
         return None;
     };
     let m = snake(method);
@@ -1586,7 +1662,7 @@ fn resolve_iter_chain(e: &mut Expr, ctx: &mut Ctx) -> Option<VType> {
             _ => return None, // not a sequence — not ours
         };
         let owning = if elem_is_copy(&elem) { "copied" } else { "cloned" };
-        let inner = std::mem::replace(&mut **recv, Expr::Int(0));
+        let inner = std::mem::replace(&mut recv.kind, ExprKind::Int(0)).at(recv.span);
         **recv = mcall(mcall(inner, "iter", vec![]), owning, vec![]);
         elem
     };
@@ -1631,7 +1707,7 @@ fn resolve_iter_closure(
     by_ref: bool,
     ctx: &mut Ctx,
 ) -> VType {
-    let Some(Expr::Closure { params, body, by_ref_params }) = args.first_mut() else {
+    let Some(Expr { kind: ExprKind::Closure { params, body, by_ref_params }, .. }) = args.first_mut() else {
         return VType::Unknown;
     };
     *by_ref_params = by_ref;
@@ -1640,7 +1716,7 @@ fn resolve_iter_closure(
     let mut prev: Option<Binding> = None;
     let mut deref_added = false;
     if let (Some(k), VType::Decl(d)) = (&key, elem) {
-        prev = ctx.env.insert(k.clone(), Binding { ty: Some(d.clone()), borrowed: false, byref: false });
+        prev = ctx.env.insert(k.clone(), Binding { ty: Some(d.clone()), borrowed: false, byref: false, decl_span: Span::none() });
         if deref_uses {
             deref_added = ctx.deref.insert(k.clone());
         }
@@ -1689,8 +1765,8 @@ fn check_closure_captures(params: &[String], body: &Expr, ctx: &mut Ctx) {
 /// call whose receiver is rooted in an enclosing-scope name, not a closure
 /// parameter), or `None`.
 fn mutated_capture(e: &Expr, params: &[String], ctx: &Ctx) -> Option<String> {
-    match e {
-        Expr::MethodCall { recv, method, args } => {
+    match &e.kind {
+        ExprKind::MethodCall { recv, method, args } => {
             if crate::transpiler::is_mutating_method(&snake(method)) {
                 if let Some(root) = place_root(recv) {
                     let key = snake(&root);
@@ -1702,21 +1778,21 @@ fn mutated_capture(e: &Expr, params: &[String], ctx: &Ctx) -> Option<String> {
             mutated_capture(recv, params, ctx)
                 .or_else(|| args.iter().find_map(|a| mutated_capture(a, params, ctx)))
         }
-        Expr::Binary { lhs, rhs, .. } => mutated_capture(lhs, params, ctx)
+        ExprKind::Binary { lhs, rhs, .. } => mutated_capture(lhs, params, ctx)
             .or_else(|| mutated_capture(rhs, params, ctx)),
-        Expr::Call { args, .. } | Expr::Tuple(args) => {
+        ExprKind::Call { args, .. } | ExprKind::Tuple(args) => {
             args.iter().find_map(|a| mutated_capture(a, params, ctx))
         }
-        Expr::Not(inner)
-        | Expr::Deref(inner)
-        | Expr::Ref(inner)
-        | Expr::MutRef(inner)
-        | Expr::Cast(inner, _)
-        | Expr::Field(inner, _)
-        | Expr::Try(inner)
-        | Expr::TupleIndex(inner, _)
-        | Expr::Closure { body: inner, .. } => mutated_capture(inner, params, ctx),
-        Expr::Index(inner, idx) => mutated_capture(inner, params, ctx)
+        ExprKind::Not(inner)
+        | ExprKind::Deref(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Field(inner, _)
+        | ExprKind::Try(inner)
+        | ExprKind::TupleIndex(inner, _)
+        | ExprKind::Closure { body: inner, .. } => mutated_capture(inner, params, ctx),
+        ExprKind::Index(inner, idx) => mutated_capture(inner, params, ctx)
             .or_else(|| mutated_capture(idx, params, ctx)),
         _ => None,
     }
@@ -1725,9 +1801,9 @@ fn mutated_capture(e: &Expr, params: &[String], ctx: &Ctx) -> Option<String> {
 /// The variable at the root of a place expression (`seen` in `seen`,
 /// `state.log` in… the root ident), if there is one.
 fn place_root(e: &Expr) -> Option<String> {
-    match e {
-        Expr::Ident(n) => Some(n.clone()),
-        Expr::Field(inner, _) | Expr::Index(inner, _) | Expr::Deref(inner) => place_root(inner),
+    match &e.kind {
+        ExprKind::Ident(n) => Some(n.clone()),
+        ExprKind::Field(inner, _) | ExprKind::Index(inner, _) | ExprKind::Deref(inner) => place_root(inner),
         _ => None,
     }
 }
@@ -1735,25 +1811,25 @@ fn place_root(e: &Expr) -> Option<String> {
 /// Best-effort type inference. `Unknown` whenever we can't be sure — callers
 /// only act on a confidently-known result.
 fn infer(e: &Expr, ctx: &Ctx) -> VType {
-    match e {
-        Expr::Int(_) => vt(Type::Integer),
-        Expr::Float(_) => vt(Type::Double),
-        Expr::Bool(_) => vt(Type::Boolean),
-        Expr::Str(_) => VType::Str,
-        Expr::Await(inner) => infer(inner, ctx),
-        Expr::Ident(name) if ctx.is_str_param(name) => VType::Str,
-        Expr::Ident(name) => match ctx.binding(name).and_then(|b| b.ty.clone()) {
+    match &e.kind {
+        ExprKind::Int(_) => vt(Type::Integer),
+        ExprKind::Float(_) => vt(Type::Double),
+        ExprKind::Bool(_) => vt(Type::Boolean),
+        ExprKind::Str(_) => VType::Str,
+        ExprKind::Await(inner) => infer(inner, ctx),
+        ExprKind::Ident(name) if ctx.is_str_param(name) => VType::Str,
+        ExprKind::Ident(name) => match ctx.binding(name).and_then(|b| b.ty.clone()) {
             Some(ty) => VType::Decl(ty),
             None => VType::Unknown,
         },
-        Expr::Deref(inner) => infer(inner, ctx),
-        Expr::Cast(_, ty) => vt(*ty),
+        ExprKind::Deref(inner) => infer(inner, ctx),
+        ExprKind::Cast(_, ty) => vt(*ty),
         // `?` unwraps a Result/Option to its payload; we don't track that yet.
-        Expr::Try(_) => VType::Unknown,
-        Expr::MutRef(_) | Expr::Ref(_) => VType::Unknown,
+        ExprKind::Try(_) => VType::Unknown,
+        ExprKind::MutRef(_) | ExprKind::Ref(_) => VType::Unknown,
         // `p.field` — the field's declared type, when the receiver is a known
         // struct (including `Me` inside a method).
-        Expr::Field(recv, field) => match infer(recv, ctx) {
+        ExprKind::Field(recv, field) => match infer(recv, ctx) {
             VType::Decl(DeclType::Named(s)) => ctx
                 .structs
                 .get(&s)
@@ -1763,14 +1839,14 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         },
         // `v(i)` / `arr(i)` — the element type. Indexing a 2-D array once
         // yields its row (an inner array), so `g(r)(c)` infers through.
-        Expr::Index(inner, _) => match infer(inner, ctx) {
+        ExprKind::Index(inner, _) => match infer(inner, ctx) {
             VType::Decl(DeclType::Vec(t)) => VType::Decl(*t),
             VType::Decl(DeclType::Array(t, _)) => vt(t),
             VType::Decl(DeclType::Array2D(t, _, c)) => VType::Decl(DeclType::Array(t, c)),
             _ => VType::Unknown,
         },
         // `t.0` — the tuple element's type.
-        Expr::TupleIndex(inner, i) => match infer(inner, ctx) {
+        ExprKind::TupleIndex(inner, i) => match infer(inner, ctx) {
             VType::Decl(DeclType::Tuple(ts)) => {
                 ts.get(*i).map_or(VType::Unknown, |t| VType::Decl(t.clone()))
             }
@@ -1778,20 +1854,20 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         },
         // An inline list `[a, b, …]` → `Vec<T>`, with T from the first element
         // (a bare String element is owned, so a `Text` list is `Vec<String>`).
-        Expr::List(elems) => match elems.first().map(|e| infer(e, ctx)) {
+        ExprKind::List(elems) => match elems.first().map(|e| infer(e, ctx)) {
             Some(VType::Decl(dt)) => VType::Decl(DeclType::Vec(Box::new(dt))),
             Some(VType::Str) => VType::Decl(DeclType::Vec(Box::new(DeclType::Plain(Type::Text)))),
             _ => VType::Unknown,
         },
         // Struct/tuple literals, const refs, closures: not tracked yet.
-        Expr::StructLit { .. }
-        | Expr::ConstRef(_)
-        | Expr::Closure { .. }
-        | Expr::Tuple(_)
-        | Expr::InlineRust(_)
-        | Expr::InlinePython { .. } => VType::Unknown,
-        Expr::Not(_) => vt(Type::Boolean),
-        Expr::Binary { op, lhs, rhs } => match op {
+        ExprKind::StructLit { .. }
+        | ExprKind::ConstRef(_)
+        | ExprKind::Closure { .. }
+        | ExprKind::Tuple(_)
+        | ExprKind::InlineRust(_)
+        | ExprKind::InlinePython { .. } => VType::Unknown,
+        ExprKind::Not(_) => vt(Type::Boolean),
+        ExprKind::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => vt(Type::Text),
             BinOp::Pow => vt(Type::Double),
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
@@ -1809,7 +1885,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
                 }
             }
         },
-        Expr::Call { name, .. } => builtin_vtype(name).unwrap_or_else(|| {
+        ExprKind::Call { name, .. } => builtin_vtype(name).unwrap_or_else(|| {
             // A qualified cross-module call (`crate::life::steplife`) — the
             // sibling's harvested interface knows the return type.
             if let Some(rest) = name.strip_prefix("crate::") {
@@ -1834,7 +1910,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         // Rust methods pass through verbatim; this curated table just tells the
         // coercion logic what the common ones *return*, so e.g. assigning
         // `s.trim()` (a `&str`) to a String still gets its `.to_string()`.
-        Expr::MethodCall { recv, method, .. } => {
+        ExprKind::MethodCall { recv, method, .. } => {
             let m = snake(method);
             // Numeric methods that yield the receiver's own type (`abs`, `min`,
             // `sqrt`, `floor`, …) — infer through to the receiver so the numeric
@@ -1898,10 +1974,10 @@ fn method_vtype(m: &str) -> VType {
 /// Is `e` a DataFrame-valued expression? A variable declared `As DataFrame`, a
 /// `DataFrame.ReadCsv(...)`-style constructor, or a transform chained off one.
 fn is_df_expr(e: &Expr, ctx: &Ctx) -> bool {
-    match e {
-        Expr::Ident(n) => ctx.struct_of(n) == Some("DataFrame"),
-        Expr::MethodCall { recv, .. } => {
-            matches!(&**recv, Expr::Ident(n) if n == "DataFrame") || is_df_expr(recv, ctx)
+    match &e.kind {
+        ExprKind::Ident(n) => ctx.struct_of(n) == Some("DataFrame"),
+        ExprKind::MethodCall { recv, .. } => {
+            matches!(&(&**recv).kind, ExprKind::Ident(n) if n == "DataFrame") || is_df_expr(recv, ctx)
         }
         _ => false,
     }
@@ -1918,35 +1994,39 @@ fn is_value_var(name: &str, ctx: &Ctx) -> bool {
 
 /// Rewrite a VBR expression in column-formula context into polars expressions.
 fn lower_formula(e: &mut Expr, ctx: &Ctx) {
-    match e {
+    match &mut e.kind {
         // A bare name: a `Dim`'d value → `lit(v)`; otherwise a column → `col("name")`.
-        Expr::Ident(name) => {
+        ExprKind::Ident(name) => {
+            let span = e.span;
             *e = if is_value_var(name, ctx) {
-                lit_of(Expr::Ident(name.clone()))
+                lit_of(ExprKind::Ident(name.clone()).at(span))
             } else {
-                call_expr("col", vec![Expr::Str(name.clone())])
+                call_expr("col", vec![ExprKind::Str(name.clone()).at(span)])
             };
         }
         // Literals are values.
-        Expr::Str(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) => {
-            let v = std::mem::replace(e, Expr::Int(0));
+        ExprKind::Str(_) | ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) => {
+            let v = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
             *e = lit_of(v);
         }
         // `IsNull(x)` → `x.is_null()` — nulls appear where a LeftJoin/OuterJoin
         // found no matching key; this is the mask that finds (or, with `Not`,
         // removes) those rows.
-        Expr::Call { name, args } if name.eq_ignore_ascii_case("IsNull") && args.len() == 1 => {
+        ExprKind::Call { name, args } if name.eq_ignore_ascii_case("IsNull") && args.len() == 1 => {
             let mut inner = args.drain(..).next().unwrap();
             lower_formula(&mut inner, ctx);
             *e = mcall(inner, "is_null", vec![]);
         }
         // `Col(x)` / a backtick name → `col(x)`; the argument is a plain value.
-        Expr::Call { name, args } if name == "Col" => {
-            let arg = args.drain(..).next().unwrap_or_else(|| Expr::Str(String::new()));
+        ExprKind::Call { name, args } if name == "Col" => {
+            let arg = args
+                .drain(..)
+                .next()
+                .unwrap_or_else(|| ExprKind::Str(String::new()).synth());
             *e = call_expr("col", vec![arg]);
         }
         // `IIf(c, t, e)` → `when(c).then(t).otherwise(e)`.
-        Expr::Call { name, args } if name.eq_ignore_ascii_case("IIf") && args.len() == 3 => {
+        ExprKind::Call { name, args } if name.eq_ignore_ascii_case("IIf") && args.len() == 3 => {
             let mut drain = args.drain(..);
             let mut c = drain.next().unwrap();
             let mut t = drain.next().unwrap();
@@ -1959,7 +2039,7 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
             let then = mcall(w, "then", vec![t]);
             *e = mcall(then, "otherwise", vec![el]);
         }
-        Expr::Binary { op, lhs, rhs } => {
+        ExprKind::Binary { op, lhs, rhs } => {
             lower_formula(lhs, ctx);
             lower_formula(rhs, ctx);
             // Comparisons and logical ops become methods (polars doesn't overload
@@ -1976,14 +2056,14 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
                 _ => None,
             };
             if let Some(m) = method {
-                let l = std::mem::replace(&mut **lhs, Expr::Int(0));
-                let r = std::mem::replace(&mut **rhs, Expr::Int(0));
+                let l = std::mem::replace(&mut lhs.kind, ExprKind::Int(0)).at(lhs.span);
+                let r = std::mem::replace(&mut rhs.kind, ExprKind::Int(0)).at(rhs.span);
                 *e = mcall(l, m, vec![r]);
             }
         }
-        Expr::Not(inner) => {
+        ExprKind::Not(inner) => {
             lower_formula(inner, ctx);
-            let i = std::mem::replace(&mut **inner, Expr::Int(0));
+            let i = std::mem::replace(&mut inner.kind, ExprKind::Int(0)).at(inner.span);
             *e = mcall(i, "not", vec![]);
         }
         _ => {}
@@ -1994,7 +2074,7 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
 /// `Min(x)`, `Max(x)`, `Count(x)` — lowers its inner *formula* and applies the
 /// polars aggregation method; a bare formula passes through `lower_formula`.
 fn lower_agg(e: &mut Expr, ctx: &Ctx) {
-    if let Expr::Call { name, args } = e {
+    if let ExprKind::Call { name, args } = &mut e.kind {
         let agg = ["sum", "mean", "min", "max", "count"]
             .iter()
             .find(|a| name.eq_ignore_ascii_case(a))
@@ -2010,11 +2090,14 @@ fn lower_agg(e: &mut Expr, ctx: &Ctx) {
 }
 
 fn call_expr(name: &str, args: Vec<Expr>) -> Expr {
-    Expr::Call { name: name.to_string(), args }
+    let span = args.first().map(|a| a.span).unwrap_or_default();
+    ExprKind::Call { name: name.to_string(), args }.at(span)
 }
 fn mcall(recv: Expr, method: &str, args: Vec<Expr>) -> Expr {
-    Expr::MethodCall { recv: Box::new(recv), method: method.to_string(), args }
+    let span = recv.span;
+    ExprKind::MethodCall { recv: Box::new(recv), method: method.to_string(), args }.at(span)
 }
 fn lit_of(v: Expr) -> Expr {
-    Expr::Call { name: "lit".to_string(), args: vec![v] }
+    let span = v.span;
+    ExprKind::Call { name: "lit".to_string(), args: vec![v] }.at(span)
 }

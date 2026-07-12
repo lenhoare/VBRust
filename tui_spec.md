@@ -295,6 +295,15 @@ dispatch → `ratatui::restore()`); it takes over the terminal, so run it in a r
 terminal (not piped), and it restores on exit. Adding a `Screen` pulls in
 `ratatui` (crossterm comes with it); it builds far faster than the GUI's Iced.
 
+### 8.0 Diagnosing a running screen — `Log`, not `Debug.Print`
+
+A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — VBR warns
+and sends you to **`Log`**. `Log "message"` (composes with `&` like
+`Debug.Print`) appends a timestamped line to `build/vbr.log`; open a second
+terminal and `tail -f build/vbr.log` to watch the app think while it runs. `Log`
+works in any event or helper. `vbr run` prints the log path at startup. See
+`language_spec.md` §Logging.
+
 ### 8.1 Running in the browser — `vbr runweb`
 
 The **same `Screen` file** also runs in a browser:

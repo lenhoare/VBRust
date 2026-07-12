@@ -12,6 +12,86 @@ use crate::diagnostics::Diagnostics;
 use crate::resolver::{self, FnTable};
 
 /// CLI stand-in for VB's InputBox: print the prompt, read a line, return it.
+/// The `Log <expr>` sink: a timestamped line appended to `vbr.log` in the working
+/// directory (for a project run, that's `build/vbr.log`). Std-only — no crate,
+/// so `Log` works even under `vbr run`. The timestamp is UTC time-of-day with
+/// milliseconds, which is what matters for watching a running app; a failed open
+/// is swallowed so logging never crashes the program it's diagnosing.
+pub(crate) const LOG_HELPER: &str = "fn vbr_log(level: &str, msg: &str) {
+    use std::io::Write;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    let ts = format!(
+        \"{:02}:{:02}:{:02}.{:03}\",
+        (secs / 3600) % 24,
+        (secs / 60) % 60,
+        secs % 60,
+        now.subsec_millis()
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(\"vbr.log\") {
+        let _ = writeln!(f, \"[{} {}] {}\", ts, level, msg);
+    }
+}
+";
+
+/// True when `<expr>` anywhere in the program is passed to `Log` — so the sink
+/// helper is emitted (and only then). Scans plain code, tests, and every
+/// surface's event bodies.
+pub(crate) fn program_uses_log(program: &Program) -> bool {
+    let any = |stmts: &[Stmt]| stmts.iter().any(stmt_has_log);
+    program.functions.iter().any(|f| any(&f.body))
+        || program.tests.iter().any(|t| any(&t.body))
+        || program.windows.iter().any(|w| w.events.iter().any(|e| any(&e.body)))
+        || program.screens.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
+        || program.pages.iter().any(|p| p.events.iter().any(|e| any(&e.body)))
+}
+
+/// Does a statement (or a nested block) contain a `Log`?
+fn stmt_has_log(s: &Stmt) -> bool {
+    stmt_contains(s, &|s| matches!(s, Stmt::Log(..)))
+}
+
+/// Does a statement (or a nested block) satisfy `pred` anywhere within it?
+fn stmt_contains(s: &Stmt, pred: &dyn Fn(&Stmt) -> bool) -> bool {
+    if pred(s) {
+        return true;
+    }
+    match s {
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| b.iter().any(|s| stmt_contains(s, pred)))
+                || else_body.as_ref().is_some_and(|b| b.iter().any(|s| stmt_contains(s, pred)))
+        }
+        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            body.iter().any(|s| stmt_contains(s, pred))
+        }
+        Stmt::Match { arms, .. } => {
+            arms.iter().any(|a| a.body.iter().any(|s| stmt_contains(s, pred)))
+        }
+        _ => false,
+    }
+}
+
+/// A `Screen` draws into the terminal, so `Debug.Print` (which writes to that
+/// same terminal) would scribble over the UI. Warn once, pointing at `Log`.
+fn warn_print_in_screen(program: &Program, diags: &mut Diagnostics) {
+    let is_print = |s: &Stmt| matches!(s, Stmt::Print(_));
+    let prints = program.functions.iter().any(|f| f.body.iter().any(|s| stmt_contains(s, &is_print)))
+        || program
+            .screens
+            .iter()
+            .any(|sc| sc.events.iter().any(|e| e.body.iter().any(|s| stmt_contains(s, &is_print))));
+    if prints {
+        diags.warn_once_global(
+            "debug-print-in-screen",
+            "`Debug.Print` writes to the terminal your `Screen` is drawing on — it will \
+             scribble over the display. Use `Log` instead (it appends a timestamped line to \
+             `vbr.log`); watch it live with `tail -f build/vbr.log` while the app runs.",
+        );
+    }
+}
+
 const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> String {
     use std::io::Write;
     print!(\"{}\", prompt);
@@ -81,6 +161,7 @@ pub fn transpile_module(
     // in the terminal (crossterm) by default, in the browser (Ratzilla) for
     // `vbr runweb`. Same state, same view; only the shell differs.
     if !program.screens.is_empty() {
+        warn_print_in_screen(program, diags);
         let rust = crate::tui::emit_tui_program(program, modules, interfaces, is_entry, web, diags);
         diags.clear_line_map();
         return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
@@ -161,6 +242,11 @@ pub fn transpile_module(
     if diags.has_mark("input_box") {
         sep(&mut out);
         out.push_str(INPUT_BOX_HELPER);
+    }
+    // The `Log` sink helper, emitted only when the program logs.
+    if program_uses_log(program) {
+        sep(&mut out);
+        out.push_str(LOG_HELPER);
     }
 
     if !program.constants.is_empty() {
@@ -735,7 +821,7 @@ fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
     for stmt in stmts.iter_mut() {
         match stmt {
             Stmt::Assign {
-                target: Expr::Ident(name),
+                target: Expr { kind: ExprKind::Ident(name), .. },
                 value,
                 op: None,
             } if rust_name(name) == fn_name => {
@@ -808,7 +894,7 @@ fn scan_for_counters(
                     scan_for_counters(&a.body, bound, counters, assigned_outside);
                 }
             }
-            Stmt::Assign { target: Expr::Ident(n), .. } => {
+            Stmt::Assign { target: Expr { kind: ExprKind::Ident(n), .. }, .. } => {
                 let v = rust_name(n);
                 if !bound.contains(&v) {
                     assigned_outside.insert(v);
@@ -826,7 +912,7 @@ fn drop_counter_dims(
 ) {
     for s in stmts.iter_mut() {
         match s {
-            Stmt::Dim { name, ty: DeclType::Plain(_), init: None, line }
+            Stmt::Dim { name, ty: DeclType::Plain(_), init: None, line, .. }
                 if counters.contains(&rust_name(name))
                     && !assigned_outside.contains(&rust_name(name)) =>
             {
@@ -886,7 +972,9 @@ pub(crate) fn collect_stmt_idents(s: &Stmt, out: &mut HashSet<String>) {
             collect_expr_idents(target, out);
             collect_expr_idents(value, out);
         }
-        Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => collect_expr_idents(e, out),
+        Stmt::Print(e) | Stmt::Log(_, e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => {
+            collect_expr_idents(e, out)
+        }
         Stmt::If { branches, else_body } => {
             for (c, b) in branches {
                 collect_expr_idents(c, out);
@@ -965,31 +1053,31 @@ pub(crate) fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
 }
 
 pub(crate) fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
-    match e {
-        Expr::Ident(n) => {
+    match &e.kind {
+        ExprKind::Ident(n) => {
             out.insert(rust_name(n));
         }
-        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
             collect_expr_idents(lhs, out);
             collect_expr_idents(rhs, out);
         }
-        Expr::Not(i) | Expr::Ref(i) | Expr::MutRef(i) | Expr::Deref(i) | Expr::Cast(i, _)
-        | Expr::Try(i) | Expr::Await(i) | Expr::Field(i, _) | Expr::TupleIndex(i, _)
-        | Expr::Closure { body: i, .. } => collect_expr_idents(i, out),
-        Expr::MethodCall { recv, args, .. } => {
+        ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+        | ExprKind::Try(i) | ExprKind::Await(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
+        | ExprKind::Closure { body: i, .. } => collect_expr_idents(i, out),
+        ExprKind::MethodCall { recv, args, .. } => {
             collect_expr_idents(recv, out);
             args.iter().for_each(|a| collect_expr_idents(a, out));
         }
-        Expr::Call { args, .. } => args.iter().for_each(|a| collect_expr_idents(a, out)),
-        Expr::Tuple(es) | Expr::List(es) => es.iter().for_each(|e| collect_expr_idents(e, out)),
-        Expr::StructLit { fields, .. } => {
+        ExprKind::Call { args, .. } => args.iter().for_each(|a| collect_expr_idents(a, out)),
+        ExprKind::Tuple(es) | ExprKind::List(es) => es.iter().for_each(|e| collect_expr_idents(e, out)),
+        ExprKind::StructLit { fields, .. } => {
             fields.iter().for_each(|(_, v)| collect_expr_idents(v, out))
         }
         // Opaque embedded code — assume it touches everything.
-        Expr::InlineRust(_) => {
+        ExprKind::InlineRust(_) => {
             out.insert("*".to_string());
         }
-        Expr::InlinePython { inputs, .. } => {
+        ExprKind::InlinePython { inputs, .. } => {
             for i in inputs {
                 out.insert(rust_name(i));
             }
@@ -1018,13 +1106,14 @@ pub(crate) fn emit_stmt(
         }
         Stmt::Dim {
             name,
+            name_span: _,
             ty,
             init,
             line,
         } => {
             let var = rust_name(name);
             // `Dim x As T = Rust … End Rust` — the block's value, typed by `As T`.
-            if let Some(Expr::InlineRust(raw)) = init {
+            if let Some(Expr { kind: ExprKind::InlineRust(raw), .. }) = init {
                 let kw = let_kw(mutated.contains(&var));
                 out.push_str(&format!(
                     "{}{} {}: {} = {};\n",
@@ -1038,7 +1127,7 @@ pub(crate) fn emit_stmt(
             }
             // `Dim x As T = Python … End Python` — run the block via pyo3 and
             // extract its last-line value into `T` (or hold a `PyObject` handle).
-            if let Some(Expr::InlinePython { inputs, body }) = init {
+            if let Some(Expr { kind: ExprKind::InlinePython { inputs, body }, .. }) = init {
                 let kw = let_kw(mutated.contains(&var));
                 out.push_str(&format!(
                     "{}{} {}: {} = {};\n",
@@ -1162,9 +1251,9 @@ pub(crate) fn emit_stmt(
             ));
         }
         Stmt::Assign { target, value, op } => {
-            let lhs = match target {
+            let lhs = match &target.kind {
                 // Assigning through a ByRef parameter writes to the pointee: `*p = …`.
-                Expr::Ident(name) => {
+                ExprKind::Ident(name) => {
                     let var = rust_name(name);
                     if byref.contains(&var) {
                         format!("*{}", var)
@@ -1172,7 +1261,7 @@ pub(crate) fn emit_stmt(
                         var
                     }
                 }
-                other => render_expr(other, None),
+                _ => render_expr(target, None),
             };
             // `+=` / `-=` / `*=` / `/=` for a compound assignment, else plain `=`.
             let assign = match op {
@@ -1182,8 +1271,8 @@ pub(crate) fn emit_stmt(
             out.push_str(&format!("{}{} {} {};\n", pad, lhs, assign, render_expr(value, None)));
         }
         Stmt::Expr(e) => {
-            let rendered = match e {
-                Expr::InlineRust(raw) => render_inline_block(raw, indent),
+            let rendered = match &e.kind {
+                ExprKind::InlineRust(raw) => render_inline_block(raw, indent),
                 _ => render_expr(e, None),
             };
             out.push_str(&format!("{}{};\n", pad, rendered));
@@ -1207,9 +1296,9 @@ pub(crate) fn emit_stmt(
                 Some(t) => format!(": {}", decltype_rust(t)),
                 None => String::new(),
             };
-            let val = match value {
-                Expr::InlineRust(raw) => render_inline_block(raw, indent),
-                Expr::InlinePython { inputs, body } => {
+            let val = match &value.kind {
+                ExprKind::InlineRust(raw) => render_inline_block(raw, indent),
+                ExprKind::InlinePython { inputs, body } => {
                     render_python_block(inputs, body, ty.as_ref(), indent)
                 }
                 _ => render_expr(value, None),
@@ -1238,8 +1327,8 @@ pub(crate) fn emit_stmt(
         Stmt::Print(e) => {
             // Print a concatenation as one flat println! (string literals fold
             // into the format string); a lone literal prints directly.
-            match e {
-                Expr::Binary { op: BinOp::Concat, .. } => {
+            match &e.kind {
+                ExprKind::Binary { op: BinOp::Concat, .. } => {
                     let (fmt, args) = flatten_concat(e);
                     if args.is_empty() {
                         out.push_str(&format!("{}println!(\"{}\");\n", pad, fmt));
@@ -1252,7 +1341,7 @@ pub(crate) fn emit_stmt(
                         ));
                     }
                 }
-                Expr::Str(s) => {
+                ExprKind::Str(s) => {
                     out.push_str(&format!("{}println!(\"{}\");\n", pad, escape_fmt(s)));
                 }
                 _ => {
@@ -1263,6 +1352,24 @@ pub(crate) fn emit_stmt(
                     ));
                 }
             }
+        }
+        // `Log <expr>` / `Log.Warn <expr>` → the file sink `vbr_log(level, &msg)`,
+        // the message built like `Print` (a concatenation folds into one format
+        // string).
+        Stmt::Log(level, e) => {
+            let arg = match &e.kind {
+                ExprKind::Binary { op: BinOp::Concat, .. } => {
+                    let (fmt, args) = flatten_concat(e);
+                    if args.is_empty() {
+                        format!("\"{}\"", fmt)
+                    } else {
+                        format!("&format!(\"{}\", {})", fmt, args.join(", "))
+                    }
+                }
+                ExprKind::Str(s) => format!("\"{}\"", escape_fmt(s)),
+                _ => format!("&format!(\"{{}}\", {})", render_expr(e, None)),
+            };
+            out.push_str(&format!("{}vbr_log(\"{}\", {});\n", pad, level.tag(), arg));
         }
         Stmt::If {
             branches,
@@ -1377,11 +1484,11 @@ pub(crate) fn emit_stmt(
         // `Assert <expr>` → the Rust assertion whose shape matches the operator,
         // so `=`/`<>` give operand-level failure messages ("left: .., right: ..").
         Stmt::Assert(e) => {
-            let line = match e {
-                Expr::Binary { op: BinOp::Eq, lhs, rhs } => {
+            let line = match &e.kind {
+                ExprKind::Binary { op: BinOp::Eq, lhs, rhs } => {
                     format!("assert_eq!({}, {});", render_expr(lhs, None), render_expr(rhs, None))
                 }
-                Expr::Binary { op: BinOp::Ne, lhs, rhs } => {
+                ExprKind::Binary { op: BinOp::Ne, lhs, rhs } => {
                     format!("assert_ne!({}, {});", render_expr(lhs, None), render_expr(rhs, None))
                 }
                 _ => format!("assert!({});", render_expr(e, None)),
@@ -1419,8 +1526,8 @@ fn coord(e: &Expr) -> String {
 
 /// A colour argument → an `iced::Color`: `Color.Red` (palette) or `Color(r,g,b)`.
 fn render_color(e: &Expr, diags: &mut Diagnostics) -> String {
-    match e {
-        Expr::Field(recv, name) if matches!(&**recv, Expr::Ident(n) if n.eq_ignore_ascii_case("Color")) => {
+    match &e.kind {
+        ExprKind::Field(recv, name) if matches!(&(&**recv).kind, ExprKind::Ident(n) if n.eq_ignore_ascii_case("Color")) => {
             match named_color(name) {
                 Some((r, g, b)) => format!("iced::Color::from_rgb8({}, {}, {})", r, g, b),
                 None => {
@@ -1437,7 +1544,7 @@ fn render_color(e: &Expr, diags: &mut Diagnostics) -> String {
                 }
             }
         }
-        Expr::Call { name, args } if name.eq_ignore_ascii_case("Color") && args.len() == 3 => format!(
+        ExprKind::Call { name, args } if name.eq_ignore_ascii_case("Color") && args.len() == 3 => format!(
             "iced::Color::from_rgb8(({}) as u8, ({}) as u8, ({}) as u8)",
             render_expr(&args[0], None),
             render_expr(&args[1], None),
@@ -1531,7 +1638,7 @@ fn emit_dim_string(
             out.push_str(&format!("{}{} {}: String;\n", pad, let_kw(is_mut), var));
         }
         // Every String variable is an owned String — uniform and predictable.
-        Some(Expr::Str(s)) => {
+        Some(Expr { kind: ExprKind::Str(s), .. }) => {
             out.push_str(&format!(
                 "{}{} {}: String = \"{}\".to_string();\n",
                 pad,
@@ -1542,7 +1649,7 @@ fn emit_dim_string(
         }
         // Assigning one String variable to another would move/copy something of
         // unknown size. Rust won't do that silently — explain the explicit forms.
-        Some(Expr::Ident(rhs)) => {
+        Some(Expr { kind: ExprKind::Ident(rhs), .. }) => {
             diags.error(line, unknown_size_message(orig_name, rhs));
         }
         // Anything else (concat → format!, `.clone()`, …) is a freshly owned String.
@@ -1573,7 +1680,7 @@ pub(crate) fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
         match stmt {
             Stmt::Dim { init: Some(e), .. } => note_builtins_expr(e, diags),
             Stmt::Set { value, .. } | Stmt::Assign { value, .. } => note_builtins_expr(value, diags),
-            Stmt::Return(Some(e)) | Stmt::Print(e) | Stmt::Expr(e) => {
+            Stmt::Return(Some(e)) | Stmt::Print(e) | Stmt::Log(_, e) | Stmt::Expr(e) => {
                 note_builtins_expr(e, diags)
             }
             Stmt::If {
@@ -1629,13 +1736,13 @@ pub(crate) fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
 }
 
 fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
-    match e {
-        Expr::Binary { lhs, rhs, .. } => {
+    match &e.kind {
+        ExprKind::Binary { lhs, rhs, .. } => {
             note_builtins_expr(lhs, diags);
             note_builtins_expr(rhs, diags);
         }
-        Expr::MethodCall { recv, method, args } => {
-            if let Expr::Ident(name) = &**recv {
+        ExprKind::MethodCall { recv, method, args } => {
+            if let ExprKind::Ident(name) = &(&**recv).kind {
                 if let Some(canon) = stdlib_type(name) {
                     diags.mark(&format!("stdlib:{}", canon));
                     diags.note(
@@ -1665,10 +1772,10 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                 note_builtins_expr(a, diags);
             }
         }
-        Expr::Try(inner) | Expr::Field(inner, _) | Expr::Closure { body: inner, .. } => {
+        ExprKind::Try(inner) | ExprKind::Field(inner, _) | ExprKind::Closure { body: inner, .. } => {
             note_builtins_expr(inner, diags)
         }
-        Expr::Index(inner, idx) => {
+        ExprKind::Index(inner, idx) => {
             diags.note(
                 "index-bounds",
                 "Indexing with `x[i]` panics if `i` is out of bounds. When you're not sure \
@@ -1677,12 +1784,12 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             note_builtins_expr(inner, diags);
             note_builtins_expr(idx, diags);
         }
-        Expr::StructLit { fields, .. } => {
+        ExprKind::StructLit { fields, .. } => {
             for (_, v) in fields {
                 note_builtins_expr(v, diags);
             }
         }
-        Expr::Call { name, args } => {
+        ExprKind::Call { name, args } => {
             match name.to_ascii_lowercase().as_str() {
                 "mid" => diags.note(
                     "builtin-mid",
@@ -1748,10 +1855,10 @@ pub(crate) fn is_mutating_method(m: &str) -> bool {
 
 /// Mark the receiver variable of any mutating method call (`v.push(…)`).
 fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
-    match e {
-        Expr::MethodCall { recv, method, args } => {
+    match &e.kind {
+        ExprKind::MethodCall { recv, method, args } => {
             if is_mutating_method(&rust_name(method)) {
-                if let Expr::Ident(v) = &**recv {
+                if let ExprKind::Ident(v) = &(&**recv).kind {
                     set.insert(rust_name(v));
                 }
             }
@@ -1760,23 +1867,23 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
                 mark_mutating_calls(a, set);
             }
         }
-        Expr::Call { args, .. } => {
+        ExprKind::Call { args, .. } => {
             for a in args {
                 mark_mutating_calls(a, set);
             }
         }
-        Expr::Binary { lhs, rhs, .. } | Expr::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
             mark_mutating_calls(lhs, set);
             mark_mutating_calls(rhs, set);
         }
-        Expr::Field(inner, _)
-        | Expr::Try(inner)
-        | Expr::Cast(inner, _)
-        | Expr::Deref(inner)
-        | Expr::MutRef(inner)
-        | Expr::Ref(inner)
-        | Expr::Closure { body: inner, .. } => mark_mutating_calls(inner, set),
-        Expr::StructLit { fields, .. } => {
+        ExprKind::Field(inner, _)
+        | ExprKind::Try(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Closure { body: inner, .. } => mark_mutating_calls(inner, set),
+        ExprKind::StructLit { fields, .. } => {
             for (_, v) in fields {
                 mark_mutating_calls(v, set);
             }
@@ -1788,9 +1895,9 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
 /// The root variable of an assignable place, e.g. `alice` in `alice.age`,
 /// or `grid` in `grid[r][c]`. `None` when there's no plain local at the root.
 fn lvalue_root(target: &Expr) -> Option<String> {
-    match target {
-        Expr::Ident(name) => Some(rust_name(name)),
-        Expr::Field(inner, _) | Expr::Index(inner, _) => lvalue_root(inner),
+    match &target.kind {
+        ExprKind::Ident(name) => Some(rust_name(name)),
+        ExprKind::Field(inner, _) | ExprKind::Index(inner, _) => lvalue_root(inner),
         _ => None,
     }
 }
@@ -1948,7 +2055,7 @@ fn let_kw(is_mut: bool) -> &'static str {
 }
 
 fn is_clone(e: &Expr) -> bool {
-    matches!(e, Expr::MethodCall { method, .. } if method == "clone")
+    matches!(&e.kind, ExprKind::MethodCall { method, .. } if method == "clone")
 }
 
 /// The teaching block from spec_01, with the user's own variable names filled in.
@@ -1976,7 +2083,7 @@ fn render_range(from: &Expr, to: &Expr, step: Option<&Expr>, diags: &mut Diagnos
     let hi = render_expr(to, None);
     match step {
         None => format!("{}..={}", lo, hi),
-        Some(Expr::Int(n)) if *n < 0 => {
+        Some(Expr { kind: ExprKind::Int(n), .. }) if *n < 0 => {
             // Counting down: Rust ranges only go up, so reverse.
             diags.note(
                 "for-step-negative",
@@ -1990,7 +2097,7 @@ fn render_range(from: &Expr, to: &Expr, step: Option<&Expr>, diags: &mut Diagnos
                 format!("({}..={}).rev().step_by({})", hi, lo, abs)
             }
         }
-        Some(Expr::Int(n)) => format!("({}..={}).step_by({})", lo, hi, n),
+        Some(Expr { kind: ExprKind::Int(n), .. }) => format!("({}..={}).step_by({})", lo, hi, n),
         Some(other) => {
             // Non-literal step: fall back to a literal-rendered step_by.
             format!("({}..={}).step_by({})", lo, hi, render_expr(other, None))
@@ -2010,8 +2117,8 @@ pub(crate) fn render_expr(e: &Expr, expected: Option<Type>) -> String {
 /// marks the right operand of a left-associative parent (so `a - (b - c)`
 /// keeps its parens).
 fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool) -> String {
-    match e {
-        Expr::Int(n) => {
+    match &e.kind {
+        ExprKind::Int(n) => {
             // An integer literal assigned into a float context needs a `.0`.
             if expected.map_or(false, |t| t.is_float()) {
                 format!("{}.0", n)
@@ -2019,15 +2126,15 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 n.to_string()
             }
         }
-        Expr::Float(f) => fmt_float(*f),
-        Expr::Bool(b) => b.to_string(),
-        Expr::Str(s) => format!("\"{}\"", escape(s)),
+        ExprKind::Float(f) => fmt_float(*f),
+        ExprKind::Bool(b) => b.to_string(),
+        ExprKind::Str(s) => format!("\"{}\"", escape(s)),
         // `None` is the Option constructor, not a variable — keep it as-is.
-        Expr::Ident(name) if name == "None" => "None".to_string(),
+        ExprKind::Ident(name) if name == "None" => "None".to_string(),
         // `Me` is the method receiver.
-        Expr::Ident(name) if name == "Me" => "self".to_string(),
-        Expr::Ident(name) => rust_name(name),
-        Expr::Binary { op, .. } if *op == BinOp::Concat => {
+        ExprKind::Ident(name) if name == "Me" => "self".to_string(),
+        ExprKind::Ident(name) => rust_name(name),
+        ExprKind::Binary { op, .. } if *op == BinOp::Concat => {
             // `&` concatenation becomes one flat format!, sidestepping ownership:
             // the whole chain is collected in order and string literals fold into
             // the format string itself, so `"a: " & x & "!"` reads as
@@ -2039,13 +2146,13 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 format!("format!(\"{}\", {})", fmt, args.join(", "))
             }
         }
-        Expr::Binary { op, lhs, rhs } if *op == BinOp::Xor => {
+        ExprKind::Binary { op, lhs, rhs } if *op == BinOp::Xor => {
             // VBR treats Xor as a loose logical op, but Rust's `^` binds *tighter*
             // than comparison/`&&`/`||`. So parenthesise any binary operand to keep
             // our grouping, and wrap the whole node when it sits under a tighter op.
             let operand = |e: &Expr| {
                 let s = render_prec(e, None, 0, false);
-                if matches!(e, Expr::Binary { .. }) {
+                if matches!(&e.kind, ExprKind::Binary { .. }) {
                     format!("({})", s)
                 } else {
                     s
@@ -2059,17 +2166,17 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 inner
             }
         }
-        Expr::Binary { op, lhs, rhs } if *op == BinOp::Pow => {
+        ExprKind::Binary { op, lhs, rhs } if *op == BinOp::Pow => {
             // `^` lowers to powi (integer exponent) or powf (float exponent),
             // assuming a floating-point base as the spec shows.
             let base = render_math_recv(lhs);
-            match rhs.as_ref() {
-                Expr::Int(n) => format!("{}.powi({})", base, n),
-                Expr::Float(f) => format!("{}.powf({})", base, fmt_float(*f)),
-                other => format!("{}.powf({})", base, render_expr(other, None)),
+            match &rhs.kind {
+                ExprKind::Int(n) => format!("{}.powi({})", base, n),
+                ExprKind::Float(f) => format!("{}.powf({})", base, fmt_float(*f)),
+                _ => format!("{}.powf({})", base, render_expr(rhs, None)),
             }
         }
-        Expr::Binary { op, lhs, rhs } => {
+        ExprKind::Binary { op, lhs, rhs } => {
             let p = prec(*op);
             // Arithmetic propagates the Double context; comparisons don't.
             let child = if is_arithmetic(*op) { expected } else { None };
@@ -2085,7 +2192,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 inner
             }
         }
-        Expr::MethodCall { recv, method, args } => {
+        ExprKind::MethodCall { recv, method, args } => {
             // DataFrame `Select` (tagged by the resolver) renders its column names
             // as a slice: `df.Select("a", "b")` → `df.select(&["a", "b"])`.
             if method == "__df_select" {
@@ -2122,7 +2229,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
             let m = rust_name(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
-            if let Expr::Ident(name) = &**recv {
+            if let ExprKind::Ident(name) = &(&**recv).kind {
                 if let Some(canon) = stdlib_type(name) {
                     let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                     return format!("{}::{}({})", canon, m, rendered.join(", "));
@@ -2142,7 +2249,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                     // (a HashMap<String, String> owns its values too; a Vec's
                     // numeric index is never a string literal, so it's untouched).
                     if m == "push" || m == "insert" {
-                        if let Expr::Str(s) = a {
+                        if let ExprKind::Str(s) = &a.kind {
                             return format!("\"{}\".to_string()", escape(s));
                         }
                     }
@@ -2153,49 +2260,49 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             // `(*tag).as_string()`. Method names follow Rust convention.
             format!("{}.{}({})", render_recv(recv), m, rendered.join(", "))
         }
-        Expr::Closure { params, body, by_ref_params } => {
+        ExprKind::Closure { params, body, by_ref_params } => {
             render_closure(params, body, *by_ref_params)
         }
-        Expr::Tuple(elems) => {
+        ExprKind::Tuple(elems) => {
             let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
             format!("({})", parts.join(", "))
         }
         // `[a, b, …]` → `vec![…]`. A string-literal element is owned (VBR strings
         // are always `String`); numeric literals infer their type from the target
         // (`let v: Vec<i64> = vec![1, 2]`), same as elsewhere.
-        Expr::List(elems) => {
+        ExprKind::List(elems) => {
             let parts: Vec<String> = elems
                 .iter()
-                .map(|e| match e {
-                    Expr::Str(s) => format!("\"{}\".to_string()", escape(s)),
-                    other => render_expr(other, None),
+                .map(|e| match &e.kind {
+                    ExprKind::Str(s) => format!("\"{}\".to_string()", escape(s)),
+                    _ => render_expr(e, None),
                 })
                 .collect();
             format!("vec![{}]", parts.join(", "))
         }
-        Expr::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
-        Expr::Index(inner, idx) => {
+        ExprKind::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
+        ExprKind::Index(inner, idx) => {
             // A Rust index must be `usize`; a literal is fine, anything else is cast.
-            let i = match idx.as_ref() {
-                Expr::Int(n) => n.to_string(),
-                other => format!("({}) as usize", render_expr(other, None)),
+            let i = match &idx.kind {
+                ExprKind::Int(n) => n.to_string(),
+                _ => format!("({}) as usize", render_expr(idx, None)),
             };
             format!("{}[{}]", render_prec(inner, None, 9, false), i)
         }
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).
-        Expr::InlineRust(raw) => render_inline_block(raw, 0),
+        ExprKind::InlineRust(raw) => render_inline_block(raw, 0),
         // Inline Python is supported as a typed/handle `Dim` initialiser, which the
         // emitter handles with the target type in hand. In any other position we
         // have no type to extract into, so fall back to context inference.
-        Expr::InlinePython { inputs, body } => render_python_block(inputs, body, None, 0),
+        ExprKind::InlinePython { inputs, body } => render_python_block(inputs, body, None, 0),
         // `Not e` → `!e`. Unary `!` binds tighter than any binary op, so it never
         // needs outer parens; the operand is parenthesised if it's itself binary.
-        Expr::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
+        ExprKind::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
         // `Await` is consumed by the GUI codegen (event splitting); if one reaches
         // here it's a misuse — render the inner call so output is still valid Rust.
-        Expr::Await(inner) => render_prec(inner, expected, parent_prec, is_right),
-        Expr::Call { name, args } => {
+        ExprKind::Await(inner) => render_prec(inner, expected, parent_prec, is_right),
+        ExprKind::Call { name, args } => {
             if name.contains("::") {
                 // Already a qualified path (a cross-module call) — render verbatim.
                 let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
@@ -2212,18 +2319,18 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 format!("{}({})", rust_name(name), rendered.join(", "))
             }
         }
-        Expr::Try(inner) => format!("{}?", render_prec(inner, None, 9, false)),
-        Expr::Field(inner, field) => format!("{}.{}", render_recv(inner), rust_name(field)),
+        ExprKind::Try(inner) => format!("{}?", render_prec(inner, None, 9, false)),
+        ExprKind::Field(inner, field) => format!("{}.{}", render_recv(inner), rust_name(field)),
         // Already the verbatim SCREAMING_SNAKE name from the resolver.
-        Expr::ConstRef(name) => name.clone(),
-        Expr::StructLit { name, fields } => {
+        ExprKind::ConstRef(name) => name.clone(),
+        ExprKind::StructLit { name, fields } => {
             let parts: Vec<String> = fields
                 .iter()
                 .map(|(fname, fval)| {
                     // A string-literal field becomes an owned String (fields own).
-                    let value = match fval {
-                        Expr::Str(s) => format!("\"{}\".to_string()", escape(s)),
-                        other => render_expr(other, None),
+                    let value = match &fval.kind {
+                        ExprKind::Str(s) => format!("\"{}\".to_string()", escape(s)),
+                        _ => render_expr(fval, None),
                     };
                     format!("{}: {}", rust_name(fname), value)
                 })
@@ -2234,10 +2341,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 format!("{} {{ {} }}", name, parts.join(", "))
             }
         }
-        Expr::Deref(inner) => format!("*{}", render_prec(inner, expected, 9, false)),
-        Expr::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 9, false)),
-        Expr::Ref(inner) => format!("&{}", render_prec(inner, None, 9, false)),
-        Expr::Cast(inner, ty) => {
+        ExprKind::Deref(inner) => format!("*{}", render_prec(inner, expected, 9, false)),
+        ExprKind::MutRef(inner) => format!("&mut {}", render_prec(inner, None, 9, false)),
+        ExprKind::Ref(inner) => format!("&{}", render_prec(inner, None, 9, false)),
+        ExprKind::Cast(inner, ty) => {
             // `x as f64`. Parenthesise the cast if it sits under a tighter op.
             let inner = render_prec(inner, None, 9, false);
             let cast = format!("{} as {}", inner, ty.rust());
@@ -2369,9 +2476,9 @@ fn render_recv(e: &Expr) -> String {
 }
 
 fn render_math_recv(e: &Expr) -> String {
-    match e {
-        Expr::Int(n) => suffix_f64(n.to_string()),
-        Expr::Float(f) => suffix_f64(fmt_float(*f)),
+    match &e.kind {
+        ExprKind::Int(n) => suffix_f64(n.to_string()),
+        ExprKind::Float(f) => suffix_f64(fmt_float(*f)),
         _ => render_recv(e),
     }
 }
@@ -2391,9 +2498,9 @@ fn suffix_f64(literal: String) -> String {
 /// multi-byte char. Literal positions are folded so the output stays clean.
 fn render_mid(s: &Expr, start: &Expr, len: Option<&Expr>) -> String {
     let sr = render_recv(s);
-    let skip = match start {
-        Expr::Int(n) => (n - 1).max(0).to_string(),
-        other => format!("(({}) - 1) as usize", render_expr(other, None)),
+    let skip = match &start.kind {
+        ExprKind::Int(n) => (n - 1).max(0).to_string(),
+        _ => format!("(({}) - 1) as usize", render_expr(start, None)),
     };
     match len {
         Some(len) => format!(
@@ -2409,9 +2516,9 @@ fn render_mid(s: &Expr, start: &Expr, len: Option<&Expr>) -> String {
 /// Render an expression that must be a `usize` (a slice/iterator count). An
 /// integer literal is emitted bare (it infers `usize`); anything else is cast.
 fn as_usize_arg(e: &Expr) -> String {
-    match e {
-        Expr::Int(n) => n.to_string(),
-        other => format!("({}) as usize", render_expr(other, None)),
+    match &e.kind {
+        ExprKind::Int(n) => n.to_string(),
+        _ => format!("({}) as usize", render_expr(e, None)),
     }
 }
 
@@ -2486,15 +2593,15 @@ fn escape_fmt(s: &str) -> String {
 /// operand becomes a `{}` argument.
 fn flatten_concat(e: &Expr) -> (String, Vec<String>) {
     fn walk(e: &Expr, fmt: &mut String, args: &mut Vec<String>) {
-        match e {
-            Expr::Binary { op: BinOp::Concat, lhs, rhs } => {
+        match &e.kind {
+            ExprKind::Binary { op: BinOp::Concat, lhs, rhs } => {
                 walk(lhs, fmt, args);
                 walk(rhs, fmt, args);
             }
-            Expr::Str(s) => fmt.push_str(&escape_fmt(s)),
-            other => {
+            ExprKind::Str(s) => fmt.push_str(&escape_fmt(s)),
+            _ => {
                 fmt.push_str("{}");
-                args.push(render_prec(other, None, 0, false));
+                args.push(render_prec(e, None, 0, false));
             }
         }
     }
@@ -2518,7 +2625,7 @@ pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
             // `Set Mut a = b` borrows b mutably, so b's own binding must be `mut`.
             Stmt::Set {
                 mutable: true,
-                value: Expr::Ident(n),
+                value: Expr { kind: ExprKind::Ident(n), .. },
                 ..
             } => {
                 set.insert(rust_name(n));

@@ -945,6 +945,27 @@ ones you use — so a program that just reads a file compiles nothing extra.
 | `vbr transpile file.vbr` | write the generated Rust to a file |
 | `vbr emit file.vbr` | print the generated Rust |
 
+### Logging with `Log`
+
+`Debug.Print` writes to the screen, which is perfect for a console program and
+fine in a GUI window — but a terminal app (`Screen`) is *drawing* on that screen,
+so a stray `Debug.Print` scribbles over it. For that, and for any running app you
+want to watch, there is `Log`:
+
+```vb
+Log "fetched " & count & " rows"
+```
+
+It appends a timestamped line to `vbr.log` (in a project, `build/vbr.log`) — a
+diagnostic channel that never touches the UI. Run `tail -f build/vbr.log` in
+another terminal and you can watch a running program think. `Log` works anywhere
+(functions, methods, events); `vbr run` tells you the log path on startup.
+
+A bare `Log` is `INFO`; tag the severity with `Log.Debug`, `Log.Warn`, or
+`Log.Error` (`[14:32:05 WARN ] …`), so you can `grep WARN build/vbr.log`.
+(`Log(x)` with parentheses is still the natural log — the verb takes its message
+with a space, like `Debug.Print`.)
+
 ### Tests you can read as a specification
 
 You describe what the code should do in a `Test` block, and check it with

@@ -473,8 +473,8 @@ fn render_node(
         // non-zero `min` shifts both the value and the max.
         ViewNode::ProgressBar { min, max, value } => {
             let field = rust_name(value);
-            match (min, max) {
-                (Expr::Int(0), Expr::Int(hi)) => {
+            match (&min.kind, &max.kind) {
+                (ExprKind::Int(0), ExprKind::Int(hi)) => {
                     out.push_str(&format!(
                         "{}<progress class=\"vbr-progressbar\" max=\"{}\" value={{self.{}.to_string()}}></progress>\n",
                         pad, hi, field
@@ -495,8 +495,8 @@ fn render_node(
         // file name resolves against the served site (the asset story is a
         // later slice). A String state field as the path is cloned to own it.
         ViewNode::Image { path } => {
-            let src = match path {
-                Expr::Str(_) => render_expr(path, None),
+            let src = match &path.kind {
+                ExprKind::Str(_) => render_expr(path, None),
                 _ => format!("{{{}.clone()}}", render_rewritten(path, ctx)),
             };
             out.push_str(&format!("{}<img class=\"vbr-image\" src={} />\n", pad, src));
@@ -644,8 +644,8 @@ fn render_rewritten(e: &Expr, ctx: &PageCtx) -> String {
 /// An HTML attribute value: a literal number as a plain quoted attribute
 /// (`min="0"`), anything else as a braced expression stringified.
 fn attr_value(e: &Expr, ctx: &PageCtx) -> String {
-    match e {
-        Expr::Int(n) => format!("\"{}\"", n),
+    match &e.kind {
+        ExprKind::Int(n) => format!("\"{}\"", n),
         _ => format!("{{({}).to_string()}}", render_rewritten(e, ctx)),
     }
 }
@@ -654,9 +654,9 @@ fn attr_value(e: &Expr, ctx: &PageCtx) -> String {
 /// as its `format!`, anything else stringified. State fields become `self.field`.
 fn text_content(e: &Expr, ctx: &PageCtx) -> String {
     let rewritten = rewrite_expr_with(e.clone(), "self", ctx.fields, ctx.enums);
-    match e {
-        Expr::Str(_) => render_expr(&rewritten, None),
-        Expr::Binary { op: BinOp::Concat, .. } => render_expr(&rewritten, None),
+    match &e.kind {
+        ExprKind::Str(_) => render_expr(&rewritten, None),
+        ExprKind::Binary { op: BinOp::Concat, .. } => render_expr(&rewritten, None),
         _ => format!("format!(\"{{}}\", {})", render_expr(&rewritten, None)),
     }
 }
@@ -714,7 +714,7 @@ pub fn page_style(program: &Program) -> Option<String> {
 pub fn page_assets(program: &Program) -> Vec<String> {
     fn walk(node: &ViewNode, out: &mut Vec<String>) {
         match node {
-            ViewNode::Image { path: Expr::Str(s) }
+            ViewNode::Image { path: Expr { kind: ExprKind::Str(s), .. } }
                 if !s.starts_with("http://") && !s.starts_with("https://") =>
             {
                 out.push(s.clone());
