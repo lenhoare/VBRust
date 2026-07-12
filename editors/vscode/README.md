@@ -10,20 +10,29 @@ Editor assistance for `.vbr` files, powered by the VBR compiler itself:
   diagnostics speak in. Constants and opaque `Rust …` handles explain
   themselves too.
 - **Go to definition** — F12 on a variable use jumps to its `Dim`.
+- **Completion** — type `.` after a variable and get the members of *its
+  type*: a `String` offers the real Rust methods (`trim`, `to_uppercase` — the
+  same names the generated code uses), a `Vec` offers `Push` and the iterator
+  adapters, a struct its fields and methods, an enum its variants, and a
+  stdlib namespace (`Http.`, `FileSystem.`…) its functions with VB-facing
+  signatures. In bare position: variables in scope, your functions, constants,
+  types, namespaces, keywords.
 - **Error recovery** — a half-typed line costs one error; everything below it
   is still analysed, so the rest of your diagnostics don't vanish while you
-  type mid-statement.
+  type mid-statement. (This is also what makes completion work: the line
+  you're typing on never parses, but the symbol table around it survives.)
 
-Not yet: completion (planned — needs receiver-type knowledge at the cursor),
-go-to-definition for functions and parameters.
+Not yet: go-to-definition for functions and parameters.
 
 ## Architecture
 
 - **`vbr-lsp`** (a Rust crate at the repo root) — the language server. It speaks
   the Language Server Protocol over stdio and reuses the `vbr` library as its
   compiler front-end. One `vbr::compile` gives it everything: structured
-  diagnostics with byte spans, a hover table (span → type display), and
-  go-to-definition pairs (use span → declaration span).
+  diagnostics with byte spans, a typed symbol table (hover + the receiver
+  types completion needs), and go-to-definition pairs. `vbr::complete::
+  completions_at(source, offset)` answers completion from that plus curated
+  member catalogues mirroring `vbr_stdlib`'s API.
 - **this extension** — a thin VS Code client that launches the server and tells
   it which files are VBR. All the real work is in the server.
 
@@ -50,4 +59,5 @@ go-to-definition for functions and parameters.
    - introduce a mistake — `Debug.Print 1 + ]` — to see the squiggle sit
      exactly on the `]`;
    - hover a variable to see its VB and Rust types;
-   - press F12 on a variable use to jump to its `Dim`.
+   - press F12 on a variable use to jump to its `Dim`;
+   - type `.` after a variable and watch the member list match its type.

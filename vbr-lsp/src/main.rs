@@ -35,6 +35,10 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![".".to_string()]),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -100,6 +104,29 @@ impl LanguageServer for Backend {
                 lsp_pos(&text, &index, span.end),
             )),
         }))
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let pos = params.text_document_position;
+        let Some(text) = self.doc(&pos.text_document.uri) else {
+            return Ok(None);
+        };
+        let Some(offset) = byte_offset(&text, pos.position) else {
+            return Ok(None);
+        };
+        let items: Vec<CompletionItem> = vbr::complete::completions_at(&text, offset)
+            .into_iter()
+            .map(|c| CompletionItem {
+                label: c.label,
+                detail: (!c.detail.is_empty()).then_some(c.detail),
+                kind: Some(completion_kind(c.kind)),
+                ..Default::default()
+            })
+            .collect();
+        if items.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(CompletionResponse::Array(items)))
     }
 
     async fn goto_definition(
@@ -184,6 +211,23 @@ fn compile_to_diagnostics(text: &str) -> Vec<Diagnostic> {
             }
         })
         .collect()
+}
+
+/// The LSP kind for a VBR completion — drives the icon in the list.
+fn completion_kind(kind: vbr::complete::CompletionKind) -> CompletionItemKind {
+    use vbr::complete::CompletionKind as K;
+    match kind {
+        K::Method => CompletionItemKind::METHOD,
+        K::Field => CompletionItemKind::FIELD,
+        K::Variable => CompletionItemKind::VARIABLE,
+        K::Function => CompletionItemKind::FUNCTION,
+        K::Constant => CompletionItemKind::CONSTANT,
+        K::Namespace => CompletionItemKind::MODULE,
+        K::EnumVariant => CompletionItemKind::ENUM_MEMBER,
+        K::Enum => CompletionItemKind::ENUM,
+        K::Struct => CompletionItemKind::STRUCT,
+        K::Keyword => CompletionItemKind::KEYWORD,
+    }
 }
 
 /// A byte offset as an LSP `Position` — 0-based line plus a UTF-16 column,

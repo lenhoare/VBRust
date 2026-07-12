@@ -704,3 +704,29 @@ impossible. Now the compiler knows *where* everything is.
 Deferred: completion (tier 3 — needs receiver types at the cursor), def for
 functions/params, span-carrying resolver diagnostics beyond hover (the
 `error_at` plumbing exists; adopt per-site as they come up).
+
+## Capability: LSP tier 3 — completion — BUILT (2026-07-12)
+
+`vbr::complete::completions_at(source, byte_offset)` — the compiler answers
+"what can follow the cursor?", and vbr-lsp serves it (trigger character `.`).
+
+- **Member context** (`x.`): the receiver's type comes from the resolver's
+  typed symbol table (`Compiled.symbols` — the hover channel upgraded to carry
+  `DeclType`), found token-wise so the half-typed line never needs to parse
+  (error recovery keeps the rest of the file analysed — the two features
+  compose). Catalogues: String/numeric/Vec/Map/Result/Option get the curated
+  *real Rust* method sets (the same names `method_vtype` understands);
+  DataFrame/DateTime/Json/Database/Process get instance methods mirroring
+  `vbr_stdlib`'s public API; stdlib namespaces get their functions with
+  VB-facing signature details; user structs get fields + methods; enums get
+  variants; `Debug.` gets `Print`.
+- **Bare context**: variables in scope (symbol occurrences after the enclosing
+  `Function`/`Sub`, dedup last-wins), program functions with signatures,
+  constants, enums, types, stdlib namespaces, statement keywords. Nothing
+  inside strings/comments/verbatim blocks.
+- Tests: `tests/completion.rs` (7 — each context, partial-word filtering,
+  string-literal suppression). Verified over a real stdio LSP session
+  (`df.` mid-keystroke → the 19 DataFrame members with details).
+
+Maintenance note: a new stdlib function needs a row in `src/complete.rs`'s
+catalogue (the crate `vbr_stdlib` is the ground truth to mirror).

@@ -1049,6 +1049,7 @@ fn record_hover(span: crate::span::Span, name: &str, ctx: &mut Ctx) {
             ctx.diags.def(span, decl);
         }
     }
+    let ty = ctx.binding(name).and_then(|b| b.ty.clone());
     let text = match ctx.binding(name) {
         Some(b) => match &b.ty {
             Some(ty) => {
@@ -1077,7 +1078,12 @@ fn record_hover(span: crate::span::Span, name: &str, ctx: &mut Ctx) {
         }
         None => return,
     };
-    ctx.diags.hover(span, text);
+    ctx.diags.symbol(crate::diagnostics::SymbolInfo {
+        span,
+        name: name.to_string(),
+        ty,
+        display: text,
+    });
 }
 
 /// Operators whose operands must be the same numeric type (so a width mismatch

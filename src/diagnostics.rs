@@ -5,6 +5,7 @@
 //!   ⚠ Warning — compiles, but you should know
 //!   ℹ Note    — a one-time teaching moment ("warn once, not repeatedly")
 
+use crate::ast::DeclType;
 use crate::span::Span;
 use std::collections::HashSet;
 
@@ -23,6 +24,18 @@ impl Level {
             Level::Note => 'ℹ',
         }
     }
+}
+
+/// One identifier occurrence the resolver understood: where it is, what it's
+/// called, its declared type (`None` for constants and opaque Rust handles),
+/// and the display line hover shows. Hover reads `display`; completion reads
+/// `ty` to answer "what are the members of the thing before this dot?".
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    pub span: Span,
+    pub name: String,
+    pub ty: Option<DeclType>,
+    pub display: String,
 }
 
 #[derive(Debug, Clone)]
@@ -55,10 +68,10 @@ pub struct Diagnostics {
     /// `.vbr` source. Lives here because the whole emission pipeline already
     /// threads `Diagnostics` through.
     line_map: Vec<(usize, usize)>,
-    /// What the resolver learned about each identifier use: (source span,
-    /// display text like `total As Long — Rust: i64`). The language server
-    /// answers hover from this. Rides here for the same reason as `line_map`.
-    hovers: Vec<(Span, String)>,
+    /// What the resolver learned about each identifier occurrence — hover
+    /// display, and the declared type completion needs to answer `x.`.
+    /// Rides here for the same reason as `line_map`.
+    symbols: Vec<SymbolInfo>,
     /// (use span, declaration span) pairs — go-to-definition jumps along these.
     defs: Vec<(Span, Span)>,
 }
@@ -187,14 +200,14 @@ impl Diagnostics {
         self.line_map.clear();
     }
 
-    /// Record what an identifier at `span` is, for editor hover.
-    pub fn hover(&mut self, span: Span, text: impl Into<String>) {
-        self.hovers.push((span, text.into()));
+    /// Record an identifier occurrence the resolver understood.
+    pub fn symbol(&mut self, info: SymbolInfo) {
+        self.symbols.push(info);
     }
 
-    /// Take the collected hover entries (leaves an empty list behind).
-    pub fn take_hovers(&mut self) -> Vec<(Span, String)> {
-        std::mem::take(&mut self.hovers)
+    /// Take the collected symbol entries (leaves an empty list behind).
+    pub fn take_symbols(&mut self) -> Vec<SymbolInfo> {
+        std::mem::take(&mut self.symbols)
     }
 
     /// Record that the name at `use_span` was declared at `decl_span`.

@@ -4,6 +4,7 @@
 //! (`src/main.rs`) and by the integration tests.
 
 pub mod ast;
+pub mod complete;
 pub mod diagnostics;
 pub mod gui;
 pub mod lexer;
@@ -56,6 +57,9 @@ pub struct Compiled {
     pub hovers: Vec<(span::Span, String)>,
     /// (use span, declaration span) pairs for identifiers — go-to-definition.
     pub defs: Vec<(span::Span, span::Span)>,
+    /// Every identifier occurrence the resolver understood, with its declared
+    /// type — what completion uses to answer `x.` (hovers derive from this).
+    pub symbols: Vec<diagnostics::SymbolInfo>,
 }
 
 /// One `Test` block's identity, bridging the VBR source and the generated
@@ -182,7 +186,8 @@ fn compile_with(
     }
     let stdlib_used = transpiler::stdlib_used(&diags);
     let line_map = diags.take_line_map();
-    let hovers = diags.take_hovers();
+    let symbols = diags.take_symbols();
+    let hovers = symbols.iter().map(|s| (s.span, s.display.clone())).collect();
     let defs = diags.take_defs();
     // Pair each `Test` block with its generated `#[test] fn` name (the same slug
     // the emitter used), so the runner can map a `cargo test` line to it.
@@ -211,6 +216,7 @@ fn compile_with(
         tests,
         hovers,
         defs,
+        symbols,
     }
 }
 
