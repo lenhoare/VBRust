@@ -320,3 +320,62 @@ fn vbr_test_runs_specs() {
     let _ = fs::remove_dir_all(&proj);
     eprintln!("✔ vbr test ran specs (single-file + .test.vbr, pass and fail)");
 }
+
+/// `vbr graduate` — the journey out. Copies the Life project (the hard case:
+/// its interface has ByRef grids and borrowed collections, so callers depend
+/// on VBR's argument treatment), graduates the module, proves the project
+/// still runs with `main.vbr` calling Rust, then graduates the entry and
+/// proves the handed-over cargo project runs on its own.
+#[test]
+#[ignore = "builds and runs graduated projects — run with `cargo test -- --ignored`"]
+fn vbr_graduate_promotes_generated_rust() {
+    use std::fs;
+    let vbr = env!("CARGO_BIN_EXE_vbr");
+    let src_proj = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/life_project");
+    let proj = std::env::temp_dir().join(format!("vbr_graduate_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&proj);
+    fs::create_dir_all(&proj).unwrap();
+    for f in ["main.vbr", "life.vbr"] {
+        fs::copy(src_proj.join(f), proj.join(f)).unwrap();
+    }
+
+    // The entry refuses to graduate while a module is still VBR.
+    let out = Command::new(vbr).arg("graduate").arg(proj.join("main.vbr")).output().unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("graduates last"),
+        "entry should refuse while life.vbr remains"
+    );
+
+    // Graduate the module: life.vbr → life.rs, retired original beside it.
+    let out = Command::new(vbr).arg("graduate").arg(proj.join("life.vbr")).output().unwrap();
+    let report = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "graduate life.vbr failed:\n{report}");
+    assert!(proj.join("life.rs").is_file(), "life.rs should exist");
+    assert!(proj.join("life.vbr.graduated").is_file(), "retired original should exist");
+    assert!(report.contains("project still builds"), "verification line missing:\n{report}");
+
+    // The project still runs, main.vbr now calling a Rust module — with the
+    // same output as ever (the checksum is the Life run's fingerprint).
+    let out = Command::new(vbr).arg("runproject").arg(&proj).output().unwrap();
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("checksum: 104"),
+        "graduated project should produce identical output"
+    );
+
+    // Graduate the entry: the journey completes, build/ runs on its own.
+    let out = Command::new(vbr).arg("graduate").arg(proj.join("main.vbr")).output().unwrap();
+    let report = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "graduate main.vbr failed:\n{report}");
+    assert!(report.contains("journey is complete"), "ceremony missing:\n{report}");
+    let out = Command::new("cargo")
+        .args(["run", "--quiet"])
+        .current_dir(proj.join("build"))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("checksum: 104"));
+
+    let _ = fs::remove_dir_all(&proj);
+}

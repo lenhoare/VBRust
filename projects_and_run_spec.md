@@ -212,6 +212,32 @@ never have to. The door stays wide open for everything else.
 - `build` — generate `build/` without running.
 - `emit` / `-o` — just write the `.rs` (no run).
 
+### `vbr graduate <file.vbr>` — the journey out — **BUILT 2026-07-12**
+
+VBR's end goal is that you stop needing it: the generated Rust *is* the
+curriculum, and graduation is the day one file of it becomes yours.
+
+- **What it does:** the module's generated `.rs` — *exactly* what `build/` has
+  been compiling all along; no rewriting, no AI, no drift — is written next to
+  the sources (with a short header), and the `.vbr` is retired to
+  `<name>.vbr.graduated`. From then on you maintain that file in Rust; the
+  remaining VBR modules keep calling it (a graduated module is just a verbatim
+  `.rs` module, which projects already support).
+- **The retired file works:** `life.vbr.graduated` beside `life.rs` supplies
+  the module's **VBR interface** at build time, so other `.vbr` modules keep
+  the full argument treatment (`ByRef` → `&mut`, collections borrow) when
+  calling it — the calls they generate are identical before and after
+  graduation. Keep it until the whole project graduates.
+- **Verified, not assumed:** graduation regenerates the project and runs
+  `cargo build` (`cargo test` when `.test.vbr` siblings exist). Failure rolls
+  everything back — the `.vbr` returns, the `.rs` is removed, nothing changed.
+- **The entry graduates last.** `vbr graduate main.vbr` refuses while any
+  module is still VBR; once they're all Rust it verifies, writes `main.rs`,
+  and hands over: `build/` is now a plain cargo project that compiles exactly
+  these files — `cd build && cargo run`, and VBR's part of the story is done.
+- **`.test.vbr` files don't graduate** — the `Test` blocks are the readable
+  spec, and they keep running against graduated modules via `vbr test`.
+
 ---
 
 ## Generated layout (runproject)

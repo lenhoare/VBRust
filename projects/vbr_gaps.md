@@ -730,3 +730,20 @@ functions/params, span-carrying resolver diagnostics beyond hover (the
 
 Maintenance note: a new stdlib function needs a row in `src/complete.rs`'s
 catalogue (the crate `vbr_stdlib` is the ground truth to mirror).
+
+## Capability: `vbr graduate` — the journey out — BUILT (2026-07-12)
+
+The soul feature: VBR is a language you graduate *from*. `vbr graduate
+<module.vbr>` promotes the module's generated Rust (the exact `build/src/*.rs`
+artifact — no rewriting, no drift) to source: written beside the sources with
+a header, `.vbr` retired to `.vbr.graduated`, project regenerated and
+`cargo build`/`cargo test`-verified, **rolled back on failure**. Remaining VBR
+modules keep calling it because the retired file supplies the module's VBR
+interface at build time (`generate_project` harvests `*.vbr.graduated` beside
+a matching `.rs`) — so callers' argument treatment (`ByRef` → `&mut`,
+collection borrows) generates identical code before and after. The entry
+graduates last (`main.vbr` refuses while modules remain) and hands `build/`
+over as a plain cargo project. `.test.vbr` files never graduate — the specs
+stay readable and keep running. Guard: `vbr_graduate_promotes_generated_rust`
+(full journey on the Life project — the hard ByRef-interface case — asserting
+identical output at every step). Spec: `projects_and_run_spec.md` §graduate.

@@ -28,6 +28,7 @@ fn main() {
         Some("test") => cmd_test(&args[1..]),
         Some("transpile") => cmd_transpile(&args[1..]),
         Some("emit") => cmd_emit(&args[1..]),
+        Some("graduate") => cmd_graduate(&args[1..]),
         _ => {
             usage();
             exit(2);
@@ -44,7 +45,10 @@ fn usage() {
          \tvbr build [path]        generate the cargo project without running (--web for the browser form)\n\
          \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
-         \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)"
+         \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)\n\
+         \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
+         \t                        The project keeps building; you maintain that file in Rust\n\
+         \t                        from now on. Graduate main.vbr last to finish the journey."
     );
 }
 
@@ -600,6 +604,194 @@ fn project_logs(build: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// `vbr graduate <file.vbr>` — replace a module with the Rust it generates.
+///
+/// VBR's end goal is that you stop needing it: the generated Rust *is* the
+/// curriculum, and graduation is the day one file of it becomes yours. The
+/// module's generated `.rs` — exactly what `build/` has been compiling all
+/// along, no rewriting, no drift — is placed next to the sources, the `.vbr`
+/// is retired to `.vbr.graduated`, and the project is rebuilt (tests and all)
+/// to prove nothing changed. From then on you maintain that file in Rust; the
+/// remaining VBR modules keep calling it. Graduate `main.vbr` last: that
+/// finishes the journey, and `build/` is a plain cargo project you own.
+fn cmd_graduate(args: &[String]) {
+    let Some(path_arg) = args.iter().find(|a| !a.starts_with("--")) else {
+        eprintln!("✘ Which file? `vbr graduate <file.vbr>`");
+        exit(2);
+    };
+    let path = PathBuf::from(path_arg);
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+    if path.extension().and_then(|e| e.to_str()) != Some("vbr") || !path.is_file() {
+        eprintln!("✘ {} is not a .vbr file.", path.display());
+        exit(1);
+    }
+    if file_name.ends_with(".test.vbr") {
+        eprintln!(
+            "✘ A `.test.vbr` module stays VBR — its Test blocks are the readable \
+             spec. Graduate the modules it tests instead."
+        );
+        exit(1);
+    }
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    let dir = if dir.as_os_str().is_empty() { PathBuf::from(".") } else { dir };
+    let stem = stem_name(&path);
+    let module = module_of(&path);
+    let main_vbr = dir.join("main.vbr");
+    // The entry graduates last: `main.vbr`, or a standalone file that is its
+    // own project of one.
+    let is_entry = file_name.eq_ignore_ascii_case("main.vbr") || !main_vbr.is_file();
+
+    // The other modules still written in VBR (tests don't count — they stay).
+    let mut vbr_siblings: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            if p.extension().and_then(|x| x.to_str()) == Some("vbr")
+                && name != file_name
+                && !name.ends_with(".test.vbr")
+            {
+                vbr_siblings.push(name);
+            }
+        }
+    }
+    if is_entry && !vbr_siblings.is_empty() {
+        vbr_siblings.sort();
+        eprintln!(
+            "✘ The entry graduates last — these modules are still VBR:\n      {}\n  \
+             Graduate them first, then come back for {}.",
+            vbr_siblings.join(", "),
+            file_name
+        );
+        exit(1);
+    }
+    let target = dir.join(format!("{}.rs", stem));
+    if target.exists() {
+        eprintln!(
+            "✘ {} already exists — is this module already graduated?",
+            target.display()
+        );
+        exit(1);
+    }
+    let has_tests = fs::read_dir(&dir).ok().is_some_and(|entries| {
+        entries.flatten().any(|e| {
+            e.file_name().to_str().is_some_and(|n| n.ends_with(".test.vbr"))
+        })
+    });
+
+    // The graduated content is the build artifact itself: generate the project
+    // (which also proves everything still transpiles) and lift the file out.
+    let entry = if is_entry { path.clone() } else { main_vbr.clone() };
+    let (build, _) = generate_project(&entry, false, true);
+    let built_file = if is_entry {
+        build.join("src/main.rs")
+    } else {
+        build.join(format!("src/{}.rs", module))
+    };
+    let rust = match fs::read_to_string(&built_file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("✘ Could not read {}: {}", built_file.display(), e);
+            exit(1);
+        }
+    };
+    let graduated = format!(
+        "// Graduated from {} — this is the Rust your VBR became, now yours to keep.\n\
+         // (The retired original beside it tells the build how VBR callers pass\n\
+         // arguments here; it stops mattering once the whole project is Rust.)\n\n{}",
+        file_name, rust
+    );
+
+    if is_entry {
+        // The final step: verify the build as-is (nothing changes underneath
+        // it), then hand the keys over.
+        if !cargo_passes(&build, has_tests) {
+            exit(1);
+        }
+        write_or_die(&target, &graduated);
+        retire(&path);
+        eprintln!("🎓 {} → {} — the last module. The journey is complete.", file_name, target.display());
+        eprintln!(
+            "   Every module is Rust now; nothing here needs VBR any more. The cargo\n   \
+             project in build/ compiles exactly these files — it's yours:\n       \
+             cd {} && cargo run",
+            build.display()
+        );
+        return;
+    }
+
+    // A sibling module: promote, then prove the project still builds with the
+    // graduated file compiled verbatim (and its tests still passing). The one
+    // honest risk is a caller that leaned on VBR's argument sugar toward this
+    // module — cargo is the ground truth, and failure rolls everything back.
+    write_or_die(&target, &graduated);
+    retire(&path);
+    let (build, _) = generate_project(&main_vbr, false, true);
+    if !cargo_passes(&build, has_tests) {
+        // Roll back: restore the .vbr, remove the .rs.
+        let _ = fs::rename(dir.join(format!("{}.graduated", file_name)), &path);
+        let _ = fs::remove_file(&target);
+        eprintln!(
+            "✘ Graduation rolled back — nothing changed. (Most likely another module \
+             relies on VBR's argument treatment when calling this one; the errors \
+             above show where.)"
+        );
+        exit(1);
+    }
+    eprintln!("🎓 {} → {}", file_name, target.display());
+    eprintln!(
+        "   The Rust it generated is now the source you keep — the other modules\n   \
+         still call it; nothing changed but ownership. The original stays beside\n   \
+         it as {}.graduated: it teaches the build how VBR callers pass\n   \
+         arguments to this module, so keep it until the whole project graduates.",
+        file_name
+    );
+    eprintln!("   ✓ project still builds");
+    if has_tests {
+        eprintln!("   ✓ tests still pass");
+    }
+}
+
+/// Run `cargo build` (or `cargo test`, which builds and runs the specs) in the
+/// generated project; on failure print the tail of the errors.
+fn cargo_passes(build: &Path, run_tests: bool) -> bool {
+    let out = Command::new("cargo")
+        .args(if run_tests { ["test", "--quiet"] } else { ["build", "--quiet"] })
+        .current_dir(build)
+        .output();
+    match out {
+        Ok(o) if o.status.success() => true,
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            for line in err.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
+                eprintln!("  {}", line);
+            }
+            false
+        }
+        Err(e) => {
+            eprintln!("✘ Could not run cargo: {}", e);
+            false
+        }
+    }
+}
+
+fn write_or_die(path: &Path, contents: &str) {
+    if let Err(e) = fs::write(path, contents) {
+        eprintln!("✘ Could not write {}: {}", path.display(), e);
+        exit(1);
+    }
+}
+
+/// Retire a graduated `.vbr` — rename it to `.vbr.graduated` so the project
+/// scanner no longer sees it, but nothing is lost until you delete it.
+fn retire(path: &Path) {
+    let retired = PathBuf::from(format!("{}.graduated", path.display()));
+    if let Err(e) = fs::rename(path, &retired) {
+        eprintln!("✘ Could not rename {}: {}", path.display(), e);
+        exit(1);
+    }
+}
+
 /// Resolve a path argument to the entry `.vbr` file.
 fn resolve_entry(arg: &str) -> Option<PathBuf> {
     let p = PathBuf::from(arg);
@@ -648,6 +840,7 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     let mut vbr_files: Vec<PathBuf> = Vec::new();
     let mut rs_files: Vec<PathBuf> = Vec::new();
     let mut test_files: Vec<PathBuf> = Vec::new();
+    let mut graduated_files: Vec<PathBuf> = Vec::new();
     if is_project {
         if let Ok(entries) = fs::read_dir(project_dir) {
             for e in entries.flatten() {
@@ -655,7 +848,12 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
                 if p.canonicalize().ok() == entry_canon {
                     continue;
                 }
-                let is_test = p.file_name().and_then(|s| s.to_str()).is_some_and(|n| n.ends_with(".test.vbr"));
+                let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                let is_test = name.ends_with(".test.vbr");
+                if name.ends_with(".vbr.graduated") {
+                    graduated_files.push(p);
+                    continue;
+                }
                 match p.extension().and_then(|s| s.to_str()) {
                     Some("vbr") if is_test => test_files.push(p),
                     Some("vbr") => vbr_files.push(p),
@@ -686,6 +884,26 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     for (file, name) in vbr_files.iter().zip(&vbr_names) {
         if let Ok(source) = fs::read_to_string(file) {
             interfaces.insert(name.clone(), vbr::module_interface(&source));
+        }
+    }
+    // A graduated module (`life.rs` beside `life.vbr.graduated`) keeps its VBR
+    // interface: the retired file records how VBR callers treat its arguments
+    // (`ByRef` → `&mut`, collections borrow), so the calls other modules
+    // generate don't change on graduation day. It stops mattering — and can be
+    // deleted — once nothing in VBR calls the module (or you've adjusted the
+    // callers by hand).
+    for p in &graduated_files {
+        let stem = p
+            .file_name()
+            .and_then(|s| s.to_str())
+            .and_then(|n| n.strip_suffix(".vbr.graduated"))
+            .unwrap_or("")
+            .to_string();
+        let name = vbr::module_name(&stem);
+        if rs_names.contains(&name) && !interfaces.contains_key(&name) {
+            if let Ok(source) = fs::read_to_string(p) {
+                interfaces.insert(name, vbr::module_interface(&source));
+            }
         }
     }
 
