@@ -419,6 +419,7 @@ body.designer-mode #designer {
   border-radius: 4px;
   padding: 8px;
   margin: 4px 0;
+  min-height: 34px;
   display: flex;
   gap: 6px;
 }
@@ -428,6 +429,17 @@ body.designer-mode #designer {
 .dnode.container.row {
   flex-direction: row;
   flex-wrap: wrap;
+  align-items: flex-start;
+}
+/* A Row tints slightly so its across-ness reads at a glance. */
+.dnode.container.row {
+  background: rgba(80, 140, 200, 0.07);
+}
+.empty-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.45;
 }
 .dnode-tag {
   font-size: 10px;

@@ -142,6 +142,13 @@ function widgetEl(node: DNode): HTMLElement {
     tag.style.flexBasis = "100%";
     el.appendChild(tag);
     for (const c of node.children) el.appendChild(widgetEl(c));
+    if (node.children.length === 0) {
+      const hint = document.createElement("div");
+      hint.className = "empty-hint";
+      const arrow = node.kind === "Row" ? "lays controls across →" : "stacks controls ↓";
+      hint.textContent = `empty ${node.kind} — select it, then add controls (${arrow})`;
+      el.appendChild(hint);
+    }
   } else {
     const w = document.createElement("div");
     w.className = "dwidget";
