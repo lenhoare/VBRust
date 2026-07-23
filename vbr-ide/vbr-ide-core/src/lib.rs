@@ -13,6 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod design;
+pub use design::{design_to_vbr, Node, NodeProps};
+
 /// A Monaco-ready range: 1-based lines and columns, columns measured in UTF-16
 /// code units (what Monaco and the LSP speak). Serialised with the exact field
 /// names Monaco's `IMarkerData` expects, so the frontend can use it directly.

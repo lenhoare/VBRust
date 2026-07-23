@@ -6,8 +6,8 @@
 
 use std::path::{Path, PathBuf};
 use vbr_ide_core::{
-    complete, definition, graduate, hover, read_file, read_project, run, run_project, test_project,
-    transpile, CompletionItem, Project, Range, RunOutput, TranspileResult,
+    complete, definition, design_to_vbr, graduate, hover, read_file, read_project, run, run_project,
+    test_project, transpile, CompletionItem, Node, Project, Range, RunOutput, TranspileResult,
 };
 
 /// A file the user opened: its path (so Save can write back to it) and text.
@@ -165,6 +165,12 @@ async fn run_project_at(root: String) -> RunOutput {
         })
 }
 
+/// Generate VBR `View` code from a form-designer widget tree.
+#[tauri::command]
+fn generate_design(tree: Node) -> String {
+    design_to_vbr(&tree)
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -180,7 +186,8 @@ fn main() {
             read_project_at,
             run_project_at,
             graduate_at,
-            test_at
+            test_at,
+            generate_design
         ])
         .run(tauri::generate_context!())
         .expect("error while running the VBR IDE");

@@ -3,6 +3,7 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { invoke } from "@tauri-apps/api/core";
 import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
+import { setupDesigner } from "./designer";
 
 // Monaco needs a worker for the editor itself; VBR and Rust are both
 // Monarch-tokenised on the main thread here, so the base editor worker is all
@@ -615,5 +616,14 @@ themeBtn.addEventListener("click", () => {
   applyTheme(!document.body.classList.contains("light"));
 });
 applyTheme(localStorage.getItem(THEME_KEY) === "light");
+
+// --- Form designer ---------------------------------------------------------
+
+setupDesigner(editor);
+const designerToggle = document.getElementById("designer-toggle") as HTMLButtonElement;
+designerToggle.addEventListener("click", () => {
+  const on = document.body.classList.toggle("designer-mode");
+  designerToggle.classList.toggle("primary", on);
+});
 
 refresh();

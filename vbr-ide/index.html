@@ -23,6 +23,7 @@
         <button id="test" class="btn" title="Run the project's tests (vbr test)" disabled>Test</button>
         <button id="graduate" class="btn" title="Promote this module's Rust to source (vbr graduate)" disabled>Graduate</button>
         <button id="run" class="btn primary" title="Run (Ctrl+Enter)">▶ Run</button>
+        <button id="designer-toggle" class="btn" title="Toggle the form designer">Designer</button>
         <button id="theme" class="btn" title="Toggle light / dark">◐</button>
         <button id="help" class="btn" title="Keyboard shortcuts (?)">?</button>
       </header>
@@ -53,6 +54,28 @@
           <pre id="console"></pre>
         </div>
       </footer>
+      <div id="designer">
+        <aside id="palette">
+          <div class="pane-label">Controls</div>
+          <div id="palette-items"></div>
+          <div class="pane-label">Properties</div>
+          <div id="props"></div>
+        </aside>
+        <div id="surface-wrap">
+          <div class="pane-label">
+            Form
+            <button id="del-node" class="btn small" title="Delete the selected control">Delete</button>
+          </div>
+          <div id="surface"></div>
+        </div>
+        <div id="design-code-wrap">
+          <div class="pane-label">
+            Generated VBR
+            <button id="insert-design" class="btn small" title="Append to the editor">Insert into editor →</button>
+          </div>
+          <pre id="design-code"></pre>
+        </div>
+      </div>
       <div id="statusbar">
         <span id="status-file">untitled</span>
         <span id="status-pos">Ln 1, Col 1</span>

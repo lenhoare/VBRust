@@ -30,6 +30,12 @@ is exactly what the CLI would produce.
 - **Graduate & Test** — for an open project, **Test** runs `vbr test`, and
   **Graduate** promotes the selected module's generated Rust to source
   (`vbr graduate`) and refreshes the tree. Both stream output to the console.
+- **Form designer** — the **Designer** button opens a visual builder: drop
+  controls into `Column`/`Row` layouts, set their properties, and watch clean
+  VBR `View` code appear on the right, one-way (design → code). *Insert into
+  editor* drops it into your `Window` file. The palette is the genuinely
+  GUI-valid widget set (charts/lists are Screen-only; a Window charts on a
+  Canvas). Codegen lives in `vbr-ide-core::design` and is unit-tested.
 - **Comfort** — light/dark theme toggle, `Ctrl`-scroll zoom, a built-in example
   picker (loaded straight from the repo's `examples/`), a `?` shortcuts overlay.
 
