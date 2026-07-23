@@ -1,2 +1,2 @@
-⚠ [line 2] Function 'Risky' is 'risky' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VBR names are their lowercase self in Rust — e.g. `Risky` becomes `risky`. (Functions and variables lowercase, constants uppercase; shown once.)
 ✘ This Result is being thrown away. Handle it: `?` to propagate, `Match` over Ok/Err (or Some/None), or assign it with `Dim`.

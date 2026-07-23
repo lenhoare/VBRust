@@ -1,2 +1,2 @@
-⚠ [line 2] Function 'Bump' is 'bump' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VBR names are their lowercase self in Rust — e.g. `Bump` becomes `bump`. (Functions and variables lowercase, constants uppercase; shown once.)
 ✘ A ByRef parameter must be given a variable (so it can be borrowed and changed in place), not a literal or an expression.

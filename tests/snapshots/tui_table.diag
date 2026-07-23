@@ -1,1 +1,1 @@
-⚠ [line 35] Function 'Roster' is 'roster' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VBR names are their lowercase self in Rust — e.g. `Roster` becomes `roster`. (Functions and variables lowercase, constants uppercase; shown once.)

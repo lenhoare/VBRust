@@ -318,13 +318,46 @@ pub fn read_project(root: &Path) -> Project {
     }
 }
 
-/// Locate the `vbr` binary: an explicit `VBR_BIN`, else rely on `PATH`.
+/// Locate the `vbr` binary: an explicit `VBR_BIN`, then a built `vbr` near the
+/// working dir / executable (the IDE runs from `vbr-ide/`, so the repo's
+/// `target/` is one level up), and finally `PATH`.
 fn vbr_binary() -> PathBuf {
-    std::env::var("VBR_BIN")
+    if let Some(p) = std::env::var("VBR_BIN")
         .ok()
         .map(PathBuf::from)
         .filter(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from("vbr"))
+    {
+        return p;
+    }
+
+    let exe = format!("vbr{}", std::env::consts::EXE_SUFFIX);
+    let rels = [
+        format!("target/release/{exe}"),
+        format!("target/debug/{exe}"),
+        format!("../target/release/{exe}"),
+        format!("../target/debug/{exe}"),
+        format!("../../target/release/{exe}"),
+        format!("../../target/debug/{exe}"),
+    ];
+    let mut bases: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        bases.push(cwd);
+    }
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            bases.push(dir.to_path_buf());
+        }
+    }
+    for base in &bases {
+        for rel in &rels {
+            let cand = base.join(rel);
+            if cand.is_file() {
+                return cand;
+            }
+        }
+    }
+
+    PathBuf::from("vbr") // last resort: PATH
 }
 
 /// Run a `vbr <subcommand> <target>` and capture its output. Shared by the

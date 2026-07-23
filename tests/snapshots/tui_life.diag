@@ -1,2 +1,1 @@
-⚠ [line 8] Function 'SeedGrid' is 'seedgrid' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
-⚠ [line 12] Function 'CountLive' is 'countlive' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VBR names are their lowercase self in Rust — e.g. `SeedGrid` becomes `seedgrid`. (Functions and variables lowercase, constants uppercase; shown once.)

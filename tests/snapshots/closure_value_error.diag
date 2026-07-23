@@ -1,2 +1,2 @@
-⚠ [line 3] Function 'Apply' is 'apply' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VBR names are their lowercase self in Rust — e.g. `Apply` becomes `apply`. (Functions and variables lowercase, constants uppercase; shown once.)
 ✘ A closure (`|x| …`) can't be stored in a variable or passed to a function — its type has no name you (or VBR) could write. Use it directly as a method argument (`v.filter(|x| x > 2)`), or give the logic a name with a `Function`.

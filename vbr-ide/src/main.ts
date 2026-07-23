@@ -154,8 +154,6 @@ monaco.languages.registerDefinitionProvider(VBR_LANGUAGE_ID, {
 // Start blank each launch (not the last-open file). SAMPLE is available via the
 // examples picker instead.
 void SAMPLE;
-let editorDirty = false;
-let suppressDirty = false;
 
 const editor = monaco.editor.create(document.getElementById("editor")!, {
   value: "",
@@ -182,13 +180,145 @@ const rustView = monaco.editor.create(document.getElementById("rust")!, {
 
 const diagnosticsEl = document.getElementById("diagnostics")!;
 
+// --- Tabs (one Monaco model per open file) ---------------------------------
+
+interface Tab {
+  id: number;
+  path: string | null; // null = an untitled scratch buffer
+  model: monaco.editor.ITextModel;
+  dirty: boolean;
+  isProjectFile: boolean;
+}
+const tabs: Tab[] = [];
+let activeId = -1;
+let tabSeq = 1;
+const tabbarEl = document.getElementById("tabbar")!;
+
+function activeTab(): Tab | undefined {
+  return tabs.find((t) => t.id === activeId);
+}
+function basename(p: string): string {
+  return p.split(/[/\\]/).pop() ?? p;
+}
+function langForPath(path: string | null): string {
+  if (!path) return VBR_LANGUAGE_ID;
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    vbr: VBR_LANGUAGE_ID, rs: "rust", toml: "ini", json: "json", md: "markdown",
+    yaml: "yaml", yml: "yaml", html: "html", css: "css", js: "javascript",
+    ts: "typescript", py: "python", xml: "xml", sh: "shell", ini: "ini", cfg: "ini",
+  };
+  return map[ext] ?? "plaintext";
+}
+// An untitled buffer or a .vbr file gets the Rust pane; anything else blanks it.
+function isVbrTab(t: Tab | undefined): boolean {
+  return !!t && (t.path === null || t.path.toLowerCase().endsWith(".vbr"));
+}
+
+function makeTab(path: string | null, content: string, isProjectFile: boolean): Tab {
+  const model = monaco.editor.createModel(content, langForPath(path));
+  const tab: Tab = { id: tabSeq++, path, model, dirty: false, isProjectFile };
+  model.onDidChangeContent(() => {
+    if (!tab.dirty) {
+      tab.dirty = true;
+      renderTabs();
+      if (tab.id === activeId) updateFilename();
+    }
+  });
+  tabs.push(tab);
+  return tab;
+}
+
+function activateTab(id: number): void {
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab) return;
+  activeId = id;
+  editor.setModel(tab.model);
+  currentPath = tab.path;
+  isProject = tab.isProjectFile;
+  renderTabs();
+  updateFilename();
+  updateProjectButtons();
+  void refresh();
+}
+
+// Open a file in a tab: reuse an existing tab for the same path, else make one.
+function openTab(path: string | null, content: string, isProjectFile = false): void {
+  if (path) {
+    const existing = tabs.find((t) => t.path === path);
+    if (existing) {
+      activateTab(existing.id);
+      return;
+    }
+  }
+  activateTab(makeTab(path, content, isProjectFile).id);
+}
+
+function closeTab(id: number): void {
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab) return;
+  if (
+    tab.dirty &&
+    !window.confirm(`${tab.path ? basename(tab.path) : "untitled"} has unsaved changes. Close without saving?`)
+  ) {
+    return;
+  }
+  const idx = tabs.indexOf(tab);
+  tabs.splice(idx, 1);
+  tab.model.dispose();
+  if (tabs.length === 0) {
+    openTab(null, ""); // always keep at least one tab
+    return;
+  }
+  if (activeId === id) activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+  else renderTabs();
+}
+
+function renderTabs(): void {
+  tabbarEl.innerHTML = "";
+  for (const tab of tabs) {
+    const el = document.createElement("div");
+    el.className = "tab" + (tab.id === activeId ? " active" : "");
+    const name = document.createElement("span");
+    name.textContent = tab.path ? basename(tab.path) : "untitled";
+    el.appendChild(name);
+    if (tab.dirty) {
+      const dot = document.createElement("span");
+      dot.className = "tab-dot";
+      dot.textContent = "●";
+      el.appendChild(dot);
+    }
+    const close = document.createElement("span");
+    close.className = "tab-close";
+    close.textContent = "×";
+    close.title = "Close";
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeTab(tab.id);
+    });
+    el.appendChild(close);
+    el.addEventListener("click", () => activateTab(tab.id));
+    tabbarEl.appendChild(el);
+  }
+}
+
 async function refresh(): Promise<void> {
+  // Non-VBR files keep the split but blank the Rust view.
+  if (!isVbrTab(activeTab())) {
+    rustView.setValue("");
+    const m = editor.getModel();
+    if (m) monaco.editor.setModelMarkers(m, "vbr", []);
+    const path = activeTab()?.path;
+    diagnosticsEl.innerHTML = `<span class="ok">— ${path ? escapeHtml(basename(path)) : "file"} is not a VBR file —</span>`;
+    statusProblems.textContent = "";
+    statusTiming.textContent = "";
+    return;
+  }
   const source = editor.getValue();
   try {
     const t0 = performance.now();
     const result = await invoke<TranspileResult>("transpile_source", { source });
     const ms = Math.max(1, Math.round(performance.now() - t0));
-    // Preserve the reader's scroll position when only the text changed.
     rustView.setValue(result.rust);
     renderDiagnostics(result.diagnostics);
     setMarkers(result.diagnostics);
@@ -292,7 +422,6 @@ function escapeHtml(s: string): string {
 // The compiler is fast, but there's no need to run it on every keystroke.
 let timer: number | undefined;
 editor.onDidChangeModelContent(() => {
-  if (!suppressDirty) setDirty(true);
   window.clearTimeout(timer);
   timer = window.setTimeout(refresh, 150);
 });
@@ -319,11 +448,8 @@ const exampleSelect = document.getElementById("examples") as HTMLSelectElement;
 exampleSelect.addEventListener("change", () => {
   const ex = EXAMPLES[Number(exampleSelect.value)];
   exampleSelect.value = ""; // reset to the "Load example…" placeholder
-  if (!ex || !confirmDiscard()) return;
-  currentPath = null;
-  isProject = false; // an example is a scratch buffer
-  loadContent(ex.source);
-  updateProjectButtons();
+  if (!ex) return;
+  openTab(null, ex.source); // a new untitled scratch tab
   editor.focus();
 });
 
@@ -333,6 +459,25 @@ const runBtn = document.getElementById("run") as HTMLButtonElement;
 const consoleEl = document.getElementById("console")!;
 
 async function runProgram(): Promise<void> {
+  // Nothing to run for a lone non-VBR file (a config file, say).
+  if (!isProject && !isVbrTab(activeTab())) {
+    consoleEl.className = "err";
+    consoleEl.textContent = "This isn't a VBR file — nothing to run.";
+    return;
+  }
+  // A project runs from the files on disk, so offer to save unsaved tabs first.
+  if (isProject && projectRoot) {
+    const dirty = tabs.filter((t) => t.dirty && t.path);
+    if (
+      dirty.length > 0 &&
+      window.confirm(
+        `${dirty.length} open file(s) have unsaved changes. The project runs from the ` +
+          `saved files — save them first?`,
+      )
+    ) {
+      for (const t of dirty) await saveTab(t, false);
+    }
+  }
   runBtn.disabled = true;
   runBtn.textContent = "▶ Running…";
   consoleEl.className = "";
@@ -396,49 +541,44 @@ const openBtn = document.getElementById("open-file") as HTMLButtonElement;
 const saveBtn = document.getElementById("save-file") as HTMLButtonElement;
 const saveAsBtn = document.getElementById("saveas-file") as HTMLButtonElement;
 
-function setDirty(d: boolean): void {
-  editorDirty = d;
-  updateFilename();
-}
-
 function updateFilename(): void {
-  const name = currentPath ? currentPath.split(/[/\\]/).pop()! : "untitled";
-  const mark = editorDirty ? "● " : "";
+  const tab = activeTab();
+  const name = tab?.path ? basename(tab.path) : "untitled";
+  const mark = tab?.dirty ? "● " : "";
   statusFile.textContent = mark + name;
   document.title = `${mark}${name} — VBR IDE`;
 }
 
-// Replace the editor content as a *load*, not an edit — so it isn't marked dirty.
-function loadContent(text: string): void {
-  suppressDirty = true;
-  editor.setValue(text);
-  suppressDirty = false;
-  setDirty(false);
-}
-
-function confirmDiscard(): boolean {
-  return !editorDirty || window.confirm("Discard unsaved changes to the current file?");
+async function saveTab(tab: Tab, forceDialog: boolean): Promise<boolean> {
+  const path = await invoke<string | null>("save_file", {
+    path: forceDialog ? null : tab.path,
+    content: tab.model.getValue(),
+    suggested: tab.path ? basename(tab.path) : "untitled.vbr",
+  });
+  if (!path) return false;
+  if (tab.path !== path) {
+    tab.path = path;
+    monaco.editor.setModelLanguage(tab.model, langForPath(path));
+  }
+  tab.dirty = false;
+  if (tab.id === activeId) {
+    currentPath = path;
+    void refresh(); // the extension may have changed VBR-ness
+  }
+  renderTabs();
+  updateFilename();
+  return true;
 }
 
 async function openFile(): Promise<void> {
-  if (!confirmDiscard()) return;
   const res = await invoke<OpenedFile | null>("open_file");
-  if (res) {
-    currentPath = res.path;
-    isProject = false;
-    loadContent(res.content);
-    updateProjectButtons();
-  }
+  if (res) openTab(res.path, res.content, false);
 }
 
 async function saveFile(forceDialog: boolean): Promise<void> {
-  const path = await invoke<string | null>("save_file", {
-    path: forceDialog ? null : currentPath,
-    content: editor.getValue(),
-  });
-  if (path) {
-    currentPath = path;
-    setDirty(false);
+  const tab = activeTab();
+  if (!tab) return;
+  if (await saveTab(tab, forceDialog)) {
     const original = saveBtn.textContent;
     saveBtn.textContent = "Saved ✓";
     window.setTimeout(() => (saveBtn.textContent = original), 1000);
@@ -446,12 +586,7 @@ async function saveFile(forceDialog: boolean): Promise<void> {
 }
 
 function newFile(): void {
-  if (!confirmDiscard()) return;
-  currentPath = null;
-  isProject = false; // scratch buffer → single-file Run
-  loadContent("");
-  updateProjectButtons();
-  editor.focus();
+  openTab(null, "");
 }
 
 newBtn.addEventListener("click", newFile);
@@ -463,7 +598,9 @@ editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile(fa
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveFile(true));
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, openFile);
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, newFile);
-updateFilename();
+editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => {
+  if (activeId >= 0) closeTab(activeId);
+});
 
 // --- Project / file tree ---------------------------------------------------
 
@@ -476,14 +613,11 @@ const filetree = document.getElementById("filetree")!;
 const openFolderBtn = document.getElementById("open-folder") as HTMLButtonElement;
 
 async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
-  if (!confirmDiscard()) return;
   const content = await invoke<string>("read_file_at", { path });
-  currentPath = path;
-  isProject = projectIsVbr; // editing a project file → Run builds the project
-  loadContent(content);
+  // A file inside a VBR project counts as a project file (Run builds the project).
+  openTab(path, content, projectIsVbr && path.toLowerCase().endsWith(".vbr"));
   filetree.querySelectorAll(".tree-item.active").forEach((n) => n.classList.remove("active"));
   el.classList.add("active");
-  updateProjectButtons();
 }
 
 function renderTree(entries: FileEntry[]): void {
@@ -508,10 +642,6 @@ function renderTree(entries: FileEntry[]): void {
         row.textContent = entry.name;
         row.dataset.path = entry.path;
         row.addEventListener("click", () => openTreeFile(entry.path, row));
-        row.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          showFileMenu(e, entry.path);
-        });
         parent.appendChild(row);
       }
     }
@@ -519,38 +649,78 @@ function renderTree(entries: FileEntry[]): void {
   build(entries, 0, filetree);
 }
 
-function closeFileMenu(): void {
+function closeMenu(): void {
   document.querySelectorAll(".context-menu").forEach((m) => m.remove());
 }
 
-function showFileMenu(e: MouseEvent, path: string): void {
-  closeFileMenu();
+interface MenuItem {
+  label: string;
+  danger?: boolean;
+  action: () => void;
+}
+
+function showMenu(e: MouseEvent, items: MenuItem[]): void {
+  closeMenu();
   const menu = document.createElement("div");
   menu.className = "context-menu";
   menu.style.left = `${e.clientX}px`;
   menu.style.top = `${e.clientY}px`;
-  const del = document.createElement("div");
-  del.className = "context-item danger";
-  del.textContent = "Delete file";
-  del.addEventListener("click", async () => {
-    closeFileMenu();
-    const name = path.split(/[/\\]/).pop();
-    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
-    try {
-      await invoke("delete_file", { path });
-      if (currentPath === path) {
-        currentPath = null;
-        loadContent("");
-      }
-      await refreshTree();
-    } catch (err) {
-      window.alert(String(err));
-    }
-  });
-  menu.appendChild(del);
+  for (const it of items) {
+    const el = document.createElement("div");
+    el.className = "context-item" + (it.danger ? " danger" : "");
+    el.textContent = it.label;
+    el.addEventListener("click", () => {
+      closeMenu();
+      it.action();
+    });
+    menu.appendChild(el);
+  }
   document.body.appendChild(menu);
 }
-window.addEventListener("click", closeFileMenu);
+
+async function deleteFile(path: string): Promise<void> {
+  const name = path.split(/[/\\]/).pop();
+  if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+  try {
+    await invoke("delete_file", { path });
+    const open = tabs.find((t) => t.path === path);
+    if (open) {
+      open.dirty = false; // it's gone — don't prompt to save
+      closeTab(open.id);
+    }
+    await refreshTree();
+  } catch (err) {
+    window.alert(String(err));
+  }
+}
+
+// One context-menu policy: kill the default webview menu (its Reload wiped the
+// whole session) and offer a sensible action only where one makes sense.
+document.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  const t = e.target as HTMLElement;
+  const fileRow = t.closest?.(".tree-item[data-path]") as HTMLElement | null;
+  if (fileRow?.dataset.path) {
+    const path = fileRow.dataset.path;
+    showMenu(e, [{ label: "Delete file", danger: true, action: () => deleteFile(path) }]);
+    return;
+  }
+  const diag = t.closest?.(".diag") as HTMLElement | null;
+  if (diag) {
+    showMenu(e, [
+      { label: "Copy message", action: () => navigator.clipboard.writeText(diag.textContent ?? "") },
+    ]);
+    return;
+  }
+  if (t.closest?.("#console")) {
+    showMenu(e, [
+      { label: "Copy output as text", action: () => navigator.clipboard.writeText(consoleEl.textContent ?? "") },
+    ]);
+    return;
+  }
+  // Anywhere else (empty folder area, pane labels…): no menu.
+});
+window.addEventListener("click", closeMenu);
 
 async function openFolder(): Promise<void> {
   const proj = await invoke<Project | null>("open_folder");
@@ -785,8 +955,8 @@ async function createForm(tree: unknown, target: string): Promise<void> {
     });
     await refreshTree();
     document.body.classList.remove("designer-mode");
-    const el = filetree.querySelector(`[data-path="${CSS.escape(created.path)}"]`) as HTMLElement | null;
-    if (el) openTreeFile(created.path, el);
+    const content = await invoke<string>("read_file_at", { path: created.path });
+    openTab(created.path, content, projectIsVbr);
   } catch (e) {
     window.alert(String(e));
   }
@@ -813,4 +983,7 @@ exitDesignerBtn.addEventListener("click", () => {
   document.body.classList.remove("designer-mode");
 });
 
-refresh();
+// Open the first (blank) tab, disposing the editor's auto-created empty model.
+const autoModel = editor.getModel();
+openTab(null, "");
+if (autoModel && autoModel !== activeTab()?.model) autoModel.dispose();

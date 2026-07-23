@@ -1,2 +1,1 @@
-⚠ [line 42] Function 'LeftItems' is 'leftitems' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
-⚠ [line 50] Function 'RightItems' is 'rightitems' on the Rust side — one rule: a VBR name is its lowercase self in Rust.
+ℹ VBR names are their lowercase self in Rust — e.g. `LeftItems` becomes `leftitems`. (Functions and variables lowercase, constants uppercase; shown once.)

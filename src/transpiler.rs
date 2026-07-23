@@ -437,10 +437,11 @@ fn mentions_word(text: &str, word: &str) -> bool {
 pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics) {
     let name = to_screaming(&c.name);
     if name != c.name {
-        diags.warn(
-            c.line,
+        diags.note(
+            "name-case",
             format!(
-                "Constant '{}' is '{}' on the Rust side — constants are uppercased.",
+                "VBR names change case in Rust — the constant `{}` becomes `{}`. \
+                 (Functions and variables lowercase, constants uppercase; shown once.)",
                 c.name, name
             ),
         );
@@ -2660,15 +2661,16 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
     }
     let lowered = rust_name(name);
     if lowered != name {
-        diags.warn(
-            line,
+        diags.note(
+            "name-case",
             format!(
-                "Function '{}' is '{}' on the Rust side — one rule: a VBR name is \
-                 its lowercase self in Rust.",
-                name, lowered
+                "VBR names are their lowercase self in Rust — e.g. `{name}` becomes \
+                 `{lowered}`. (Functions and variables lowercase, constants uppercase; \
+                 shown once.)"
             ),
         );
     }
+    let _ = line;
     lowered
 }
 

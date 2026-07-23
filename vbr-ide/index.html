@@ -9,8 +9,6 @@
   <body>
     <div id="app">
       <header id="toolbar">
-        <span class="brand">VBR</span>
-        <span class="tagline">VBA syntax in · idiomatic Rust out</span>
         <button id="new-file" class="btn code-only" title="New (Ctrl+N)">New</button>
         <button id="open-file" class="btn code-only" title="Open (Ctrl+O)">Open</button>
         <button id="save-file" class="btn code-only" title="Save (Ctrl+S)">Save</button>
@@ -39,16 +37,19 @@
           </div>
         </aside>
         <div class="gutter" id="gutter-sidebar" title="Drag to resize"></div>
-        <div id="panes">
-          <section class="pane" id="left-pane">
-            <div class="pane-label">VBR</div>
-            <div id="editor" class="editor"></div>
-          </section>
-          <div class="gutter" id="gutter" title="Drag to resize"></div>
-          <section class="pane">
-            <div class="pane-label">Rust</div>
-            <div id="rust" class="editor"></div>
-          </section>
+        <div id="editor-area">
+          <div id="tabbar"></div>
+          <div id="panes">
+            <section class="pane" id="left-pane">
+              <div class="pane-label">VBR</div>
+              <div id="editor" class="editor"></div>
+            </section>
+            <div class="gutter" id="gutter" title="Drag to resize"></div>
+            <section class="pane">
+              <div class="pane-label">Rust</div>
+              <div id="rust" class="editor"></div>
+            </section>
+          </div>
         </div>
       </main>
       <div class="gutter-h" id="gutter-bottom" title="Drag to resize"></div>

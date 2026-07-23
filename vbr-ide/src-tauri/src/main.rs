@@ -41,11 +41,18 @@ async fn run_source(source: String) -> RunOutput {
         })
 }
 
-/// Show an open dialog and read the chosen `.vbr` file. `Ok(None)` means the
-/// user cancelled.
+/// Extensions the open/save dialogs surface first (VBR plus common source /
+/// config files — the IDE edits any text file).
+const TEXT_EXTS: &[&str] = &[
+    "vbr", "rs", "toml", "json", "md", "txt", "yaml", "yml", "html", "css", "js", "ts", "py",
+    "cfg", "ini", "lock", "xml", "sh",
+];
+
+/// Show an open dialog and read the chosen file. `Ok(None)` means cancelled.
 #[tauri::command]
 async fn open_file() -> Result<Option<OpenedFile>, String> {
     let Some(handle) = rfd::AsyncFileDialog::new()
+        .add_filter("Text & source", TEXT_EXTS)
         .add_filter("VBR", &["vbr"])
         .pick_file()
         .await
@@ -60,15 +67,20 @@ async fn open_file() -> Result<Option<OpenedFile>, String> {
 }
 
 /// Save `content`. With a known `path` it writes straight there; otherwise it
-/// shows a Save-As dialog. Returns the path written, or `None` if cancelled.
+/// shows a Save-As dialog seeded with `suggested`. Returns the path, or `None`
+/// if cancelled.
 #[tauri::command]
-async fn save_file(path: Option<String>, content: String) -> Result<Option<String>, String> {
+async fn save_file(
+    path: Option<String>,
+    content: String,
+    suggested: Option<String>,
+) -> Result<Option<String>, String> {
     let target: PathBuf = match path {
         Some(p) => PathBuf::from(p),
         None => {
+            let name = suggested.unwrap_or_else(|| "untitled.vbr".to_string());
             let Some(handle) = rfd::AsyncFileDialog::new()
-                .add_filter("VBR", &["vbr"])
-                .set_file_name("untitled.vbr")
+                .set_file_name(&name)
                 .save_file()
                 .await
             else {
