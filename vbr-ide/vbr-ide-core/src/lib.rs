@@ -9,6 +9,7 @@
 //! button-press triggers is the same one the tests exercise.
 
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -221,6 +222,142 @@ pub fn run(source: &str) -> RunOutput {
     }
 }
 
+// --- Projects ---------------------------------------------------------------
+
+/// One node in the file tree: a file, or a directory with `children`.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub children: Vec<FileEntry>,
+}
+
+/// An opened folder. `is_project` (a `main.vbr` at the root) drives whether Run
+/// builds the whole project or just the current file.
+#[derive(Debug, Clone, Serialize)]
+pub struct Project {
+    pub root: String,
+    pub name: String,
+    pub is_project: bool,
+    pub entry: Option<String>,
+    pub files: Vec<FileEntry>,
+}
+
+/// Directories that are build output or tooling noise — never worth showing.
+const SKIP_DIRS: &[&str] = &["build", "target", "node_modules", "dist", ".git"];
+
+/// File extensions worth showing in the tree.
+fn is_shown_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|x| x.to_str()),
+        Some("vbr" | "rs" | "md" | "toml")
+    )
+}
+
+fn read_dir_entries(dir: &Path) -> Vec<FileEntry> {
+    let mut entries: Vec<FileEntry> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return entries;
+    };
+    for e in rd.flatten() {
+        let path = e.path();
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            if SKIP_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            let children = read_dir_entries(&path);
+            if children.is_empty() {
+                continue; // nothing relevant inside — don't clutter the tree
+            }
+            entries.push(FileEntry {
+                name,
+                path: path.to_string_lossy().into_owned(),
+                is_dir: true,
+                children,
+            });
+        } else if is_shown_file(&path) {
+            entries.push(FileEntry {
+                name,
+                path: path.to_string_lossy().into_owned(),
+                is_dir: false,
+                children: Vec::new(),
+            });
+        }
+    }
+    // Directories first, then files; each alphabetical.
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    entries
+}
+
+/// Read a folder into a `Project`: its file tree, and whether it's a VBR project
+/// (has a `main.vbr` entry point).
+pub fn read_project(root: &Path) -> Project {
+    let main = root.join("main.vbr");
+    let is_project = main.is_file();
+    Project {
+        root: root.to_string_lossy().into_owned(),
+        name: root
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "folder".to_string()),
+        is_project,
+        entry: is_project.then(|| main.to_string_lossy().into_owned()),
+        files: read_dir_entries(root),
+    }
+}
+
+/// Locate the `vbr` binary: an explicit `VBR_BIN`, else rely on `PATH`.
+fn vbr_binary() -> PathBuf {
+    std::env::var("VBR_BIN")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("vbr"))
+}
+
+/// Build and run a whole project via `vbr runproject` (the folder-based runner
+/// that wires up the stdlib and crates). Needs the `vbr` binary on `PATH` or in
+/// `VBR_BIN`.
+pub fn run_project(root: &Path) -> RunOutput {
+    let output = Command::new(vbr_binary())
+        .arg("runproject")
+        .arg(root)
+        .output();
+    match output {
+        Ok(o) => RunOutput {
+            stage: "run".to_string(),
+            rust: String::new(),
+            diagnostics: Vec::new(),
+            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+            success: o.status.success(),
+        },
+        Err(e) => RunOutput::blocked(
+            "compile",
+            String::new(),
+            Vec::new(),
+            format!(
+                "Couldn't launch the `vbr` project runner ({e}). Put `vbr` on your \
+                 PATH, or set the VBR_BIN environment variable to its path."
+            ),
+        ),
+    }
+}
+
+/// Read a single file's text (for opening a node from the tree).
+pub fn read_file(path: &str) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
 /// Convert a 1-based `(line, column)` — column in UTF-16 units, as Monaco
 /// reports — back to a byte offset into `source`. The inverse of `to_position`.
 fn to_offset(source: &str, line: u32, col: u32) -> usize {
@@ -389,6 +526,22 @@ mod tests {
         ));
         assert_eq!(out.stage, "project", "expected the project nudge, got: {out:?}");
         assert!(!out.success);
+    }
+
+    #[test]
+    fn reads_a_project_folder() {
+        // The repo's geometry_project has main.vbr + shapes.vbr + a build/ dir.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/geometry_project");
+        let proj = read_project(&root);
+        assert!(proj.is_project, "main.vbr present → it's a project");
+        assert_eq!(proj.entry.is_some(), true);
+        let names: Vec<&str> = proj.files.iter().map(|f| f.name.as_str()).collect();
+        assert!(names.contains(&"main.vbr"), "tree should list main.vbr: {names:?}");
+        assert!(names.contains(&"shapes.vbr"), "tree should list shapes.vbr: {names:?}");
+        assert!(
+            !proj.files.iter().any(|f| f.name == "build"),
+            "the build/ dir should be skipped"
+        );
     }
 
     #[test]

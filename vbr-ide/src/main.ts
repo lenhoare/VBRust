@@ -50,6 +50,21 @@ interface CompletionItem {
   kind: string;
 }
 
+interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children: FileEntry[];
+}
+
+interface Project {
+  root: string;
+  name: string;
+  is_project: boolean;
+  entry: string | null;
+  files: FileEntry[];
+}
+
 const SAMPLE = `' Welcome to VBR — type on the left, read the Rust on the right.
 Function Main()
     Dim name As String = "world"
@@ -292,6 +307,9 @@ exampleSelect.addEventListener("change", () => {
   const ex = EXAMPLES.find((e) => e.label === exampleSelect.value);
   if (ex) {
     editor.setValue(ex.source);
+    currentPath = null;
+    isProject = false; // an example is a scratch buffer
+    updateFilename();
     editor.focus();
   }
   exampleSelect.value = ""; // reset to the "Load example…" placeholder
@@ -306,9 +324,12 @@ async function runProgram(): Promise<void> {
   runBtn.disabled = true;
   runBtn.textContent = "▶ Running…";
   consoleEl.className = "";
-  consoleEl.textContent = "Compiling and running…";
+  consoleEl.textContent = isProject ? "Building and running the project…" : "Compiling and running…";
   try {
-    const out = await invoke<RunOutput>("run_source", { source: editor.getValue() });
+    const out =
+      isProject && projectRoot
+        ? await invoke<RunOutput>("run_project_at", { root: projectRoot })
+        : await invoke<RunOutput>("run_source", { source: editor.getValue() });
     renderRunOutput(out);
   } catch (e) {
     consoleEl.className = "err";
@@ -394,6 +415,7 @@ async function saveFile(forceDialog: boolean): Promise<void> {
 function newFile(): void {
   editor.setValue("");
   currentPath = null;
+  isProject = false; // scratch buffer → single-file Run
   updateFilename();
   editor.focus();
 }
@@ -406,6 +428,63 @@ editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile(fa
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, openFile);
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, newFile);
 updateFilename();
+
+// --- Project / file tree ---------------------------------------------------
+
+let projectRoot: string | null = null;
+let projectIsVbr = false; // the open folder has a main.vbr
+let isProject = false; // Run should build the project, not the scratch buffer
+const sidebar = document.getElementById("sidebar")!;
+const sidebarTitle = document.getElementById("sidebar-title")!;
+const filetree = document.getElementById("filetree")!;
+const openFolderBtn = document.getElementById("open-folder") as HTMLButtonElement;
+
+async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
+  const content = await invoke<string>("read_file_at", { path });
+  editor.setValue(content);
+  currentPath = path;
+  isProject = projectIsVbr; // editing a project file → Run builds the project
+  updateFilename();
+  filetree.querySelectorAll(".tree-item.active").forEach((n) => n.classList.remove("active"));
+  el.classList.add("active");
+}
+
+function renderTree(entries: FileEntry[]): void {
+  filetree.innerHTML = "";
+  const build = (list: FileEntry[], depth: number) => {
+    for (const entry of list) {
+      const div = document.createElement("div");
+      div.className = "tree-item" + (entry.is_dir ? " dir" : "");
+      div.style.paddingLeft = `${8 + depth * 12}px`;
+      div.textContent = (entry.is_dir ? "▸ " : "") + entry.name;
+      if (!entry.is_dir) {
+        div.dataset.path = entry.path;
+        div.addEventListener("click", () => openTreeFile(entry.path, div));
+      }
+      filetree.appendChild(div);
+      if (entry.is_dir) build(entry.children, depth + 1);
+    }
+  };
+  build(entries, 0);
+}
+
+async function openFolder(): Promise<void> {
+  const proj = await invoke<Project | null>("open_folder");
+  if (!proj) return;
+  projectRoot = proj.root;
+  projectIsVbr = proj.is_project;
+  isProject = proj.is_project;
+  sidebarTitle.textContent = (proj.is_project ? "▣ " : "") + proj.name;
+  sidebar.classList.remove("hidden");
+  renderTree(proj.files);
+  // A project opens on its entry point.
+  if (proj.entry) {
+    const el = filetree.querySelector(`[data-path="${CSS.escape(proj.entry)}"]`) as HTMLElement | null;
+    if (el) openTreeFile(proj.entry, el);
+  }
+}
+
+openFolderBtn.addEventListener("click", openFolder);
 
 // --- Resizable split -------------------------------------------------------
 

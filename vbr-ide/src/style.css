@@ -101,6 +101,50 @@ body {
   cursor: pointer;
 }
 
+#workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#sidebar {
+  flex: 0 0 210px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  overflow: hidden;
+}
+#sidebar.hidden {
+  display: none;
+}
+
+#filetree {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.tree-item {
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-item:hover {
+  background: rgba(127, 127, 127, 0.15);
+}
+.tree-item.dir {
+  opacity: 0.75;
+  font-weight: 600;
+  cursor: default;
+}
+.tree-item.active {
+  background: rgba(78, 201, 176, 0.22);
+}
+
 #panes {
   flex: 1;
   display: flex;

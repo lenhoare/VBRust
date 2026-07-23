@@ -14,6 +14,7 @@
         <button id="new-file" class="btn" title="New (Ctrl+N)">New</button>
         <button id="open-file" class="btn" title="Open (Ctrl+O)">Open</button>
         <button id="save-file" class="btn" title="Save (Ctrl+S)">Save</button>
+        <button id="open-folder" class="btn" title="Open a folder / project">Folder</button>
         <span class="spacer"></span>
         <select id="examples" class="select" title="Load an example">
           <option value="">Load example…</option>
@@ -23,16 +24,22 @@
         <button id="theme" class="btn" title="Toggle light / dark">◐</button>
         <button id="help" class="btn" title="Keyboard shortcuts (?)">?</button>
       </header>
-      <main id="panes">
-        <section class="pane" id="left-pane">
-          <div class="pane-label">VBR</div>
-          <div id="editor" class="editor"></div>
-        </section>
-        <div class="gutter" id="gutter" title="Drag to resize"></div>
-        <section class="pane">
-          <div class="pane-label">Rust</div>
-          <div id="rust" class="editor"></div>
-        </section>
+      <main id="workspace">
+        <aside id="sidebar" class="hidden">
+          <div class="pane-label" id="sidebar-title">Files</div>
+          <div id="filetree"></div>
+        </aside>
+        <div id="panes">
+          <section class="pane" id="left-pane">
+            <div class="pane-label">VBR</div>
+            <div id="editor" class="editor"></div>
+          </section>
+          <div class="gutter" id="gutter" title="Drag to resize"></div>
+          <section class="pane">
+            <div class="pane-label">Rust</div>
+            <div id="rust" class="editor"></div>
+          </section>
+        </div>
       </main>
       <footer id="bottom">
         <div class="bottom-pane">

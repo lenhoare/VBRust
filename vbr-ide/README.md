@@ -24,11 +24,13 @@ is exactly what the CLI would produce.
   so their interiors aren't mis-coloured.
 - **Files** — New / Open / Save (`Ctrl+N`/`O`/`S`, native dialogs via `rfd`),
   with the filename in the status bar; work also auto-persists to localStorage.
+- **Projects** — Open a folder to get a file-tree sidebar; a folder with a
+  `main.vbr` is a *project* (opens on its entry point), and Run then builds and
+  runs the whole thing via `vbr runproject` — so stdlib/GUI programs run too.
 - **Comfort** — light/dark theme toggle, `Ctrl`-scroll zoom, a built-in example
-  picker (loaded straight from the repo's `examples/`).
+  picker (loaded straight from the repo's `examples/`), a `?` shortcuts overlay.
 
-Still to come: a project tree (folder = project, so stdlib/GUI programs run),
-`Graduate`/`Test` buttons, and Windows packaging.
+Still to come: `Graduate`/`Test` buttons, and installer packaging.
 
 ## How it's put together
 
@@ -69,33 +71,46 @@ To produce a distributable:
 npm run tauri build         # → src-tauri\target\release\bundle\  (.msi / .exe)
 ```
 
-> **Icons:** `tauri build` (and packaging) needs the icon set referenced in
-> `src-tauri/tauri.conf.json`. Run `npm run tauri icon <a-square-png>` once to
-> generate them into `src-tauri/icons/`. `tauri dev` will run without them.
+> **Icons** are already generated in `src-tauri/icons/` (from `assets/logo.png`).
+> To rebrand, replace that PNG and run `npm run tauri icon assets\logo.png`.
 
-## Running it on Linux / WSL
+## Building on Linux
 
-The frontend and the core crate build anywhere, but the Tauri **shell** needs
-the WebKitGTK/GTK dev libraries to build and run on Linux:
+The Tauri **shell** needs the WebKitGTK/GTK development libraries. On Ubuntu
+24.04 (WebKitGTK 4.1) there's a one-shot script:
 
 ```sh
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-                 libayatana-appindicator3-dev
+./scripts/setup-linux.sh      # installs the system deps (needs sudo)
+npm install
+npm run tauri dev             # run it (needs a display; on WSL that's WSLg)
+npm run tauri build           # → src-tauri/target/release/bundle/  (.deb / .AppImage)
 ```
 
-(WSL also needs WSLg for a GUI window.) On Windows none of this applies — it
-uses WebView2.
+Notes from bringing it up on Linux:
 
-## What you can verify without the desktop toolchain
+- **Dialogs use the async `rfd` backend** (DBus portal on Linux), so Open/Save/
+  Open-Folder don't hit GTK's main-thread rule. The portal needs
+  `xdg-desktop-portal` running (present on most desktops; on **WSL** it may need
+  `xdg-desktop-portal-gtk` installed and a WSLg session).
+- Running a **project** (Run on a folder with `main.vbr`) shells out to the
+  `vbr` binary's `runproject`. Put `vbr` on your `PATH`, or set `VBR_BIN` to its
+  path (e.g. the repo's `target/debug/vbr`).
+
+On Windows none of this applies — it uses WebView2 and native dialogs.
+
+## What's verified, and where
 
 ```sh
-cd vbr-ide-core && cargo test          # the compiler integration (11 tests:
-                                       # transpile, run, ranges, completion,
-                                       # hover, go-to-def, position mapping)
+cd vbr-ide-core && cargo test          # compiler integration — 13 tests:
+                                       # transpile, run, project reading, ranges,
+                                       # completion, hover, go-to-def, mapping
 npm install && ./node_modules/.bin/tsc --noEmit   # the frontend typechecks
 npm run build                          # the frontend bundles to dist/
 ```
 
-All pass today. The Tauri shell (window, Run, file dialogs) is verified by
-running `npm run tauri dev` on Windows — it needs WebView2 / the MSVC toolchain,
-which don't exist on the Linux/WSL side.
+All of the above pass. The Tauri **backend** (`src-tauri`) can only be compiled
+where the WebKitGTK/WebView2 libraries are installed — so the Rust in
+`src-tauri/src/main.rs` is written and reviewed but is first *compiled* by
+`npm run tauri dev`/`build` on a machine with the deps (your Windows side, or a
+Linux box after `scripts/setup-linux.sh`). The heavy lifting all lives in
+`vbr-ide-core`, which is fully tested here.

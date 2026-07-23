@@ -4,9 +4,10 @@
 // release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use vbr_ide_core::{
-    complete, definition, hover, run, transpile, CompletionItem, Range, RunOutput, TranspileResult,
+    complete, definition, hover, read_file, read_project, run, run_project, transpile,
+    CompletionItem, Project, Range, RunOutput, TranspileResult,
 };
 
 /// A file the user opened: its path (so Save can write back to it) and text.
@@ -43,43 +44,40 @@ async fn run_source(source: String) -> RunOutput {
 /// user cancelled.
 #[tauri::command]
 async fn open_file() -> Result<Option<OpenedFile>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("VBR", &["vbr"])
-            .pick_file()
-        else {
-            return Ok(None);
-        };
-        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        Ok(Some(OpenedFile {
-            path: path.to_string_lossy().into_owned(),
-            content,
-        }))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let Some(handle) = rfd::AsyncFileDialog::new()
+        .add_filter("VBR", &["vbr"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let content = std::fs::read_to_string(handle.path()).map_err(|e| e.to_string())?;
+    Ok(Some(OpenedFile {
+        path: handle.path().to_string_lossy().into_owned(),
+        content,
+    }))
 }
 
 /// Save `content`. With a known `path` it writes straight there; otherwise it
 /// shows a Save-As dialog. Returns the path written, or `None` if cancelled.
 #[tauri::command]
 async fn save_file(path: Option<String>, content: String) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let target: Option<PathBuf> = match path {
-            Some(p) => Some(PathBuf::from(p)),
-            None => rfd::FileDialog::new()
+    let target: PathBuf = match path {
+        Some(p) => PathBuf::from(p),
+        None => {
+            let Some(handle) = rfd::AsyncFileDialog::new()
                 .add_filter("VBR", &["vbr"])
                 .set_file_name("untitled.vbr")
-                .save_file(),
-        };
-        let Some(target) = target else {
-            return Ok(None);
-        };
-        std::fs::write(&target, content).map_err(|e| e.to_string())?;
-        Ok(Some(target.to_string_lossy().into_owned()))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+                .save_file()
+                .await
+            else {
+                return Ok(None);
+            };
+            handle.path().to_path_buf()
+        }
+    };
+    std::fs::write(&target, content).map_err(|e| e.to_string())?;
+    Ok(Some(target.to_string_lossy().into_owned()))
 }
 
 /// Completions at a cursor position (line/column are 1-based, column in UTF-16
@@ -101,6 +99,35 @@ fn definition_at(source: String, line: u32, col: u32) -> Option<Range> {
     definition(&source, line, col)
 }
 
+/// Show a folder picker and read the chosen folder into a project tree.
+/// `None` means the user cancelled.
+#[tauri::command]
+async fn open_folder() -> Option<Project> {
+    let handle = rfd::AsyncFileDialog::new().pick_folder().await?;
+    Some(read_project(handle.path()))
+}
+
+/// Read a file the user clicked in the tree.
+#[tauri::command]
+fn read_file_at(path: String) -> Result<String, String> {
+    read_file(&path)
+}
+
+/// Build and run a whole project folder via `vbr runproject`.
+#[tauri::command]
+async fn run_project_at(root: String) -> RunOutput {
+    tauri::async_runtime::spawn_blocking(move || run_project(Path::new(&root)))
+        .await
+        .unwrap_or_else(|e| RunOutput {
+            stage: "compile".to_string(),
+            rust: String::new(),
+            diagnostics: Vec::new(),
+            stdout: String::new(),
+            stderr: format!("The project run failed to complete: {e}"),
+            success: false,
+        })
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -110,7 +137,10 @@ fn main() {
             save_file,
             complete_at,
             hover_at,
-            definition_at
+            definition_at,
+            open_folder,
+            read_file_at,
+            run_project_at
         ])
         .run(tauri::generate_context!())
         .expect("error while running the VBR IDE");
