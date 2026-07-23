@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VBR IDE</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="toolbar">
+        <span class="brand">VBR</span>
+        <span class="tagline">VBA syntax in · idiomatic Rust out</span>
+      </header>
+      <main id="panes">
+        <section class="pane">
+          <div class="pane-label">VBR</div>
+          <div id="editor" class="editor"></div>
+        </section>
+        <section class="pane">
+          <div class="pane-label">Rust</div>
+          <div id="rust" class="editor"></div>
+        </section>
+      </main>
+      <footer id="diagnostics"></footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

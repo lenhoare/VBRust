@@ -1,0 +1,9 @@
+[package]
+name = "vbr-ide-core"
+version = "0.1.0"
+edition = "2021"
+description = "Compiler-facing logic for the VBR IDE: wraps the vbr library so the Tauri shell (and unit tests) can call it without a webview."
+
+[dependencies]
+vbr = { path = "../.." }
+serde = { version = "1", features = ["derive"] }

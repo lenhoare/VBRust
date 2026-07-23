@@ -1,0 +1,111 @@
+:root {
+  --bg: #1e1e1e;
+  --panel: #252526;
+  --border: #333;
+  --text: #d4d4d4;
+  --accent: #4ec9b0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.tagline {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+#panes {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
+.pane:last-child {
+  border-right: none;
+}
+
+.pane-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  opacity: 0.5;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.editor {
+  flex: 1;
+  min-height: 0;
+}
+
+#diagnostics {
+  max-height: 30%;
+  overflow: auto;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.diag {
+  padding: 2px 0;
+}
+.diag.error {
+  color: #f48771;
+}
+.diag.warning {
+  color: #cca700;
+}
+.diag.note {
+  color: #75beff;
+}
+.ok {
+  color: var(--accent);
+  opacity: 0.7;
+}
