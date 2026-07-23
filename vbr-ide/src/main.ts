@@ -28,7 +28,7 @@ Function Main()
     Debug.Print "Hello, " & name & "!"
 
     Dim total As Long = 0
-    For i As Integer = 1 To 10
+    For i = 1 To 10
         total = total + i
     Next i
     Debug.Print "Sum 1..10 = " & total

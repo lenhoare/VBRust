@@ -90,6 +90,7 @@ float slot is emitted `5.0`).
 ```
 Dim name As Type                 ' default-initialised
 Dim name As Type = expr          ' with initialiser
+Dim a As T1, b As T2 = expr      ' several variables, one per As (initialiser optional on each)
 Dim a, b = tupleExpr             ' tuple destructuring (inferred)
 Dim (a, b) As (T, U) = expr      ' tuple destructuring (typed)
 ```
@@ -97,6 +98,12 @@ Dim (a, b) As (T, U) = expr      ' tuple destructuring (typed)
   §9). The untyped tuple-destructure form is inferred; the parenthesised form
   gives each binding a type via a tuple annotation — chiefly so an inline
   `Rust`/`Python` block can extract several typed values at once.
+- A **multi-variable `Dim`** declares several variables on one line, each with
+  its own `As Type` and optional `= expr`. Because every variable is typed
+  independently, VBA's `Dim a, b As Integer` — which would leave `a` an untyped
+  `Variant` — is **rejected**; VBR has no `Variant`, so write `Dim a As …, b As
+  Integer`. (The bare `Dim a, b = expr` remains tuple destructuring; the `As`
+  is what distinguishes a declaration list from a destructure.)
 - Mutability is **inferred**: a variable is emitted `let mut` iff it is later
   assigned or mutated, otherwise `let`.
 - A struct must be fully initialised at its `Dim` (no declare-then-fill).

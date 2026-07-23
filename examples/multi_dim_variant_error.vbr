@@ -1,0 +1,5 @@
+' MEANT to fail — VBA would make `a` an untyped Variant here; VBR requires a
+' type on each variable: `Dim a As Long, b As Integer`.
+Function Main()
+    Dim a, b As Integer
+End Function

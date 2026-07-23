@@ -1,0 +1,8 @@
+' Several variables declared on one line — a common VB habit.
+' Each variable carries its own `As Type`, with initialisers where wanted.
+Function Main()
+    Dim total As Long = 0, count As Integer = 3
+    Dim greeting As String = "items", tag As String = "!"
+    total = total + count
+    Debug.Print greeting & ": " & total & tag
+End Function

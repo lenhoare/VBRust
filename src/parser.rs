@@ -13,6 +13,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Diagnostics) -> Program {
         toks: tokens,
         pos: 0,
         diags,
+        dim_overflow: Vec::new(),
     };
     p.parse_program()
 }
@@ -21,6 +22,11 @@ struct Parser<'a> {
     toks: Vec<Token>,
     pos: usize,
     diags: &'a mut Diagnostics,
+    /// The extra declarations from a multi-variable `Dim` line
+    /// (`Dim a As Long, b As Integer` → one `Stmt` returned, the rest queued
+    /// here). Every place that collects statements drains this straight after
+    /// the `Dim`, so the second and later variables land right beside the first.
+    dim_overflow: Vec<Stmt>,
 }
 
 impl<'a> Parser<'a> {
@@ -994,28 +1000,34 @@ impl<'a> Parser<'a> {
                     .error_at(self.span(), self.line(), "A `State` block may only contain `Dim` declarations.");
                 return None;
             }
-            match self.parse_dim()? {
-                // A primitive or user enum needs an initial value.
-                Stmt::Dim {
-                    name,
-                    ty: ty @ (DeclType::Plain(_) | DeclType::Named(_)),
-                    init: Some(init),
-                    ..
-                } => fields.push(StateField { name, ty, init: Some(init) }),
-                // A `Vec` collection may start empty (init optional) — the dynamic
-                // dataset behind charts/plots. (Map/fixed arrays can follow later.)
-                Stmt::Dim { name, ty: ty @ DeclType::Vec(_), init, .. } => {
-                    fields.push(StateField { name, ty, init })
-                }
-                _ => {
-                    self.diags.error_at(
-                        self.span(),
-                        self.line(),
-                        "A State field must be a typed value with an initial value \
-                         (`Dim count As Integer = 0`), or a collection that may start empty \
-                         (`Dim data As Vec<Double>`).",
-                    );
-                    return None;
+            // One line may declare several fields (`Dim x As Integer = 0, y As Integer = 0`).
+            let first = self.parse_dim()?;
+            let mut dims = vec![first];
+            dims.append(&mut self.dim_overflow);
+            for d in dims {
+                match d {
+                    // A primitive or user enum needs an initial value.
+                    Stmt::Dim {
+                        name,
+                        ty: ty @ (DeclType::Plain(_) | DeclType::Named(_)),
+                        init: Some(init),
+                        ..
+                    } => fields.push(StateField { name, ty, init: Some(init) }),
+                    // A `Vec` collection may start empty (init optional) — the dynamic
+                    // dataset behind charts/plots. (Map/fixed arrays can follow later.)
+                    Stmt::Dim { name, ty: ty @ DeclType::Vec(_), init, .. } => {
+                        fields.push(StateField { name, ty, init })
+                    }
+                    _ => {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            "A State field must be a typed value with an initial value \
+                             (`Dim count As Integer = 0`), or a collection that may start empty \
+                             (`Dim data As Vec<Double>`).",
+                        );
+                        return None;
+                    }
                 }
             }
             self.eat(&Tok::Newline);
@@ -1929,6 +1941,8 @@ impl<'a> Parser<'a> {
                 continue;
             };
             stmts.push(s);
+            // A multi-variable `Dim` leaves its extra declarations here.
+            stmts.append(&mut self.dim_overflow);
 
             if let Tok::Comment(text) = self.peek().clone() {
                 self.advance();
@@ -2228,6 +2242,19 @@ impl<'a> Parser<'a> {
             while self.eat(&Tok::Comma) {
                 names.push(self.expect_ident("for the destructured name")?);
             }
+            // `Dim a, b As Integer` is VBA's old habit, where `a` is silently a
+            // Variant. VBR has no Variant, so a shared trailing `As` is a trap
+            // rather than a shorthand — steer to a type on each variable.
+            if matches!(self.peek(), Tok::As) {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    "In VBR every variable needs its own type: \
+                     `Dim a As Long, b As Integer`. VBA's `Dim a, b As Integer` \
+                     would leave `a` an untyped Variant, which VBR doesn't have.",
+                );
+                return None;
+            }
             self.expect(&Tok::Eq, "in a tuple destructuring (`Dim a, b = …`)")?;
             let value = self.parse_expr()?;
             return Some(Stmt::DestructureDim { names, ty: None, value });
@@ -2270,6 +2297,25 @@ impl<'a> Parser<'a> {
             return None;
         }
 
+        // The common case: a typed declaration — and possibly several,
+        // comma-separated (`Dim a As Long, b As Integer`). Each variable carries
+        // its own `As Type`; the first clause is returned and any others are
+        // queued for the surrounding block to pick up.
+        let first = self.parse_dim_clause(name, name_span, line)?;
+        while self.eat(&Tok::Comma) {
+            let clause_span = self.span();
+            let clause_name = self.expect_ident("after `,` in a multi-variable `Dim`")?;
+            let clause = self.parse_dim_clause(clause_name, clause_span, line)?;
+            self.dim_overflow.push(clause);
+        }
+        Some(first)
+    }
+
+    /// Parse one typed declaration once its name has been read: the optional
+    /// parenthesised dimension spec, the required `As Type`, and any
+    /// initialiser. A single `Dim` line may hold several of these in a row,
+    /// separated by commas.
+    fn parse_dim_clause(&mut self, name: String, name_span: Span, line: usize) -> Option<Stmt> {
         // An optional dimension spec in parens: `()` `(,)` `(N)` `(R, C)`.
         let dim = self.parse_dim_spec()?;
 
@@ -2554,13 +2600,18 @@ impl<'a> Parser<'a> {
         // follows `Then` on the same line, and there is no `End If`.
         if !matches!(self.peek(), Tok::Newline) {
             let then_stmt = self.parse_stmt()?;
+            let mut then_body = vec![then_stmt];
+            then_body.append(&mut self.dim_overflow);
             let else_body = if self.eat(&Tok::Else) {
-                Some(vec![self.parse_stmt()?])
+                let else_stmt = self.parse_stmt()?;
+                let mut eb = vec![else_stmt];
+                eb.append(&mut self.dim_overflow);
+                Some(eb)
             } else {
                 None
             };
             return Some(Stmt::If {
-                branches: vec![(cond, vec![then_stmt])],
+                branches: vec![(cond, then_body)],
                 else_body,
             });
         }
@@ -2626,7 +2677,9 @@ impl<'a> Parser<'a> {
             let body = if matches!(self.peek(), Tok::Newline | Tok::Eof) {
                 self.parse_arm_body()?
             } else {
-                vec![Stmt::LineMark(self.line()), self.parse_stmt()?]
+                let mut b = vec![Stmt::LineMark(self.line()), self.parse_stmt()?];
+                b.append(&mut self.dim_overflow);
+                b
             };
             arms.push(MatchArm { pattern, guard, body });
         }
@@ -2670,6 +2723,7 @@ impl<'a> Parser<'a> {
                 stmts.push(Stmt::LineMark(self.line()));
             }
             stmts.push(self.parse_stmt()?);
+            stmts.append(&mut self.dim_overflow);
             if let Tok::Comment(text) = self.peek().clone() {
                 self.advance();
                 stmts.push(Stmt::Comment(text));

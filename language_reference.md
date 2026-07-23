@@ -111,13 +111,18 @@ the `DateTime` type in the standard library (§10).
 ### Declarations
 
 ```vb
-Dim count As Long              ' declared, zero by default
-Dim name As String = "Ada"     ' declared and initialised
+Dim count As Long                    ' declared, zero by default
+Dim name As String = "Ada"           ' declared and initialised
+Dim x As Long = 0, y As Long = 0     ' several at once, one As each
 ```
 
-A single `Dim` always carries `As`; the type is never guessed. **Mutability is
-inferred**: a binding that is later assigned or modified is emitted `let mut`,
-otherwise plain `let`. You never write `mut` yourself.
+A `Dim` always carries `As`; the type is never guessed. You can declare several
+variables on one line — each keeps its own `As Type` (and its own optional
+`= …`). The old VB6 habit `Dim a, b As Integer`, where `a` would quietly become
+a `Variant`, is refused with a nudge to give each its type — VBR has no
+`Variant`. **Mutability is inferred**: a binding that is later assigned or
+modified is emitted `let mut`, otherwise plain `let`. You never write `mut`
+yourself.
 
 Identifiers are **case-insensitive**, as in VB — `total` and `Total` are the same
 name. On the way out to Rust there is exactly one spelling rule: **a name is its

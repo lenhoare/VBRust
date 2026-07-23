@@ -1,0 +1,1 @@
+✘ [line 4] In VBR every variable needs its own type: `Dim a As Long, b As Integer`. VBA's `Dim a, b As Integer` would leave `a` an untyped Variant, which VBR doesn't have.
