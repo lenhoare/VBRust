@@ -5,12 +5,30 @@ idiomatic Rust appear on the right — the whole point of the language, in one
 window. It's a thin shell around the `vbr` compiler itself, so the Rust you see
 is exactly what the CLI would produce.
 
-**Status: slices 1 + 6.** Two panes (editable VBR, read-only Rust) with a
-live-updating transpile, a diagnostics strip, and **syntax highlighting** for
-the VBR pane (a Monarch grammar in `src/vbrLanguage.ts`, mirroring the lexer's
-keywords, with the verbatim `Rust`/`Python`/`Text` blocks handled so their
-interiors aren't mis-coloured). Build/Run, the project tree, and LSP-driven
-completion/hover land in later slices (see the task list).
+**Status: a working editor.** What's in:
+
+- **Two live panes** — editable VBR left, read-only generated Rust right,
+  updating as you type, with a draggable divider to resize them.
+- **Inline diagnostics** — squiggles on the exact offending span (teaching
+  message on hover), a summary strip you can click to jump to the problem, and
+  counts in the status bar.
+- **Run** — the ▶ Run button (or `Ctrl+Enter`) compiles and runs the current
+  buffer, streaming its output to the console. (Single-file, std-only programs;
+  stdlib/GUI programs are projects — that's a later slice.)
+- **Intelligence, in-process** — completion (members after `.`, names in
+  scope), hover (VB type · Rust type), and go-to-definition, all served by the
+  `vbr` compiler directly through Tauri commands. No LSP server: for a native
+  app the intelligence is a library call away.
+- **Syntax highlighting** — a Monarch grammar (`src/vbrLanguage.ts`) mirroring
+  the lexer's keywords, with the verbatim `Rust`/`Python`/`Text` blocks handled
+  so their interiors aren't mis-coloured.
+- **Files** — New / Open / Save (`Ctrl+N`/`O`/`S`, native dialogs via `rfd`),
+  with the filename in the status bar; work also auto-persists to localStorage.
+- **Comfort** — light/dark theme toggle, `Ctrl`-scroll zoom, a built-in example
+  picker (loaded straight from the repo's `examples/`).
+
+Still to come: a project tree (folder = project, so stdlib/GUI programs run),
+`Graduate`/`Test` buttons, and Windows packaging.
 
 ## How it's put together
 
@@ -71,9 +89,13 @@ uses WebView2.
 ## What you can verify without the desktop toolchain
 
 ```sh
-cd vbr-ide-core && cargo test   # the compiler integration (3 tests)
-npm install && npm run build    # the frontend bundles to dist/
+cd vbr-ide-core && cargo test          # the compiler integration (11 tests:
+                                       # transpile, run, ranges, completion,
+                                       # hover, go-to-def, position mapping)
+npm install && ./node_modules/.bin/tsc --noEmit   # the frontend typechecks
+npm run build                          # the frontend bundles to dist/
 ```
 
-Both pass today; the Tauri shell is verified by running `npm run tauri dev` on
-Windows.
+All pass today. The Tauri shell (window, Run, file dialogs) is verified by
+running `npm run tauri dev` on Windows — it needs WebView2 / the MSVC toolchain,
+which don't exist on the Linux/WSL side.

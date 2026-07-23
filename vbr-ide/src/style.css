@@ -4,6 +4,16 @@
   --border: #333;
   --text: #d4d4d4;
   --accent: #4ec9b0;
+  --status: #007acc;
+}
+
+body.light {
+  --bg: #ffffff;
+  --panel: #f3f3f3;
+  --border: #d0d0d0;
+  --text: #1e1e1e;
+  --accent: #0a7d68;
+  --status: #007acc;
 }
 
 * {
@@ -50,6 +60,47 @@ body {
   opacity: 0.6;
 }
 
+.spacer {
+  flex: 1;
+}
+
+.btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #3a3d41;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.btn:hover {
+  background: #45494e;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn.primary {
+  background: #0e639c;
+  border-color: #1177bb;
+  color: #fff;
+}
+.btn.primary:hover {
+  background: #1177bb;
+}
+
+.select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #3a3d41;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
 #panes {
   flex: 1;
   display: flex;
@@ -68,6 +119,25 @@ body {
   border-right: none;
 }
 
+#left-pane {
+  flex: 0 0 50%;
+  border-right: none;
+}
+
+.gutter {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+}
+.gutter:hover {
+  background: var(--accent);
+}
+
+/* While dragging the divider, don't let the editors swallow the mouse. */
+#panes.dragging .editor {
+  pointer-events: none;
+}
+
 .pane-label {
   font-size: 11px;
   text-transform: uppercase;
@@ -83,18 +153,117 @@ body {
   min-height: 0;
 }
 
-#diagnostics {
-  max-height: 30%;
-  overflow: auto;
-  padding: 6px 12px;
-  background: var(--panel);
+#bottom {
+  display: flex;
+  height: 28%;
+  min-height: 120px;
   border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.bottom-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+.bottom-pane:last-child {
+  border-right: none;
+}
+
+#diagnostics,
+#console {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 12px;
   font-family: "Cascadia Code", "Consolas", monospace;
   font-size: 12px;
+  white-space: pre-wrap;
+}
+
+#console.ok {
+  color: #b5cea8;
+}
+#console.err {
+  color: #f48771;
+}
+
+#statusbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 22px;
+  padding: 0 12px;
+  background: var(--status);
+  color: #fff;
+  font-size: 11px;
+}
+
+#help-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+#help-overlay.hidden {
+  display: none;
+}
+.help-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 26px;
+  min-width: 320px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+.help-card h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  color: var(--accent);
+}
+.help-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.help-card li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.help-card li span {
+  margin-left: auto;
+  opacity: 0.7;
+}
+.help-card kbd {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  background: #3a3d41;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.help-card .dismiss {
+  margin: 14px 0 0;
+  font-size: 11px;
+  opacity: 0.6;
 }
 
 .diag {
   padding: 2px 0;
+}
+.diag[data-line] {
+  cursor: pointer;
+}
+.diag[data-line]:hover {
+  text-decoration: underline;
 }
 .diag.error {
   color: #f48771;

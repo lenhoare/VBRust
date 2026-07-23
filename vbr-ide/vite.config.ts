@@ -6,6 +6,11 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // The example picker imports `.vbr` files from the repo's examples/ dir,
+    // one level above this project — let the dev server read them.
+    fs: {
+      allow: [".."],
+    },
   },
   build: {
     target: "es2020",

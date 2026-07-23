@@ -9,17 +9,61 @@
 //! button-press triggers is the same one the tests exercise.
 
 use serde::Serialize;
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// A Monaco-ready range: 1-based lines and columns, columns measured in UTF-16
+/// code units (what Monaco and the LSP speak). Serialised with the exact field
+/// names Monaco's `IMarkerData` expects, so the frontend can use it directly.
+#[derive(Debug, Clone, Serialize)]
+pub struct Range {
+    #[serde(rename = "startLineNumber")]
+    pub start_line: u32,
+    #[serde(rename = "startColumn")]
+    pub start_col: u32,
+    #[serde(rename = "endLineNumber")]
+    pub end_line: u32,
+    #[serde(rename = "endColumn")]
+    pub end_col: u32,
+}
+
+impl Range {
+    fn from_span(source: &str, span: vbr::span::Span) -> Range {
+        let (start_line, start_col) = to_position(source, span.start);
+        let (end_line, end_col) = to_position(source, span.end);
+        Range { start_line, start_col, end_line, end_col }
+    }
+}
+
+/// Convert a byte offset into `source` to a 1-based `(line, column)`, with the
+/// column in UTF-16 code units. Non-ASCII text before the offset shifts byte
+/// positions relative to columns, so we count units explicitly rather than
+/// assume one byte per column — the same trap the compiler's spans navigate.
+fn to_position(source: &str, byte_offset: usize) -> (u32, u32) {
+    let mut offset = byte_offset.min(source.len());
+    while !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    let before = &source[..offset];
+    let line = before.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
+    let line_start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let col = source[line_start..offset]
+        .chars()
+        .map(|c| c.len_utf16() as u32)
+        .sum::<u32>()
+        + 1;
+    (line, col)
+}
 
 /// One diagnostic, flattened for the frontend: a level string the UI can style
-/// on, the message, the 1-based VBR line, and the byte span the compiler pinned
-/// (when it had one — line-only diagnostics leave the span `None`).
+/// on, the message, the 1-based VBR line, and a Monaco-ready range when the
+/// compiler pinned a span (line-only diagnostics leave `range` as `None`).
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnostic {
     pub level: String,
     pub message: String,
     pub line: Option<usize>,
-    pub start: Option<usize>,
-    pub end: Option<usize>,
+    pub range: Option<Range>,
 }
 
 /// Everything the editor needs from one compile: the Rust the source became,
@@ -34,10 +78,8 @@ pub struct TranspileResult {
 ///
 /// A pure function of the source — the same call the playground makes in the
 /// browser, minus the browser.
-pub fn transpile(source: &str) -> TranspileResult {
-    let compiled = vbr::compile(source);
-    let diagnostics = compiled
-        .diagnostic_items
+fn map_diagnostics(source: &str, items: &[vbr::diagnostics::Diagnostic]) -> Vec<Diagnostic> {
+    items
         .iter()
         .map(|d| Diagnostic {
             level: match d.level {
@@ -48,14 +90,222 @@ pub fn transpile(source: &str) -> TranspileResult {
             .to_string(),
             message: d.message.clone(),
             line: d.line,
-            start: d.span.map(|s| s.start),
-            end: d.span.map(|s| s.end),
+            range: d.span.map(|s| Range::from_span(source, s)),
         })
-        .collect();
+        .collect()
+}
+
+pub fn transpile(source: &str) -> TranspileResult {
+    let compiled = vbr::compile(source);
     TranspileResult {
+        diagnostics: map_diagnostics(source, &compiled.diagnostic_items),
         rust: compiled.rust,
-        diagnostics,
     }
+}
+
+/// The outcome of a Run: which stage it reached, and the output there.
+///
+/// `stage` is one of `"diagnostics"` (VBR errors blocked it), `"compile"`
+/// (rustc rejected the generated Rust), or `"run"` (it built and executed).
+#[derive(Debug, Clone, Serialize)]
+pub struct RunOutput {
+    pub stage: String,
+    pub rust: String,
+    pub diagnostics: Vec<Diagnostic>,
+    pub stdout: String,
+    pub stderr: String,
+    pub success: bool,
+}
+
+impl RunOutput {
+    fn blocked(stage: &str, rust: String, diagnostics: Vec<Diagnostic>, stderr: String) -> RunOutput {
+        RunOutput {
+            stage: stage.to_string(),
+            rust,
+            diagnostics,
+            stdout: String::new(),
+            stderr,
+            success: false,
+        }
+    }
+}
+
+/// Transpile, compile, and run a single self-contained VBR program, capturing
+/// its output. This mirrors what `vbr run` does for a one-file program: it does
+/// **not** wire up the standard library or external crates — a program that
+/// needs those is a project, and rustc will say so. Kept in the core (not the
+/// Tauri shell) so it's exercised by real tests on any platform with rustc.
+pub fn run(source: &str) -> RunOutput {
+    let compiled = vbr::compile(source);
+    let diagnostics = map_diagnostics(source, &compiled.diagnostic_items);
+
+    // VBR errors block the run before we ever reach rustc.
+    if compiled.has_errors {
+        return RunOutput::blocked("diagnostics", compiled.rust, diagnostics, String::new());
+    }
+
+    // A program that pulls the standard library or an external crate isn't a
+    // single file — it's a project. Say so kindly rather than letting rustc
+    // fail on an unresolved import.
+    if !compiled.dependencies.is_empty() || !compiled.stdlib_used.is_empty() {
+        return RunOutput::blocked(
+            "project",
+            compiled.rust,
+            diagnostics,
+            "This program uses the standard library or an external crate, so it \
+             needs the project runner (a folder-based build). That's coming to \
+             the IDE; for now, run it from the CLI with `vbr runproject`."
+                .to_string(),
+        );
+    }
+
+    // A private temp directory for this run.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("vbr-ide-run-{nanos}"));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return RunOutput::blocked(
+            "compile",
+            compiled.rust,
+            diagnostics,
+            "Could not create a temporary build directory.".to_string(),
+        );
+    }
+    let src_path = dir.join("main.rs");
+    let bin_path = dir.join(format!("vbr-prog{}", std::env::consts::EXE_SUFFIX));
+
+    let result = (|| {
+        std::fs::write(&src_path, &compiled.rust)
+            .map_err(|e| format!("Could not write the generated Rust: {e}"))?;
+
+        // Compile the single file with rustc (edition 2021, as VBR emits).
+        let compile = Command::new("rustc")
+            .arg(&src_path)
+            .arg("--edition")
+            .arg("2021")
+            .arg("-o")
+            .arg(&bin_path)
+            .output()
+            .map_err(|e| {
+                format!("Could not run rustc — is the Rust toolchain installed? ({e})")
+            })?;
+        if !compile.status.success() {
+            return Err(String::from_utf8_lossy(&compile.stderr).into_owned());
+        }
+
+        // Run the built program and capture its output.
+        let run = Command::new(&bin_path)
+            .output()
+            .map_err(|e| format!("Could not launch the built program: {e}"))?;
+        Ok((
+            String::from_utf8_lossy(&run.stdout).into_owned(),
+            String::from_utf8_lossy(&run.stderr).into_owned(),
+            run.status.success(),
+        ))
+    })();
+
+    let _ = std::fs::remove_dir_all(&dir);
+
+    match result {
+        Ok((stdout, stderr, success)) => RunOutput {
+            stage: "run".to_string(),
+            rust: compiled.rust,
+            diagnostics,
+            stdout,
+            stderr,
+            success,
+        },
+        Err(stderr) => RunOutput::blocked("compile", compiled.rust, diagnostics, stderr),
+    }
+}
+
+/// Convert a 1-based `(line, column)` — column in UTF-16 units, as Monaco
+/// reports — back to a byte offset into `source`. The inverse of `to_position`.
+fn to_offset(source: &str, line: u32, col: u32) -> usize {
+    // Byte offset of the start of the target line.
+    let mut line_start = 0usize;
+    if line > 1 {
+        let mut current = 1u32;
+        let mut found = false;
+        for (i, b) in source.bytes().enumerate() {
+            if b == b'\n' {
+                current += 1;
+                if current == line {
+                    line_start = i + 1;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if !found {
+            return source.len();
+        }
+    }
+    // Walk `col - 1` UTF-16 units into the line.
+    let mut remaining = col.saturating_sub(1);
+    let mut idx = line_start;
+    for ch in source[line_start..].chars() {
+        if remaining == 0 || ch == '\n' {
+            break;
+        }
+        let units = ch.len_utf16() as u32;
+        if units > remaining {
+            break;
+        }
+        remaining -= units;
+        idx += ch.len_utf8();
+    }
+    idx
+}
+
+/// One completion candidate for the frontend: the text to insert, a detail
+/// string (VB-facing signature / type), and a lowercased kind the UI maps to an
+/// icon.
+#[derive(Debug, Clone, Serialize)]
+pub struct CompletionItem {
+    pub label: String,
+    pub detail: String,
+    pub kind: String,
+}
+
+/// Completions at a cursor position, straight from the compiler's completion
+/// engine (the same one the LSP uses) — receiver-typed members after `.`,
+/// in-scope names in bare position.
+pub fn complete(source: &str, line: u32, col: u32) -> Vec<CompletionItem> {
+    let offset = to_offset(source, line, col);
+    vbr::complete::completions_at(source, offset)
+        .into_iter()
+        .map(|c| CompletionItem {
+            label: c.label,
+            detail: c.detail,
+            kind: format!("{:?}", c.kind).to_lowercase(),
+        })
+        .collect()
+}
+
+/// The hover text at a position: the narrowest recorded hover span covering the
+/// cursor (VB type · Rust type), or `None`.
+pub fn hover(source: &str, line: u32, col: u32) -> Option<String> {
+    let offset = to_offset(source, line, col);
+    vbr::compile(source)
+        .hovers
+        .into_iter()
+        .filter(|(span, _)| span.start <= offset && offset < span.end)
+        .min_by_key(|(span, _)| span.end - span.start)
+        .map(|(_, text)| text)
+}
+
+/// Go-to-definition: if the cursor is on a use whose declaration the compiler
+/// recorded (e.g. a variable → its `Dim`), return the declaration's range.
+pub fn definition(source: &str, line: u32, col: u32) -> Option<Range> {
+    let offset = to_offset(source, line, col);
+    vbr::compile(source)
+        .defs
+        .into_iter()
+        .find(|(use_span, _)| use_span.start <= offset && offset < use_span.end)
+        .map(|(_, decl)| Range::from_span(source, decl))
 }
 
 #[cfg(test)]
@@ -98,5 +348,107 @@ mod tests {
             "clean source should not error, got: {:?}",
             out.diagnostics
         );
+    }
+
+    #[test]
+    fn position_mapping_is_1_based_and_utf16() {
+        let s = "ab\ncd";
+        assert_eq!(to_position(s, 0), (1, 1)); // start of file
+        assert_eq!(to_position(s, 3), (2, 1)); // 'c' — first col of line 2
+        assert_eq!(to_position(s, 4), (2, 2)); // 'd'
+        // `é` is 2 UTF-8 bytes but 1 UTF-16 unit, so a byte offset past it must
+        // not over-count the column.
+        let s2 = "é=x"; // é(2 bytes) = x → 'x' begins at byte 3
+        assert_eq!(to_position(s2, 3), (1, 3));
+    }
+
+    #[test]
+    fn runs_a_simple_program() {
+        let out = run(&in_main("    Debug.Print \"hi from vbr\""));
+        assert_eq!(out.stage, "run", "should reach the run stage: {out:?}");
+        assert!(out.success, "program should exit cleanly: {out:?}");
+        assert!(
+            out.stdout.contains("hi from vbr"),
+            "stdout should carry the printed line, got: {:?}",
+            out.stdout
+        );
+    }
+
+    #[test]
+    fn run_is_blocked_by_vbr_errors() {
+        let out = run(&in_main("    Dim x = 5")); // missing `As`
+        assert_eq!(out.stage, "diagnostics");
+        assert!(!out.success);
+    }
+
+    #[test]
+    fn run_defers_stdlib_programs_to_the_project_runner() {
+        // DateTime pulls a crate/stdlib in, so a single-file run can't build it.
+        let out = run(&in_main(
+            "    Dim now As DateTime = DateTime.Now()\n    Debug.Print now.Year()",
+        ));
+        assert_eq!(out.stage, "project", "expected the project nudge, got: {out:?}");
+        assert!(!out.success);
+    }
+
+    #[test]
+    fn offset_round_trips_with_position() {
+        let s = "Function Main()\n    Dim total As Long = 0\nEnd Function\n";
+        // Pick a byte offset, map to a position, map back — should be stable.
+        let off = s.find("total").unwrap();
+        let (line, col) = to_position(s, off);
+        assert_eq!(to_offset(s, line, col), off);
+    }
+
+    #[test]
+    fn completion_offers_members_after_dot() {
+        let src = "Function Main()\n    Dim s As String = \"hi\"\n    s.\nEnd Function\n";
+        // Line 3 is "    s." → the cursor sits just after the dot, at column 7.
+        let items = complete(src, 3, 7);
+        assert!(
+            !items.is_empty(),
+            "expected member completions after `.` on a String"
+        );
+    }
+
+    #[test]
+    fn definition_points_at_the_dim() {
+        let src =
+            "Function Main()\n    Dim total As Long = 0\n    Debug.Print total\nEnd Function\n";
+        // Go-to-def from the use of `total` on line 3.
+        let def = definition(src, 3, 19);
+        assert!(def.is_some(), "expected a definition for a used variable");
+        assert_eq!(
+            def.unwrap().start_line,
+            2,
+            "the declaration is the Dim on line 2"
+        );
+    }
+
+    #[test]
+    fn hover_reports_a_variable_type() {
+        let src =
+            "Function Main()\n    Dim total As Long = 0\n    Debug.Print total\nEnd Function\n";
+        // `total` on line 3 spans columns 17..21; hover inside it.
+        let h = hover(src, 3, 19);
+        assert!(h.is_some(), "expected hover text over a known variable");
+        assert!(
+            h.as_deref().unwrap().contains("Long"),
+            "hover should mention the VB type, got: {h:?}"
+        );
+    }
+
+    #[test]
+    fn syntax_error_carries_a_range() {
+        // A trailing token with no operator is a span-pinned parse error.
+        let out = transpile(&in_main("    Debug.Print 1 2"));
+        let pinned = out.diagnostics.iter().find(|d| d.range.is_some());
+        let r = &pinned
+            .expect("a syntax error should pin a range")
+            .range
+            .as_ref()
+            .unwrap();
+        assert_eq!(r.start_line, 2, "the error is on line 2 (inside Main)");
+        assert!(r.start_col >= 1 && r.end_col >= r.start_col);
     }
 }
