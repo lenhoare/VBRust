@@ -100,8 +100,12 @@ function targetContainer(): DNode {
 
 function addControl(kind: string): void {
   const node: DNode = { id: nextId(), kind, props: defaults(kind), children: [] };
-  targetContainer().children.push(node);
-  selectedId = node.id;
+  const container = targetContainer();
+  container.children.push(node);
+  // A container mustn't steal selection — otherwise clicking "Row" twice nests
+  // a Row inside a Row. Keep the parent selected so siblings stack; click a
+  // container yourself when you want to add *into* it. Leaves select themselves.
+  selectedId = CONTAINERS.has(kind) ? container.id : node.id;
   render();
 }
 
@@ -133,7 +137,8 @@ function widgetEl(node: DNode): HTMLElement {
     el.classList.add("container", node.kind === "Row" ? "row" : "col");
     const tag = document.createElement("div");
     tag.className = "dnode-tag";
-    tag.textContent = node.kind;
+    const shown = CONTAINER_ARROW[node.kind] ?? node.kind;
+    tag.textContent = node.id === root.id ? `Form — ${shown}` : shown;
     tag.style.flexBasis = "100%";
     el.appendChild(tag);
     for (const c of node.children) el.appendChild(widgetEl(c));
@@ -296,6 +301,14 @@ export function setupDesigner(createForm: (tree: unknown) => void): void {
   surfaceEl = document.getElementById("surface")!;
   propsEl = document.getElementById("props")!;
   codeEl = document.getElementById("design-code")!;
+
+  // Clicking the empty surface selects the root form, so new controls land at
+  // the top level (an escape hatch out of a nested container). Widget clicks
+  // stopPropagation, so this only fires on the background.
+  surfaceEl.addEventListener("click", () => {
+    selectedId = root.id;
+    render();
+  });
 
   for (const kind of PALETTE) {
     const b = document.createElement("button");
