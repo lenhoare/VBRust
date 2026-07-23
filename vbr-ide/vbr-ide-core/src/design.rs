@@ -60,12 +60,104 @@ fn indent(depth: usize) -> String {
     "    ".repeat(depth)
 }
 
-/// Generate the full `View … End View` block for a form tree.
-pub fn design_to_vbr(root: &Node) -> String {
-    let mut out = String::from("View\n");
-    emit(root, 1, &mut out);
-    out.push_str("End View\n");
+/// Generate a complete, runnable `Window` for a form tree: an inferred `State`
+/// (a typed field per bound control), the `View`, `Event` stubs for each
+/// interactive control, and a `Function Main` that runs it. A bare `View`
+/// can't stand alone — it must live in a `Window` — so this is the whole file.
+pub fn design_to_vbr(root: &Node, name: &str) -> String {
+    let mut fields: Vec<(String, String, String)> = Vec::new(); // (field, type, default)
+    let mut events: Vec<(String, String, String)> = Vec::new(); // (event, kind, field)
+    collect(root, &mut fields, &mut events);
+
+    let mut out = String::new();
+    out.push_str(&format!("Window {name}\n"));
+    out.push_str(&format!("    Title {}\n\n", quote(name)));
+
+    out.push_str("    State\n");
+    if fields.is_empty() {
+        out.push_str("        ' add fields your controls bind to\n");
+    } else {
+        for (f, ty, def) in &fields {
+            out.push_str(&format!("        Dim {f} As {ty} = {def}\n"));
+        }
+    }
+    out.push_str("    End State\n\n");
+
+    out.push_str("    View\n");
+    emit(root, 2, &mut out);
+    out.push_str("    End View\n");
+
+    for (ev, kind, field) in &events {
+        out.push('\n');
+        out.push_str(&event_stub(kind, ev, field));
+    }
+    out.push_str("End Window\n\n");
+
+    out.push_str(&format!(
+        "' In a multi-file project, move Main to your entry file and call `{name}.Run` there.\n"
+    ));
+    out.push_str("Function Main()\n");
+    out.push_str(&format!("    {name}.Run\n"));
+    out.push_str("End Function\n");
     out
+}
+
+/// The VB type + default value a control's bound field needs in `State`.
+fn field_type(kind: &str) -> Option<(&'static str, &'static str)> {
+    match kind {
+        "TextInput" | "Text" => Some(("String", "\"\"")),
+        "TextArea" => Some(("TextArea", "\"\"")),
+        "Checkbox" | "Toggler" => Some(("Boolean", "False")),
+        "Slider" | "ProgressBar" => Some(("Integer", "0")),
+        _ => None,
+    }
+}
+
+/// An `Event` handler stub for an interactive control — the payload events write
+/// their new value straight back to the bound field.
+fn event_stub(kind: &str, name: &str, field: &str) -> String {
+    match kind {
+        "Button" => format!("    Event {name}()\n        ' TODO: handle the click\n    End Event\n"),
+        "TextInput" => {
+            format!("    Event {name}(value As String)\n        {field} = value\n    End Event\n")
+        }
+        "Checkbox" | "Toggler" => {
+            format!("    Event {name}(value As Boolean)\n        {field} = value\n    End Event\n")
+        }
+        "Slider" => {
+            format!("    Event {name}(value As Integer)\n        {field} = value\n    End Event\n")
+        }
+        _ => String::new(),
+    }
+}
+
+/// Walk the tree collecting the state fields and events the Window needs.
+/// Duplicates (by name) are kept once — the frontend assigns unique names.
+fn collect(
+    node: &Node,
+    fields: &mut Vec<(String, String, String)>,
+    events: &mut Vec<(String, String, String)>,
+) {
+    if let Some(f) = &node.props.field {
+        if let Some((ty, def)) = field_type(&node.kind) {
+            if !fields.iter().any(|(n, _, _)| n == f) {
+                fields.push((f.clone(), ty.to_string(), def.to_string()));
+            }
+        }
+    }
+    if matches!(
+        node.kind.as_str(),
+        "Button" | "TextInput" | "Checkbox" | "Toggler" | "Slider"
+    ) {
+        let name = node.props.event.clone().unwrap_or_else(|| "Handler".to_string());
+        if !events.iter().any(|(n, _, _)| n == &name) {
+            let field = node.props.field.clone().unwrap_or_else(|| "field".to_string());
+            events.push((name, node.kind.clone(), field));
+        }
+    }
+    for c in &node.children {
+        collect(c, fields, events);
+    }
 }
 
 fn emit(node: &Node, depth: usize, out: &mut String) {
@@ -174,23 +266,38 @@ mod tests {
     }
 
     #[test]
-    fn wraps_in_a_view_block() {
-        let out = design_to_vbr(&node("Column", vec![]));
-        assert!(out.starts_with("View\n"));
-        assert!(out.trim_end().ends_with("End View"));
-        assert!(out.contains("    Column\n"));
-        assert!(out.contains("    End Column\n"));
+    fn emits_a_full_window_with_view_and_main() {
+        let out = design_to_vbr(&node("Column", vec![]), "Form1");
+        assert!(out.contains("Window Form1\n"), "got:\n{out}");
+        assert!(out.contains("Title \"Form1\""), "got:\n{out}");
+        assert!(out.contains("    View\n"), "got:\n{out}");
+        assert!(out.contains("    End View\n"), "got:\n{out}");
+        assert!(out.contains("End Window\n"), "got:\n{out}");
+        assert!(out.contains("Function Main()"), "got:\n{out}");
+        assert!(out.contains("Form1.Run"), "got:\n{out}");
     }
 
     #[test]
-    fn button_emits_on_click_stub() {
+    fn button_emits_view_widget_and_event_stub() {
         let mut btn = node("Button", vec![]);
         btn.props.text = Some("Save".to_string());
         btn.props.event = Some("SaveClicked".to_string());
-        let out = design_to_vbr(&node("Column", vec![btn]));
+        let out = design_to_vbr(&node("Column", vec![btn]), "Form1");
         assert!(out.contains("Button \"Save\""), "got:\n{out}");
         assert!(out.contains("On Click SaveClicked"), "got:\n{out}");
-        assert!(out.contains("End Button"), "got:\n{out}");
+        assert!(out.contains("Event SaveClicked()"), "the handler stub:\n{out}");
+    }
+
+    #[test]
+    fn state_is_inferred_from_bindings() {
+        let mut input = node("TextInput", vec![]);
+        input.props.text = Some("Your name".to_string());
+        input.props.field = Some("username".to_string());
+        input.props.event = Some("Typed".to_string());
+        let out = design_to_vbr(&node("Column", vec![input]), "Form1");
+        assert!(out.contains("Dim username As String = \"\""), "state field:\n{out}");
+        assert!(out.contains("Event Typed(value As String)"), "typed event:\n{out}");
+        assert!(out.contains("username = value"), "event writes the field:\n{out}");
     }
 
     #[test]
@@ -198,8 +305,7 @@ mod tests {
         let mut text = node("Text", vec![]);
         text.props.text = Some("Body".to_string());
         text.props.width = Some("Fill 2".to_string());
-        let out = design_to_vbr(&node("Column", vec![text]));
-        // The sizing line precedes the child.
+        let out = design_to_vbr(&node("Column", vec![text]), "Form1");
         let fill_at = out.find("Fill 2").unwrap();
         let text_at = out.find("Text \"Body\"").unwrap();
         assert!(fill_at < text_at, "sizing line must come before the child:\n{out}");
@@ -209,7 +315,7 @@ mod tests {
     fn quotes_are_doubled_not_backslashed() {
         let mut btn = node("Button", vec![]);
         btn.props.text = Some("Say \"hi\"".to_string());
-        let out = design_to_vbr(&btn);
+        let out = design_to_vbr(&node("Column", vec![btn]), "Form1");
         assert!(out.contains("\"Say \"\"hi\"\"\""), "VB doubles quotes:\n{out}");
         assert!(!out.contains("\\\""), "no backslash escapes:\n{out}");
     }
@@ -220,7 +326,7 @@ mod tests {
         c.props.name = Some("Face".to_string());
         c.props.w = Some(300);
         c.props.h = Some(220);
-        let out = design_to_vbr(&node("Column", vec![c]));
+        let out = design_to_vbr(&node("Column", vec![c]), "Form1");
         assert!(out.contains("Canvas Face Width 300 Height 220"), "got:\n{out}");
         assert!(out.contains("' TODO"), "should leave a reminder:\n{out}");
     }

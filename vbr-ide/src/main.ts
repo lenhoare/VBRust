@@ -619,9 +619,34 @@ applyTheme(localStorage.getItem(THEME_KEY) === "light");
 
 // --- Form designer ---------------------------------------------------------
 
-setupDesigner(editor);
 const designerToggle = document.getElementById("designer-toggle") as HTMLButtonElement;
-designerToggle.addEventListener("click", () => {
+
+async function createForm(tree: unknown): Promise<void> {
+  if (!projectRoot) {
+    window.alert("Open a project folder first (the Folder button) — that's where the form file is saved.");
+    return;
+  }
+  try {
+    const created = await invoke<{ path: string; name: string }>("create_form", {
+      dir: projectRoot,
+      tree,
+    });
+    await refreshTree();
+    document.body.classList.remove("designer-mode");
+    designerToggle.classList.remove("primary");
+    const el = filetree.querySelector(`[data-path="${CSS.escape(created.path)}"]`) as HTMLElement | null;
+    if (el) openTreeFile(created.path, el);
+  } catch (e) {
+    window.alert(String(e));
+  }
+}
+
+setupDesigner(createForm);
+
+designerToggle.addEventListener("click", async () => {
+  const turningOn = !document.body.classList.contains("designer-mode");
+  // A form is saved into a project, so make sure one is open first.
+  if (turningOn && !projectRoot) await openFolder();
   const on = document.body.classList.toggle("designer-mode");
   designerToggle.classList.toggle("primary", on);
 });

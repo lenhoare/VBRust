@@ -6,8 +6,9 @@
 
 use std::path::{Path, PathBuf};
 use vbr_ide_core::{
-    complete, definition, design_to_vbr, graduate, hover, read_file, read_project, run, run_project,
-    test_project, transpile, CompletionItem, Node, Project, Range, RunOutput, TranspileResult,
+    complete, create_form as core_create_form, definition, design_to_vbr, graduate, hover,
+    read_file, read_project, run, run_project, test_project, transpile, CompletionItem, Node,
+    Project, Range, RunOutput, TranspileResult,
 };
 
 /// A file the user opened: its path (so Save can write back to it) and text.
@@ -165,10 +166,29 @@ async fn run_project_at(root: String) -> RunOutput {
         })
 }
 
-/// Generate VBR `View` code from a form-designer widget tree.
+/// Generate a complete VBR `Window` from a form-designer widget tree (live
+/// preview — the real file uses its auto-numbered name).
 #[tauri::command]
 fn generate_design(tree: Node) -> String {
-    design_to_vbr(&tree)
+    design_to_vbr(&tree, "Form1")
+}
+
+/// A form file just written to disk.
+#[derive(serde::Serialize)]
+struct CreatedForm {
+    path: String,
+    name: String,
+}
+
+/// Write the designed form as a new auto-numbered `formN.vbr` in `dir`.
+#[tauri::command]
+fn create_form(dir: String, tree: Node) -> Result<CreatedForm, String> {
+    core_create_form(Path::new(&dir), &tree)
+        .map(|(p, name)| CreatedForm {
+            path: p.to_string_lossy().into_owned(),
+            name,
+        })
+        .map_err(|e| e.to_string())
 }
 
 fn main() {
@@ -187,7 +207,8 @@ fn main() {
             run_project_at,
             graduate_at,
             test_at,
-            generate_design
+            generate_design,
+            create_form
         ])
         .run(tauri::generate_context!())
         .expect("error while running the VBR IDE");

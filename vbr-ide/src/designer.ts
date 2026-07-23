@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import type * as monaco from "monaco-editor";
 
 // A widget tree, built visually and sent to the compiler core to become VBR
 // `View` code. `id` is frontend-only bookkeeping — the Rust side ignores it.
@@ -69,11 +68,13 @@ function defaults(kind: string): DProps {
 let root: DNode = { id: nextId(), kind: "Column", props: { spacing: 8, padding: 16 }, children: [] };
 let selectedId = root.id;
 
+const CONTAINER_ARROW: Record<string, string> = { Column: "Column ↓", Row: "Row →" };
+
 let paletteItemsEl: HTMLElement;
 let surfaceEl: HTMLElement;
 let propsEl: HTMLElement;
 let codeEl: HTMLElement;
-let editorRef: monaco.editor.IStandaloneCodeEditor;
+let onCreate: (tree: unknown) => void = () => {};
 
 function findNode(
   id: number,
@@ -110,6 +111,13 @@ function deleteSelected(): void {
   if (!sel || !sel.parent) return;
   sel.parent.children = sel.parent.children.filter((c) => c.id !== selectedId);
   selectedId = sel.parent.id;
+  render();
+}
+
+function newForm(): void {
+  uid = 1;
+  root = { id: nextId(), kind: "Column", props: { spacing: 8, padding: 16 }, children: [] };
+  selectedId = root.id;
   render();
 }
 
@@ -278,29 +286,12 @@ async function regenerate(): Promise<void> {
   }
 }
 
-function insertIntoEditor(): void {
-  const vbr = codeEl.textContent ?? "";
-  const model = editorRef.getModel();
-  if (!model) return;
-  const end = model.getFullModelRange().getEndPosition();
-  editorRef.executeEdits("designer", [
-    {
-      range: {
-        startLineNumber: end.lineNumber,
-        startColumn: end.column,
-        endLineNumber: end.lineNumber,
-        endColumn: end.column,
-      },
-      text: "\n" + vbr + "\n",
-    },
-  ]);
-  document.body.classList.remove("designer-mode");
-  editorRef.focus();
-}
-
-/** Wire up the designer UI. Idempotent enough for a single call at startup. */
-export function setupDesigner(editor: monaco.editor.IStandaloneCodeEditor): void {
-  editorRef = editor;
+/**
+ * Wire up the designer UI. `createForm` is called with the current widget tree
+ * when the user clicks "Create form" (the host writes the file + opens it).
+ */
+export function setupDesigner(createForm: (tree: unknown) => void): void {
+  onCreate = createForm;
   paletteItemsEl = document.getElementById("palette-items")!;
   surfaceEl = document.getElementById("surface")!;
   propsEl = document.getElementById("props")!;
@@ -309,12 +300,25 @@ export function setupDesigner(editor: monaco.editor.IStandaloneCodeEditor): void
   for (const kind of PALETTE) {
     const b = document.createElement("button");
     b.className = "palette-item";
-    b.textContent = kind;
+    b.textContent = CONTAINER_ARROW[kind] ?? kind;
     b.addEventListener("click", () => addControl(kind));
     paletteItemsEl.appendChild(b);
   }
   document.getElementById("del-node")!.addEventListener("click", deleteSelected);
-  document.getElementById("insert-design")!.addEventListener("click", insertIntoEditor);
+  document.getElementById("new-form")!.addEventListener("click", newForm);
+  document.getElementById("create-form")!.addEventListener("click", () => onCreate(root));
+
+  // Delete / Backspace removes the selected control (unless you're typing in a
+  // properties field).
+  document.addEventListener("keydown", (e) => {
+    if (!document.body.classList.contains("designer-mode")) return;
+    const t = e.target as HTMLElement | null;
+    if (t && ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName)) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      deleteSelected();
+    }
+  });
 
   render();
 }

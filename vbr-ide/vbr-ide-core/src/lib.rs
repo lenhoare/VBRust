@@ -374,6 +374,22 @@ pub fn read_file(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
+/// Write a new auto-numbered `formN.vbr` (a complete Window) into `dir`,
+/// returning its path and the Window's name. Numbers up from `form1.vbr` so it
+/// never clobbers an existing form.
+pub fn create_form(dir: &Path, tree: &Node) -> std::io::Result<(PathBuf, String)> {
+    let mut n = 1;
+    loop {
+        let file = dir.join(format!("form{n}.vbr"));
+        if !file.exists() {
+            let name = format!("Form{n}");
+            std::fs::write(&file, design_to_vbr(tree, &name))?;
+            return Ok((file, name));
+        }
+        n += 1;
+    }
+}
+
 /// Convert a 1-based `(line, column)` — column in UTF-16 units, as Monaco
 /// reports — back to a byte offset into `source`. The inverse of `to_position`.
 fn to_offset(source: &str, line: u32, col: u32) -> usize {
@@ -558,6 +574,29 @@ mod tests {
             !proj.files.iter().any(|f| f.name == "build"),
             "the build/ dir should be skipped"
         );
+    }
+
+    #[test]
+    fn create_form_writes_an_autonumbered_window_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("vbr-ide-form-{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tree = Node {
+            kind: "Column".to_string(),
+            props: NodeProps::default(),
+            children: vec![],
+        };
+        let (path, name) = create_form(&dir, &tree).unwrap();
+        assert!(path.exists(), "form file should be written");
+        assert_eq!(name, "Form1");
+        assert_eq!(path.file_name().unwrap(), "form1.vbr");
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Window Form1"));
+        assert!(content.contains("Function Main"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
