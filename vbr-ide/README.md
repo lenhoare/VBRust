@@ -5,10 +5,12 @@ idiomatic Rust appear on the right — the whole point of the language, in one
 window. It's a thin shell around the `vbr` compiler itself, so the Rust you see
 is exactly what the CLI would produce.
 
-**Status: slice 1 — the heartbeat.** Two panes (editable VBR, read-only Rust)
-with a live-updating transpile and a diagnostics strip. Build/Run, the project
-tree, completion/hover, and syntax highlighting land in later slices (see the
-task list).
+**Status: slices 1 + 6.** Two panes (editable VBR, read-only Rust) with a
+live-updating transpile, a diagnostics strip, and **syntax highlighting** for
+the VBR pane (a Monarch grammar in `src/vbrLanguage.ts`, mirroring the lexer's
+keywords, with the verbatim `Rust`/`Python`/`Text` blocks handled so their
+interiors aren't mis-coloured). Build/Run, the project tree, and LSP-driven
+completion/hover land in later slices (see the task list).
 
 ## How it's put together
 

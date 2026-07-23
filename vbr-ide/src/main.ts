@@ -1,6 +1,7 @@
 import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { invoke } from "@tauri-apps/api/core";
+import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 
 // Monaco needs a worker for the editor itself; VBR and Rust are both
 // Monarch-tokenised on the main thread here, so the base editor worker is all
@@ -35,13 +36,13 @@ Function Main()
 End Function
 `;
 
-// Register a bare 'vbr' language id now so the left pane is ours; the tokeniser
-// that gives it colour arrives in slice 6.
-monaco.languages.register({ id: "vbr" });
+// Register the 'vbr' language and its Monarch tokeniser (keywords, strings,
+// comments, numbers, and the verbatim Rust/Python/Text blocks).
+registerVbrLanguage(monaco);
 
 const editor = monaco.editor.create(document.getElementById("editor")!, {
   value: SAMPLE,
-  language: "vbr",
+  language: VBR_LANGUAGE_ID,
   theme: "vs-dark",
   minimap: { enabled: false },
   fontSize: 14,
