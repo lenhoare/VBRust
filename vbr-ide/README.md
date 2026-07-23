@@ -27,10 +27,13 @@ is exactly what the CLI would produce.
 - **Projects** — Open a folder to get a file-tree sidebar; a folder with a
   `main.vbr` is a *project* (opens on its entry point), and Run then builds and
   runs the whole thing via `vbr runproject` — so stdlib/GUI programs run too.
+- **Graduate & Test** — for an open project, **Test** runs `vbr test`, and
+  **Graduate** promotes the selected module's generated Rust to source
+  (`vbr graduate`) and refreshes the tree. Both stream output to the console.
 - **Comfort** — light/dark theme toggle, `Ctrl`-scroll zoom, a built-in example
   picker (loaded straight from the repo's `examples/`), a `?` shortcuts overlay.
 
-Still to come: `Graduate`/`Test` buttons, and installer packaging.
+Still to come: installer packaging (`.msi` / `.deb` / `.AppImage`).
 
 ## How it's put together
 
@@ -95,6 +98,10 @@ Notes from bringing it up on Linux:
 - Running a **project** (Run on a folder with `main.vbr`) shells out to the
   `vbr` binary's `runproject`. Put `vbr` on your `PATH`, or set `VBR_BIN` to its
   path (e.g. the repo's `target/debug/vbr`).
+- If the build fails on `glib-2.0.pc` (or another `*.pc`), a `-dev` package
+  didn't get pulled in transitively — the script now installs `libglib2.0-dev`
+  and `libsoup-3.0-dev` explicitly. Verify with
+  `pkg-config --exists glib-2.0 gtk+-3.0 webkit2gtk-4.1 libsoup-3.0`.
 
 On Windows none of this applies — it uses WebView2 and native dialogs.
 

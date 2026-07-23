@@ -310,6 +310,7 @@ exampleSelect.addEventListener("change", () => {
     currentPath = null;
     isProject = false; // an example is a scratch buffer
     updateFilename();
+    updateProjectButtons();
     editor.focus();
   }
   exampleSelect.value = ""; // reset to the "Load example…" placeholder
@@ -417,6 +418,7 @@ function newFile(): void {
   currentPath = null;
   isProject = false; // scratch buffer → single-file Run
   updateFilename();
+  updateProjectButtons();
   editor.focus();
 }
 
@@ -447,6 +449,7 @@ async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
   updateFilename();
   filetree.querySelectorAll(".tree-item.active").forEach((n) => n.classList.remove("active"));
   el.classList.add("active");
+  updateProjectButtons();
 }
 
 function renderTree(entries: FileEntry[]): void {
@@ -482,9 +485,74 @@ async function openFolder(): Promise<void> {
     const el = filetree.querySelector(`[data-path="${CSS.escape(proj.entry)}"]`) as HTMLElement | null;
     if (el) openTreeFile(proj.entry, el);
   }
+  updateProjectButtons();
 }
 
 openFolderBtn.addEventListener("click", openFolder);
+
+// --- Project actions: Test & Graduate --------------------------------------
+
+const testBtn = document.getElementById("test") as HTMLButtonElement;
+const graduateBtn = document.getElementById("graduate") as HTMLButtonElement;
+
+function updateProjectButtons(): void {
+  testBtn.disabled = !projectRoot;
+  graduateBtn.disabled = !(isProject && !!currentPath && currentPath.endsWith(".vbr"));
+}
+
+async function refreshTree(): Promise<void> {
+  if (!projectRoot) return;
+  const proj = await invoke<Project>("read_project_at", { root: projectRoot });
+  renderTree(proj.files);
+}
+
+async function testProgram(): Promise<void> {
+  if (!projectRoot) return;
+  testBtn.disabled = true;
+  testBtn.textContent = "Testing…";
+  consoleEl.className = "";
+  consoleEl.textContent = "Running tests…";
+  try {
+    renderRunOutput(await invoke<RunOutput>("test_at", { root: projectRoot }));
+  } catch (e) {
+    consoleEl.className = "err";
+    consoleEl.textContent = String(e);
+  } finally {
+    testBtn.textContent = "Test";
+    updateProjectButtons();
+  }
+}
+
+async function graduateProgram(): Promise<void> {
+  if (!currentPath) return;
+  const name = currentPath.split(/[/\\]/).pop();
+  if (
+    !window.confirm(
+      `Graduate ${name}?\n\nThis promotes its generated Rust to source and ` +
+        `retires the .vbr (kept beside it as .vbr.graduated).`,
+    )
+  ) {
+    return;
+  }
+  graduateBtn.disabled = true;
+  graduateBtn.textContent = "Graduating…";
+  consoleEl.className = "";
+  consoleEl.textContent = `Graduating ${name}…`;
+  try {
+    const out = await invoke<RunOutput>("graduate_at", { path: currentPath });
+    renderRunOutput(out);
+    if (out.success) await refreshTree(); // the files on disk changed
+  } catch (e) {
+    consoleEl.className = "err";
+    consoleEl.textContent = String(e);
+  } finally {
+    graduateBtn.textContent = "Graduate";
+    updateProjectButtons();
+  }
+}
+
+testBtn.addEventListener("click", testProgram);
+graduateBtn.addEventListener("click", graduateProgram);
 
 // --- Resizable split -------------------------------------------------------
 

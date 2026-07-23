@@ -6,8 +6,8 @@
 
 use std::path::{Path, PathBuf};
 use vbr_ide_core::{
-    complete, definition, hover, read_file, read_project, run, run_project, transpile,
-    CompletionItem, Project, Range, RunOutput, TranspileResult,
+    complete, definition, graduate, hover, read_file, read_project, run, run_project, test_project,
+    transpile, CompletionItem, Project, Range, RunOutput, TranspileResult,
 };
 
 /// A file the user opened: its path (so Save can write back to it) and text.
@@ -113,6 +113,43 @@ fn read_file_at(path: String) -> Result<String, String> {
     read_file(&path)
 }
 
+/// Re-read a known folder into a project tree (e.g. after graduation changes
+/// the files on disk).
+#[tauri::command]
+fn read_project_at(root: String) -> Project {
+    read_project(Path::new(&root))
+}
+
+/// Graduate a module: `vbr graduate <path>`.
+#[tauri::command]
+async fn graduate_at(path: String) -> RunOutput {
+    tauri::async_runtime::spawn_blocking(move || graduate(Path::new(&path)))
+        .await
+        .unwrap_or_else(|e| RunOutput {
+            stage: "compile".to_string(),
+            rust: String::new(),
+            diagnostics: Vec::new(),
+            stdout: String::new(),
+            stderr: format!("The graduate task failed to complete: {e}"),
+            success: false,
+        })
+}
+
+/// Run a project's tests: `vbr test <root>`.
+#[tauri::command]
+async fn test_at(root: String) -> RunOutput {
+    tauri::async_runtime::spawn_blocking(move || test_project(Path::new(&root)))
+        .await
+        .unwrap_or_else(|e| RunOutput {
+            stage: "compile".to_string(),
+            rust: String::new(),
+            diagnostics: Vec::new(),
+            stdout: String::new(),
+            stderr: format!("The test task failed to complete: {e}"),
+            success: false,
+        })
+}
+
 /// Build and run a whole project folder via `vbr runproject`.
 #[tauri::command]
 async fn run_project_at(root: String) -> RunOutput {
@@ -140,7 +177,10 @@ fn main() {
             definition_at,
             open_folder,
             read_file_at,
-            run_project_at
+            read_project_at,
+            run_project_at,
+            graduate_at,
+            test_at
         ])
         .run(tauri::generate_context!())
         .expect("error while running the VBR IDE");

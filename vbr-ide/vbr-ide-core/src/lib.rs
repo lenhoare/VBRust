@@ -324,15 +324,11 @@ fn vbr_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("vbr"))
 }
 
-/// Build and run a whole project via `vbr runproject` (the folder-based runner
-/// that wires up the stdlib and crates). Needs the `vbr` binary on `PATH` or in
-/// `VBR_BIN`.
-pub fn run_project(root: &Path) -> RunOutput {
-    let output = Command::new(vbr_binary())
-        .arg("runproject")
-        .arg(root)
-        .output();
-    match output {
+/// Run a `vbr <subcommand> <target>` and capture its output. Shared by the
+/// project actions (runproject / graduate / test). Needs the `vbr` binary on
+/// `PATH` or in `VBR_BIN`.
+fn run_vbr(subcommand: &str, target: &Path) -> RunOutput {
+    match Command::new(vbr_binary()).arg(subcommand).arg(target).output() {
         Ok(o) => RunOutput {
             stage: "run".to_string(),
             rust: String::new(),
@@ -346,11 +342,28 @@ pub fn run_project(root: &Path) -> RunOutput {
             String::new(),
             Vec::new(),
             format!(
-                "Couldn't launch the `vbr` project runner ({e}). Put `vbr` on your \
-                 PATH, or set the VBR_BIN environment variable to its path."
+                "Couldn't launch the `vbr` binary ({e}). Put `vbr` on your PATH, \
+                 or set the VBR_BIN environment variable to its path."
             ),
         ),
     }
+}
+
+/// Build and run a whole project via `vbr runproject` (the folder-based runner
+/// that wires up the stdlib and crates).
+pub fn run_project(root: &Path) -> RunOutput {
+    run_vbr("runproject", root)
+}
+
+/// Promote a module's generated Rust to source via `vbr graduate` — retires the
+/// `.vbr` (kept as `.vbr.graduated`) and drops a `.rs` beside it.
+pub fn graduate(target: &Path) -> RunOutput {
+    run_vbr("graduate", target)
+}
+
+/// Run a project's tests via `vbr test`.
+pub fn test_project(target: &Path) -> RunOutput {
+    run_vbr("test", target)
 }
 
 /// Read a single file's text (for opening a node from the tree).

@@ -12,6 +12,8 @@ sudo apt-get update
 sudo apt-get install -y \
   libwebkit2gtk-4.1-dev \
   libgtk-3-dev \
+  libglib2.0-dev \
+  libsoup-3.0-dev \
   librsvg2-dev \
   libayatana-appindicator3-dev \
   libxdo-dev \
