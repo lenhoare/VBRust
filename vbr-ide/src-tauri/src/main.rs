@@ -114,6 +114,12 @@ fn read_file_at(path: String) -> Result<String, String> {
     read_file(&path)
 }
 
+/// Delete a file (from the tree's right-click menu).
+#[tauri::command]
+fn delete_file(path: String) -> Result<(), String> {
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
 /// Re-read a known folder into a project tree (e.g. after graduation changes
 /// the files on disk).
 #[tauri::command]
@@ -205,6 +211,7 @@ fn main() {
             definition_at,
             open_folder,
             read_file_at,
+            delete_file,
             read_project_at,
             run_project_at,
             graduate_at,

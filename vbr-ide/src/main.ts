@@ -151,12 +151,14 @@ monaco.languages.registerDefinitionProvider(VBR_LANGUAGE_ID, {
   },
 });
 
-// Restore the last session's work if there is any, otherwise show the welcome.
-const STORAGE_KEY = "vbr-ide.source";
-const initialSource = localStorage.getItem(STORAGE_KEY) ?? SAMPLE;
+// Start blank each launch (not the last-open file). SAMPLE is available via the
+// examples picker instead.
+void SAMPLE;
+let editorDirty = false;
+let suppressDirty = false;
 
 const editor = monaco.editor.create(document.getElementById("editor")!, {
-  value: initialSource,
+  value: "",
   language: VBR_LANGUAGE_ID,
   theme: "vs-dark",
   minimap: { enabled: false },
@@ -290,7 +292,7 @@ function escapeHtml(s: string): string {
 // The compiler is fast, but there's no need to run it on every keystroke.
 let timer: number | undefined;
 editor.onDidChangeModelContent(() => {
-  localStorage.setItem(STORAGE_KEY, editor.getValue());
+  if (!suppressDirty) setDirty(true);
   window.clearTimeout(timer);
   timer = window.setTimeout(refresh, 150);
 });
@@ -298,23 +300,31 @@ editor.onDidChangeModelContent(() => {
 // --- Example picker --------------------------------------------------------
 
 const exampleSelect = document.getElementById("examples") as HTMLSelectElement;
-for (const ex of EXAMPLES) {
-  const opt = document.createElement("option");
-  opt.value = ex.label;
-  opt.textContent = ex.label;
-  exampleSelect.appendChild(opt);
+{
+  let lastGroup = "";
+  let group: HTMLOptGroupElement | null = null;
+  EXAMPLES.forEach((ex, i) => {
+    if (ex.group !== lastGroup) {
+      group = document.createElement("optgroup");
+      group.label = ex.group;
+      exampleSelect.appendChild(group);
+      lastGroup = ex.group;
+    }
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = ex.label;
+    (group ?? exampleSelect).appendChild(opt);
+  });
 }
 exampleSelect.addEventListener("change", () => {
-  const ex = EXAMPLES.find((e) => e.label === exampleSelect.value);
-  if (ex) {
-    editor.setValue(ex.source);
-    currentPath = null;
-    isProject = false; // an example is a scratch buffer
-    updateFilename();
-    updateProjectButtons();
-    editor.focus();
-  }
+  const ex = EXAMPLES[Number(exampleSelect.value)];
   exampleSelect.value = ""; // reset to the "Load example…" placeholder
+  if (!ex || !confirmDiscard()) return;
+  currentPath = null;
+  isProject = false; // an example is a scratch buffer
+  loadContent(ex.source);
+  updateProjectButtons();
+  editor.focus();
 });
 
 // --- Run -------------------------------------------------------------------
@@ -384,19 +394,40 @@ const statusFile = document.getElementById("status-file")!;
 const newBtn = document.getElementById("new-file") as HTMLButtonElement;
 const openBtn = document.getElementById("open-file") as HTMLButtonElement;
 const saveBtn = document.getElementById("save-file") as HTMLButtonElement;
+const saveAsBtn = document.getElementById("saveas-file") as HTMLButtonElement;
+
+function setDirty(d: boolean): void {
+  editorDirty = d;
+  updateFilename();
+}
 
 function updateFilename(): void {
   const name = currentPath ? currentPath.split(/[/\\]/).pop()! : "untitled";
-  statusFile.textContent = name;
-  document.title = `${name} — VBR IDE`;
+  const mark = editorDirty ? "● " : "";
+  statusFile.textContent = mark + name;
+  document.title = `${mark}${name} — VBR IDE`;
+}
+
+// Replace the editor content as a *load*, not an edit — so it isn't marked dirty.
+function loadContent(text: string): void {
+  suppressDirty = true;
+  editor.setValue(text);
+  suppressDirty = false;
+  setDirty(false);
+}
+
+function confirmDiscard(): boolean {
+  return !editorDirty || window.confirm("Discard unsaved changes to the current file?");
 }
 
 async function openFile(): Promise<void> {
+  if (!confirmDiscard()) return;
   const res = await invoke<OpenedFile | null>("open_file");
   if (res) {
-    editor.setValue(res.content);
     currentPath = res.path;
-    updateFilename();
+    isProject = false;
+    loadContent(res.content);
+    updateProjectButtons();
   }
 }
 
@@ -407,7 +438,7 @@ async function saveFile(forceDialog: boolean): Promise<void> {
   });
   if (path) {
     currentPath = path;
-    updateFilename();
+    setDirty(false);
     const original = saveBtn.textContent;
     saveBtn.textContent = "Saved ✓";
     window.setTimeout(() => (saveBtn.textContent = original), 1000);
@@ -415,10 +446,10 @@ async function saveFile(forceDialog: boolean): Promise<void> {
 }
 
 function newFile(): void {
-  editor.setValue("");
+  if (!confirmDiscard()) return;
   currentPath = null;
   isProject = false; // scratch buffer → single-file Run
-  updateFilename();
+  loadContent("");
   updateProjectButtons();
   editor.focus();
 }
@@ -426,8 +457,10 @@ function newFile(): void {
 newBtn.addEventListener("click", newFile);
 openBtn.addEventListener("click", openFile);
 saveBtn.addEventListener("click", () => saveFile(false));
+saveAsBtn.addEventListener("click", () => saveFile(true));
 
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile(false));
+editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveFile(true));
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, openFile);
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, newFile);
 updateFilename();
@@ -443,11 +476,11 @@ const filetree = document.getElementById("filetree")!;
 const openFolderBtn = document.getElementById("open-folder") as HTMLButtonElement;
 
 async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
+  if (!confirmDiscard()) return;
   const content = await invoke<string>("read_file_at", { path });
-  editor.setValue(content);
   currentPath = path;
   isProject = projectIsVbr; // editing a project file → Run builds the project
-  updateFilename();
+  loadContent(content);
   filetree.querySelectorAll(".tree-item.active").forEach((n) => n.classList.remove("active"));
   el.classList.add("active");
   updateProjectButtons();
@@ -455,22 +488,69 @@ async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
 
 function renderTree(entries: FileEntry[]): void {
   filetree.innerHTML = "";
-  const build = (list: FileEntry[], depth: number) => {
+  const build = (list: FileEntry[], depth: number, parent: HTMLElement) => {
     for (const entry of list) {
-      const div = document.createElement("div");
-      div.className = "tree-item" + (entry.is_dir ? " dir" : "");
-      div.style.paddingLeft = `${8 + depth * 12}px`;
-      div.textContent = (entry.is_dir ? "▸ " : "") + entry.name;
-      if (!entry.is_dir) {
-        div.dataset.path = entry.path;
-        div.addEventListener("click", () => openTreeFile(entry.path, div));
+      const row = document.createElement("div");
+      row.className = "tree-item" + (entry.is_dir ? " dir" : "");
+      row.style.paddingLeft = `${8 + depth * 12}px`;
+      if (entry.is_dir) {
+        // A collapsible folder: clicking toggles its children.
+        row.textContent = "▾ " + entry.name;
+        const kids = document.createElement("div");
+        build(entry.children, depth + 1, kids);
+        row.addEventListener("click", () => {
+          const hidden = kids.style.display === "none";
+          kids.style.display = hidden ? "" : "none";
+          row.textContent = (hidden ? "▾ " : "▸ ") + entry.name;
+        });
+        parent.append(row, kids);
+      } else {
+        row.textContent = entry.name;
+        row.dataset.path = entry.path;
+        row.addEventListener("click", () => openTreeFile(entry.path, row));
+        row.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          showFileMenu(e, entry.path);
+        });
+        parent.appendChild(row);
       }
-      filetree.appendChild(div);
-      if (entry.is_dir) build(entry.children, depth + 1);
     }
   };
-  build(entries, 0);
+  build(entries, 0, filetree);
 }
+
+function closeFileMenu(): void {
+  document.querySelectorAll(".context-menu").forEach((m) => m.remove());
+}
+
+function showFileMenu(e: MouseEvent, path: string): void {
+  closeFileMenu();
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+  menu.style.left = `${e.clientX}px`;
+  menu.style.top = `${e.clientY}px`;
+  const del = document.createElement("div");
+  del.className = "context-item danger";
+  del.textContent = "Delete file";
+  del.addEventListener("click", async () => {
+    closeFileMenu();
+    const name = path.split(/[/\\]/).pop();
+    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+    try {
+      await invoke("delete_file", { path });
+      if (currentPath === path) {
+        currentPath = null;
+        loadContent("");
+      }
+      await refreshTree();
+    } catch (err) {
+      window.alert(String(err));
+    }
+  });
+  menu.appendChild(del);
+  document.body.appendChild(menu);
+}
+window.addEventListener("click", closeFileMenu);
 
 async function openFolder(): Promise<void> {
   const proj = await invoke<Project | null>("open_folder");
@@ -616,6 +696,42 @@ window.addEventListener("mousemove", (e) => {
 window.addEventListener("mouseup", () => {
   draggingBottomH = false;
   draggingProblems = false;
+  document.body.classList.remove("resizing");
+});
+
+// Sidebar (folder bar) width, and the designer's surface | VBR split.
+const gutterSidebar = document.getElementById("gutter-sidebar")!;
+const sidebarEl2 = document.getElementById("sidebar")!;
+const workspaceEl = document.getElementById("workspace")!;
+const gutterDesign = document.getElementById("gutter-design")!;
+const designCodeWrap = document.getElementById("design-code-wrap")!;
+const designerEl = document.getElementById("designer")!;
+let draggingSidebar = false;
+let draggingDesign = false;
+
+gutterSidebar.addEventListener("mousedown", () => {
+  draggingSidebar = true;
+  document.body.classList.add("resizing");
+});
+gutterDesign.addEventListener("mousedown", () => {
+  draggingDesign = true;
+  document.body.classList.add("resizing");
+});
+window.addEventListener("mousemove", (e) => {
+  if (draggingSidebar) {
+    const rect = workspaceEl.getBoundingClientRect();
+    const w = Math.min(rect.width * 0.6, Math.max(120, e.clientX - rect.left));
+    sidebarEl2.style.flexBasis = `${w}px`;
+  }
+  if (draggingDesign) {
+    const rect = designerEl.getBoundingClientRect();
+    const w = Math.min(rect.width * 0.7, Math.max(200, rect.right - e.clientX));
+    designCodeWrap.style.flexBasis = `${w}px`;
+  }
+});
+window.addEventListener("mouseup", () => {
+  draggingSidebar = false;
+  draggingDesign = false;
   document.body.classList.remove("resizing");
 });
 

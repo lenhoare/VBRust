@@ -167,6 +167,33 @@ body.designer-mode .designer-only {
 .tree-item.active {
   background: rgba(78, 201, 176, 0.22);
 }
+.tree-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  opacity: 0.5;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  min-width: 130px;
+}
+.context-item {
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.context-item:hover {
+  background: rgba(127, 127, 127, 0.15);
+}
+.context-item.danger {
+  color: #f48771;
+}
 
 #panes {
   flex: 1;

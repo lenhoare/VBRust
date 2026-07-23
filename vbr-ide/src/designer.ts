@@ -169,6 +169,14 @@ export function isDesignerDirty(): boolean {
   return root.children.length > 0;
 }
 
+/** The "Clear" button: start over, warning if there's unsaved work. */
+function clearDesign(): void {
+  if (isDesignerDirty() && !window.confirm("Clear the design? Unsaved controls will be lost.")) {
+    return;
+  }
+  newForm();
+}
+
 // ---- surface rendering ----------------------------------------------------
 
 function widgetEl(node: DNode): HTMLElement {
@@ -182,7 +190,7 @@ function widgetEl(node: DNode): HTMLElement {
     const tag = document.createElement("div");
     tag.className = "dnode-tag";
     const shown = CONTAINER_ARROW[node.kind] ?? node.kind;
-    tag.textContent = node.id === root.id ? `Form — ${shown}` : shown;
+    tag.textContent = node.id === root.id ? `Container — ${shown}` : shown;
     tag.style.flexBasis = "100%";
     el.appendChild(tag);
     for (const c of node.children) el.appendChild(widgetEl(c));
@@ -376,7 +384,7 @@ export function setupDesigner(createForm: (tree: unknown, target: string) => voi
 
   renderPalette();
   document.getElementById("del-node")!.addEventListener("click", deleteSelected);
-  document.getElementById("new-form")!.addEventListener("click", newForm);
+  document.getElementById("new-form")!.addEventListener("click", clearDesign);
   document.getElementById("create-form")!.addEventListener("click", () => onCreate(root, target));
 
   // Delete / Backspace removes the selected control (unless you're typing in a

@@ -14,6 +14,7 @@
         <button id="new-file" class="btn code-only" title="New (Ctrl+N)">New</button>
         <button id="open-file" class="btn code-only" title="Open (Ctrl+O)">Open</button>
         <button id="save-file" class="btn code-only" title="Save (Ctrl+S)">Save</button>
+        <button id="saveas-file" class="btn code-only" title="Save As (Ctrl+Shift+S)">Save As</button>
         <button id="open-folder" class="btn code-only" title="Open a folder / project">Folder</button>
         <span id="designer-title" class="designer-only designer-title">Form Designer</span>
         <span class="spacer"></span>
@@ -31,10 +32,13 @@
         <button id="help" class="btn" title="Keyboard shortcuts (?)">?</button>
       </header>
       <main id="workspace">
-        <aside id="sidebar" class="hidden">
+        <aside id="sidebar">
           <div class="pane-label" id="sidebar-title">Files</div>
-          <div id="filetree"></div>
+          <div id="filetree">
+            <div class="tree-empty">No folder open — click <b>Folder</b>.</div>
+          </div>
         </aside>
+        <div class="gutter" id="gutter-sidebar" title="Drag to resize"></div>
         <div id="panes">
           <section class="pane" id="left-pane">
             <div class="pane-label">VBR</div>
@@ -69,11 +73,12 @@
         <div id="surface-wrap">
           <div class="pane-label">
             Form
-            <button id="new-form" class="btn small" title="Start a new empty form">New form</button>
+            <button id="new-form" class="btn small" title="Clear and start a new empty design">Clear</button>
             <button id="del-node" class="btn small danger" title="Delete the selected control (Del)">Delete</button>
           </div>
           <div id="surface"></div>
         </div>
+        <div class="gutter" id="gutter-design" title="Drag to resize"></div>
         <div id="design-code-wrap">
           <div class="pane-label">
             Generated VBR (a complete Window)
