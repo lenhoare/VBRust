@@ -3,7 +3,7 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { invoke } from "@tauri-apps/api/core";
 import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
-import { setupDesigner } from "./designer";
+import { setupDesigner, resetDesigner, isDesignerDirty } from "./designer";
 
 // Monaco needs a worker for the editor itself; VBR and Rust are both
 // Monarch-tokenised on the main thread here, so the base editor worker is all
@@ -582,6 +582,43 @@ window.addEventListener("mouseup", () => {
   panesEl.classList.remove("dragging");
 });
 
+// Bottom panel: drag its top edge (height) and the Problems|Output divider (width).
+const gutterBottom = document.getElementById("gutter-bottom")!;
+const gutterProblems = document.getElementById("gutter-problems")!;
+const bottomEl = document.getElementById("bottom")!;
+const appEl = document.getElementById("app")!;
+const statusbarEl = document.getElementById("statusbar")!;
+const problemsPane = document.getElementById("problems-pane")!;
+let draggingBottomH = false;
+let draggingProblems = false;
+
+gutterBottom.addEventListener("mousedown", () => {
+  draggingBottomH = true;
+  document.body.classList.add("resizing");
+});
+gutterProblems.addEventListener("mousedown", () => {
+  draggingProblems = true;
+  document.body.classList.add("resizing");
+});
+window.addEventListener("mousemove", (e) => {
+  if (draggingBottomH) {
+    const appRect = appEl.getBoundingClientRect();
+    const statusH = statusbarEl.getBoundingClientRect().height;
+    const h = Math.min(appRect.height * 0.8, Math.max(60, appRect.bottom - statusH - e.clientY));
+    bottomEl.style.height = `${h}px`;
+  }
+  if (draggingProblems) {
+    const rect = bottomEl.getBoundingClientRect();
+    const pct = Math.min(85, Math.max(15, ((e.clientX - rect.left) / rect.width) * 100));
+    problemsPane.style.flexBasis = `${pct}%`;
+  }
+});
+window.addEventListener("mouseup", () => {
+  draggingBottomH = false;
+  draggingProblems = false;
+  document.body.classList.remove("resizing");
+});
+
 // --- Help overlay ----------------------------------------------------------
 
 const helpBtn = document.getElementById("help") as HTMLButtonElement;
@@ -619,21 +656,19 @@ applyTheme(localStorage.getItem(THEME_KEY) === "light");
 
 // --- Form designer ---------------------------------------------------------
 
-const designerToggle = document.getElementById("designer-toggle") as HTMLButtonElement;
-
-async function createForm(tree: unknown): Promise<void> {
+async function createForm(tree: unknown, target: string): Promise<void> {
   if (!projectRoot) {
-    window.alert("Open a project folder first (the Folder button) — that's where the form file is saved.");
+    window.alert("Open a project folder first (the Folder button) — that's where the file is saved.");
     return;
   }
   try {
     const created = await invoke<{ path: string; name: string }>("create_form", {
       dir: projectRoot,
       tree,
+      target,
     });
     await refreshTree();
     document.body.classList.remove("designer-mode");
-    designerToggle.classList.remove("primary");
     const el = filetree.querySelector(`[data-path="${CSS.escape(created.path)}"]`) as HTMLElement | null;
     if (el) openTreeFile(created.path, el);
   } catch (e) {
@@ -643,12 +678,23 @@ async function createForm(tree: unknown): Promise<void> {
 
 setupDesigner(createForm);
 
-designerToggle.addEventListener("click", async () => {
-  const turningOn = !document.body.classList.contains("designer-mode");
-  // A form is saved into a project, so make sure one is open first.
-  if (turningOn && !projectRoot) await openFolder();
-  const on = document.body.classList.toggle("designer-mode");
-  designerToggle.classList.toggle("primary", on);
+const enterDesignerBtn = document.getElementById("enter-designer") as HTMLButtonElement;
+const enterScreenBtn = document.getElementById("enter-screen") as HTMLButtonElement;
+const exitDesignerBtn = document.getElementById("exit-designer") as HTMLButtonElement;
+
+async function enterDesigner(t: "gui" | "tui"): Promise<void> {
+  // The file is saved into a project, so make sure one is open first.
+  if (!projectRoot) await openFolder();
+  resetDesigner(t); // a fresh, blank design every time
+  document.body.classList.add("designer-mode");
+}
+
+enterDesignerBtn.addEventListener("click", () => enterDesigner("gui"));
+enterScreenBtn.addEventListener("click", () => enterDesigner("tui"));
+
+exitDesignerBtn.addEventListener("click", () => {
+  if (isDesignerDirty() && !window.confirm("Discard this design? It hasn't been created yet.")) return;
+  document.body.classList.remove("designer-mode");
 });
 
 refresh();

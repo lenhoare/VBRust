@@ -23,11 +23,17 @@ interface DNode {
 }
 
 const CONTAINERS = new Set(["Column", "Row"]);
-const PALETTE = [
-  "Column", "Row",
-  "Text", "Button", "TextInput", "TextArea", "Checkbox", "Toggler", "Slider",
-  "ProgressBar", "Image", "Space", "Canvas", "Chart",
-];
+const PALETTES: Record<string, string[]> = {
+  // GUI (Window) widgets.
+  gui: [
+    "Column", "Row",
+    "Text", "Button", "TextInput", "TextArea", "Checkbox", "Toggler", "Slider",
+    "ProgressBar", "Image", "Space", "Canvas", "Chart",
+  ],
+  // TUI (Screen) widgets — keyboard-driven, richer data widgets, no Button.
+  tui: ["Column", "Row", "Text", "Input", "List", "Sparkline", "Gauge"],
+};
+let target = "gui"; // "gui" | "tui"
 
 let uid = 1;
 const nextId = () => uid++;
@@ -36,9 +42,17 @@ function defaults(kind: string): DProps {
   switch (kind) {
     case "Column":
     case "Row":
-      return { spacing: 8, padding: 8 };
+      return target === "tui" ? { spacing: 1, padding: 1 } : { spacing: 8, padding: 8 };
     case "Text":
       return { text: "Label" };
+    case "Input":
+      return { field: "entry", event: "Submitted" };
+    case "List":
+      return { field: "items", event: "Selected" };
+    case "Sparkline":
+      return { field: "values" };
+    case "Gauge":
+      return { field: "level", min: 0, max: 100 };
     case "Button":
       return { text: "Button", event: "Clicked" };
     case "TextInput":
@@ -74,7 +88,7 @@ let paletteItemsEl: HTMLElement;
 let surfaceEl: HTMLElement;
 let propsEl: HTMLElement;
 let codeEl: HTMLElement;
-let onCreate: (tree: unknown) => void = () => {};
+let onCreate: (tree: unknown, target: string) => void = () => {};
 
 function findNode(
   id: number,
@@ -123,6 +137,36 @@ function newForm(): void {
   root = { id: nextId(), kind: "Column", props: { spacing: 8, padding: 16 }, children: [] };
   selectedId = root.id;
   render();
+}
+
+/** Start the designer fresh for a target (called each time it's opened). */
+export function resetDesigner(t: "gui" | "tui"): void {
+  target = t;
+  newForm();
+  renderPalette();
+  const title = document.getElementById("designer-title");
+  if (title) {
+    title.textContent =
+      target === "tui"
+        ? "Screen Designer — a new terminal Screen (read-only VBR)"
+        : "Form Designer — a new Window (read-only VBR)";
+  }
+}
+
+function renderPalette(): void {
+  paletteItemsEl.innerHTML = "";
+  for (const kind of PALETTES[target]) {
+    const b = document.createElement("button");
+    b.className = "palette-item";
+    b.textContent = CONTAINER_ARROW[kind] ?? kind;
+    b.addEventListener("click", () => addControl(kind));
+    paletteItemsEl.appendChild(b);
+  }
+}
+
+/** True if the form has controls that haven't been written to a file yet. */
+export function isDesignerDirty(): boolean {
+  return root.children.length > 0;
 }
 
 // ---- surface rendering ----------------------------------------------------
@@ -178,6 +222,19 @@ function widgetEl(node: DNode): HTMLElement {
         break;
       case "ProgressBar":
         w.textContent = `▰▰▱ ${p.field ?? ""}`;
+        break;
+      case "Input":
+        w.textContent = `▭ ${p.field ?? ""} (⏎ submit)`;
+        break;
+      case "List":
+        w.textContent = `☰ List: ${p.field ?? ""}`;
+        break;
+      case "Gauge":
+        w.textContent = `◔ ${p.field ?? ""}`;
+        break;
+      case "Sparkline":
+        w.classList.add("placeholder");
+        w.textContent = `Sparkline: ${p.field ?? ""}`;
         break;
       case "Image":
         w.textContent = `🖼 ${p.text ?? ""}`;
@@ -265,12 +322,12 @@ function renderProps(): void {
     propsEl.appendChild(row);
   };
 
-  const RANGE = ["Slider", "ProgressBar"];
+  const RANGE = ["Slider", "ProgressBar", "Gauge"];
   const k = node.kind;
   if (["Text", "Button", "TextInput", "Checkbox", "Toggler", "Image"].includes(k)) field("Text", "text");
-  if (["Text", "TextInput", "TextArea", "Checkbox", "Toggler", ...RANGE].includes(k))
+  if (["Text", "TextInput", "TextArea", "Checkbox", "Toggler", "Input", "List", "Sparkline", ...RANGE].includes(k))
     field("Field", "field");
-  if (["Button", "TextInput", "Checkbox", "Toggler", "Slider"].includes(k)) field("Event", "event");
+  if (["Button", "TextInput", "Checkbox", "Toggler", "Slider", "Input", "List"].includes(k)) field("Event", "event");
   if (RANGE.includes(k)) {
     field("Min", "min", "number");
     field("Max", "max", "number");
@@ -292,7 +349,7 @@ function renderProps(): void {
 
 async function regenerate(): Promise<void> {
   try {
-    codeEl.textContent = await invoke<string>("generate_design", { tree: root });
+    codeEl.textContent = await invoke<string>("generate_design", { tree: root, target });
   } catch (e) {
     codeEl.textContent = String(e);
   }
@@ -302,7 +359,7 @@ async function regenerate(): Promise<void> {
  * Wire up the designer UI. `createForm` is called with the current widget tree
  * when the user clicks "Create form" (the host writes the file + opens it).
  */
-export function setupDesigner(createForm: (tree: unknown) => void): void {
+export function setupDesigner(createForm: (tree: unknown, target: string) => void): void {
   onCreate = createForm;
   paletteItemsEl = document.getElementById("palette-items")!;
   surfaceEl = document.getElementById("surface")!;
@@ -317,16 +374,10 @@ export function setupDesigner(createForm: (tree: unknown) => void): void {
     render();
   });
 
-  for (const kind of PALETTE) {
-    const b = document.createElement("button");
-    b.className = "palette-item";
-    b.textContent = CONTAINER_ARROW[kind] ?? kind;
-    b.addEventListener("click", () => addControl(kind));
-    paletteItemsEl.appendChild(b);
-  }
+  renderPalette();
   document.getElementById("del-node")!.addEventListener("click", deleteSelected);
   document.getElementById("new-form")!.addEventListener("click", newForm);
-  document.getElementById("create-form")!.addEventListener("click", () => onCreate(root));
+  document.getElementById("create-form")!.addEventListener("click", () => onCreate(root, target));
 
   // Delete / Backspace removes the selected control (unless you're typing in a
   // properties field).

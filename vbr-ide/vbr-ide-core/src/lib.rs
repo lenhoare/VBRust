@@ -377,13 +377,15 @@ pub fn read_file(path: &str) -> Result<String, String> {
 /// Write a new auto-numbered `formN.vbr` (a complete Window) into `dir`,
 /// returning its path and the Window's name. Numbers up from `form1.vbr` so it
 /// never clobbers an existing form.
-pub fn create_form(dir: &Path, tree: &Node) -> std::io::Result<(PathBuf, String)> {
+pub fn create_form(dir: &Path, tree: &Node, target: &str) -> std::io::Result<(PathBuf, String)> {
+    let tui = target.eq_ignore_ascii_case("tui") || target.eq_ignore_ascii_case("screen");
+    let (file_prefix, name_prefix) = if tui { ("screen", "Screen") } else { ("form", "Form") };
     let mut n = 1;
     loop {
-        let file = dir.join(format!("form{n}.vbr"));
+        let file = dir.join(format!("{file_prefix}{n}.vbr"));
         if !file.exists() {
-            let name = format!("Form{n}");
-            std::fs::write(&file, design_to_vbr(tree, &name))?;
+            let name = format!("{name_prefix}{n}");
+            std::fs::write(&file, design_to_vbr(tree, &name, target))?;
             return Ok((file, name));
         }
         n += 1;
@@ -589,7 +591,7 @@ mod tests {
             props: NodeProps::default(),
             children: vec![],
         };
-        let (path, name) = create_form(&dir, &tree).unwrap();
+        let (path, name) = create_form(&dir, &tree, "gui").unwrap();
         assert!(path.exists(), "form file should be written");
         assert_eq!(name, "Form1");
         assert_eq!(path.file_name().unwrap(), "form1.vbr");

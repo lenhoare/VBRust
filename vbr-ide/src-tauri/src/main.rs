@@ -166,11 +166,13 @@ async fn run_project_at(root: String) -> RunOutput {
         })
 }
 
-/// Generate a complete VBR `Window` from a form-designer widget tree (live
-/// preview — the real file uses its auto-numbered name).
+/// Generate a complete VBR `Window`/`Screen` from a form-designer widget tree
+/// (live preview — the real file uses its auto-numbered name). `target` is
+/// "gui" or "tui".
 #[tauri::command]
-fn generate_design(tree: Node) -> String {
-    design_to_vbr(&tree, "Form1")
+fn generate_design(tree: Node, target: String) -> String {
+    let name = if target == "tui" { "Screen1" } else { "Form1" };
+    design_to_vbr(&tree, name, &target)
 }
 
 /// A form file just written to disk.
@@ -180,10 +182,10 @@ struct CreatedForm {
     name: String,
 }
 
-/// Write the designed form as a new auto-numbered `formN.vbr` in `dir`.
+/// Write the designed form as a new auto-numbered `formN.vbr`/`screenN.vbr` in `dir`.
 #[tauri::command]
-fn create_form(dir: String, tree: Node) -> Result<CreatedForm, String> {
-    core_create_form(Path::new(&dir), &tree)
+fn create_form(dir: String, tree: Node, target: String) -> Result<CreatedForm, String> {
+    core_create_form(Path::new(&dir), &tree, &target)
         .map(|(p, name)| CreatedForm {
             path: p.to_string_lossy().into_owned(),
             name,

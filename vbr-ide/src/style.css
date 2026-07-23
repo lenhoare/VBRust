@@ -89,6 +89,29 @@ body {
 .btn.primary:hover {
   background: #1177bb;
 }
+.btn.danger {
+  background: #a1260d;
+  border-color: #c1352b;
+  color: #fff;
+}
+.btn.danger:hover {
+  background: #c1352b;
+}
+
+/* Toolbar swaps its button set between code and designer modes. */
+.designer-only {
+  display: none;
+}
+body.designer-mode .code-only {
+  display: none;
+}
+body.designer-mode .designer-only {
+  display: inline-block;
+}
+.designer-title {
+  font-size: 12px;
+  opacity: 0.6;
+}
 
 .select {
   font: inherit;
@@ -200,9 +223,17 @@ body {
 #bottom {
   display: flex;
   height: 28%;
-  min-height: 120px;
-  border-top: 1px solid var(--border);
+  min-height: 60px;
   background: var(--panel);
+}
+
+.gutter-h {
+  flex: 0 0 5px;
+  cursor: row-resize;
+  background: var(--border);
+}
+.gutter-h:hover {
+  background: var(--accent);
 }
 
 .bottom-pane {
@@ -214,6 +245,20 @@ body {
 }
 .bottom-pane:last-child {
   border-right: none;
+}
+#problems-pane {
+  flex: 0 0 50%;
+  border-right: none;
+}
+
+/* Don't select text while dragging a divider. */
+body.resizing {
+  user-select: none;
+}
+body.resizing .editor,
+body.resizing #diagnostics,
+body.resizing #console {
+  pointer-events: none;
 }
 
 #diagnostics,
@@ -307,7 +352,8 @@ body {
   min-height: 0;
 }
 body.designer-mode #workspace,
-body.designer-mode #bottom {
+body.designer-mode #bottom,
+body.designer-mode .gutter-h {
   display: none;
 }
 body.designer-mode #designer {

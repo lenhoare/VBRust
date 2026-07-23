@@ -11,19 +11,22 @@
       <header id="toolbar">
         <span class="brand">VBR</span>
         <span class="tagline">VBA syntax in · idiomatic Rust out</span>
-        <button id="new-file" class="btn" title="New (Ctrl+N)">New</button>
-        <button id="open-file" class="btn" title="Open (Ctrl+O)">Open</button>
-        <button id="save-file" class="btn" title="Save (Ctrl+S)">Save</button>
-        <button id="open-folder" class="btn" title="Open a folder / project">Folder</button>
+        <button id="new-file" class="btn code-only" title="New (Ctrl+N)">New</button>
+        <button id="open-file" class="btn code-only" title="Open (Ctrl+O)">Open</button>
+        <button id="save-file" class="btn code-only" title="Save (Ctrl+S)">Save</button>
+        <button id="open-folder" class="btn code-only" title="Open a folder / project">Folder</button>
+        <span id="designer-title" class="designer-only designer-title">Form Designer</span>
         <span class="spacer"></span>
-        <select id="examples" class="select" title="Load an example">
+        <select id="examples" class="select code-only" title="Load an example">
           <option value="">Load example…</option>
         </select>
-        <button id="copy-rust" class="btn" title="Copy the generated Rust">Copy Rust</button>
-        <button id="test" class="btn" title="Run the project's tests (vbr test)" disabled>Test</button>
-        <button id="graduate" class="btn" title="Promote this module's Rust to source (vbr graduate)" disabled>Graduate</button>
-        <button id="run" class="btn primary" title="Run (Ctrl+Enter)">▶ Run</button>
-        <button id="designer-toggle" class="btn" title="Toggle the form designer">Designer</button>
+        <button id="copy-rust" class="btn code-only" title="Copy the generated Rust">Copy Rust</button>
+        <button id="test" class="btn code-only" title="Run the project's tests (vbr test)" disabled>Test</button>
+        <button id="graduate" class="btn code-only" title="Promote this module's Rust to source (vbr graduate)" disabled>Graduate</button>
+        <button id="run" class="btn primary code-only" title="Run (Ctrl+Enter)">▶ Run</button>
+        <button id="enter-designer" class="btn code-only" title="Design a new GUI window visually">New Form</button>
+        <button id="enter-screen" class="btn code-only" title="Design a new terminal screen visually">New Screen</button>
+        <button id="exit-designer" class="btn designer-only" title="Back to the code editor">← Back to code</button>
         <button id="theme" class="btn" title="Toggle light / dark">◐</button>
         <button id="help" class="btn" title="Keyboard shortcuts (?)">?</button>
       </header>
@@ -44,11 +47,13 @@
           </section>
         </div>
       </main>
+      <div class="gutter-h" id="gutter-bottom" title="Drag to resize"></div>
       <footer id="bottom">
-        <div class="bottom-pane">
+        <div class="bottom-pane" id="problems-pane">
           <div class="pane-label">Problems</div>
           <div id="diagnostics"></div>
         </div>
+        <div class="gutter" id="gutter-problems" title="Drag to resize"></div>
         <div class="bottom-pane">
           <div class="pane-label">Output</div>
           <pre id="console"></pre>
@@ -65,14 +70,14 @@
           <div class="pane-label">
             Form
             <button id="new-form" class="btn small" title="Start a new empty form">New form</button>
-            <button id="del-node" class="btn small" title="Delete the selected control (Del)">Delete</button>
+            <button id="del-node" class="btn small danger" title="Delete the selected control (Del)">Delete</button>
           </div>
           <div id="surface"></div>
         </div>
         <div id="design-code-wrap">
           <div class="pane-label">
             Generated VBR (a complete Window)
-            <button id="create-form" class="btn small" title="Write formN.vbr into the open project">Create form →</button>
+            <button id="create-form" class="btn small" title="Write the file into the open project">Create →</button>
           </div>
           <pre id="design-code"></pre>
         </div>

@@ -30,15 +30,16 @@ is exactly what the CLI would produce.
 - **Graduate & Test** — for an open project, **Test** runs `vbr test`, and
   **Graduate** promotes the selected module's generated Rust to source
   (`vbr graduate`) and refreshes the tree. Both stream output to the console.
-- **Form designer** — the **Designer** button opens a visual builder: drop
+- **Form / Screen designer** — **New Form** (a GUI `Window`) and **New Screen**
+  (a terminal `Screen`) open the same visual builder in the right mode: drop
   controls into `Column ↓` / `Row →` layouts, set their properties, and watch a
-  **complete, runnable `Window`** appear on the right — the `State` (typed from
-  each control's binding), `Event` stubs, and a `Function Main` are all inferred
-  for you. **Create form** writes it as an auto-numbered `formN.vbr` into the
-  open project and opens it, ready to Run. One-way (design → code); *New form*
-  and Del reset/remove. The palette is the genuinely GUI-valid widget set
-  (charts/lists are Screen-only; a Window charts on a Canvas). Codegen lives in
-  `vbr-ide-core::design` and is unit-tested (20 core tests overall).
+  **complete, runnable file** appear on the right — the `State` (typed from each
+  binding), `Event` stubs (or a keyboard `On Key` keymap for a Screen), and a
+  `Function Main` are all inferred. **Create →** writes it as an auto-numbered
+  `formN.vbr` / `screenN.vbr` into the open project and opens it, ready to Run.
+  One-way (design → code). Each mode offers only its genuinely valid widgets
+  (GUI: Button/TextInput/Canvas…; TUI: Input/List/Sparkline/Gauge — no Button).
+  Codegen lives in `vbr-ide-core::design`, unit-tested (22 core tests overall).
 - **Comfort** — light/dark theme toggle, `Ctrl`-scroll zoom, a built-in example
   picker (loaded straight from the repo's `examples/`), a `?` shortcuts overlay.
 
