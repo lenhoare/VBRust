@@ -8,6 +8,7 @@ pub mod c;
 pub mod complete;
 pub mod diagnostics;
 pub mod gui;
+pub mod iter;
 pub mod lexer;
 pub mod parser;
 pub mod pattern;

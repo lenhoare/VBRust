@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use crate::ast::*;
+use crate::iter;
 use crate::pattern::{self, Pat};
 use crate::transpiler::convert_returns;
 use crate::types::{type_program, TypeTable};
@@ -457,17 +458,18 @@ impl Emitter {
     }
 
     /// Lower a `Dim v = <chain>.collect()/.sum()/.any()` to the empty/zero
-    /// initialiser plus the loop that fills it (C has no comprehension form).
+    /// initialiser plus the loop that fills it (C has no comprehension form). The
+    /// chain shape comes from the shared [`iter`] analysis.
     fn iter_dim(&mut self, var: &str, ty: &DeclType, e: &Expr) {
-        let ExprKind::MethodCall { recv, method, args } = &e.kind else { return };
+        let Some(chain) = iter::parse(e) else { return };
         let cty = c_type(ty);
-        match method.to_ascii_lowercase().as_str() {
-            "collect" => {
+        match &chain.terminal {
+            iter::Terminal::Collect => {
                 self.line(&format!("{} {} = {{0}};", cty, var));
-                self.emit_collect_loop(var, ty, recv);
+                self.collect_loop(var, ty, chain.base, &chain.steps);
             }
-            "sum" => {
-                let base = self.expr(recv);
+            iter::Terminal::Sum => {
+                let base = self.expr(chain.base);
                 self.line(&format!("{} {} = 0;", cty, var));
                 let idx = self.next_tmp();
                 self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
@@ -476,59 +478,55 @@ impl Emitter {
                 self.indent -= 1;
                 self.line("}");
             }
-            m @ ("any" | "all") => {
-                let elem = self.elem_ctype(recv);
-                let base = self.expr(recv);
-                let Some((param, body)) = closure_parts(&args[0]) else { return };
-                self.line(&format!("{} {} = {};", cty, var, if m == "any" { "false" } else { "true" }));
-                let idx = self.next_tmp();
-                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
-                self.indent += 1;
-                self.line(&format!("{} {} = {}.data[{}];", elem, c_name(&param), base, idx));
-                let cond = self.expr(body);
-                if m == "any" {
-                    self.line(&format!("if ({}) {{ {} = true; break; }}", cond, var));
-                } else {
-                    self.line(&format!("if (!({})) {{ {} = false; break; }}", cond, var));
-                }
-                self.indent -= 1;
-                self.line("}");
-            }
-            _ => {}
+            iter::Terminal::Any { var: cvar, cond } => self.quantify_dim(var, ty, chain.base, cvar, cond, true),
+            iter::Terminal::All { var: cvar, cond } => self.quantify_dim(var, ty, chain.base, cvar, cond, false),
+            _ => self.warn("this iterator terminal doesn't lower to C yet."),
         }
     }
 
-    /// Emit the loop body of a `.collect()`: `chain` is a `filter`/`map` adapter
-    /// over a base Vec, or the base Vec itself.
-    fn emit_collect_loop(&mut self, var: &str, target_ty: &DeclType, chain: &Expr) {
-        let vecn = vec_name(target_ty);
-        if let ExprKind::MethodCall { recv, method, args } = &chain.kind {
-            let m = method.to_ascii_lowercase();
-            if m == "filter" || m == "map" {
-                let elem = self.elem_ctype(recv);
-                let base = self.expr(recv);
-                let Some((param, body)) = closure_parts(&args[0]) else { return };
-                let idx = self.next_tmp();
-                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
-                self.indent += 1;
-                self.line(&format!("{} {} = {}.data[{}];", elem, c_name(&param), base, idx));
-                let val = self.expr(body);
-                if m == "filter" {
-                    self.line(&format!("if ({}) {}_push(&{}, {});", val, vecn, var, c_name(&param)));
-                } else {
-                    self.line(&format!("{}_push(&{}, {});", vecn, var, val));
-                }
-                self.indent -= 1;
-                self.line("}");
-                return;
-            }
-        }
-        // A bare Vec → copy each element.
-        let base = self.expr(chain);
+    fn quantify_dim(&mut self, var: &str, ty: &DeclType, base: &Expr, cvar: &str, cond: &Expr, any: bool) {
+        let cty = c_type(ty);
+        let elem = self.elem_ctype(base);
+        let base_c = self.expr(base);
+        self.line(&format!("{} {} = {};", cty, var, if any { "false" } else { "true" }));
         let idx = self.next_tmp();
-        self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+        self.line(&format!("for (size_t {idx} = 0; {idx} < {base_c}.len; {idx}++) {{"));
         self.indent += 1;
-        self.line(&format!("{}_push(&{}, {}.data[{}]);", vecn, var, base, idx));
+        self.line(&format!("{} {} = {}.data[{}];", elem, c_name(cvar), base_c, idx));
+        let c = self.expr(cond);
+        if any {
+            self.line(&format!("if ({}) {{ {} = true; break; }}", c, var));
+        } else {
+            self.line(&format!("if (!({})) {{ {} = false; break; }}", c, var));
+        }
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    /// The loop body of a `.collect()` over a base Vec plus up to one adapter.
+    fn collect_loop(&mut self, var: &str, target_ty: &DeclType, base: &Expr, steps: &[iter::Step]) {
+        let vecn = vec_name(target_ty);
+        let base_c = self.expr(base);
+        let elem = self.elem_ctype(base);
+        let idx = self.next_tmp();
+        self.line(&format!("for (size_t {idx} = 0; {idx} < {base_c}.len; {idx}++) {{"));
+        self.indent += 1;
+        match steps {
+            [] => {
+                self.line(&format!("{}_push(&{}, {}.data[{}]);", vecn, var, base_c, idx));
+            }
+            [iter::Step::Filter { var: p, cond }] => {
+                self.line(&format!("{} {} = {}.data[{}];", elem, c_name(p), base_c, idx));
+                let c = self.expr(cond);
+                self.line(&format!("if ({}) {}_push(&{}, {});", c, vecn, var, c_name(p)));
+            }
+            [iter::Step::Map { var: p, body }] => {
+                self.line(&format!("{} {} = {}.data[{}];", elem, c_name(p), base_c, idx));
+                let b = self.expr(body);
+                self.line(&format!("{}_push(&{}, {});", vecn, var, b));
+            }
+            _ => self.warn("C supports at most one filter/map before `.collect()` so far."),
+        }
         self.indent -= 1;
         self.line("}");
     }
@@ -1384,20 +1382,19 @@ fn is_unit(t: &DeclType) -> bool {
     matches!(t, DeclType::Tuple(v) if v.is_empty())
 }
 
-/// Does this expression end in an iterator consumer that must become a loop?
+/// Does this expression end in an iterator consumer the `Dim`-level lowering
+/// handles as a loop? (`collect`/`sum`/`any`/`all`; `count`/`len` stay a field.)
 fn is_iter_terminal(e: &Expr) -> bool {
-    matches!(&e.kind, ExprKind::MethodCall { method, .. }
-        if matches!(method.to_ascii_lowercase().as_str(), "collect" | "sum" | "any" | "all"))
-}
-
-/// A closure `|x| body` → its parameter name and body.
-fn closure_parts(e: &Expr) -> Option<(String, &Expr)> {
-    if let ExprKind::Closure { params, body, .. } = &e.kind {
-        let p = params.first().cloned().unwrap_or_else(|| "_".to_string());
-        Some((p, body))
-    } else {
-        None
-    }
+    matches!(
+        iter::parse(e),
+        Some(iter::Chain {
+            terminal: iter::Terminal::Collect
+                | iter::Terminal::Sum
+                | iter::Terminal::Any { .. }
+                | iter::Terminal::All { .. },
+            ..
+        })
+    )
 }
 
 /// A type's name fragment for monomorphised container type names.

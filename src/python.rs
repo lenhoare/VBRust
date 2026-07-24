@@ -18,6 +18,7 @@
 use std::collections::HashSet;
 
 use crate::ast::*;
+use crate::iter;
 use crate::pattern::{self, Pat};
 use crate::transpiler::{convert_returns, rust_name};
 use crate::types::{type_program, TypeTable};
@@ -643,14 +644,13 @@ impl Emitter {
             return self.df_method(recv, &m, args);
         }
 
-        // Terminal consumers.
-        match m.as_str() {
-            "collect" => return self.render_iter(recv),
-            "sum" => return format!("sum({})", self.expr(recv)),
-            "count" | "len" => return format!("len({})", self.expr(recv)),
-            "any" => return self.quantifier(recv, args, "any"),
-            "all" => return self.quantifier(recv, args, "all"),
-            _ => {}
+        // An iterator pipeline (`collect`/`sum`/`count`/`any`/`find`/`max`/…) over
+        // a chain of adapters → a comprehension. The *shape* comes from the shared
+        // `iter` analysis; the Python rendering (comprehensions, Option-wrapping)
+        // lives in `render_chain`.
+        if let Some(term) = iter::terminal(&m, args) {
+            let (base, steps) = iter::split_adapters(recv);
+            return self.render_chain(base, &steps, &term);
         }
 
         // `.Unwrap()` on an Option/Result → the prelude `_unwrap` (raises on
@@ -662,31 +662,6 @@ impl Emitter {
             self.needs_option = true;
             self.needs_result = true;
             return format!("_unwrap({})", self.expr(recv));
-        }
-
-        // Option-returning consumers → wrapped in `Some(...)` / `None`, so the
-        // result matches the same way a Rust `Option` does.
-        match m.as_str() {
-            "find" if args.len() == 1 => {
-                if let Some((v, cond)) = self.closure_parts(&args[0]) {
-                    self.needs_option = true;
-                    let src = self.expr(recv);
-                    return format!("next((Some({v}) for {v} in {src} if {cond}), None)");
-                }
-            }
-            "position" if args.len() == 1 => {
-                if let Some((v, cond)) = self.closure_parts(&args[0]) {
-                    self.needs_option = true;
-                    let src = self.expr(recv);
-                    return format!("next((Some(_i) for _i, {v} in enumerate({src}) if {cond}), None)");
-                }
-            }
-            "max" | "min" if args.is_empty() => {
-                self.needs_option = true;
-                let src = self.expr(recv);
-                return format!("(Some({m}({src})) if {src} else None)");
-            }
-            _ => {}
         }
 
         // `map.contains_key(k)` → `k in map`.
@@ -714,45 +689,76 @@ impl Emitter {
         }
     }
 
-    /// A (`.collect()`'d) iterator chain → a Python list expression. `filter`/
-    /// `map` become comprehensions; `take`/`skip`/`rev` become slices; the
-    /// recursion bottoms out at the base receiver (a Vec/list). An unrecognised
-    /// adapter is wrapped in `list(...)` with a warning.
-    fn render_iter(&mut self, e: &Expr) -> String {
-        if let ExprKind::MethodCall { recv, method, args } = &e.kind {
-            let m = method.to_ascii_lowercase();
-            match m.as_str() {
-                "filter" if args.len() == 1 => {
-                    if let Some((v, cond)) = self.closure_parts(&args[0]) {
-                        let src = self.render_iter(recv);
-                        return format!("[{v} for {v} in {src} if {cond}]");
-                    }
-                }
-                "map" if args.len() == 1 => {
-                    if let Some((v, body)) = self.closure_parts(&args[0]) {
-                        let src = self.render_iter(recv);
-                        return format!("[{body} for {v} in {src}]");
-                    }
-                }
-                "take" if args.len() == 1 => {
-                    let src = self.render_iter(recv);
-                    let n = self.expr(&args[0]);
-                    return format!("{src}[:{n}]");
-                }
-                "skip" if args.len() == 1 => {
-                    let src = self.render_iter(recv);
-                    let n = self.expr(&args[0]);
-                    return format!("{src}[{n}:]");
-                }
-                "rev" if args.is_empty() => {
-                    let src = self.render_iter(recv);
-                    return format!("{src}[::-1]");
-                }
-                "collect" => return self.render_iter(recv),
-                _ => {}
+    /// Render a parsed iterator pipeline as a Python expression — a comprehension
+    /// or generator, Option-wrapping the consumers (`find`/`max`/…) that return
+    /// one, exactly as a Rust `Option` would.
+    fn render_chain(&mut self, base: &Expr, steps: &[iter::Step], term: &iter::Terminal) -> String {
+        let src = self.render_source(base, steps);
+        match term {
+            iter::Terminal::Collect => src,
+            iter::Terminal::Sum => format!("sum({})", src),
+            iter::Terminal::Count => format!("len({})", src),
+            iter::Terminal::Any { var, cond } => {
+                let v = rust_name(var);
+                let c = self.expr(cond);
+                format!("any({} for {} in {})", c, v, src)
+            }
+            iter::Terminal::All { var, cond } => {
+                let v = rust_name(var);
+                let c = self.expr(cond);
+                format!("all({} for {} in {})", c, v, src)
+            }
+            iter::Terminal::Find { var, cond } => {
+                self.needs_option = true;
+                let v = rust_name(var);
+                let c = self.expr(cond);
+                format!("next((Some({v}) for {v} in {src} if {c}), None)")
+            }
+            iter::Terminal::Position { var, cond } => {
+                self.needs_option = true;
+                let v = rust_name(var);
+                let c = self.expr(cond);
+                format!("next((Some(_i) for _i, {v} in enumerate({src}) if {c}), None)")
+            }
+            iter::Terminal::Max => {
+                self.needs_option = true;
+                format!("(Some(max({src})) if {src} else None)")
+            }
+            iter::Terminal::Min => {
+                self.needs_option = true;
+                format!("(Some(min({src})) if {src} else None)")
             }
         }
-        self.expr(e)
+    }
+
+    /// Fold a base receiver + its adapter steps into a Python list/slice source:
+    /// `filter`/`map` become comprehensions, `take`/`skip`/`rev` become slices.
+    fn render_source(&mut self, base: &Expr, steps: &[iter::Step]) -> String {
+        let mut src = self.expr(base);
+        for step in steps {
+            src = match step {
+                iter::Step::Filter { var, cond } => {
+                    let v = rust_name(var);
+                    let c = self.expr(cond);
+                    format!("[{v} for {v} in {src} if {c}]")
+                }
+                iter::Step::Map { var, body } => {
+                    let v = rust_name(var);
+                    let b = self.expr(body);
+                    format!("[{b} for {v} in {src}]")
+                }
+                iter::Step::Take(n) => {
+                    let n = self.expr(n);
+                    format!("{src}[:{n}]")
+                }
+                iter::Step::Skip(n) => {
+                    let n = self.expr(n);
+                    format!("{src}[{n}:]")
+                }
+                iter::Step::Rev => format!("{src}[::-1]"),
+            };
+        }
+        src
     }
 
     /// Lower a `?` (`Try`): bind its operand to a temp on a line just above the
@@ -781,33 +787,6 @@ impl Emitter {
         format!("{}.value", tmp)
     }
 
-    /// A single-parameter closure `|v| body` → its `(var, body)` in Python.
-    fn closure_parts(&mut self, e: &Expr) -> Option<(String, String)> {
-        if let ExprKind::Closure { params, body, .. } = &e.kind {
-            if params.len() == 1 {
-                let var = rust_name(&params[0]);
-                let b = self.expr(body);
-                return Some((var, b));
-            }
-        }
-        None
-    }
-
-    /// `.any(|v| cond)` / `.all(…)` → a generator quantifier.
-    fn quantifier(&mut self, recv: &Expr, args: &[Expr], kind: &str) -> String {
-        if args.len() == 1 {
-            if let ExprKind::Closure { params, body, .. } = &args[0].kind {
-                if params.len() == 1 {
-                    let var = rust_name(&params[0]);
-                    let src = self.expr(recv);
-                    let cond = self.expr(body);
-                    return format!("{}({} for {} in {})", kind, cond, var, src);
-                }
-            }
-        }
-        self.warn(format!("`.{}(…)` needs a single-parameter closure — wrapped as-is.", kind));
-        format!("{}({})", kind, self.expr(recv))
-    }
 
     /// Is `recv` known to be a `Map`/`HashMap` (so `.insert` is a subscript)?
     fn recv_is_map(&self, recv: &Expr) -> bool {
