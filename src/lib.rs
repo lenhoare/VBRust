@@ -4,6 +4,7 @@
 //! (`src/main.rs`) and by the integration tests.
 
 pub mod ast;
+pub mod c;
 pub mod complete;
 pub mod diagnostics;
 pub mod gui;
@@ -14,6 +15,7 @@ pub mod resolver;
 pub mod span;
 pub mod surface;
 pub mod transpiler;
+pub mod types;
 pub mod tui;
 pub mod web;
 
@@ -271,6 +273,44 @@ pub fn compile_python(source: &str) -> PyCompiled {
         warnings: out.warnings,
         stdlib_used: out.stdlib_used,
         requirements: out.requirements,
+    }
+}
+
+/// The result of transpiling one VBR source string to **C** (a third target
+/// beside Rust and Python — slice 1: the core language over scalars + strings).
+pub struct CCompiled {
+    /// The generated C source (a single self-contained `.c` with the runtime
+    /// inlined at the top).
+    pub code: String,
+    /// Parse diagnostics, already rendered.
+    pub diagnostics: Vec<String>,
+    /// True if a parse error means no C should be used.
+    pub has_errors: bool,
+    /// Constructs that couldn't cross to C cleanly (rendered `⚠` notes).
+    pub warnings: Vec<String>,
+}
+
+/// Transpile `source` to C. Like the Python path, the resolver's Rust-specific
+/// rewrites are skipped; the C backend gets its types from the neutral typing
+/// pass (`types::type_program`) instead.
+pub fn compile_c(source: &str) -> CCompiled {
+    let mut diags = Diagnostics::new();
+    let tokens = lexer::lex(source);
+    let program = parser::parse(tokens, &mut diags);
+    if diags.has_errors() {
+        return CCompiled {
+            code: String::new(),
+            diagnostics: diags.items().iter().map(|d| d.render()).collect(),
+            has_errors: true,
+            warnings: Vec::new(),
+        };
+    }
+    let out = c::emit_c(&program);
+    CCompiled {
+        code: out.code,
+        diagnostics: diags.items().iter().map(|d| d.render()).collect(),
+        has_errors: false,
+        warnings: out.warnings,
     }
 }
 

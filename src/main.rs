@@ -29,6 +29,7 @@ fn main() {
         Some("transpile") => cmd_transpile(&args[1..]),
         Some("emit") => cmd_emit(&args[1..]),
         Some("py") => cmd_py(&args[1..]),
+        Some("c") => cmd_c(&args[1..]),
         Some("graduate") => cmd_graduate(&args[1..]),
         _ => {
             usage();
@@ -48,6 +49,7 @@ fn usage() {
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)\n\
          \tvbr py <file.vbr>       transpile to Python (core language; -o <file> to write it)\n\
+         \tvbr c <file.vbr>        transpile to C (core language; -o <file> to write it)\n\
          \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
          \t                        The project keeps building; you maintain that file in Rust\n\
          \t                        from now on. Graduate main.vbr last to finish the journey."
@@ -193,6 +195,41 @@ fn cmd_py(args: &[String]) {
                 exit(1);
             }
             eprintln!("✔ Wrote {}", out.display());
+        }
+        None => print!("{}", result.code),
+    }
+}
+
+/// `vbr c <file.vbr> [-o out.c]` — transpile to C. A single self-contained `.c`;
+/// compile it with any C compiler (`cc out.c -lm && ./a.out`).
+fn cmd_c(args: &[String]) {
+    let (input, output) = parse_emit_args(args);
+    let source = match fs::read_to_string(&input) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("✘ Could not read {}: {}", input.display(), e);
+            exit(1);
+        }
+    };
+    let result = vbr::compile_c(&source);
+    for d in &result.diagnostics {
+        eprintln!("{}", d);
+    }
+    if result.has_errors {
+        eprintln!("\nTranspilation failed — no C was produced.");
+        exit(1);
+    }
+    for w in &result.warnings {
+        eprintln!("{}", w);
+    }
+
+    match output {
+        Some(out) => {
+            if let Err(e) = fs::write(&out, &result.code) {
+                eprintln!("✘ Could not write {}: {}", out.display(), e);
+                exit(1);
+            }
+            eprintln!("✔ Wrote {} — build it with:\n    cc {} -lm && ./a.out", out.display(), out.display());
         }
         None => print!("{}", result.code),
     }

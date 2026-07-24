@@ -943,6 +943,8 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 resolve_stmts(body, ctx);
             }
             Stmt::Break | Stmt::Continue => {}
+            // `x = Nothing` — releasing a plain variable; nothing to resolve.
+            Stmt::Destroy { .. } => {}
             Stmt::ForEach { var1, var2, iter, body } => {
                 resolve_expr(iter, ctx);
                 // A ByVal collection param is already `&Vec`; reborrow it (`&*p`)

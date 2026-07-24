@@ -543,6 +543,15 @@ pub enum Stmt {
         /// `None` for a plain `=`.
         op: Option<BinOp>,
     },
+    /// `x = Nothing` — release a heap value early. VB6's object-release idiom,
+    /// carried over as the explicit "I'm done with this" hook that matters most
+    /// on the C target (where nothing is freed for you). Lowers to `drop(x)`
+    /// (Rust — the compiler usually inserts this at scope end), `x = None`
+    /// (Python — GC reclaims), and `free(x); x = NULL;` (C — the real work).
+    Destroy {
+        name: String,
+        name_span: Span,
+    },
     /// `Dim a, b = expr` / `Dim (a, b) As (T, U) = expr` — destructure a tuple into
     /// several bindings. `ty` is the tuple type when written (`DeclType::Tuple`),
     /// which lets a `Python` block extract several values in one GIL scope.

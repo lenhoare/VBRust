@@ -8,7 +8,7 @@
 //! what slices a Rust `&str` directly; `LineIndex` converts to line/column
 //! when a tool needs those.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

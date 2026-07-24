@@ -517,6 +517,7 @@ pub(crate) fn coerce_state_strings(
         Stmt::Assign { .. }
         | Stmt::Dim { .. }
         | Stmt::Set { .. }
+        | Stmt::Destroy { .. }
         | Stmt::DestructureDim { .. }
         | Stmt::HandleDim { .. }
         | Stmt::Return(_)
@@ -1209,6 +1210,7 @@ pub(crate) fn rewrite_stmt(
         leaf @ (Stmt::HandleDim { .. }
         | Stmt::Break
         | Stmt::Continue
+        | Stmt::Destroy { .. }
         | Stmt::Draw(_)
         // `Assert` only appears in a `Test` block, never a surface event body.
         | Stmt::Assert(_)

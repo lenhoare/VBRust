@@ -1,0 +1,15 @@
+' Manual memory, made visible. A heap string is released early with `x = Nothing`
+' — VB6's object-release idiom, carried over as VBR's explicit "I'm done with
+' this" hook. It matters most on the C target, where nothing is freed for you:
+'   • C      → free(greeting); greeting = NULL;
+'   • Rust   → drop(greeting);   (the compiler usually inserts this at scope end)
+'   • Python → greeting = None   (the garbage collector reclaims it)
+' The program's output is identical on all three targets.
+Function Main()
+    Dim greeting As String = "hello, world"
+    Debug.Print greeting
+
+    ' Done with it — release it now rather than waiting for scope end.
+    greeting = Nothing
+    Debug.Print "released the greeting"
+End Function

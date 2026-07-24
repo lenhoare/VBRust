@@ -1446,6 +1446,11 @@ pub(crate) fn emit_stmt(
         }
         Stmt::Break => out.push_str(&format!("{}break;\n", pad)),
         Stmt::Continue => out.push_str(&format!("{}continue;\n", pad)),
+        // `x = Nothing` → an explicit early `drop` (what the compiler otherwise
+        // inserts at end of scope). Teaches that Rust frees by ownership.
+        Stmt::Destroy { name, .. } => {
+            out.push_str(&format!("{}drop({});\n", pad, rust_name(name)));
+        }
         Stmt::ForEach {
             var1,
             var2,

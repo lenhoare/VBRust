@@ -406,6 +406,10 @@ impl Emitter {
             Stmt::Match { scrutinee, arms, .. } => self.match_stmt(scrutinee, arms, indent),
             Stmt::Break => self.line(indent, "break"),
             Stmt::Continue => self.line(indent, "continue"),
+            // `x = Nothing` → `x = None`; Python's GC reclaims the old value.
+            Stmt::Destroy { name, .. } => {
+                self.line(indent, &format!("{} = None", rust_name(name)));
+            }
             other => {
                 self.warn(format!("`{}` doesn't lower to Python yet.", stmt_name(other)));
                 self.line(indent, &format!("pass  # [VBR→Python] unsupported: {}", stmt_name(other)));
@@ -1647,6 +1651,7 @@ fn stmt_name(s: &Stmt) -> &'static str {
     match s {
         Stmt::Dim { .. } => "Dim",
         Stmt::Set { .. } => "Set",
+        Stmt::Destroy { .. } => "= Nothing",
         Stmt::Assign { .. } => "assignment",
         Stmt::DestructureDim { .. } => "destructuring Dim",
         Stmt::HandleDim { .. } => "Rust handle",

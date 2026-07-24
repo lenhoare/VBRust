@@ -2523,10 +2523,26 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_set(&mut self) -> Option<Stmt> {
+        let set_span = self.span();
         self.expect(&Tok::Set, "")?;
         let mutable = self.eat(&Tok::Mut);
         let name = self.expect_ident("after `Set`")?;
         self.expect(&Tok::Eq, "in a `Set` borrow")?;
+        // `Set x = Nothing` is the VB6 object-release habit. In VBR `Set` binds a
+        // borrow (a Rust reference), not an assignment — so steer to the plain
+        // form `x = Nothing`, which is what actually releases the value.
+        if matches!(self.peek(), Tok::Nothing) {
+            self.diags.error_at(
+                set_span,
+                self.line(),
+                format!(
+                    "`Set` in VBR binds a borrow, not a VB6 object assignment. To release \
+                     a value, drop the `Set` — write `{} = Nothing`.",
+                    name
+                ),
+            );
+            return None;
+        }
         let value = self.parse_expr()?;
         Some(Stmt::Set {
             name,
@@ -2596,6 +2612,21 @@ impl<'a> Parser<'a> {
         // equality operator.
         let target = self.parse_primary()?;
         if self.eat(&Tok::Eq) {
+            // `x = Nothing` — release the value. Only a bare variable can be
+            // destroyed (not a field/index); the RHS is the `Nothing` keyword.
+            if matches!(self.peek(), Tok::Nothing) {
+                self.advance();
+                if let ExprKind::Ident(n) = target.kind {
+                    return Some(Stmt::Destroy { name: n, name_span: target.span });
+                }
+                self.diags.error_at(
+                    target.span,
+                    self.line(),
+                    "`= Nothing` releases a variable, so its left side must be a plain \
+                     variable name (not a field or element).",
+                );
+                return None;
+            }
             let value = self.parse_expr()?;
             Some(Stmt::Assign { target, value, op: None })
         } else if let Some(op) = self.compound_assign_op() {
