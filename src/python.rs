@@ -37,12 +37,13 @@ pub struct PyProgram {
 /// Standard-library namespaces/value-types the Python target supports so far
 /// (mirrors the `vbrpy` package). Used as a call receiver (`FileSystem.Read`) or
 /// a declared type (`As Json`).
-const STDLIB_SUPPORTED: &[&str] =
-    &["FileSystem", "Regex", "Json", "Database", "DateTime", "Http", "DataFrame"];
+const STDLIB_SUPPORTED: &[&str] = &[
+    "FileSystem", "Regex", "Json", "Database", "DateTime", "Http", "DataFrame", "Shell", "Process",
+];
 
 /// Namespaces that exist in `vbr_stdlib` but aren't lowered to Python yet — so a
 /// use gets a clear "later slice" warning rather than silently wrong output.
-const STDLIB_PENDING: &[&str] = &["Shell"];
+const STDLIB_PENDING: &[&str] = &[];
 
 /// Emit Python for a whole parsed program.
 pub fn emit_python(program: &Program) -> PyProgram {
@@ -94,6 +95,7 @@ struct Emitter {
     needs_option: bool,
     needs_result: bool,
     needs_unwrap: bool,
+    needs_time: bool,
 }
 
 impl Emitter {
@@ -1178,6 +1180,12 @@ impl Emitter {
                 let a = self.expr(&args[0]);
                 return format!("str({})", a);
             }
+            // `Sleep ms` — VB6's kernel32 Sleep (milliseconds) → `time.sleep(s)`.
+            "Sleep" if args.len() == 1 => {
+                self.needs_time = true;
+                let a = self.expr(&args[0]);
+                return format!("time.sleep({} / 1000)", a);
+            }
             _ => {}
         }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
@@ -1284,6 +1292,9 @@ impl Emitter {
 
         if self.needs_math {
             code.push_str("import math\n");
+        }
+        if self.needs_time {
+            code.push_str("import time\n");
         }
         // In a project the `Some`/`Ok`/`Err` wrappers come from `vbrpy`, so only
         // user `Type`/`Enum` need the dataclass import here; single-file inlines

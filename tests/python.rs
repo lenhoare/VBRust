@@ -182,7 +182,7 @@ End Function
 /// against a stored `.out` — verified byte-for-byte against `vbr runproject`
 /// (the Rust ground truth) when the snapshots were taken. Kept as a stored
 /// output rather than a live Rust run so the suite needn't compile `vbr_stdlib`.
-const PY_STDLIB: &[&str] = &["stdlib", "json_basics", "database", "datetime_basics"];
+const PY_STDLIB: &[&str] = &["stdlib", "json_basics", "database", "datetime_basics", "shell"];
 
 /// Stdlib examples that are transpiled + snapshotted but NOT run: their output
 /// isn't reproducible (network, wall-clock, …), so there's no stdout to diff —

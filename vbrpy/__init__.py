@@ -9,6 +9,7 @@ from .jsonval import Json
 from .database import Database
 from .datetimeval import DateTime
 from .http import Http
+from .shell import Shell, Process
 
 # DataFrame lowers to idiomatic polars: `col`/`when`/`read_csv` are re-exported
 # straight from polars (the Rust side likewise re-exports `col`/`lit`/`when`
@@ -38,6 +39,8 @@ __all__ = [
     "Database",
     "DateTime",
     "Http",
+    "Shell",
+    "Process",
     "col",
     "lit",
     "when",

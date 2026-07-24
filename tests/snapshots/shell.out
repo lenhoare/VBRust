@@ -1,0 +1,5 @@
+said: hello from VBR
+as expected, that failed
+running: true
+after kill: false
+child finished with exit code -1
