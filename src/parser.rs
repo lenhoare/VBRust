@@ -273,8 +273,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `Use <crate> <version>` — the line was captured raw by the lexer; split it
-    /// into the crate name and its version requirement.
+    /// `Use <crate> <version> [As <name>]` — the line was captured raw by the
+    /// lexer; split it into the crate name, its version, and an optional import
+    /// alias (`As PIL`, for a pip package imported under a different name).
     fn parse_use(&mut self) -> Option<UseDecl> {
         let line = self.line();
         let raw = match self.advance() {
@@ -289,7 +290,31 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        let version: String = parts.collect::<Vec<_>>().join(" ");
+        // Everything up to an `As` is the version; the single word after it is
+        // the import alias (Python target).
+        let rest: Vec<&str> = parts.collect();
+        let as_pos = rest.iter().position(|w| w.eq_ignore_ascii_case("as"));
+        let (version_parts, alias) = match as_pos {
+            Some(p) => {
+                let alias = match rest.get(p + 1) {
+                    Some(a) if rest.len() == p + 2 => Some(a.to_string()),
+                    _ => {
+                        self.diags.error(
+                            line,
+                            format!(
+                                "`Use {} … As` needs exactly one import name, e.g. \
+                                 `Use {} 10.0 As PIL` (the module Python imports).",
+                                crate_name, crate_name
+                            ),
+                        );
+                        return None;
+                    }
+                };
+                (&rest[..p], alias)
+            }
+            None => (&rest[..], None),
+        };
+        let version = version_parts.join(" ");
         if version.is_empty() {
             self.diags.error(
                 line,
@@ -304,6 +329,7 @@ impl<'a> Parser<'a> {
         Some(UseDecl {
             crate_name,
             version,
+            alias,
             line,
         })
     }

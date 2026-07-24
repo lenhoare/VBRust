@@ -122,7 +122,13 @@ impl Emitter {
 
     fn program(&mut self, program: &Program) {
         self.const_names = program.constants.iter().map(|c| c.name.clone()).collect();
-        self.use_modules = program.uses.iter().map(|u| u.crate_name.clone()).collect();
+        // The name referenced in code is the import name — the `As` alias when
+        // given (`Use pillow … As PIL` → `PIL`), else the package name.
+        self.use_modules = program
+            .uses
+            .iter()
+            .map(|u| u.alias.clone().unwrap_or_else(|| u.crate_name.clone()))
+            .collect();
         self.enum_names = program.enums.iter().map(|e| e.name.clone()).collect();
         self.data_enums = program
             .enums
@@ -1376,12 +1382,14 @@ impl Emitter {
         if self.needs_time {
             code.push_str("import time\n");
         }
-        // `Use <module> <version>` → a top-level `import <module>`, in source
-        // order. The module is then in scope for both direct calls and inline
-        // `Python` blocks (same module globals). The dependency itself is
-        // recorded into `requirements.txt` below.
+        // `Use <package> <version> [As <module>]` → a top-level `import <module>`
+        // (the alias when a pip package imports under a different name — `pillow`
+        // installs, `PIL` imports), in source order. The module is then in scope
+        // for both direct calls and inline `Python` blocks (same module globals).
+        // The dependency (keyed by the *package* name) is recorded below.
         for u in &program.uses {
-            code.push_str(&format!("import {}\n", u.crate_name));
+            let module = u.alias.as_deref().unwrap_or(&u.crate_name);
+            code.push_str(&format!("import {}\n", module));
         }
         // In a project the `Some`/`Ok`/`Err` wrappers come from `vbrpy`, so only
         // user `Type`/`Enum` need the dataclass import here; single-file inlines

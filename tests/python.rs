@@ -398,6 +398,46 @@ fn python_use_external_module() {
     check_snapshot("use_numpy", "out", &out);
 }
 
+/// `Use <package> <version> As <module>` — for a pip package whose import name
+/// differs from its install name (`pip install PyYAML`, `import yaml`). The alias
+/// drives the `import` and the in-code namespace; the package name pins the
+/// requirement. Snapshot unconditionally; run gated on PyYAML.
+#[test]
+fn python_use_alias() {
+    let result = vbr::compile_python(&read_example("use_alias"));
+    assert!(!result.has_errors, "errors: {:?}", result.diagnostics);
+    assert!(result.warnings.is_empty(), "warned: {:?}", result.warnings);
+    assert!(
+        result.code.contains("import yaml") && !result.code.contains("import PyYAML"),
+        "the alias should drive the import:\n{}",
+        result.code
+    );
+    assert_eq!(
+        result.requirements,
+        vec!["PyYAML==6.0.1".to_string()],
+        "the package (not the alias) should pin the requirement"
+    );
+    check_snapshot("use_alias", "py", &result.code);
+
+    let has_yaml = Command::new("python3")
+        .args(["-c", "import yaml"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_yaml {
+        eprintln!("skipping use_alias run: PyYAML not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join("vbr_use_alias");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("main.py"), &result.code).unwrap();
+    let run = Command::new("python3").arg("main.py").current_dir(&dir).output().unwrap();
+    assert!(run.status.success(), "python failed:\n{}", String::from_utf8_lossy(&run.stderr));
+    let out = String::from_utf8_lossy(&run.stdout).into_owned();
+    check_snapshot("use_alias", "out", &out);
+}
+
 /// DataFrame programs depend on polars (a pip install) — the Python target must
 /// declare it in `requirements.txt`, the parallel of `vbr_stdlib`'s `dataframe`
 /// Cargo feature. (Previously we imported polars but never recorded the dep.)

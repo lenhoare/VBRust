@@ -393,11 +393,16 @@ pub struct GuiEvent {
     pub body: Vec<Stmt>,
 }
 
-/// A `Use <crate> <version>` declaration → a Cargo `[dependencies]` line.
+/// A `Use <crate> <version>` declaration → a Cargo `[dependencies]` line (Rust
+/// target) or a `requirements.txt` line + `import` (Python target). The optional
+/// `As <name>` renames the imported module for the Python target, for the pip
+/// packages whose import name differs from their install name (`Use pillow 10.0
+/// As PIL` → `pillow==10.0` in requirements, `import PIL` in code).
 #[derive(Debug, Clone)]
 pub struct UseDecl {
     pub crate_name: String,
     pub version: String,
+    pub alias: Option<String>,
     pub line: usize,
 }
 
