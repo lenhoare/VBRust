@@ -28,6 +28,8 @@ const PY: &[&str] = &[
     "match", "match_guards", "enums", "sum_types",
     // slice 4 — collections + the method table
     "vec", "list_literal", "iterators", "enum_payloads", "field_inference",
+    // slice 5 — Option / Result
+    "option", "result", "result_e", "result_unit", "iterator_strings", "iterator_more",
 ];
 
 fn examples_dir() -> PathBuf {

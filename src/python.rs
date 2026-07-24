@@ -55,12 +55,20 @@ struct Emitter {
     // A light, function-local type map (reset per function): enough to pick `//`
     // vs `/` for division, and to tell a dict `.insert` from a list `.insert`.
     var_types: std::collections::HashMap<String, DeclType>,
+    // The current function's return type — tells a `?` whether to propagate an
+    // `Err` (Result) or a `None` (Option).
+    current_ret: Option<DeclType>,
+    // Temp counter for `?` hoisting (`_t0`).
+    tmp_counter: usize,
     // Prelude features, switched on as the body needs them.
     needs_vb: bool,
     needs_round: bool,
     needs_math: bool,
     needs_dataclass: bool,
     needs_enum: bool,
+    needs_option: bool,
+    needs_result: bool,
+    needs_unwrap: bool,
 }
 
 impl Emitter {
@@ -189,6 +197,7 @@ impl Emitter {
     fn function(&mut self, func: &Function, indent: usize, is_method: bool) {
         let name = rust_name(&func.name);
         self.var_types.clear();
+        self.current_ret = func.ret.clone();
         let mut params: Vec<String> = Vec::new();
         if is_method {
             params.push("self".to_string());
@@ -232,7 +241,7 @@ impl Emitter {
             Stmt::Comment(c) => self.line(indent, &format!("# {}", c.trim_start_matches(['\'', ' ']))),
             Stmt::Dim { name, ty, init, .. } => {
                 let value = match init {
-                    Some(e) => self.expr(e),
+                    Some(e) => self.hoist_value(e, indent),
                     None => self.default_value(ty),
                 };
                 let hint = self.type_hint(ty);
@@ -241,14 +250,14 @@ impl Emitter {
             }
             Stmt::Assign { target, value, op } => {
                 let t = self.expr(target);
-                let v = self.expr(value);
+                let v = self.hoist_value(value, indent);
                 match op {
                     Some(o) => self.line(indent, &format!("{} {}= {}", t, self.bin_op(*o), v)),
                     None => self.line(indent, &format!("{} = {}", t, v)),
                 }
             }
             Stmt::Return(Some(e)) => {
-                let v = self.expr(e);
+                let v = self.hoist_value(e, indent);
                 self.line(indent, &format!("return {}", v));
             }
             Stmt::Return(None) => self.line(indent, "return"),
@@ -392,18 +401,71 @@ impl Emitter {
             let op = if toks[pos] == "..=" { "<=" } else { "<" };
             return ("_".into(), Some(format!("{} <= {} {} {}", lo, subj, op, hi)));
         }
-        // An enum path (`Shape :: Circle ( r )`).
-        if let Some(pos) = toks.iter().position(|t| *t == "::") {
-            return (self.enum_pattern(&toks, pos), None);
+        // Everything else — constructors, enum paths, alternation, captures,
+        // literals, and their nestings (`Err(MathError::Custom(msg))`).
+        (self.pat_to_py(&toks), None)
+    }
+
+    /// Translate one pattern (recursively). Alternation is split first, then each
+    /// alternative is a `primary`.
+    fn pat_to_py(&mut self, toks: &[&str]) -> String {
+        let alts = split_top_level(toks, "|");
+        if alts.len() > 1 {
+            return alts
+                .iter()
+                .map(|a| self.pat_primary(a))
+                .collect::<Vec<_>>()
+                .join(" | ");
         }
-        // Alternation of literals (`0 | 1 | 2`) — Python has OR patterns.
-        if toks.contains(&"|") {
-            let parts: Vec<String> =
-                pattern.split('|').map(|p| self.pattern_literal(p.trim())).collect();
-            return (parts.join(" | "), None);
+        self.pat_primary(toks)
+    }
+
+    fn pat_primary(&mut self, toks: &[&str]) -> String {
+        match toks {
+            [] | ["_"] => "_".into(),
+            ["true"] => "True".into(),
+            ["false"] => "False".into(),
+            ["None"] => "None".into(),
+            _ => {
+                // `Head( args )` — a constructor (Some/Ok/Err or enum variant).
+                if let Some(lp) = toks.iter().position(|t| *t == "(") {
+                    let head = &toks[..lp];
+                    let inner = &toks[lp + 1..toks.len().saturating_sub(1)];
+                    let args: Vec<String> =
+                        split_top_level(inner, ",").iter().map(|g| self.pat_to_py(g)).collect();
+                    return self.ctor_pattern(head, &args);
+                }
+                // A bare enum path with no payload (`Enum::Variant`).
+                if let Some(pos) = toks.iter().position(|t| *t == "::") {
+                    let qualifier = toks[..pos].join("");
+                    let variant = toks[pos + 1..].join("");
+                    return if self.data_enums.contains(&qualifier) {
+                        format!("{}()", variant)
+                    } else {
+                        format!("{}.{}", qualifier, variant)
+                    };
+                }
+                // A single token: capture, literal, or bool.
+                self.pattern_literal(&toks.join(" "))
+            }
         }
-        // A single token: capture name, literal, or bool.
-        (self.pattern_literal(&toks.join(" ")), None)
+    }
+
+    /// A constructor pattern `Head(args)` → Python. `Head` is `Some`/`Ok`/`Err`
+    /// (a prelude wrapper) or a qualified data-enum variant (`Enum::Variant`,
+    /// whose class is just `Variant`).
+    fn ctor_pattern(&mut self, head: &[&str], args: &[String]) -> String {
+        if let Some(pos) = head.iter().position(|t| *t == "::") {
+            let variant = head[pos + 1..].join("");
+            return format!("{}({})", variant, args.join(", "));
+        }
+        let name = head.join("");
+        match name.as_str() {
+            "Some" => self.needs_option = true,
+            "Ok" | "Err" => self.needs_result = true,
+            _ => {}
+        }
+        format!("{}({})", name, args.join(", "))
     }
 
     /// One literal/capture token → its Python spelling (`true`→`True`, `- 5`→`-5`,
@@ -419,22 +481,6 @@ impl Emitter {
     /// An enum-path pattern → a Python `case`. A C-like enum matches by value
     /// (`Suit.Hearts`); a data enum matches its variant class structurally
     /// (`Circle(r)` / `Empty()`).
-    fn enum_pattern(&mut self, toks: &[&str], pos: usize) -> String {
-        let qualifier = toks[..pos].join("");
-        let variant = toks.get(pos + 1).copied().unwrap_or("");
-        let rest = &toks[(pos + 2).min(toks.len())..];
-        let bindings: Vec<String> = rest
-            .iter()
-            .filter(|t| !matches!(**t, "(" | ")" | ","))
-            .map(|t| rust_name(t))
-            .collect();
-        if self.data_enums.contains(&qualifier) {
-            format!("{}({})", variant, bindings.join(", "))
-        } else {
-            format!("{}.{}", qualifier, variant)
-        }
-    }
-
     fn block_or_pass(&mut self, stmts: &[Stmt], indent: usize) {
         if stmts.iter().all(|s| matches!(s, Stmt::LineMark(_))) {
             self.line(indent, "pass");
@@ -451,7 +497,7 @@ impl Emitter {
 
         // Terminal consumers.
         match m.as_str() {
-            "collect" => return self.comprehension(recv),
+            "collect" => return self.render_iter(recv),
             "sum" => return format!("sum({})", self.expr(recv)),
             "count" | "len" => return format!("len({})", self.expr(recv)),
             "any" => return self.quantifier(recv, args, "any"),
@@ -459,19 +505,40 @@ impl Emitter {
             _ => {}
         }
 
-        // `map.get(k).Unwrap()` — a get-then-unwrap is a direct subscript (which,
-        // like `.unwrap()`, raises if the key is absent). Full Option support is a
-        // later slice; this keeps the common HashMap read working now.
+        // `.Unwrap()` on an Option/Result → the prelude `_unwrap` (raises on
+        // `None`/`Err`, exactly like Rust's `.unwrap()` panics). It also passes a
+        // bare value through, so a `dict.get(k).Unwrap()` still works.
         if m == "unwrap" {
-            if let ExprKind::MethodCall { recv: inner, method: im, args: iargs } = &recv.kind {
-                if im.eq_ignore_ascii_case("get") && iargs.len() == 1 {
-                    let base = self.expr(inner);
-                    let key = self.expr(&iargs[0]);
-                    return format!("{}[{}]", base, key);
+            // `_unwrap` names all four wrappers, so ensure their classes exist.
+            self.needs_unwrap = true;
+            self.needs_option = true;
+            self.needs_result = true;
+            return format!("_unwrap({})", self.expr(recv));
+        }
+
+        // Option-returning consumers → wrapped in `Some(...)` / `None`, so the
+        // result matches the same way a Rust `Option` does.
+        match m.as_str() {
+            "find" if args.len() == 1 => {
+                if let Some((v, cond)) = self.closure_parts(&args[0]) {
+                    self.needs_option = true;
+                    let src = self.expr(recv);
+                    return format!("next((Some({v}) for {v} in {src} if {cond}), None)");
                 }
             }
-            self.warn("`.Unwrap()` needs Option/Result support (a later slice) — emitted as-is.");
-            return format!("{}.unwrap()", self.expr(recv));
+            "position" if args.len() == 1 => {
+                if let Some((v, cond)) = self.closure_parts(&args[0]) {
+                    self.needs_option = true;
+                    let src = self.expr(recv);
+                    return format!("next((Some(_i) for _i, {v} in enumerate({src}) if {cond}), None)");
+                }
+            }
+            "max" | "min" if args.is_empty() => {
+                self.needs_option = true;
+                let src = self.expr(recv);
+                return format!("(Some({m}({src})) if {src} else None)");
+            }
+            _ => {}
         }
 
         // `map.contains_key(k)` → `k in map`.
@@ -499,29 +566,81 @@ impl Emitter {
         }
     }
 
-    /// A `.collect()`'d chain → a list comprehension. Handles a single
-    /// `filter`/`map` adapter (the common shape); anything else is wrapped in
-    /// `list(...)` with a warning.
-    fn comprehension(&mut self, chain: &Expr) -> String {
-        if let ExprKind::MethodCall { recv, method, args } = &chain.kind {
+    /// A (`.collect()`'d) iterator chain → a Python list expression. `filter`/
+    /// `map` become comprehensions; `take`/`skip`/`rev` become slices; the
+    /// recursion bottoms out at the base receiver (a Vec/list). An unrecognised
+    /// adapter is wrapped in `list(...)` with a warning.
+    fn render_iter(&mut self, e: &Expr) -> String {
+        if let ExprKind::MethodCall { recv, method, args } = &e.kind {
             let m = method.to_ascii_lowercase();
-            if (m == "filter" || m == "map") && args.len() == 1 {
-                if let ExprKind::Closure { params, body, .. } = &args[0].kind {
-                    if params.len() == 1 {
-                        let var = rust_name(&params[0]);
-                        let src = self.expr(recv);
-                        let body_s = self.expr(body);
-                        return match m.as_str() {
-                            "filter" => format!("[{v} for {v} in {src} if {body_s}]", v = var),
-                            _ => format!("[{body_s} for {var} in {src}]"),
-                        };
+            match m.as_str() {
+                "filter" if args.len() == 1 => {
+                    if let Some((v, cond)) = self.closure_parts(&args[0]) {
+                        let src = self.render_iter(recv);
+                        return format!("[{v} for {v} in {src} if {cond}]");
                     }
                 }
+                "map" if args.len() == 1 => {
+                    if let Some((v, body)) = self.closure_parts(&args[0]) {
+                        let src = self.render_iter(recv);
+                        return format!("[{body} for {v} in {src}]");
+                    }
+                }
+                "take" if args.len() == 1 => {
+                    let src = self.render_iter(recv);
+                    let n = self.expr(&args[0]);
+                    return format!("{src}[:{n}]");
+                }
+                "skip" if args.len() == 1 => {
+                    let src = self.render_iter(recv);
+                    let n = self.expr(&args[0]);
+                    return format!("{src}[{n}:]");
+                }
+                "rev" if args.is_empty() => {
+                    let src = self.render_iter(recv);
+                    return format!("{src}[::-1]");
+                }
+                "collect" => return self.render_iter(recv),
+                _ => {}
             }
         }
-        self.warn("iterator chain not recognised — wrapped in `list(...)`.");
-        let s = self.expr(chain);
-        format!("list({})", s)
+        self.expr(e)
+    }
+
+    /// Render a value expression, hoisting a top-level `?` (`Try`) into the
+    /// preceding lines: bind the operand to a temp, early-return on failure
+    /// (`Err` for a Result-returning function, `None` for an Option one), and
+    /// yield the unwrapped `.value`. A `?` nested deeper than the whole value is
+    /// warned (not in idiomatic use — VB writes `Dim x = f()?`).
+    fn hoist_value(&mut self, e: &Expr, indent: usize) -> String {
+        let ExprKind::Try(inner) = &e.kind else {
+            return self.expr(e);
+        };
+        let tmp = format!("_t{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        let val = self.expr(inner);
+        self.line(indent, &format!("{} = {}", tmp, val));
+        if matches!(self.current_ret, Some(DeclType::Option(_))) {
+            self.line(indent, &format!("if {} is None:", tmp));
+            self.line(indent + 1, &format!("return {}", tmp));
+        } else {
+            self.needs_result = true;
+            self.line(indent, &format!("if isinstance({}, Err):", tmp));
+            self.line(indent + 1, &format!("return {}", tmp));
+        }
+        format!("{}.value", tmp)
+    }
+
+    /// A single-parameter closure `|v| body` → its `(var, body)` in Python.
+    fn closure_parts(&mut self, e: &Expr) -> Option<(String, String)> {
+        if let ExprKind::Closure { params, body, .. } = &e.kind {
+            if params.len() == 1 {
+                let var = rust_name(&params[0]);
+                let b = self.expr(body);
+                return Some((var, b));
+            }
+        }
+        None
     }
 
     /// `.any(|v| cond)` / `.all(…)` → a generator quantifier.
@@ -722,6 +841,15 @@ impl Emitter {
                 let i = self.expr(inner);
                 format!("not ({})", i)
             }
+            ExprKind::Try(inner) => {
+                // A `?` reaching here is nested inside a larger expression; only a
+                // top-level `?` (handled by `hoist_value`) can early-return.
+                self.warn(
+                    "`?` is only lowered as the whole right-hand side of a Dim/assignment/Return \
+                     — nested use isn't supported yet.",
+                );
+                self.expr(inner)
+            }
             ExprKind::Binary { op: BinOp::Concat, .. } => self.concat_fstring(e),
             ExprKind::Binary { op: BinOp::Div, lhs, rhs } => {
                 // Rust's `/` truncates for integer operands but divides for floats;
@@ -772,6 +900,32 @@ impl Emitter {
     /// A function call — a maths builtin maps to `math`/a helper, everything else
     /// passes straight through as a Python call.
     fn call(&mut self, name: &str, args: &[Expr]) -> String {
+        // Option/Result constructors keep their capitalised names (they map to
+        // the prelude `Some`/`Ok`/`Err` classes; `None` is Python's own).
+        match name {
+            "Some" => {
+                self.needs_option = true;
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                return format!("Some({})", a.join(", "));
+            }
+            "Ok" => {
+                self.needs_result = true;
+                // `Ok(())` is the unit success → `Ok(None)`.
+                let is_unit = args.is_empty()
+                    || (args.len() == 1 && matches!(&args[0].kind, ExprKind::Tuple(t) if t.is_empty()));
+                if is_unit {
+                    return "Ok(None)".into();
+                }
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                return format!("Ok({})", a.join(", "));
+            }
+            "Err" => {
+                self.needs_result = true;
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                return format!("Err({})", a.join(", "));
+            }
+            _ => {}
+        }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         if args.len() == 1 {
             let a = &rendered[0];
@@ -827,7 +981,10 @@ impl Emitter {
             DeclType::Plain(Type::Text) => "str".into(),
             DeclType::Vec(t) => format!("list[{}]", self.type_hint(t)),
             DeclType::Map(k, v) => format!("dict[{}, {}]", self.type_hint(k), self.type_hint(v)),
-            DeclType::Option(t) => format!("{} | None", self.type_hint(t)),
+            // Option/Result are modelled as the prelude `Some`/`None`/`Ok`/`Err`
+            // wrappers, not a bare union — so `object` is the honest annotation.
+            DeclType::Option(_) => "object".into(),
+            DeclType::Result(_, _) => "object".into(),
             DeclType::Named(n) => n.clone(),
             other => {
                 self.warn(format!("type `{}` has no Python hint yet.", other.vb()));
@@ -856,16 +1013,27 @@ impl Emitter {
         if !program.leading_comments.is_empty() {
             code.push('\n');
         }
+        // Option/Result wrappers are dataclasses too.
+        let needs_dataclass = self.needs_dataclass || self.needs_option || self.needs_result;
         if self.needs_math {
             code.push_str("import math\n");
         }
-        if self.needs_dataclass {
+        if needs_dataclass {
             code.push_str("from dataclasses import dataclass\n");
         }
         if self.needs_enum {
             code.push_str("from enum import Enum\n");
         }
-        if self.needs_math || self.needs_dataclass || self.needs_enum {
+        if self.needs_math || needs_dataclass || self.needs_enum {
+            code.push('\n');
+        }
+        // The Option/Result wrappers (`None` is Python's own).
+        if self.needs_option {
+            code.push_str(OPTION_CLASS);
+            code.push('\n');
+        }
+        if self.needs_result {
+            code.push_str(RESULT_CLASSES);
             code.push('\n');
         }
         if self.needs_vb {
@@ -874,6 +1042,10 @@ impl Emitter {
         }
         if self.needs_round {
             code.push_str(VB_ROUND_HELPER);
+            code.push('\n');
+        }
+        if self.needs_unwrap {
+            code.push_str(UNWRAP_HELPER);
             code.push('\n');
         }
         code.push_str(&self.body);
@@ -899,6 +1071,39 @@ def _vb(x):
     return str(x)
 ";
 
+/// `Option`'s `Some` wrapper — `None` is Python's own singleton, so a match
+/// reads `case Some(v):` / `case None:`.
+const OPTION_CLASS: &str = "\
+@dataclass
+class Some:
+    value: object
+";
+
+/// `Result`'s `Ok`/`Err` wrappers.
+const RESULT_CLASSES: &str = "\
+@dataclass
+class Ok:
+    value: object
+
+@dataclass
+class Err:
+    error: object
+";
+
+/// `.Unwrap()` — returns the payload of a `Some`/`Ok`, raises on `None`/`Err`
+/// (like Rust's `.unwrap()` panicking); a bare value passes through, so a
+/// `dict.get(k).Unwrap()` works too.
+const UNWRAP_HELPER: &str = "\
+def _unwrap(x):
+    if isinstance(x, (Some, Ok)):
+        return x.value
+    if isinstance(x, Err):
+        raise Exception(f'unwrapped an Err: {x.error}')
+    if x is None:
+        raise Exception('unwrapped a None')
+    return x
+";
+
 /// VB `Round` rounds half away from zero (as Rust's `f64::round` does), unlike
 /// Python's banker's rounding — so `Round(2.5)` is `3`, matching `vbr run`.
 const VB_ROUND_HELPER: &str = "\
@@ -914,6 +1119,30 @@ enum Num {
     Int,
     Float,
     Unknown,
+}
+
+/// Split a flat token slice on a separator token that sits at paren depth 0
+/// (so `,`/`|` inside a nested `Custom(msg)` don't split it).
+fn split_top_level<'a>(toks: &[&'a str], sep: &str) -> Vec<Vec<&'a str>> {
+    let mut groups: Vec<Vec<&str>> = Vec::new();
+    let mut cur: Vec<&str> = Vec::new();
+    let mut depth = 0i32;
+    for t in toks {
+        match *t {
+            "(" | "[" => {
+                depth += 1;
+                cur.push(*t);
+            }
+            ")" | "]" => {
+                depth -= 1;
+                cur.push(*t);
+            }
+            s if s == sep && depth == 0 => groups.push(std::mem::take(&mut cur)),
+            _ => cur.push(*t),
+        }
+    }
+    groups.push(cur);
+    groups
 }
 
 /// A Python string literal. **Single-quoted on purpose**: f-strings are
