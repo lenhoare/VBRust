@@ -13,8 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Slice-1 examples: pure computation + strings + `= Nothing`.
-const C: &[&str] = &["hello", "functions", "logic", "maths", "doloop", "memory"];
+/// Slice 1: pure computation + strings + `= Nothing`.
+/// Slice 2: `Type`/struct, methods (`Me`→`self->`), module `Const`.
+const C: &[&str] = &[
+    // slice 1
+    "hello", "functions", "logic", "maths", "doloop", "memory",
+    // slice 2
+    "types", "structs", "methods", "constants",
+];
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")

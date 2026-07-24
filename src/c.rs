@@ -29,6 +29,8 @@ pub fn emit_c(program: &Program) -> CProgram {
     let mut e = Emitter {
         types: type_program(program),
         out: String::new(),
+        decls: String::new(),
+        const_names: std::collections::HashMap::new(),
         indent: 0,
         warnings: Vec::new(),
         needs_math: false,
@@ -36,6 +38,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         need_from_ll: false,
         need_from_bool: false,
         need_from_double: false,
+        need_from_float: false,
         need_concat: false,
     };
     e.program(program);
@@ -45,6 +48,11 @@ pub fn emit_c(program: &Program) -> CProgram {
 struct Emitter {
     types: TypeTable,
     out: String,
+    /// Struct `typedef`s + module constants, emitted before the functions.
+    decls: String,
+    /// Module constants keep their exact casing (`MAX_RETRIES`) — lowercased
+    /// name → original spelling, so a reference isn't snake-cased like a local.
+    const_names: std::collections::HashMap<String, String>,
     indent: usize,
     warnings: Vec<String>,
     // Runtime helpers switched on as the body needs them.
@@ -53,6 +61,7 @@ struct Emitter {
     need_from_ll: bool,
     need_from_bool: bool,
     need_from_double: bool,
+    need_from_float: bool,
     need_concat: bool,
 }
 
@@ -76,11 +85,40 @@ impl Emitter {
                  the C target is for the core language.",
             );
         }
+        for c in &program.constants {
+            self.const_names.insert(c.name.to_ascii_lowercase(), c.name.clone());
+        }
+        self.struct_typedefs(program);
+        self.constants(program);
         for (i, func) in program.functions.iter().enumerate() {
             if i > 0 {
                 self.out.push('\n');
             }
             self.function(func);
+        }
+    }
+
+    /// `Type Person … End Type` → a `typedef`'d C struct.
+    fn struct_typedefs(&mut self, program: &Program) {
+        for s in &program.structs {
+            self.decls.push_str("typedef struct {\n");
+            for f in &s.fields {
+                self.decls
+                    .push_str(&format!("    {} {};\n", c_type(&f.ty), c_name(&f.name)));
+            }
+            self.decls.push_str(&format!("}} {};\n\n", s.name));
+        }
+    }
+
+    /// `Const X As T = v` → a file-scope `static const` (case preserved).
+    fn constants(&mut self, program: &Program) {
+        for c in &program.constants {
+            let cty = c_type(&DeclType::Plain(c.ty));
+            let val = self.expr(&c.value);
+            self.decls.push_str(&format!("static const {} {} = {};\n", cty, c.name, val));
+        }
+        if !program.constants.is_empty() {
+            self.decls.push('\n');
         }
     }
 
@@ -111,13 +149,21 @@ impl Emitter {
             Some(t) => c_type(t),
             None => "void".to_string(),
         };
-        let params: Vec<String> = func
-            .params
-            .iter()
-            .map(|p| format!("{} {}", c_type(&p.ty), c_name(&p.name)))
-            .collect();
+        let mut params: Vec<String> = Vec::new();
+        // A method `Function Person.M()` takes the receiver first, by pointer
+        // (so it can mutate, and reads go through `self->field`).
+        if let Some(recv) = &func.receiver {
+            params.push(format!("{}* self", recv));
+        }
+        for p in &func.params {
+            params.push(format!("{} {}", c_type(&p.ty), c_name(&p.name)));
+        }
         let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
-        format!("{} {}({})", ret, c_name(&func.name), params)
+        let name = match &func.receiver {
+            Some(recv) => format!("{}_{}", recv, c_name(&func.name)),
+            None => c_name(&func.name),
+        };
+        format!("{} {}({})", ret, name, params)
     }
 
     fn block(&mut self, stmts: &[Stmt]) {
@@ -158,6 +204,11 @@ impl Emitter {
                 self.line(&format!("return {};", v));
             }
             Stmt::Return(None) => self.line("return;"),
+            // A bare expression used for its effect (`alice.HaveBirthday()`).
+            Stmt::Expr(e) => {
+                let v = self.expr(e);
+                self.line(&format!("{};", v));
+            }
             Stmt::If { branches, else_body } => self.if_stmt(branches, else_body.as_deref()),
             Stmt::For { var, from, to, step, body } => self.for_stmt(var, from, to, step.as_ref(), body),
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body),
@@ -283,6 +334,11 @@ impl Emitter {
         if is_bool(&ty) {
             self.need_from_bool = true;
             format!("vbr_from_bool({})", inner)
+        } else if is_single(&ty) {
+            // A `float` needs f32-precision round-tripping, or promotion to
+            // `double` prints the noise digits (`3.14` → `3.140000104904175`).
+            self.need_from_float = true;
+            format!("vbr_from_float({})", inner)
         } else if is_float(&ty) {
             self.need_from_double = true;
             format!("vbr_from_double({})", inner)
@@ -299,8 +355,42 @@ impl Emitter {
             ExprKind::Float(f) => c_float(*f),
             ExprKind::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             ExprKind::Str(s) => c_string(s),
-            ExprKind::Ident(name) => c_name(name),
-            ExprKind::ConstRef(name) => c_name(name),
+            ExprKind::Ident(name) if name.eq_ignore_ascii_case("Me") => "(*self)".to_string(),
+            // A constant keeps its exact casing (`MAX_RETRIES`); a plain variable
+            // lowercases like any C identifier.
+            ExprKind::Ident(name) => self
+                .const_names
+                .get(&name.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_else(|| c_name(name)),
+            ExprKind::ConstRef(name) => self
+                .const_names
+                .get(&name.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_else(|| name.clone()),
+            // `Me.field` → `self->field`; any other `recv.field` → `recv.field`.
+            ExprKind::Field(recv, field) => {
+                if matches!(&recv.kind, ExprKind::Ident(n) if n.eq_ignore_ascii_case("Me")) {
+                    format!("self->{}", c_name(field))
+                } else {
+                    let r = self.expr(recv);
+                    format!("{}.{}", r, c_name(field))
+                }
+            }
+            // `Person { name: …, age: … }` → a C compound literal.
+            ExprKind::StructLit { name, fields } => {
+                let parts: Vec<String> = fields
+                    .iter()
+                    .map(|(f, v)| {
+                        let val = self.expr(v);
+                        format!(".{} = {}", c_name(f), val)
+                    })
+                    .collect();
+                format!("({}){{ {} }}", name, parts.join(", "))
+            }
+            // `recv.Method(args)` → `Struct_method(&recv, args)` — the receiver
+            // goes in first, by pointer (already a pointer when it's `Me`).
+            ExprKind::MethodCall { recv, method, args } => self.method_call(recv, method, args),
             ExprKind::Not(inner) => {
                 let i = self.expr(inner);
                 format!("(!{})", i)
@@ -341,6 +431,28 @@ impl Emitter {
         }
     }
 
+    fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
+        let struct_name = match self.type_of(recv) {
+            DeclType::Named(n) => n,
+            _ => {
+                self.warn(format!("couldn't resolve the type of `.{}(…)` — left as-is.", method));
+                "void".to_string()
+            }
+        };
+        // `Me` is already a `Struct*`; anything else is a value we take a
+        // pointer to.
+        let recv_arg = if matches!(&recv.kind, ExprKind::Ident(n) if n.eq_ignore_ascii_case("Me")) {
+            "self".to_string()
+        } else {
+            format!("&{}", self.expr(recv))
+        };
+        let mut rendered = vec![recv_arg];
+        for a in args {
+            rendered.push(self.expr(a));
+        }
+        format!("{}_{}({})", struct_name, c_name(method), rendered.join(", "))
+    }
+
     fn call(&mut self, name: &str, args: &[Expr]) -> String {
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         // Maths builtins → the C standard library (all in `<math.h>`).
@@ -375,9 +487,13 @@ impl Emitter {
         }
         code.push('\n');
 
+        // Struct `typedef`s + module constants come before the functions that
+        // use them (and before the prototypes, which name struct types).
+        code.push_str(&self.decls);
+
         // The inlined runtime — only the helpers the body used, in dependency
-        // order (`vbr_from_bool`/`vbr_from_double` build on `vbr_dup`).
-        let need_dup = self.need_dup || self.need_from_bool || self.need_from_double;
+        // order (`vbr_from_*` build on `vbr_dup`).
+        let need_dup = self.need_dup || self.need_from_bool || self.need_from_double || self.need_from_float;
         if need_dup {
             code.push_str(RT_DUP);
         }
@@ -390,10 +506,19 @@ impl Emitter {
         if self.need_from_double {
             code.push_str(RT_FROM_DOUBLE);
         }
+        if self.need_from_float {
+            code.push_str(RT_FROM_FLOAT);
+        }
         if self.need_concat {
             code.push_str(RT_CONCAT);
         }
-        if need_dup || self.need_from_ll || self.need_from_bool || self.need_from_double || self.need_concat {
+        if need_dup
+            || self.need_from_ll
+            || self.need_from_bool
+            || self.need_from_double
+            || self.need_from_float
+            || self.need_concat
+        {
             code.push('\n');
         }
 
@@ -454,6 +579,20 @@ static char* vbr_from_double(double d) {
 }
 ";
 
+// Same shortest-round-trip trick as `vbr_from_double`, but in `float`
+// precision — so a `Single` prints `3.14`, not the `double`-promotion noise
+// `3.140000104904175`.
+const RT_FROM_FLOAT: &str = "\
+static char* vbr_from_float(float f) {
+    char buf[32];
+    for (int p = 1; p <= 9; p++) {
+        snprintf(buf, sizeof buf, \"%.*g\", p, (double)f);
+        if (strtof(buf, NULL) == f) break;
+    }
+    return vbr_dup(buf);
+}
+";
+
 const RT_CONCAT: &str = "\
 static char* vbr_concat(const char* a, const char* b) {
     char* s = (char*)malloc(strlen(a) + strlen(b) + 1);
@@ -465,19 +604,24 @@ static char* vbr_concat(const char* a, const char* b) {
 
 // ---- helpers ----
 
-/// The C type a `DeclType` lowers to (slice-1 scalars + strings).
+/// The C type a `DeclType` lowers to (slice 1–2 scalars, strings, structs).
 fn c_type(ty: &DeclType) -> String {
     match ty {
-        DeclType::Plain(Type::Integer) => "int",
-        DeclType::Plain(Type::Long | Type::LongLong) => "long long",
-        DeclType::Plain(Type::Byte) => "unsigned char",
-        DeclType::Plain(Type::Single) => "float",
-        DeclType::Plain(Type::Double) => "double",
-        DeclType::Plain(Type::Boolean) => "bool",
-        DeclType::Plain(Type::Text) => "char*",
-        _ => "long long",
+        DeclType::Plain(Type::Integer) => "int".to_string(),
+        DeclType::Plain(Type::Long | Type::LongLong) => "long long".to_string(),
+        DeclType::Plain(Type::Byte) => "unsigned char".to_string(),
+        DeclType::Plain(Type::Single) => "float".to_string(),
+        DeclType::Plain(Type::Double) => "double".to_string(),
+        DeclType::Plain(Type::Boolean) => "bool".to_string(),
+        DeclType::Plain(Type::Text) => "char*".to_string(),
+        // A user struct is `typedef`'d, so its bare name is the type.
+        DeclType::Named(n) => n.clone(),
+        _ => "long long".to_string(),
     }
-    .to_string()
+}
+
+fn is_single(ty: &DeclType) -> bool {
+    matches!(ty, DeclType::Plain(Type::Single))
 }
 
 fn is_text(ty: &DeclType) -> bool {

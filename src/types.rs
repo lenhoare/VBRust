@@ -23,6 +23,27 @@ pub type TypeTable = HashMap<Span, DeclType>;
 
 /// Type every function body in `program`, returning the span → type table.
 pub fn type_program(program: &Program) -> TypeTable {
+    let structs = program
+        .structs
+        .iter()
+        .map(|s| {
+            let fields = s
+                .fields
+                .iter()
+                .map(|f| (f.name.to_ascii_lowercase(), f.ty.clone()))
+                .collect();
+            (s.name.to_ascii_lowercase(), fields)
+        })
+        .collect();
+    let methods = program
+        .functions
+        .iter()
+        .filter_map(|f| {
+            let recv = f.receiver.as_ref()?;
+            let ret = f.ret.clone().unwrap_or(DeclType::Plain(Type::Long));
+            Some(((recv.to_ascii_lowercase(), f.name.to_ascii_lowercase()), ret))
+        })
+        .collect();
     let mut typer = Typer {
         fns: program
             .functions
@@ -35,6 +56,8 @@ pub fn type_program(program: &Program) -> TypeTable {
             .iter()
             .map(|c| (c.name.to_ascii_lowercase(), c.ty))
             .collect(),
+        structs,
+        methods,
         env: HashMap::new(),
         table: HashMap::new(),
     };
@@ -49,6 +72,10 @@ struct Typer {
     fns: HashMap<String, DeclType>,
     /// Module constants, by lowercased name.
     consts: HashMap<String, Type>,
+    /// Struct fields: struct name → (field name → type), all lowercased.
+    structs: HashMap<String, HashMap<String, DeclType>>,
+    /// Method return types: (struct, method) → type, for a `recv.M()` call.
+    methods: HashMap<(String, String), DeclType>,
     /// The current function's variables (params, `Dim`s, `For` counters).
     env: HashMap<String, DeclType>,
     table: TypeTable,
@@ -60,6 +87,10 @@ impl Typer {
         self.env.clear();
         for p in &func.params {
             self.env.insert(p.name.to_ascii_lowercase(), p.ty.clone());
+        }
+        // Inside a method, `Me` is the receiver struct — so `Me.field` infers.
+        if let Some(recv) = &func.receiver {
+            self.env.insert("me".to_string(), DeclType::Named(recv.clone()));
         }
         // Walk the same desugared body the backend emits (so spans line up).
         let mut body = func.body.clone();
@@ -175,6 +206,41 @@ impl Typer {
                     DeclType::Plain(t)
                 } else if let Some(t) = self.fns.get(&name.to_ascii_lowercase()) {
                     t.clone()
+                } else {
+                    DeclType::Plain(Type::Long)
+                }
+            }
+            // `Person { name: …, age: … }` — the struct is its own named type.
+            ExprKind::StructLit { name, fields } => {
+                for (_, v) in fields {
+                    self.infer(v);
+                }
+                DeclType::Named(name.clone())
+            }
+            // `recv.field` — look the field up in the receiver's struct.
+            ExprKind::Field(recv, fname) => {
+                let recv_ty = self.infer(recv);
+                if let DeclType::Named(s) = recv_ty {
+                    self.structs
+                        .get(&s.to_ascii_lowercase())
+                        .and_then(|fs| fs.get(&fname.to_ascii_lowercase()))
+                        .cloned()
+                        .unwrap_or(DeclType::Plain(Type::Long))
+                } else {
+                    DeclType::Plain(Type::Long)
+                }
+            }
+            // `recv.Method(args)` — the method's declared return type.
+            ExprKind::MethodCall { recv, method, args } => {
+                let recv_ty = self.infer(recv);
+                for a in args {
+                    self.infer(a);
+                }
+                if let DeclType::Named(s) = recv_ty {
+                    self.methods
+                        .get(&(s.to_ascii_lowercase(), method.to_ascii_lowercase()))
+                        .cloned()
+                        .unwrap_or(DeclType::Plain(Type::Long))
                 } else {
                     DeclType::Plain(Type::Long)
                 }
