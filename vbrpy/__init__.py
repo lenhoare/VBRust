@@ -6,6 +6,7 @@ from .prelude import Some, Ok, Err, _vb, _unwrap, _vb_round
 from .filesystem import FileSystem
 from .regex import Regex
 from .jsonval import Json
+from .database import Database
 
 __all__ = [
     "Some",
@@ -17,4 +18,5 @@ __all__ = [
     "FileSystem",
     "Regex",
     "Json",
+    "Database",
 ]

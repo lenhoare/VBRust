@@ -37,12 +37,11 @@ pub struct PyProgram {
 /// Standard-library namespaces/value-types the Python target supports so far
 /// (mirrors the `vbrpy` package). Used as a call receiver (`FileSystem.Read`) or
 /// a declared type (`As Json`).
-const STDLIB_SUPPORTED: &[&str] = &["FileSystem", "Regex", "Json"];
+const STDLIB_SUPPORTED: &[&str] = &["FileSystem", "Regex", "Json", "Database"];
 
 /// Namespaces that exist in `vbr_stdlib` but aren't lowered to Python yet — so a
 /// use gets a clear "later slice" warning rather than silently wrong output.
-const STDLIB_PENDING: &[&str] =
-    &["DateTime", "Http", "Database", "DataFrame", "Shell"];
+const STDLIB_PENDING: &[&str] = &["DateTime", "Http", "DataFrame", "Shell"];
 
 /// Emit Python for a whole parsed program.
 pub fn emit_python(program: &Program) -> PyProgram {
@@ -74,6 +73,10 @@ struct Emitter {
     current_ret: Option<DeclType>,
     // Temp counter for `?` hoisting (`_t0`).
     tmp_counter: usize,
+    // The indentation at which a `?` in the expression currently being rendered
+    // should hoist its temp + early-return. `Some` while a statement's own
+    // expressions are being rendered; `None` means no statement context.
+    hoist_at: Option<usize>,
     // Standard-library namespaces/types referenced (`FileSystem`, `Json`, …) —
     // these turn the output into a project that imports the `vbrpy` package.
     stdlib_used: std::collections::BTreeSet<String>,
@@ -253,12 +256,21 @@ impl Emitter {
     }
 
     fn stmt(&mut self, stmt: &Stmt, indent: usize) {
+        // A `?` anywhere in this statement's own expressions hoists its temp +
+        // early-return to lines emitted just above the statement, at this indent.
+        let prev_hoist = self.hoist_at;
+        self.hoist_at = Some(indent);
+        self.stmt_inner(stmt, indent);
+        self.hoist_at = prev_hoist;
+    }
+
+    fn stmt_inner(&mut self, stmt: &Stmt, indent: usize) {
         match stmt {
             Stmt::LineMark(_) => {}
             Stmt::Comment(c) => self.line(indent, &format!("# {}", c.trim_start_matches(['\'', ' ']))),
             Stmt::Dim { name, ty, init, .. } => {
                 let value = match init {
-                    Some(e) => self.hoist_value(e, indent),
+                    Some(e) => self.expr(e),
                     None => self.default_value(ty),
                 };
                 let hint = self.type_hint(ty);
@@ -267,18 +279,24 @@ impl Emitter {
             }
             Stmt::Assign { target, value, op } => {
                 let t = self.expr(target);
-                let v = self.hoist_value(value, indent);
+                let v = self.expr(value);
                 match op {
                     Some(o) => self.line(indent, &format!("{} {}= {}", t, self.bin_op(*o), v)),
                     None => self.line(indent, &format!("{} = {}", t, v)),
                 }
             }
             Stmt::Return(Some(e)) => {
-                let v = self.hoist_value(e, indent);
+                let v = self.expr(e);
                 self.line(indent, &format!("return {}", v));
             }
             Stmt::Return(None) => self.line(indent, "return"),
             Stmt::Expr(e) => {
+                // A bare `foo()?` statement: hoist the temp + early-return, but
+                // the unwrapped value is discarded (no trailing line).
+                if let ExprKind::Try(_) = &e.kind {
+                    let _ = self.expr(e);
+                    return;
+                }
                 // A dict `.insert(k, v)` is a subscript assignment in Python
                 // (`d[k] = v`); a Vec `.insert(i, x)` keeps `list.insert(i, x)`.
                 if let ExprKind::MethodCall { recv, method, args } = &e.kind {
@@ -641,18 +659,20 @@ impl Emitter {
         self.expr(e)
     }
 
-    /// Render a value expression, hoisting a top-level `?` (`Try`) into the
-    /// preceding lines: bind the operand to a temp, early-return on failure
-    /// (`Err` for a Result-returning function, `None` for an Option one), and
-    /// yield the unwrapped `.value`. A `?` nested deeper than the whole value is
-    /// warned (not in idiomatic use — VB writes `Dim x = f()?`).
-    fn hoist_value(&mut self, e: &Expr, indent: usize) -> String {
-        let ExprKind::Try(inner) = &e.kind else {
-            return self.expr(e);
+    /// Lower a `?` (`Try`): bind its operand to a temp on a line just above the
+    /// current statement, early-return on failure (`Err` for a Result-returning
+    /// function, `None` for an Option one), and yield the unwrapped `.value`.
+    /// Works for a `?` anywhere in a statement's expressions — the hoisted lines
+    /// appear in evaluation order because they're emitted as each `?` is
+    /// rendered.
+    fn hoist_try(&mut self, inner: &Expr) -> String {
+        let Some(indent) = self.hoist_at else {
+            self.warn("`?` couldn't be lowered here (no statement context).");
+            return self.expr(inner);
         };
+        let val = self.expr(inner);
         let tmp = format!("_t{}", self.tmp_counter);
         self.tmp_counter += 1;
-        let val = self.expr(inner);
         self.line(indent, &format!("{} = {}", tmp, val));
         if matches!(self.current_ret, Some(DeclType::Option(_))) {
             self.line(indent, &format!("if {} is None:", tmp));
@@ -875,15 +895,7 @@ impl Emitter {
                 let i = self.expr(inner);
                 format!("not ({})", i)
             }
-            ExprKind::Try(inner) => {
-                // A `?` reaching here is nested inside a larger expression; only a
-                // top-level `?` (handled by `hoist_value`) can early-return.
-                self.warn(
-                    "`?` is only lowered as the whole right-hand side of a Dim/assignment/Return \
-                     — nested use isn't supported yet.",
-                );
-                self.expr(inner)
-            }
+            ExprKind::Try(inner) => self.hoist_try(inner),
             ExprKind::Binary { op: BinOp::Concat, .. } => self.concat_fstring(e),
             ExprKind::Binary { op: BinOp::Div, lhs, rhs } => {
                 // Rust's `/` truncates for integer operands but divides for floats;
@@ -957,6 +969,11 @@ impl Emitter {
                 self.needs_result = true;
                 let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                 return format!("Err({})", a.join(", "));
+            }
+            // `CStr(x)` — VB's infallible string conversion → Python `str(x)`.
+            "CStr" if args.len() == 1 => {
+                let a = self.expr(&args[0]);
+                return format!("str({})", a);
             }
             _ => {}
         }
