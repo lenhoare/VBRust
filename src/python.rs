@@ -20,6 +20,7 @@ use std::collections::HashSet;
 use crate::ast::*;
 use crate::pattern::{self, Pat};
 use crate::transpiler::{convert_returns, rust_name};
+use crate::types::{type_program, TypeTable};
 
 /// The result of emitting Python for one VBR source.
 pub struct PyProgram {
@@ -53,7 +54,7 @@ const STDLIB_PENDING: &[&str] = &[];
 
 /// Emit Python for a whole parsed program.
 pub fn emit_python(program: &Program) -> PyProgram {
-    let mut e = Emitter::default();
+    let mut e = Emitter { types: type_program(program), ..Default::default() };
     e.program(program);
     e.finish(program)
 }
@@ -73,9 +74,15 @@ struct Emitter {
     // Per-`Match` counter, so the scrutinee temp (`_m0`) is unique and matches
     // can nest.
     match_counter: usize,
-    // A light, function-local type map (reset per function): enough to pick `//`
-    // vs `/` for division, and to tell a dict `.insert` from a list `.insert`.
-    var_types: std::collections::HashMap<String, DeclType>,
+    // The shared typing pass (`types.rs`) — the single authority for "what type
+    // is this expression?", keyed by span. Replaces a hand-rolled per-function
+    // type map; drives `//` vs `/`, dict-vs-list `.insert`, and DataFrame detection.
+    types: TypeTable,
+    // Declared (non-DataFrame) variable *names*, for the one thing the type table
+    // can't answer: in a DataFrame column formula, a bare name is a `lit(value)`
+    // only if it's a known variable — an undeclared name is a `col("...")`, and
+    // the table returns a fallback type for both. So this is scope, not inference.
+    formula_vars: HashSet<String>,
     // The current function's return type — tells a `?` whether to propagate an
     // `Err` (Result) or a `None` (Option).
     current_ret: Option<DeclType>,
@@ -119,6 +126,19 @@ impl Emitter {
         }
         self.body.push_str(text);
         self.body.push('\n');
+    }
+
+    /// The shared typing pass's verdict for an expression (by span), if any.
+    fn type_of(&self, e: &Expr) -> Option<DeclType> {
+        self.types.get(&e.span).cloned()
+    }
+
+    /// Record a declared variable's *name* for the DataFrame formula scope check
+    /// (a DataFrame variable is excluded — a bare `df` in a formula is a column).
+    fn declare(&mut self, name: &str, ty: &DeclType) {
+        if !matches!(ty, DeclType::Named(n) if n == "DataFrame") {
+            self.formula_vars.insert(rust_name(name));
+        }
     }
 
     fn program(&mut self, program: &Program) {
@@ -240,7 +260,7 @@ impl Emitter {
     /// the Rust backend).
     fn function(&mut self, func: &Function, indent: usize, is_method: bool) {
         let name = rust_name(&func.name);
-        self.var_types.clear();
+        self.formula_vars.clear();
         self.current_ret = func.ret.clone();
         let mut params: Vec<String> = Vec::new();
         if is_method {
@@ -254,7 +274,7 @@ impl Emitter {
                     p.name
                 ));
             }
-            self.var_types.insert(rust_name(&p.name), p.ty.clone());
+            self.declare(&p.name, &p.ty);
             let hint = self.type_hint(&p.ty);
             params.push(format!("{}: {}", rust_name(&p.name), hint));
         }
@@ -296,7 +316,7 @@ impl Emitter {
                 // `Dim x [As T] = Python … End Python`: on the Python target the
                 // block is spliced verbatim and its last line bound to `x`.
                 if let Some(Expr { kind: ExprKind::InlinePython { inputs, body }, .. }) = init {
-                    self.var_types.insert(rust_name(name), ty.clone());
+                    self.declare(name, ty);
                     let target = rust_name(name);
                     self.inline_python(inputs, body, indent, Some(&target));
                     return;
@@ -306,7 +326,7 @@ impl Emitter {
                     None => self.default_value(ty),
                 };
                 let hint = self.type_hint(ty);
-                self.var_types.insert(rust_name(name), ty.clone());
+                self.declare(name, ty);
                 self.line(indent, &format!("{}: {} = {}", rust_name(name), hint, value));
             }
             Stmt::Assign { target, value, op } => {
@@ -369,8 +389,7 @@ impl Emitter {
                 }
             }
             Stmt::For { var, from, to, step, body } => {
-                // A `For` counter over an integer range is an int (used by `//`).
-                self.var_types.insert(rust_name(var), DeclType::Plain(Type::Long));
+                self.declare(var, &DeclType::Plain(Type::Long));
                 let header = self.for_range(var, from, to, step.as_ref());
                 self.line(indent, &header);
                 self.block_or_pass(body, indent + 1);
@@ -390,7 +409,7 @@ impl Emitter {
             Stmt::DestructureDim { names, ty, value } => {
                 if let Some(DeclType::Tuple(ts)) = ty {
                     for (n, t) in names.iter().zip(ts) {
-                        self.var_types.insert(rust_name(n), t.clone());
+                        self.declare(n, t);
                     }
                 }
                 let lhs = names.iter().map(|n| rust_name(n)).collect::<Vec<_>>().join(", ");
@@ -792,20 +811,14 @@ impl Emitter {
 
     /// Is `recv` known to be a `Map`/`HashMap` (so `.insert` is a subscript)?
     fn recv_is_map(&self, recv: &Expr) -> bool {
-        matches!(
-            &recv.kind,
-            ExprKind::Ident(name) if matches!(self.var_types.get(&rust_name(name)), Some(DeclType::Map(_, _)))
-        )
+        matches!(self.type_of(recv), Some(DeclType::Map(_, _)))
     }
 
     /// Is `e` a DataFrame-valued expression? A variable declared `As DataFrame`,
     /// a `DataFrame.ReadCsv(...)` constructor, or a transform chained off one.
     fn is_df_expr(&self, e: &Expr) -> bool {
         match &e.kind {
-            ExprKind::Ident(n) => matches!(
-                self.var_types.get(&rust_name(n)),
-                Some(DeclType::Named(t)) if t == "DataFrame"
-            ),
+            ExprKind::Ident(_) => matches!(self.type_of(e), Some(DeclType::Named(t)) if t == "DataFrame"),
             ExprKind::MethodCall { recv, .. } => {
                 matches!(&recv.kind, ExprKind::Ident(n) if n == "DataFrame") || self.is_df_expr(recv)
             }
@@ -881,10 +894,7 @@ impl Emitter {
             // `lit(...)` (as is any literal), matching the Rust resolver and
             // sidestepping polars reading a bare string as a column name.
             ExprKind::Ident(name) => {
-                let is_value = matches!(
-                    self.var_types.get(&rust_name(name)),
-                    Some(t) if *t != DeclType::Named("DataFrame".to_string())
-                );
+                let is_value = self.formula_vars.contains(&rust_name(name));
                 if is_value {
                     self.df_builders.insert("lit");
                     format!("lit({})", rust_name(name))
@@ -972,27 +982,13 @@ impl Emitter {
         self.lower_formula(e)
     }
 
-    /// A coarse numeric class for the `//` vs `/` division choice.
+    /// A coarse numeric class for the `//` vs `/` division choice — read
+    /// straight from the shared typing pass (which already widens arithmetic and
+    /// knows function/collection return types).
     fn numeric(&self, e: &Expr) -> Num {
-        match &e.kind {
-            ExprKind::Int(_) => Num::Int,
-            ExprKind::Float(_) => Num::Float,
-            ExprKind::Ident(name) => match self.var_types.get(&rust_name(name)) {
-                Some(DeclType::Plain(Type::Integer | Type::Long | Type::LongLong | Type::Byte)) => {
-                    Num::Int
-                }
-                Some(DeclType::Plain(Type::Single | Type::Double)) => Num::Float,
-                _ => Num::Unknown,
-            },
-            ExprKind::Binary { op, lhs, rhs }
-                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Mod) =>
-            {
-                match (self.numeric(lhs), self.numeric(rhs)) {
-                    (Num::Float, _) | (_, Num::Float) => Num::Float,
-                    (Num::Int, Num::Int) => Num::Int,
-                    _ => Num::Unknown,
-                }
-            }
+        match self.type_of(e) {
+            Some(DeclType::Plain(Type::Integer | Type::Long | Type::LongLong | Type::Byte)) => Num::Int,
+            Some(DeclType::Plain(Type::Single | Type::Double)) => Num::Float,
             _ => Num::Unknown,
         }
     }

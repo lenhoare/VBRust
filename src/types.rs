@@ -135,6 +135,16 @@ impl Typer {
                 self.infer(target);
                 self.infer(value);
             }
+            // `Dim (a, b) As (T, U) = value` — type the value's sub-expressions
+            // and bind each name to its tuple-element type.
+            Stmt::DestructureDim { names, ty, value } => {
+                self.infer(value);
+                if let Some(DeclType::Tuple(ts)) = ty {
+                    for (n, t) in names.iter().zip(ts) {
+                        self.env.insert(n.to_ascii_lowercase(), t.clone());
+                    }
+                }
+            }
             Stmt::Print(e) | Stmt::Return(Some(e)) => {
                 self.infer(e);
             }
