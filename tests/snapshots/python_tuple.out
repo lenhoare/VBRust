@@ -1,0 +1,4 @@
+tensor: layer.weight
+sum:    7
+first:  0.5
+range:  1 .. 9 (mean 3.875)

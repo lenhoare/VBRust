@@ -241,6 +241,9 @@ pub struct PyCompiled {
     /// Standard-library namespaces used — non-empty means the output is a
     /// *project* that imports the bundled `vbrpy` package.
     pub stdlib_used: Vec<String>,
+    /// pip requirement lines from `Use <module> <version>` (plus our own deps) —
+    /// non-empty means a `requirements.txt` is written beside `main.py`.
+    pub requirements: Vec<String>,
 }
 
 /// Transpile `source` to Python. Parse errors are reported through
@@ -257,6 +260,7 @@ pub fn compile_python(source: &str) -> PyCompiled {
             has_errors: true,
             warnings: Vec::new(),
             stdlib_used: Vec::new(),
+            requirements: Vec::new(),
         };
     }
     let out = python::emit_python(&program);
@@ -266,6 +270,7 @@ pub fn compile_python(source: &str) -> PyCompiled {
         has_errors: false,
         warnings: out.warnings,
         stdlib_used: out.stdlib_used,
+        requirements: out.requirements,
     }
 }
 

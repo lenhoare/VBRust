@@ -137,8 +137,10 @@ fn cmd_py(args: &[String]) {
         eprintln!("{}", w);
     }
 
-    if !result.stdlib_used.is_empty() {
-        // A stdlib program is a project: a folder with main.py + vbrpy/.
+    // A program is a *project* (a folder, not one file) when it uses the stdlib
+    // (needs the `vbrpy` package) OR declares pip deps via `Use` (needs a
+    // `requirements.txt`). The stdlib brings `vbrpy/`; `Use` brings requirements.
+    if !result.stdlib_used.is_empty() || !result.requirements.is_empty() {
         let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("app");
         let dir = output.unwrap_or_else(|| {
             input.parent().unwrap_or_else(|| Path::new(".")).join(format!("{}_py", stem))
@@ -151,12 +153,35 @@ fn cmd_py(args: &[String]) {
             eprintln!("✘ Could not write main.py: {}", e);
             exit(1);
         }
-        copy_dir_recursive(&vbr::pystdlib_path(), &dir.join("vbrpy"));
+        // The stdlib package is copied only when actually used — a pure-`Use`
+        // program (e.g. `import numpy`) needs no `vbrpy/`.
+        if !result.stdlib_used.is_empty() {
+            copy_dir_recursive(&vbr::pystdlib_path(), &dir.join("vbrpy"));
+        }
+        // pip deps → a `requirements.txt`, the parallel of Cargo `[dependencies]`.
+        if !result.requirements.is_empty() {
+            let reqs = format!("{}\n", result.requirements.join("\n"));
+            if let Err(e) = fs::write(dir.join("requirements.txt"), reqs) {
+                eprintln!("✘ Could not write requirements.txt: {}", e);
+                exit(1);
+            }
+        }
+        let uses = if result.stdlib_used.is_empty() {
+            String::new()
+        } else {
+            format!(" (uses {})", result.stdlib_used.join(", "))
+        };
+        let pip = if result.requirements.is_empty() {
+            String::new()
+        } else {
+            "pip install -r requirements.txt && ".to_string()
+        };
         eprintln!(
-            "✔ Wrote {} (uses {}) — run it with:\n    cd {} && python3 main.py",
+            "✔ Wrote {}{} — run it with:\n    cd {} && {}python3 main.py",
             dir.join("main.py").display(),
-            result.stdlib_used.join(", "),
-            dir.display()
+            uses,
+            dir.display(),
+            pip,
         );
         return;
     }

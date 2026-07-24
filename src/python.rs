@@ -32,6 +32,11 @@ pub struct PyProgram {
     /// non-empty the program is a *project*: `main.py` imports the `vbrpy`
     /// package (the Python parallel of a `vbr runproject` build).
     pub stdlib_used: Vec<String>,
+    /// pip requirements — one line each (`numpy==2.0`, `polars>=1.0`) — from
+    /// `Use <module> <version>` declarations plus our own deps (polars for a
+    /// DataFrame program). When non-empty a `requirements.txt` is written beside
+    /// `main.py`, mirroring how a `Use`d crate lands in Cargo's `[dependencies]`.
+    pub requirements: Vec<String>,
 }
 
 /// Standard-library namespaces/value-types the Python target supports so far
@@ -82,6 +87,10 @@ struct Emitter {
     // Standard-library namespaces/types referenced (`FileSystem`, `Json`, …) —
     // these turn the output into a project that imports the `vbrpy` package.
     stdlib_used: std::collections::BTreeSet<String>,
+    // External pip modules declared with `Use <module> <version>`. Referencing
+    // one (`numpy.Array(…)`) keeps its exact casing (Python names aren't
+    // lowercased) and its methods pass straight through.
+    use_modules: HashSet<String>,
     // The polars expression builders a DataFrame program needs (`col`/`when`/
     // `read_csv`), re-exported from `vbrpy` — mirrors the Rust side re-exporting
     // `col`/`lit`/`when` from `vbr_stdlib::dataframe`.
@@ -113,6 +122,7 @@ impl Emitter {
 
     fn program(&mut self, program: &Program) {
         self.const_names = program.constants.iter().map(|c| c.name.clone()).collect();
+        self.use_modules = program.uses.iter().map(|u| u.crate_name.clone()).collect();
         self.enum_names = program.enums.iter().map(|e| e.name.clone()).collect();
         self.data_enums = program
             .enums
@@ -276,6 +286,14 @@ impl Emitter {
             Stmt::LineMark(_) => {}
             Stmt::Comment(c) => self.line(indent, &format!("# {}", c.trim_start_matches(['\'', ' ']))),
             Stmt::Dim { name, ty, init, .. } => {
+                // `Dim x [As T] = Python … End Python`: on the Python target the
+                // block is spliced verbatim and its last line bound to `x`.
+                if let Some(Expr { kind: ExprKind::InlinePython { inputs, body }, .. }) = init {
+                    self.var_types.insert(rust_name(name), ty.clone());
+                    let target = rust_name(name);
+                    self.inline_python(inputs, body, indent, Some(&target));
+                    return;
+                }
                 let value = match init {
                     Some(e) => self.expr(e),
                     None => self.default_value(ty),
@@ -298,6 +316,12 @@ impl Emitter {
             }
             Stmt::Return(None) => self.line(indent, "return"),
             Stmt::Expr(e) => {
+                // A bare `Python … End Python` statement: splice the block in for
+                // its side effects; its last line is evaluated and discarded.
+                if let ExprKind::InlinePython { inputs, body } = &e.kind {
+                    self.inline_python(inputs, body, indent, None);
+                    return;
+                }
                 // A bare `foo()?` statement: hoist the temp + early-return, but
                 // the unwrapped value is discarded (no trailing line).
                 if let ExprKind::Try(_) = &e.kind {
@@ -357,13 +381,19 @@ impl Emitter {
                 self.block_or_pass(body, indent + 1);
             }
             Stmt::DestructureDim { names, ty, value } => {
-                let v = self.expr(value);
-                let lhs = names.iter().map(|n| rust_name(n)).collect::<Vec<_>>().join(", ");
                 if let Some(DeclType::Tuple(ts)) = ty {
                     for (n, t) in names.iter().zip(ts) {
                         self.var_types.insert(rust_name(n), t.clone());
                     }
                 }
+                let lhs = names.iter().map(|n| rust_name(n)).collect::<Vec<_>>().join(", ");
+                // `Dim (a, b, c) As (…) = Python … End Python`: pull several
+                // values out in one block; the last line is a tuple bound to `lhs`.
+                if let ExprKind::InlinePython { inputs, body } = &value.kind {
+                    self.inline_python(inputs, body, indent, Some(&lhs));
+                    return;
+                }
+                let v = self.expr(value);
                 self.line(indent, &format!("{} = {}", lhs, v));
             }
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body, indent),
@@ -374,6 +404,39 @@ impl Emitter {
                 self.warn(format!("`{}` doesn't lower to Python yet.", stmt_name(other)));
                 self.line(indent, &format!("pass  # [VBR→Python] unsupported: {}", stmt_name(other)));
             }
+        }
+    }
+
+    /// Splice a `Python … End Python` block into the generated Python. On the
+    /// Python target the block *is* Python — the delicious inversion of inline
+    /// `Rust` on the Rust target — so its body is emitted verbatim rather than
+    /// run through embedded CPython. Passed-in variables (`Python(data)`) are
+    /// already in scope as locals; only a casing mismatch needs a re-alias. The
+    /// last non-blank line is the value: bound to `bind` when given (a name, or a
+    /// `a, b, c` tuple target), otherwise evaluated for its side effects.
+    fn inline_python(&mut self, inputs: &[String], body: &str, indent: usize, bind: Option<&str>) {
+        // Re-expose each input under the exact name the block wrote, in case VBR
+        // lowercased it (`Python(Data)` → the block still says `Data`).
+        for name in inputs {
+            let local = rust_name(name);
+            if *name != local {
+                self.line(indent, &format!("{} = {}", name, local));
+            }
+        }
+        let lines = dedent_lines(body);
+        let Some((last, prefix)) = lines.split_last() else {
+            return;
+        };
+        for l in prefix {
+            if l.trim().is_empty() {
+                self.line(0, "");
+            } else {
+                self.line(indent, l);
+            }
+        }
+        match bind {
+            Some(lhs) => self.line(indent, &format!("{} = {}", lhs, last.trim_start())),
+            None => self.line(indent, last.trim_start()),
         }
     }
 
@@ -569,6 +632,18 @@ impl Emitter {
                     "the `{}` standard-library namespace isn't lowered to Python yet — coming in a later slice.",
                     ns
                 ));
+            }
+        }
+
+        // A call into a `Use`-d pip module (`numpy.Array(...)`) passes straight
+        // through, keeping the exact method casing — Python names aren't
+        // lowercased, so `pandas.DataFrame(...)` stays `DataFrame`. Must run
+        // before the terminal consumers below so `numpy.Sum(x)` isn't rewritten
+        // to `sum(x)`.
+        if let ExprKind::Ident(ns) = &recv.kind {
+            if self.use_modules.contains(ns) {
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                return format!("{}.{}({})", ns, method, a.join(", "));
             }
         }
 
@@ -1053,6 +1128,11 @@ impl Emitter {
                         format!("{}.{}", name, field)
                     }
                 }
+                // An attribute on a `Use`-d module (`numpy.pi`) keeps its exact
+                // casing — Python names aren't lowercased.
+                ExprKind::Ident(name) if self.use_modules.contains(name) => {
+                    format!("{}.{}", name, field)
+                }
                 _ => {
                     let r = self.expr(recv);
                     format!("{}.{}", r, rust_name(field))
@@ -1296,6 +1376,13 @@ impl Emitter {
         if self.needs_time {
             code.push_str("import time\n");
         }
+        // `Use <module> <version>` → a top-level `import <module>`, in source
+        // order. The module is then in scope for both direct calls and inline
+        // `Python` blocks (same module globals). The dependency itself is
+        // recorded into `requirements.txt` below.
+        for u in &program.uses {
+            code.push_str(&format!("import {}\n", u.crate_name));
+        }
         // In a project the `Some`/`Ok`/`Err` wrappers come from `vbrpy`, so only
         // user `Type`/`Enum` need the dataclass import here; single-file inlines
         // the wrappers, so they need it too.
@@ -1341,7 +1428,12 @@ impl Emitter {
             code.push_str(&format!("from vbrpy import {}\n", names.join(", ")));
             code.push('\n');
         } else {
-            if self.needs_math || needs_dataclass || self.needs_enum {
+            let any_import = self.needs_math
+                || self.needs_time
+                || needs_dataclass
+                || self.needs_enum
+                || !program.uses.is_empty();
+            if any_import {
                 code.push('\n');
             }
             // Single-file: inline the wrappers/helpers (`None` is Python's own).
@@ -1373,10 +1465,22 @@ impl Emitter {
             code.push_str("\n\nif __name__ == \"__main__\":\n    main()\n");
         }
 
+        // pip requirements: each `Use` pins its version (mirroring the Rust
+        // side's reproducible Cargo pin), plus our own polars for a DataFrame
+        // program (the parallel of `vbr_stdlib`'s `dataframe` Cargo feature) —
+        // Python-polars versions independently of the Rust crate, so it takes a
+        // floor rather than the crate's pin.
+        let mut requirements: Vec<String> =
+            program.uses.iter().map(|u| format!("{}=={}", u.crate_name, u.version)).collect();
+        if self.stdlib_used.contains("DataFrame") {
+            requirements.push("polars>=1.0".to_string());
+        }
+
         PyProgram {
             code,
             warnings: self.warnings,
             stdlib_used: self.stdlib_used.into_iter().collect(),
+            requirements,
         }
     }
 }
@@ -1465,6 +1569,29 @@ fn split_top_level<'a>(toks: &[&'a str], sep: &str) -> Vec<Vec<&'a str>> {
     }
     groups.push(cur);
     groups
+}
+
+/// Strip the common leading whitespace an editor added to a `Python` block
+/// (Python is whitespace-sensitive) and drop blank edge lines, keeping each
+/// line's own relative indentation.
+fn dedent_lines(raw: &str) -> Vec<String> {
+    let min = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let mut lines: Vec<String> = raw
+        .lines()
+        .map(|l| if l.len() >= min { l[min..].to_string() } else { l.to_string() })
+        .collect();
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    lines
 }
 
 /// A Python string literal. **Single-quoted on purpose**: f-strings are

@@ -32,6 +32,12 @@ const PY: &[&str] = &[
     "option", "result", "result_e", "result_unit", "iterator_strings", "iterator_more",
 ];
 
+/// Inline `Python … End Python` examples. On the Python target the block splices
+/// straight through — it *is* Python — the inversion of inline `Rust` on the Rust
+/// target, and the escape hatch to any pip library. They `import numpy`, so the
+/// run is gated on it; the `.py` is snapshotted unconditionally.
+const PY_INLINE: &[&str] = &["python_scalar", "python_tuple", "python_handle"];
+
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
 }
@@ -302,6 +308,108 @@ fn python_dataframe_runs() {
     for line in ["loaded 5 rows, 5 columns", "first kept: Alice", "wrote out.csv"] {
         assert!(out.contains(line), "missing {line:?} in output:\n{out}");
     }
+}
+
+/// The generated Python for each inline-`Python` example is locked against a
+/// snapshot — no numpy needed, since we're only checking the emitted code.
+#[test]
+fn python_inline_python_snapshots() {
+    for name in PY_INLINE {
+        let result = vbr::compile_python(&read_example(name));
+        assert!(!result.has_errors, "{name} errors: {:?}", result.diagnostics);
+        assert!(result.warnings.is_empty(), "{name} warned: {:?}", result.warnings);
+        check_snapshot(name, "py", &result.code);
+    }
+}
+
+/// Run each inline-`Python` example through real CPython (gated on numpy, which
+/// the examples import) and diff stdout against a stored `.out`. Ground truth:
+/// every `.out` was verified byte-for-byte against `vbr runproject` (the Rust
+/// pyo3 path) when captured — proving the block behaves identically whether it's
+/// spliced into Python or executed via pyo3 inside the Rust binary.
+#[test]
+fn python_inline_python_runs() {
+    let has_numpy = Command::new("python3")
+        .args(["-c", "import numpy"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_numpy {
+        eprintln!("skipping python_inline_python_runs: numpy not installed");
+        return;
+    }
+    for name in PY_INLINE {
+        let result = vbr::compile_python(&read_example(name));
+        assert!(!result.has_errors, "{name} errors: {:?}", result.diagnostics);
+        let dir = std::env::temp_dir().join(format!("vbr_inpy_{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("main.py"), &result.code).unwrap();
+        let run = Command::new("python3").arg("main.py").current_dir(&dir).output().unwrap();
+        assert!(
+            run.status.success(),
+            "{name} python failed:\n{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let out = String::from_utf8_lossy(&run.stdout).into_owned();
+        check_snapshot(name, "out", &out);
+    }
+}
+
+/// `Use <module> <version>` on the Python target: emits `import <module>` and
+/// pins the dep in `requirements.txt` — the pip parallel of `Use <crate>` landing
+/// in Cargo's `[dependencies]` (one keyword, two package managers, chosen by the
+/// target). A `Use`d module is a namespace whose calls pass through with exact
+/// casing, and it's in scope for inline `Python` blocks too. The `.py` snapshot
+/// and requirement lines are checked unconditionally; the run is numpy-gated.
+#[test]
+fn python_use_external_module() {
+    let result = vbr::compile_python(&read_example("use_numpy"));
+    assert!(!result.has_errors, "errors: {:?}", result.diagnostics);
+    assert!(result.warnings.is_empty(), "warned: {:?}", result.warnings);
+    assert!(
+        result.code.contains("import numpy"),
+        "expected a top-level `import numpy`:\n{}",
+        result.code
+    );
+    assert_eq!(
+        result.requirements,
+        vec!["numpy==2.5.0".to_string()],
+        "expected the pinned pip requirement"
+    );
+    check_snapshot("use_numpy", "py", &result.code);
+
+    let has_numpy = Command::new("python3")
+        .args(["-c", "import numpy"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_numpy {
+        eprintln!("skipping use_numpy run: numpy not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join("vbr_use_numpy");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("main.py"), &result.code).unwrap();
+    let run = Command::new("python3").arg("main.py").current_dir(&dir).output().unwrap();
+    assert!(run.status.success(), "python failed:\n{}", String::from_utf8_lossy(&run.stderr));
+    let out = String::from_utf8_lossy(&run.stdout).into_owned();
+    check_snapshot("use_numpy", "out", &out);
+}
+
+/// DataFrame programs depend on polars (a pip install) — the Python target must
+/// declare it in `requirements.txt`, the parallel of `vbr_stdlib`'s `dataframe`
+/// Cargo feature. (Previously we imported polars but never recorded the dep.)
+#[test]
+fn python_dataframe_emits_polars_requirement() {
+    let result = vbr::compile_python(&read_example("dataframe_basics"));
+    assert!(!result.has_errors, "errors: {:?}", result.diagnostics);
+    assert!(
+        result.requirements.iter().any(|r| r.starts_with("polars")),
+        "a DataFrame program should require polars, got {:?}",
+        result.requirements
+    );
 }
 
 #[test]
