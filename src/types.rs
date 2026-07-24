@@ -210,7 +210,8 @@ impl Typer {
     }
 
     /// Add a pattern's bindings to the environment: a bare `x` takes the
-    /// scrutinee's type; a data-variant's names take their payload field types.
+    /// scrutinee's type; a data-variant's names take their payload field types;
+    /// `Some`/`Ok`/`Err` unwrap the Option/Result inner type first.
     fn bind_pattern(&mut self, pat: &Pat, scrut_ty: &DeclType) {
         match pat {
             Pat::Binding(x) => {
@@ -223,6 +224,16 @@ impl Typer {
                     for (b, t) in binds.iter().zip(payloads.clone()) {
                         self.env.insert(b.to_ascii_lowercase(), t);
                     }
+                }
+            }
+            Pat::Some(inner) | Pat::Ok(inner) => {
+                if let DeclType::Option(t) | DeclType::Result(t, _) = scrut_ty {
+                    self.bind_pattern(inner, t);
+                }
+            }
+            Pat::Err(inner) => {
+                if let DeclType::Result(_, e) = scrut_ty {
+                    self.bind_pattern(inner, e);
                 }
             }
             _ => {}
@@ -271,6 +282,11 @@ impl Typer {
                 }
             }
             ExprKind::Not(_) => DeclType::Plain(Type::Boolean),
+            // `expr?` yields the unwrapped success value.
+            ExprKind::Try(inner) => match self.infer(inner) {
+                DeclType::Option(t) | DeclType::Result(t, _) => *t,
+                _ => DeclType::Plain(Type::Long),
+            },
             ExprKind::Call { name, args } => {
                 for a in args {
                     self.infer(a);

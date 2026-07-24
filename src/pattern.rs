@@ -23,6 +23,15 @@ pub enum Pat {
     EnumTag { enom: String, variant: String },
     /// `Shape :: Circle ( r )` — a data variant, binding its payload fields.
     Variant { enom: String, variant: String, binds: Vec<String> },
+    /// `Some ( inner )` — the present case of an `Option`.
+    Some(Box<Pat>),
+    /// `None` — the absent case of an `Option`.
+    None,
+    /// `Ok ( inner )` — the success case of a `Result`.
+    Ok(Box<Pat>),
+    /// `Err ( inner )` — the failure case of a `Result` (its inner may itself be
+    /// an enum tag/variant pattern for a typed error).
+    Err(Box<Pat>),
     /// Anything this slice doesn't model — kept verbatim.
     Other(String),
 }
@@ -44,6 +53,20 @@ fn parse_toks(toks: &[&str]) -> Pat {
     }
     if toks == ["_"] {
         return Pat::Wildcard;
+    }
+    if toks == ["None"] {
+        return Pat::None;
+    }
+    // `Some(inner)` / `Ok(inner)` / `Err(inner)` — the built-in constructors,
+    // whose inner is itself a pattern (a binding, `_`, or a typed-error enum).
+    if toks.len() >= 3 && toks[1] == "(" && toks[toks.len() - 1] == ")" {
+        let inner = parse_toks(&toks[2..toks.len() - 1]);
+        match toks[0] {
+            "Some" => return Pat::Some(Box::new(inner)),
+            "Ok" => return Pat::Ok(Box::new(inner)),
+            "Err" => return Pat::Err(Box::new(inner)),
+            _ => {}
+        }
     }
     // A range `a ..= b`.
     if let Some(pos) = toks.iter().position(|t| *t == "..=") {

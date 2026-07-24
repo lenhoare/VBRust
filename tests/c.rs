@@ -17,6 +17,7 @@ use std::process::Command;
 /// Slice 2: `Type`/struct, methods (`Me`→`self->`), module `Const`.
 /// Slice 3: `Match`/`Enum` — C `enum` + tagged unions + if-chain lowering.
 /// Slice 4: collections — monomorphised `Vec`/`HashMap`, iterator loops.
+/// Slice 5: `Option`/`Result`/`?` — struct wrappers, propagation, `.Unwrap()`.
 const C: &[&str] = &[
     // slice 1
     "hello", "functions", "logic", "maths", "doloop", "memory",
@@ -26,6 +27,8 @@ const C: &[&str] = &[
     "match", "match_guards", "enums", "sum_types",
     // slice 4 (deterministic)
     "vec", "list_literal", "iterators",
+    // slice 5 — Option / Result / `?`
+    "option", "result", "result_e", "result_unit",
 ];
 
 /// Collection examples whose runtime *order* isn't reproducible against Rust

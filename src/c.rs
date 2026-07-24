@@ -38,6 +38,8 @@ pub fn emit_c(program: &Program) -> CProgram {
         aliases: HashMap::new(),
         match_counter: 0,
         tmp_counter: 0,
+        current_ret: None,
+        type_hint: None,
         indent: 0,
         warnings: Vec::new(),
         needs_math: false,
@@ -61,6 +63,15 @@ struct EnumInfo {
     variants: Vec<(String, Vec<DeclType>)>,
 }
 
+/// How one `Match` arm lowers: a C condition (`None` = matches anything), the
+/// payload locals to declare in its block, and a scrutinee alias for a bare `x`.
+#[derive(Default)]
+struct ArmPlan {
+    cond: Option<String>,
+    locals: Vec<(String, String, String)>,
+    alias: Option<String>,
+}
+
 struct Emitter {
     types: TypeTable,
     out: String,
@@ -80,6 +91,12 @@ struct Emitter {
     match_counter: usize,
     /// Counter for loop-index / iterator temps (`_i0`).
     tmp_counter: usize,
+    /// The current function's return type — tells a `?` how to re-wrap a
+    /// propagated failure.
+    current_ret: Option<DeclType>,
+    /// The Option/Result type a `Some`/`Ok`/`Err`/`None` should construct, taken
+    /// from the surrounding `Return`/`Dim` context.
+    type_hint: Option<DeclType>,
     indent: usize,
     warnings: Vec<String>,
     // Runtime helpers switched on as the body needs them.
@@ -183,15 +200,50 @@ impl Emitter {
     /// and `HashMap<K, V>` instantiation the program uses — inner types first,
     /// so a nested container is declared before the one that holds it.
     fn collection_runtimes(&mut self, program: &Program) {
-        let mut vecs: Vec<DeclType> = Vec::new();
-        let mut maps: Vec<DeclType> = Vec::new();
-        gather_types(program, &mut vecs, &mut maps);
-        for ty in &vecs {
+        let mut c = Collected::default();
+        gather_types(program, &mut c);
+        for ty in &c.opts {
+            self.emit_option_runtime(ty);
+        }
+        for ty in &c.results {
+            self.emit_result_runtime(ty);
+        }
+        for ty in &c.vecs {
             self.emit_vec_runtime(ty);
         }
-        for ty in &maps {
+        for ty in &c.maps {
             self.emit_map_runtime(ty);
         }
+    }
+
+    /// `Option<T>` → a `{ is_some, value }` struct + an `_unwrap`.
+    fn emit_option_runtime(&mut self, ty: &DeclType) {
+        let DeclType::Option(t) = ty else { return };
+        let et = c_type(t);
+        let n = opt_name(ty);
+        self.decls.push_str(&format!("typedef struct {{ bool is_some; {et} value; }} {n};\n"));
+        self.decls.push_str(&format!(
+            "static {et} {n}_unwrap({n} o) {{ \
+             if (!o.is_some) {{ fprintf(stderr, \"unwrapped a None\\n\"); exit(1); }} return o.value; }}\n\n"
+        ));
+    }
+
+    /// `Result<T, E>` → a `{ is_ok, ok, err }` struct (+`_unwrap`); a unit
+    /// success (`Result<()>`) drops the `ok` field.
+    fn emit_result_runtime(&mut self, ty: &DeclType) {
+        let DeclType::Result(t, e) = ty else { return };
+        let n = res_name(ty);
+        let et = c_type(e);
+        if is_unit(t) {
+            self.decls.push_str(&format!("typedef struct {{ bool is_ok; {et} err; }} {n};\n\n"));
+            return;
+        }
+        let ot = c_type(t);
+        self.decls.push_str(&format!("typedef struct {{ bool is_ok; {ot} ok; {et} err; }} {n};\n"));
+        self.decls.push_str(&format!(
+            "static {ot} {n}_unwrap({n} r) {{ \
+             if (!r.is_ok) {{ fprintf(stderr, \"unwrapped an Err\\n\"); exit(1); }} return r.ok; }}\n\n"
+        ));
     }
 
     fn emit_vec_runtime(&mut self, ty: &DeclType) {
@@ -260,6 +312,7 @@ impl Emitter {
 
     fn function(&mut self, func: &Function) {
         let is_main = func.receiver.is_none() && func.name.eq_ignore_ascii_case("main");
+        self.current_ret = func.ret.clone();
         let sig = self.signature(func, is_main);
         self.line(&format!("{} {{", sig));
         self.indent += 1;
@@ -336,7 +389,11 @@ impl Emitter {
                 self.line(&format!("printf(\"%s\\n\", {});", s));
             }
             Stmt::Return(Some(e)) => {
+                // The return type is the construction context for a bare
+                // `Some`/`Ok`/`Err`/`None`.
+                self.type_hint = self.current_ret.clone();
                 let v = self.expr(e);
+                self.type_hint = None;
                 self.line(&format!("return {};", v));
             }
             Stmt::Return(None) => self.line("return;"),
@@ -391,7 +448,9 @@ impl Emitter {
                 self.line(&format!("{} {} = vbr_dup({});", cty, var, lit));
             }
             Some(e) => {
+                self.type_hint = Some(ty.clone());
                 let v = self.expr(e);
+                self.type_hint = None;
                 self.line(&format!("{} {} = {};", cty, var, v));
             }
         }
@@ -638,6 +697,16 @@ impl Emitter {
             ExprKind::Ident(name) if self.aliases.contains_key(&name.to_ascii_lowercase()) => {
                 self.aliases[&name.to_ascii_lowercase()].clone()
             }
+            // `None` constructs the absent Option for the surrounding context.
+            ExprKind::Ident(name) if name.eq_ignore_ascii_case("None") => {
+                match self.type_hint.take() {
+                    Some(ty) => format!("({}){{ .is_some = false }}", opt_name(&ty)),
+                    None => {
+                        self.warn("`None` needs a known Option target type.");
+                        "0 /* None */".to_string()
+                    }
+                }
+            }
             ExprKind::Ident(name) if name.eq_ignore_ascii_case("Me") => "(*self)".to_string(),
             // A constant keeps its exact casing (`MAX_RETRIES`); a plain variable
             // lowercases like any C identifier.
@@ -720,6 +789,8 @@ impl Emitter {
                 format!("({} {} {})", l, bin_op(*op), r)
             }
             ExprKind::Call { name, args } => self.call(name, args),
+            // `expr?` — propagate a failure, hoisting the temp + early return.
+            ExprKind::Try(inner) => self.hoist_try(inner),
             // `v[i]` — a Vec/Map stores its elements in `.data`.
             ExprKind::Index(recv, idx) => {
                 let r = self.expr(recv);
@@ -764,7 +835,15 @@ impl Emitter {
                     }
                 }
             }
-            return self.expr(recv);
+            // `.Unwrap()` on an Option/Result → its `_unwrap` (aborts on the
+            // absent/error case, like Rust's `.unwrap()` panicking).
+            let rty = self.type_of(recv);
+            let v = self.expr(recv);
+            return match &rty {
+                DeclType::Option(_) => format!("{}_unwrap({})", opt_name(&rty), v),
+                DeclType::Result(..) => format!("{}_unwrap({})", res_name(&rty), v),
+                _ => v,
+            };
         }
         let rty = self.type_of(recv);
         match &rty {
@@ -892,37 +971,27 @@ impl Emitter {
         let sval = self.expr(scrutinee);
         self.line(&format!("{} {} = {};", cty, temp, sval));
 
-        let scrut_key = match &sty {
-            DeclType::Named(n) => Some(n.to_ascii_lowercase()),
-            _ => None,
-        };
-        let is_data = scrut_key.as_ref().and_then(|k| self.enums.get(k)).map(|e| e.is_data).unwrap_or(false);
+        // Resolve each arm to a condition + bindings up front (borrows `&self`).
+        let plans: Vec<ArmPlan> = arms
+            .iter()
+            .map(|a| self.resolve_arm(&pattern::parse(&a.pattern), &temp, &sty))
+            .collect();
 
         let last = arms.len().saturating_sub(1);
-        // Does an earlier guardless arm already catch everything?
-        let has_catch_all = arms.iter().any(|a| {
-            a.guard.is_none() && matches!(pattern::parse(&a.pattern), Pat::Wildcard | Pat::Binding(_))
-        });
+        // An arm with no condition (wildcard / bare binding) already catches all.
+        let has_catch_all = arms.iter().zip(&plans).any(|(a, p)| a.guard.is_none() && p.cond.is_none());
 
-        for (i, arm) in arms.iter().enumerate() {
-            let pat = pattern::parse(&arm.pattern);
-            // Bind a bare `x` to the scrutinee temp for the guard/body.
-            let mut added: Vec<String> = Vec::new();
-            if let Pat::Binding(x) = &pat {
-                self.aliases.insert(x.to_ascii_lowercase(), temp.clone());
-                added.push(x.to_ascii_lowercase());
+        for (i, (arm, plan)) in arms.iter().zip(&plans).enumerate() {
+            // A bare `x` binding aliases the scrutinee (so a guard can see it).
+            let alias = plan.alias.clone();
+            if let Some(x) = &alias {
+                self.aliases.insert(x.clone(), temp.clone());
             }
 
-            // The unconditional `else`: a wildcard/bare binding, or the last
-            // guardless arm of an exhaustive match (so C sees the chain as total).
-            let is_closer = arm.guard.is_none()
-                && (matches!(pat, Pat::Wildcard | Pat::Binding(_)) || (i == last && !has_catch_all));
-
-            let cond = if matches!(pat, Pat::Wildcard | Pat::Binding(_)) || is_closer {
-                None
-            } else {
-                Some(self.condition(&pat, &temp, is_data))
-            };
+            // The unconditional `else`: no condition, or the last guardless arm
+            // of an exhaustive match (so C sees the chain as total).
+            let is_closer = arm.guard.is_none() && (plan.cond.is_none() || (i == last && !has_catch_all));
+            let cond = if is_closer { None } else { plan.cond.clone() };
             let guard = arm.guard.as_ref().map(|g| self.expr(g));
             let effective = match (cond, guard) {
                 (Some(c), Some(g)) => Some(format!("{} && {}", c, g)),
@@ -938,23 +1007,84 @@ impl Emitter {
             };
             self.line(&header);
             self.indent += 1;
-            // A data variant's payload fields become locals in the arm block.
-            if let Pat::Variant { variant, binds, .. } = &pat {
-                if let Some(key) = &scrut_key {
-                    let (_, cvariant, payloads) = self.variant_canon(key, variant);
-                    for (idx, b) in binds.iter().enumerate() {
-                        let pty = payloads.get(idx).map(c_type).unwrap_or_else(|| "long long".to_string());
-                        self.line(&format!("{} {} = {}.data.{}.f{};", pty, c_name(b), temp, cvariant, idx));
-                    }
-                }
+            for (lty, lname, lexpr) in &plan.locals {
+                self.line(&format!("{} {} = {};", lty, lname, lexpr));
             }
             self.block(&arm.body);
             self.indent -= 1;
-            for a in added {
-                self.aliases.remove(&a);
+            if let Some(x) = &alias {
+                self.aliases.remove(x);
             }
         }
         self.line("}");
+    }
+
+    /// Resolve one arm against the scrutinee type: its C condition, the locals to
+    /// declare in its block, and (for a bare `x`) the scrutinee alias.
+    fn resolve_arm(&self, pat: &Pat, temp: &str, scrut_ty: &DeclType) -> ArmPlan {
+        let mut plan = ArmPlan::default();
+        match (scrut_ty, pat) {
+            (DeclType::Option(t), Pat::Some(inner)) => {
+                plan.cond = Some(format!("{}.is_some", temp));
+                self.bind_inner(inner, &format!("{}.value", temp), t, &mut plan);
+            }
+            (DeclType::Option(_), Pat::None) => plan.cond = Some(format!("!{}.is_some", temp)),
+            (DeclType::Result(t, _), Pat::Ok(inner)) => {
+                plan.cond = Some(format!("{}.is_ok", temp));
+                self.bind_inner(inner, &format!("{}.ok", temp), t, &mut plan);
+            }
+            (DeclType::Result(_, e), Pat::Err(inner)) => {
+                let mut cond = format!("!{}.is_ok", temp);
+                let base = format!("{}.err", temp);
+                match &**inner {
+                    Pat::Binding(x) => plan.locals.push((c_type(e), c_name(x), base)),
+                    Pat::EnumTag { enom, variant } => {
+                        cond = format!("{} && {}.tag == {}", cond, base, self.tag_const(enom, variant));
+                    }
+                    Pat::Variant { enom, variant, binds } => {
+                        cond = format!("{} && {}.tag == {}", cond, base, self.tag_const(enom, variant));
+                        let (_, cv, payloads) = self.variant_canon(&enom.to_ascii_lowercase(), variant);
+                        for (idx, b) in binds.iter().enumerate() {
+                            let pty = payloads.get(idx).map(c_type).unwrap_or_else(|| "long long".to_string());
+                            plan.locals.push((pty, c_name(b), format!("{}.data.{}.f{}", base, cv, idx)));
+                        }
+                    }
+                    _ => {} // `Err(_)`
+                }
+                plan.cond = Some(cond);
+            }
+            _ => self.resolve_plain(pat, temp, scrut_ty, &mut plan),
+        }
+        plan
+    }
+
+    /// The slice-3 patterns (plain enum / integer scrutinee).
+    fn resolve_plain(&self, pat: &Pat, temp: &str, scrut_ty: &DeclType, plan: &mut ArmPlan) {
+        let is_data = match scrut_ty {
+            DeclType::Named(n) => self.enums.get(&n.to_ascii_lowercase()).map(|e| e.is_data).unwrap_or(false),
+            _ => false,
+        };
+        match pat {
+            Pat::Wildcard => {}
+            Pat::Binding(x) => plan.alias = Some(x.to_ascii_lowercase()),
+            Pat::Variant { enom, variant, binds } => {
+                plan.cond = Some(format!("{}.tag == {}", temp, self.tag_const(enom, variant)));
+                let (_, cv, payloads) = self.variant_canon(&enom.to_ascii_lowercase(), variant);
+                for (idx, b) in binds.iter().enumerate() {
+                    let pty = payloads.get(idx).map(c_type).unwrap_or_else(|| "long long".to_string());
+                    plan.locals.push((pty, c_name(b), format!("{}.data.{}.f{}", temp, cv, idx)));
+                }
+            }
+            _ => plan.cond = Some(self.condition(pat, temp, is_data)),
+        }
+    }
+
+    /// Bind the inner pattern of a `Some(_)`/`Ok(_)` — a name reads the payload,
+    /// `_` reads nothing.
+    fn bind_inner(&self, inner: &Pat, access: &str, ty: &DeclType, plan: &mut ArmPlan) {
+        if let Pat::Binding(x) = inner {
+            plan.locals.push((c_type(ty), c_name(x), access.to_string()));
+        }
     }
 
     /// The C boolean condition testing whether `temp` matches `pat`.
@@ -979,6 +1109,9 @@ impl Emitter {
                 format!("{}.tag == {}", temp, self.tag_const(enom, variant))
             }
             Pat::Wildcard | Pat::Binding(_) => "1".to_string(),
+            // Option/Result patterns are resolved against the scrutinee type in
+            // `resolve_arm`, never here.
+            Pat::Some(_) | Pat::None | Pat::Ok(_) | Pat::Err(_) => "1".to_string(),
             Pat::Other(s) => format!("0 /* unsupported pattern: {} */", s),
         }
     }
@@ -989,6 +1122,11 @@ impl Emitter {
     }
 
     fn call(&mut self, name: &str, args: &[Expr]) -> String {
+        // `Some`/`Ok`/`Err` construct an Option/Result compound literal, using
+        // the surrounding context (`type_hint`) for the target type.
+        if matches!(name, "Some" | "Ok" | "Err") {
+            return self.construct(name, args);
+        }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         // Maths builtins → the C standard library (all in `<math.h>`).
         if let Some(cfn) = c_math_builtin(name) {
@@ -996,6 +1134,83 @@ impl Emitter {
             return format!("{}({})", cfn, rendered.join(", "));
         }
         format!("{}({})", c_name(name), rendered.join(", "))
+    }
+
+    /// `expr?` — bind the Option/Result to a temp on a preceding line, return
+    /// early on failure (re-wrapped into the function's own return type), and
+    /// yield the unwrapped success value.
+    fn hoist_try(&mut self, inner: &Expr) -> String {
+        let ity = self.type_of(inner);
+        let val = self.expr(inner);
+        let tmp = format!("_t{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        let cty = c_type(&ity);
+        self.line(&format!("{} {} = {};", cty, tmp, val));
+        if let DeclType::Option(_) = ity {
+            let ret = self.propagate_none();
+            self.line(&format!("if (!{}.is_some) return {};", tmp, ret));
+            format!("{}.value", tmp)
+        } else {
+            let ret = self.propagate_err(&tmp);
+            self.line(&format!("if (!{}.is_ok) return {};", tmp, ret));
+            format!("{}.ok", tmp)
+        }
+    }
+
+    fn propagate_none(&mut self) -> String {
+        match self.current_ret.clone() {
+            Some(ty @ DeclType::Option(_)) => format!("({}){{ .is_some = false }}", opt_name(&ty)),
+            _ => {
+                self.warn("`?` used in a function that doesn't return an Option.");
+                "0".to_string()
+            }
+        }
+    }
+
+    fn propagate_err(&mut self, tmp: &str) -> String {
+        match self.current_ret.clone() {
+            Some(ty @ DeclType::Result(..)) => {
+                format!("({}){{ .is_ok = false, .err = {}.err }}", res_name(&ty), tmp)
+            }
+            _ => {
+                self.warn("`?` used in a function that doesn't return a Result.");
+                "0".to_string()
+            }
+        }
+    }
+
+    /// Build a `Some`/`Ok`/`Err` compound literal for the current `type_hint`.
+    fn construct(&mut self, name: &str, args: &[Expr]) -> String {
+        // Take the hint so the payload is evaluated context-free.
+        let hint = self.type_hint.take();
+        match (name, hint) {
+            ("Some", Some(ty)) => {
+                let n = opt_name(&ty);
+                let v = self.expr(&args[0]);
+                format!("({}){{ .is_some = true, .value = {} }}", n, v)
+            }
+            ("Ok", Some(ty)) => {
+                let n = res_name(&ty);
+                let unit = args.is_empty()
+                    || matches!(args.first().map(|a| &a.kind), Some(ExprKind::Tuple(t)) if t.is_empty());
+                if unit {
+                    format!("({}){{ .is_ok = true }}", n)
+                } else {
+                    let v = self.expr(&args[0]);
+                    format!("({}){{ .is_ok = true, .ok = {} }}", n, v)
+                }
+            }
+            ("Err", Some(ty)) => {
+                let n = res_name(&ty);
+                let v = self.expr(&args[0]);
+                format!("({}){{ .is_ok = false, .err = {} }}", n, v)
+            }
+            _ => {
+                self.warn(format!("`{}(…)` needs a known Option/Result target type.", name));
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                format!("{}({})", name, a.join(", "))
+            }
+        }
     }
 
     fn type_of(&self, e: &Expr) -> DeclType {
@@ -1154,8 +1369,15 @@ fn c_type(ty: &DeclType) -> String {
         // Collections are monomorphised: `Vec<Long>` → the `Vec_longlong` type.
         DeclType::Vec(_) => vec_name(ty),
         DeclType::Map(..) => map_name(ty),
+        DeclType::Option(_) => opt_name(ty),
+        DeclType::Result(..) => res_name(ty),
         _ => "long long".to_string(),
     }
+}
+
+/// Is this the unit type `()` (an empty tuple) — a `Result<()>`'s success?
+fn is_unit(t: &DeclType) -> bool {
+    matches!(t, DeclType::Tuple(v) if v.is_empty())
 }
 
 /// Does this expression end in an iterator consumer that must become a loop?
@@ -1187,6 +1409,9 @@ fn mangle(t: &DeclType) -> String {
         DeclType::Named(n) => n.clone(),
         DeclType::Vec(e) => format!("vec_{}", mangle(e)),
         DeclType::Map(k, v) => format!("map_{}_{}", mangle(k), mangle(v)),
+        DeclType::Option(t) => format!("opt_{}", mangle(t)),
+        DeclType::Result(t, e) => format!("res_{}_{}", mangle(t), mangle(e)),
+        DeclType::Tuple(v) if v.is_empty() => "unit".to_string(),
         _ => "unknown".to_string(),
     }
 }
@@ -1205,48 +1430,70 @@ fn map_name(ty: &DeclType) -> String {
     }
 }
 
+fn opt_name(ty: &DeclType) -> String {
+    match ty {
+        DeclType::Option(t) => format!("Option_{}", mangle(t)),
+        _ => "Option".to_string(),
+    }
+}
+
+fn res_name(ty: &DeclType) -> String {
+    match ty {
+        DeclType::Result(t, e) => format!("Result_{}_{}", mangle(t), mangle(e)),
+        _ => "Result".to_string(),
+    }
+}
+
 fn is_single(ty: &DeclType) -> bool {
     matches!(ty, DeclType::Plain(Type::Single))
 }
 
-/// Collect every `Vec`/`Map` instantiation used anywhere in the program (types
-/// appear before the containers that hold them, for decl-before-use).
-fn gather_types(program: &Program, vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType>) {
+/// Every generic instantiation used in the program, in decl-before-use order
+/// (inner types precede the containers holding them).
+#[derive(Default)]
+struct Collected {
+    vecs: Vec<DeclType>,
+    maps: Vec<DeclType>,
+    opts: Vec<DeclType>,
+    results: Vec<DeclType>,
+}
+
+fn gather_types(program: &Program, c: &mut Collected) {
     for s in &program.structs {
         for f in &s.fields {
-            visit_ty(&f.ty, vecs, maps);
+            visit_ty(&f.ty, c);
         }
     }
     for f in &program.functions {
         for p in &f.params {
-            visit_ty(&p.ty, vecs, maps);
+            visit_ty(&p.ty, c);
         }
         if let Some(r) = &f.ret {
-            visit_ty(r, vecs, maps);
+            visit_ty(r, c);
         }
-        gather_body(&f.body, vecs, maps);
+        gather_body(&f.body, c);
     }
 }
 
-fn gather_body(stmts: &[Stmt], vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType>) {
+fn gather_body(stmts: &[Stmt], c: &mut Collected) {
     for s in stmts {
         match s {
-            Stmt::Dim { ty, .. } => visit_ty(ty, vecs, maps),
-            Stmt::DestructureDim { ty: Some(t), .. } => visit_ty(t, vecs, maps),
+            Stmt::Dim { ty, .. } => visit_ty(ty, c),
+            Stmt::DestructureDim { ty: Some(t), .. } => visit_ty(t, c),
             Stmt::If { branches, else_body } => {
                 for (_, b) in branches {
-                    gather_body(b, vecs, maps);
+                    gather_body(b, c);
                 }
                 if let Some(b) = else_body {
-                    gather_body(b, vecs, maps);
+                    gather_body(b, c);
                 }
             }
             Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
-                gather_body(body, vecs, maps)
+                gather_body(body, c)
             }
             Stmt::Match { arms, .. } => {
                 for a in arms {
-                    gather_body(&a.body, vecs, maps);
+                    gather_body(&a.body, c);
                 }
             }
             _ => {}
@@ -1254,19 +1501,32 @@ fn gather_body(stmts: &[Stmt], vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType
     }
 }
 
-fn visit_ty(t: &DeclType, vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType>) {
+fn visit_ty(t: &DeclType, c: &mut Collected) {
     match t {
         DeclType::Vec(e) => {
-            visit_ty(e, vecs, maps);
-            if !vecs.contains(t) {
-                vecs.push(t.clone());
+            visit_ty(e, c);
+            if !c.vecs.contains(t) {
+                c.vecs.push(t.clone());
             }
         }
         DeclType::Map(k, v) => {
-            visit_ty(k, vecs, maps);
-            visit_ty(v, vecs, maps);
-            if !maps.contains(t) {
-                maps.push(t.clone());
+            visit_ty(k, c);
+            visit_ty(v, c);
+            if !c.maps.contains(t) {
+                c.maps.push(t.clone());
+            }
+        }
+        DeclType::Option(e) => {
+            visit_ty(e, c);
+            if !c.opts.contains(t) {
+                c.opts.push(t.clone());
+            }
+        }
+        DeclType::Result(a, b) => {
+            visit_ty(a, c);
+            visit_ty(b, c);
+            if !c.results.contains(t) {
+                c.results.push(t.clone());
             }
         }
         _ => {}
