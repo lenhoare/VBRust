@@ -1091,7 +1091,11 @@ impl Emitter {
     fn condition(&self, pat: &Pat, temp: &str, is_data: bool) -> String {
         match pat {
             Pat::Int(n) => format!("{} == {}", temp, n),
-            Pat::Range(a, b) => format!("{} >= {} && {} <= {}", temp, a, temp, b),
+            Pat::Bool(b) => format!("{} == {}", temp, if *b { "true" } else { "false" }),
+            Pat::Range { lo, hi, inclusive } => {
+                let op = if *inclusive { "<=" } else { "<" };
+                format!("{} >= {} && {} {} {}", temp, lo, temp, op, hi)
+            }
             Pat::Alt(subs) => {
                 let parts: Vec<String> =
                     subs.iter().map(|p| format!("({})", self.condition(p, temp, is_data))).collect();

@@ -15,8 +15,10 @@ pub enum Pat {
     Binding(String),
     /// `100` (or `- 5`).
     Int(i64),
-    /// `90 ..= 99` (inclusive).
-    Range(i64, i64),
+    /// `true` / `false`.
+    Bool(bool),
+    /// `90 ..= 99` (`inclusive`) or `1 .. 5` (exclusive upper bound).
+    Range { lo: i64, hi: i64, inclusive: bool },
     /// `0 | 1 | 2` — matches if any alternative does.
     Alt(Vec<Pat>),
     /// `Suit :: Hearts` — a payload-free variant / C-like enum value.
@@ -54,6 +56,12 @@ fn parse_toks(toks: &[&str]) -> Pat {
     if toks == ["_"] {
         return Pat::Wildcard;
     }
+    if toks == ["true"] {
+        return Pat::Bool(true);
+    }
+    if toks == ["false"] {
+        return Pat::Bool(false);
+    }
     if toks == ["None"] {
         return Pat::None;
     }
@@ -68,10 +76,10 @@ fn parse_toks(toks: &[&str]) -> Pat {
             _ => {}
         }
     }
-    // A range `a ..= b`.
-    if let Some(pos) = toks.iter().position(|t| *t == "..=") {
-        if let (Some(a), Some(b)) = (parse_int(&toks[..pos]), parse_int(&toks[pos + 1..])) {
-            return Pat::Range(a, b);
+    // A range `a ..= b` (inclusive) or `a .. b` (exclusive).
+    if let Some(pos) = toks.iter().position(|t| *t == "..=" || *t == "..") {
+        if let (Some(lo), Some(hi)) = (parse_int(&toks[..pos]), parse_int(&toks[pos + 1..])) {
+            return Pat::Range { lo, hi, inclusive: toks[pos] == "..=" };
         }
     }
     // An enum path `Enum :: Variant`, optionally with `( a , b )` bindings.

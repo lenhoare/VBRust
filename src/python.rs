@@ -18,6 +18,7 @@
 use std::collections::HashSet;
 
 use crate::ast::*;
+use crate::pattern::{self, Pat};
 use crate::transpiler::{convert_returns, rust_name};
 
 /// The result of emitting Python for one VBR source.
@@ -512,94 +513,54 @@ impl Emitter {
     }
 
     /// Translate a raw (Rust-shaped) match pattern to a Python `case` pattern,
-    /// plus an optional guard fragment (ranges become a guard since Python has no
-    /// range pattern). `subj` is the scrutinee temp the range guard reads.
+    /// plus an optional guard fragment (a range becomes a guard, since Python has
+    /// no range pattern). `subj` is the scrutinee temp the range guard reads.
+    /// Parses via the shared [`pattern`] model rather than re-tokenising here.
     fn translate_pattern(&mut self, pattern: &str, subj: &str) -> (String, Option<String>) {
-        let toks: Vec<&str> = pattern.split_whitespace().collect();
-        if toks == ["_"] {
-            return ("_".into(), None);
-        }
-        // A range (`90 ..= 99` / `1 .. 5`) → a guarded wildcard.
-        if let Some(pos) = toks.iter().position(|t| *t == "..=" || *t == "..") {
-            let lo = self.pattern_literal(&toks[..pos].join(" "));
-            let hi = self.pattern_literal(&toks[pos + 1..].join(" "));
-            let op = if toks[pos] == "..=" { "<=" } else { "<" };
+        let pat = pattern::parse(pattern);
+        if let Pat::Range { lo, hi, inclusive } = pat {
+            let op = if inclusive { "<=" } else { "<" };
             return ("_".into(), Some(format!("{} <= {} {} {}", lo, subj, op, hi)));
         }
-        // Everything else — constructors, enum paths, alternation, captures,
-        // literals, and their nestings (`Err(MathError::Custom(msg))`).
-        (self.pat_to_py(&toks), None)
+        (self.render_pat(&pat), None)
     }
 
-    /// Translate one pattern (recursively). Alternation is split first, then each
-    /// alternative is a `primary`.
-    fn pat_to_py(&mut self, toks: &[&str]) -> String {
-        let alts = split_top_level(toks, "|");
-        if alts.len() > 1 {
-            return alts
-                .iter()
-                .map(|a| self.pat_primary(a))
-                .collect::<Vec<_>>()
-                .join(" | ");
-        }
-        self.pat_primary(toks)
-    }
-
-    fn pat_primary(&mut self, toks: &[&str]) -> String {
-        match toks {
-            [] | ["_"] => "_".into(),
-            ["true"] => "True".into(),
-            ["false"] => "False".into(),
-            ["None"] => "None".into(),
-            _ => {
-                // `Head( args )` — a constructor (Some/Ok/Err or enum variant).
-                if let Some(lp) = toks.iter().position(|t| *t == "(") {
-                    let head = &toks[..lp];
-                    let inner = &toks[lp + 1..toks.len().saturating_sub(1)];
-                    let args: Vec<String> =
-                        split_top_level(inner, ",").iter().map(|g| self.pat_to_py(g)).collect();
-                    return self.ctor_pattern(head, &args);
+    /// One shared-model pattern → its Python `case` spelling (recursive for the
+    /// `Some`/`Ok`/`Err` nestings and alternation).
+    fn render_pat(&mut self, pat: &Pat) -> String {
+        match pat {
+            Pat::Wildcard => "_".into(),
+            Pat::Binding(x) => x.clone(),
+            Pat::Int(n) => n.to_string(),
+            Pat::Bool(b) => if *b { "True" } else { "False" }.into(),
+            // Only a *top-level* range becomes a guard (in `translate_pattern`);
+            // a nested one has no Python form and doesn't arise in practice.
+            Pat::Range { .. } => "_".into(),
+            Pat::Alt(subs) => subs.iter().map(|p| self.render_pat(p)).collect::<Vec<_>>().join(" | "),
+            // A C-like enum matches by value (`Suit.Hearts`); a data enum matches
+            // its variant class (`Empty()`).
+            Pat::EnumTag { enom, variant } => {
+                if self.data_enums.contains(enom) {
+                    format!("{}()", variant)
+                } else {
+                    format!("{}.{}", enom, variant)
                 }
-                // A bare enum path with no payload (`Enum::Variant`).
-                if let Some(pos) = toks.iter().position(|t| *t == "::") {
-                    let qualifier = toks[..pos].join("");
-                    let variant = toks[pos + 1..].join("");
-                    return if self.data_enums.contains(&qualifier) {
-                        format!("{}()", variant)
-                    } else {
-                        format!("{}.{}", qualifier, variant)
-                    };
-                }
-                // A single token: capture, literal, or bool.
-                self.pattern_literal(&toks.join(" "))
             }
-        }
-    }
-
-    /// A constructor pattern `Head(args)` → Python. `Head` is `Some`/`Ok`/`Err`
-    /// (a prelude wrapper) or a qualified data-enum variant (`Enum::Variant`,
-    /// whose class is just `Variant`).
-    fn ctor_pattern(&mut self, head: &[&str], args: &[String]) -> String {
-        if let Some(pos) = head.iter().position(|t| *t == "::") {
-            let variant = head[pos + 1..].join("");
-            return format!("{}({})", variant, args.join(", "));
-        }
-        let name = head.join("");
-        match name.as_str() {
-            "Some" => self.needs_option = true,
-            "Ok" | "Err" => self.needs_result = true,
-            _ => {}
-        }
-        format!("{}({})", name, args.join(", "))
-    }
-
-    /// One literal/capture token → its Python spelling (`true`→`True`, `- 5`→`-5`,
-    /// a bare name stays a capture).
-    fn pattern_literal(&self, s: &str) -> String {
-        match s {
-            "true" => "True".into(),
-            "false" => "False".into(),
-            _ => s.replace(' ', ""),
+            Pat::Variant { variant, binds, .. } => format!("{}({})", variant, binds.join(", ")),
+            Pat::Some(inner) => {
+                self.needs_option = true;
+                format!("Some({})", self.render_pat(inner))
+            }
+            Pat::None => "None".into(),
+            Pat::Ok(inner) => {
+                self.needs_result = true;
+                format!("Ok({})", self.render_pat(inner))
+            }
+            Pat::Err(inner) => {
+                self.needs_result = true;
+                format!("Err({})", self.render_pat(inner))
+            }
+            Pat::Other(s) => s.replace(' ', ""),
         }
     }
 
@@ -1557,30 +1518,6 @@ enum Num {
     Int,
     Float,
     Unknown,
-}
-
-/// Split a flat token slice on a separator token that sits at paren depth 0
-/// (so `,`/`|` inside a nested `Custom(msg)` don't split it).
-fn split_top_level<'a>(toks: &[&'a str], sep: &str) -> Vec<Vec<&'a str>> {
-    let mut groups: Vec<Vec<&str>> = Vec::new();
-    let mut cur: Vec<&str> = Vec::new();
-    let mut depth = 0i32;
-    for t in toks {
-        match *t {
-            "(" | "[" => {
-                depth += 1;
-                cur.push(*t);
-            }
-            ")" | "]" => {
-                depth -= 1;
-                cur.push(*t);
-            }
-            s if s == sep && depth == 0 => groups.push(std::mem::take(&mut cur)),
-            _ => cur.push(*t),
-        }
-    }
-    groups.push(cur);
-    groups
 }
 
 /// Strip the common leading whitespace an editor added to a `Python` block
