@@ -44,11 +44,20 @@ struct Emitter {
     // Names that keep their exact casing when referenced: module constants
     // (`MAX_RETRIES`) rather than being lowercased like ordinary identifiers.
     const_names: HashSet<String>,
+    // Every enum type name, and the subset that carry data (a sum type). A
+    // C-like enum lowers to `enum.Enum`; a data one to a base class + a
+    // `@dataclass` per variant, so construction and patterns differ.
+    enum_names: HashSet<String>,
+    data_enums: HashSet<String>,
+    // Per-`Match` counter, so the scrutinee temp (`_m0`) is unique and matches
+    // can nest.
+    match_counter: usize,
     // Prelude features, switched on as the body needs them.
     needs_vb: bool,
     needs_round: bool,
     needs_math: bool,
     needs_dataclass: bool,
+    needs_enum: bool,
 }
 
 impl Emitter {
@@ -66,12 +75,14 @@ impl Emitter {
 
     fn program(&mut self, program: &Program) {
         self.const_names = program.constants.iter().map(|c| c.name.clone()).collect();
+        self.enum_names = program.enums.iter().map(|e| e.name.clone()).collect();
+        self.data_enums = program
+            .enums
+            .iter()
+            .filter(|e| e.variants.iter().any(|v| !v.payload.is_empty()))
+            .map(|e| e.name.clone())
+            .collect();
 
-        // Slice 2 lowers `Type`/methods/`Const`; enums land with `Match` (they're
-        // one unit — every enum is used by matching on it). Surfaces stay Rust.
-        if !program.enums.is_empty() {
-            self.warn("`Enum` lowers to Python with `Match` in the next slice — skipped for now.");
-        }
         if !program.windows.is_empty() || !program.screens.is_empty() || !program.pages.is_empty() {
             self.warn(
                 "GUI/TUI/Web surfaces (`Window`/`Screen`/`Page`) are Rust-only — \
@@ -90,6 +101,12 @@ impl Emitter {
         for s in &program.structs {
             self.top_separator();
             self.dataclass(s, program);
+        }
+
+        // Each `Enum` → an `enum.Enum` (C-like) or a variant class hierarchy.
+        for e in &program.enums {
+            self.top_separator();
+            self.enum_def(e);
         }
 
         // Free functions (methods were emitted with their struct).
@@ -127,6 +144,39 @@ impl Emitter {
         for m in methods {
             self.body.push('\n');
             self.function(m, 1, true);
+        }
+    }
+
+    /// An `Enum` → Python. A C-like enum (all unit variants) becomes an
+    /// `enum.Enum`; a data-carrying one (a sum type) becomes an empty base class
+    /// plus one `@dataclass` per variant, so `Match` can destructure it with
+    /// structural patterns (the dataclass supplies `__match_args__`).
+    fn enum_def(&mut self, e: &EnumDef) {
+        if self.data_enums.contains(&e.name) {
+            self.needs_dataclass = true;
+            self.line(0, &format!("class {}:", e.name));
+            self.line(1, "pass");
+            for v in &e.variants {
+                self.body.push('\n');
+                self.line(0, "@dataclass");
+                self.line(0, &format!("class {}({}):", v.name, e.name));
+                if v.payload.is_empty() {
+                    self.line(1, "pass");
+                } else {
+                    // Positional payload → fields `f0`, `f1`, … (their order is
+                    // what a `case Circle(r)` binds against).
+                    for (i, ty) in v.payload.iter().enumerate() {
+                        let hint = self.type_hint(ty);
+                        self.line(1, &format!("f{}: {}", i, hint));
+                    }
+                }
+            }
+        } else {
+            self.needs_enum = true;
+            self.line(0, &format!("class {}(Enum):", e.name));
+            for (i, v) in e.variants.iter().enumerate() {
+                self.line(1, &format!("{} = {}", v.name, i + 1));
+            }
         }
     }
 
@@ -234,6 +284,7 @@ impl Emitter {
                 self.block_or_pass(body, indent + 1);
             }
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body, indent),
+            Stmt::Match { scrutinee, arms, .. } => self.match_stmt(scrutinee, arms, indent),
             Stmt::Break => self.line(indent, "break"),
             Stmt::Continue => self.line(indent, "continue"),
             other => {
@@ -275,6 +326,90 @@ impl Emitter {
                 self.line(indent + 1, &format!("if {}:", c));
                 self.line(indent + 2, "break");
             }
+        }
+    }
+
+    /// `Match … End Match` → Python `match`/`case`. The scrutinee is bound to a
+    /// temp first, so a range arm (which Python has no pattern for) can reference
+    /// it from a guard.
+    fn match_stmt(&mut self, scrutinee: &Expr, arms: &[MatchArm], indent: usize) {
+        let subj = format!("_m{}", self.match_counter);
+        self.match_counter += 1;
+        let value = self.expr(scrutinee);
+        self.line(indent, &format!("{} = {}", subj, value));
+        self.line(indent, &format!("match {}:", subj));
+        for arm in arms {
+            let (pat, range_guard) = self.translate_pattern(&arm.pattern, &subj);
+            let user_guard = arm.guard.as_ref().map(|g| self.expr(g));
+            let guard = match (range_guard, user_guard) {
+                (Some(a), Some(b)) => Some(format!("({}) and ({})", a, b)),
+                (Some(g), None) | (None, Some(g)) => Some(g),
+                (None, None) => None,
+            };
+            let header = match guard {
+                Some(g) => format!("case {} if {}:", pat, g),
+                None => format!("case {}:", pat),
+            };
+            self.line(indent + 1, &header);
+            self.block_or_pass(&arm.body, indent + 2);
+        }
+    }
+
+    /// Translate a raw (Rust-shaped) match pattern to a Python `case` pattern,
+    /// plus an optional guard fragment (ranges become a guard since Python has no
+    /// range pattern). `subj` is the scrutinee temp the range guard reads.
+    fn translate_pattern(&mut self, pattern: &str, subj: &str) -> (String, Option<String>) {
+        let toks: Vec<&str> = pattern.split_whitespace().collect();
+        if toks == ["_"] {
+            return ("_".into(), None);
+        }
+        // A range (`90 ..= 99` / `1 .. 5`) → a guarded wildcard.
+        if let Some(pos) = toks.iter().position(|t| *t == "..=" || *t == "..") {
+            let lo = self.pattern_literal(&toks[..pos].join(" "));
+            let hi = self.pattern_literal(&toks[pos + 1..].join(" "));
+            let op = if toks[pos] == "..=" { "<=" } else { "<" };
+            return ("_".into(), Some(format!("{} <= {} {} {}", lo, subj, op, hi)));
+        }
+        // An enum path (`Shape :: Circle ( r )`).
+        if let Some(pos) = toks.iter().position(|t| *t == "::") {
+            return (self.enum_pattern(&toks, pos), None);
+        }
+        // Alternation of literals (`0 | 1 | 2`) — Python has OR patterns.
+        if toks.contains(&"|") {
+            let parts: Vec<String> =
+                pattern.split('|').map(|p| self.pattern_literal(p.trim())).collect();
+            return (parts.join(" | "), None);
+        }
+        // A single token: capture name, literal, or bool.
+        (self.pattern_literal(&toks.join(" ")), None)
+    }
+
+    /// One literal/capture token → its Python spelling (`true`→`True`, `- 5`→`-5`,
+    /// a bare name stays a capture).
+    fn pattern_literal(&self, s: &str) -> String {
+        match s {
+            "true" => "True".into(),
+            "false" => "False".into(),
+            _ => s.replace(' ', ""),
+        }
+    }
+
+    /// An enum-path pattern → a Python `case`. A C-like enum matches by value
+    /// (`Suit.Hearts`); a data enum matches its variant class structurally
+    /// (`Circle(r)` / `Empty()`).
+    fn enum_pattern(&mut self, toks: &[&str], pos: usize) -> String {
+        let qualifier = toks[..pos].join("");
+        let variant = toks.get(pos + 1).copied().unwrap_or("");
+        let rest = &toks[(pos + 2).min(toks.len())..];
+        let bindings: Vec<String> = rest
+            .iter()
+            .filter(|t| !matches!(**t, "(" | ")" | ","))
+            .map(|t| rust_name(t))
+            .collect();
+        if self.data_enums.contains(&qualifier) {
+            format!("{}({})", variant, bindings.join(", "))
+        } else {
+            format!("{}.{}", qualifier, variant)
         }
     }
 
@@ -378,10 +513,21 @@ impl Emitter {
             // A module constant keeps its exact casing; everything else lowercases.
             ExprKind::Ident(name) if self.const_names.contains(name) => name.clone(),
             ExprKind::Ident(name) => rust_name(name),
-            ExprKind::Field(recv, field) => {
-                let r = self.expr(recv);
-                format!("{}.{}", r, rust_name(field))
-            }
+            ExprKind::Field(recv, field) => match &recv.kind {
+                // `Enum.Variant`: a C-like variant is a value (`Suit.Spades`); a
+                // data enum's unit variant constructs its class (`Empty()`).
+                ExprKind::Ident(name) if self.enum_names.contains(name) => {
+                    if self.data_enums.contains(name) {
+                        format!("{}()", field)
+                    } else {
+                        format!("{}.{}", name, field)
+                    }
+                }
+                _ => {
+                    let r = self.expr(recv);
+                    format!("{}.{}", r, rust_name(field))
+                }
+            },
             ExprKind::StructLit { name, fields } => {
                 let args: Vec<String> = fields
                     .iter()
@@ -393,9 +539,25 @@ impl Emitter {
                 format!("{}({})", name, args.join(", "))
             }
             ExprKind::MethodCall { recv, method, args } => {
-                let r = self.expr(recv);
-                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
-                format!("{}.{}({})", r, rust_name(method), a.join(", "))
+                // `Enum.Variant(args)` constructs a data-enum variant class.
+                let ctor = match &recv.kind {
+                    ExprKind::Ident(name) if self.enum_names.contains(name) => Some(name.clone()),
+                    _ => None,
+                };
+                if let Some(name) = ctor {
+                    let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                    if !self.data_enums.contains(&name) {
+                        self.warn(format!(
+                            "`{}.{}(…)` — a C-like enum variant carries no data.",
+                            name, method
+                        ));
+                    }
+                    format!("{}({})", method, a.join(", "))
+                } else {
+                    let r = self.expr(recv);
+                    let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                    format!("{}.{}({})", r, rust_name(method), a.join(", "))
+                }
             }
             ExprKind::Not(inner) => {
                 let i = self.expr(inner);
@@ -529,7 +691,10 @@ impl Emitter {
         if self.needs_dataclass {
             code.push_str("from dataclasses import dataclass\n");
         }
-        if self.needs_math || self.needs_dataclass {
+        if self.needs_enum {
+            code.push_str("from enum import Enum\n");
+        }
+        if self.needs_math || self.needs_dataclass || self.needs_enum {
             code.push('\n');
         }
         if self.needs_vb {
