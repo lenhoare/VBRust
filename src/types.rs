@@ -169,6 +169,27 @@ impl Typer {
                 }
                 self.block(body);
             }
+            // `For Each x In v` binds the element; the two-variable form binds a
+            // map's key and value.
+            Stmt::ForEach { var1, var2, iter, body } => {
+                let ity = self.infer(iter);
+                match (&ity, var2) {
+                    (DeclType::Vec(elem), _) => {
+                        self.env.insert(var1.to_ascii_lowercase(), (**elem).clone());
+                    }
+                    (DeclType::Map(k, v), Some(v2)) => {
+                        self.env.insert(var1.to_ascii_lowercase(), (**k).clone());
+                        self.env.insert(v2.to_ascii_lowercase(), (**v).clone());
+                    }
+                    (DeclType::Map(k, _), None) => {
+                        self.env.insert(var1.to_ascii_lowercase(), (**k).clone());
+                    }
+                    _ => {
+                        self.env.insert(var1.to_ascii_lowercase(), DeclType::Plain(Type::Long));
+                    }
+                }
+                self.block(body);
+            }
             Stmt::Match { scrutinee, arms, .. } => {
                 let scrut_ty = self.infer(scrutinee);
                 for arm in arms {
@@ -305,19 +326,54 @@ impl Typer {
                     _ => unreachable!(),
                 }
             }
-            // `recv.Method(args)` — the method's declared return type.
+            // `recv.Method(args)` — collections, methods, and `.Unwrap()`.
             ExprKind::MethodCall { recv, method, args } => {
                 let recv_ty = self.infer(recv);
                 for a in args {
                     self.infer(a);
                 }
-                if let DeclType::Named(s) = recv_ty {
-                    self.methods
-                        .get(&(s.to_ascii_lowercase(), method.to_ascii_lowercase()))
+                let m = method.to_ascii_lowercase();
+                match &recv_ty {
+                    DeclType::Vec(elem) => match m.as_str() {
+                        "sum" | "get" => (**elem).clone(),
+                        "any" | "all" => DeclType::Plain(Type::Boolean),
+                        "len" | "count" => DeclType::Plain(Type::Long),
+                        // Adapters/`collect` keep the collection type (for chains).
+                        _ => recv_ty.clone(),
+                    },
+                    DeclType::Map(_, v) => match m.as_str() {
+                        "get" => (**v).clone(),
+                        "contains_key" => DeclType::Plain(Type::Boolean),
+                        "len" | "count" => DeclType::Plain(Type::Long),
+                        _ => recv_ty.clone(),
+                    },
+                    DeclType::Named(s) => self
+                        .methods
+                        .get(&(s.to_ascii_lowercase(), m))
                         .cloned()
-                        .unwrap_or(DeclType::Plain(Type::Long))
-                } else {
-                    DeclType::Plain(Type::Long)
+                        .unwrap_or(DeclType::Plain(Type::Long)),
+                    // `.Unwrap()` passes its receiver's type through (an
+                    // `Option<V>`/`Result<V>` is modelled as `V` this slice).
+                    _ if m == "unwrap" => recv_ty.clone(),
+                    _ => DeclType::Plain(Type::Long),
+                }
+            }
+            // `[a, b, …]` — a Vec whose element type is the first item's.
+            ExprKind::List(items) => {
+                let elem = items.first().map(|i| self.infer(i)).unwrap_or(DeclType::Plain(Type::Long));
+                for i in items.iter().skip(1) {
+                    self.infer(i);
+                }
+                DeclType::Vec(Box::new(elem))
+            }
+            // `v[i]` — a Vec element or a Map value.
+            ExprKind::Index(recv, idx) => {
+                let rty = self.infer(recv);
+                self.infer(idx);
+                match rty {
+                    DeclType::Vec(elem) => (*elem).clone(),
+                    DeclType::Map(_, v) => (*v).clone(),
+                    _ => DeclType::Plain(Type::Long),
                 }
             }
             // Later-slice forms (method calls, fields, collections…) aren't typed

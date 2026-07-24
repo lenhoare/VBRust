@@ -16,6 +16,7 @@ use std::process::Command;
 /// Slice 1: pure computation + strings + `= Nothing`.
 /// Slice 2: `Type`/struct, methods (`Me`→`self->`), module `Const`.
 /// Slice 3: `Match`/`Enum` — C `enum` + tagged unions + if-chain lowering.
+/// Slice 4: collections — monomorphised `Vec`/`HashMap`, iterator loops.
 const C: &[&str] = &[
     // slice 1
     "hello", "functions", "logic", "maths", "doloop", "memory",
@@ -23,7 +24,14 @@ const C: &[&str] = &[
     "types", "structs", "methods", "constants",
     // slice 3
     "match", "match_guards", "enums", "sum_types",
+    // slice 4 (deterministic)
+    "vec", "list_literal", "iterators",
 ];
+
+/// Collection examples whose runtime *order* isn't reproducible against Rust
+/// (a `HashMap` iterates in Rust's randomised order, ours in insertion order),
+/// so the generated C is snapshotted and merely compiled + run, not diffed.
+const C_SNAPSHOT_ONLY: &[&str] = &["hashmap"];
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
@@ -56,11 +64,24 @@ fn check_snapshot(name: &str, ext: &str, actual: &str) {
 
 #[test]
 fn c_output_matches_snapshots() {
-    for name in C {
+    for name in C.iter().chain(C_SNAPSHOT_ONLY) {
         let result = vbr::compile_c(&read_example(name));
         assert!(!result.has_errors, "{name} produced errors: {:?}", result.diagnostics);
         assert!(result.warnings.is_empty(), "{name} warned: {:?}", result.warnings);
         check_snapshot(name, "c", &result.code);
+    }
+}
+
+/// Snapshot-only examples must still *build and run* — the code being valid C is
+/// the guarantee here (its output order just can't be diffed against Rust).
+#[test]
+fn c_snapshot_only_compiles() {
+    if Command::new("cc").arg("--version").output().is_err() {
+        eprintln!("skipping c_snapshot_only_compiles: no cc");
+        return;
+    }
+    for name in C_SNAPSHOT_ONLY {
+        let _ = run_via_c(name, &read_example(name));
     }
 }
 

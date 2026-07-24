@@ -37,6 +37,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         enums: HashMap::new(),
         aliases: HashMap::new(),
         match_counter: 0,
+        tmp_counter: 0,
         indent: 0,
         warnings: Vec::new(),
         needs_math: false,
@@ -77,6 +78,8 @@ struct Emitter {
     aliases: HashMap<String, String>,
     /// Per-`Match` counter, so scrutinee temps (`_m0`) are unique and nest.
     match_counter: usize,
+    /// Counter for loop-index / iterator temps (`_i0`).
+    tmp_counter: usize,
     indent: usize,
     warnings: Vec<String>,
     // Runtime helpers switched on as the body needs them.
@@ -120,6 +123,7 @@ impl Emitter {
         }
         self.enum_typedefs(program);
         self.struct_typedefs(program);
+        self.collection_runtimes(program);
         self.constants(program);
         for (i, func) in program.functions.iter().enumerate() {
             if i > 0 {
@@ -173,6 +177,73 @@ impl Emitter {
             }
             self.decls.push_str(&format!("}} {};\n\n", s.name));
         }
+    }
+
+    /// Emit a monomorphised runtime (`typedef` + functions) for every `Vec<T>`
+    /// and `HashMap<K, V>` instantiation the program uses — inner types first,
+    /// so a nested container is declared before the one that holds it.
+    fn collection_runtimes(&mut self, program: &Program) {
+        let mut vecs: Vec<DeclType> = Vec::new();
+        let mut maps: Vec<DeclType> = Vec::new();
+        gather_types(program, &mut vecs, &mut maps);
+        for ty in &vecs {
+            self.emit_vec_runtime(ty);
+        }
+        for ty in &maps {
+            self.emit_map_runtime(ty);
+        }
+    }
+
+    fn emit_vec_runtime(&mut self, ty: &DeclType) {
+        let DeclType::Vec(elem) = ty else { return };
+        let et = c_type(elem);
+        let n = vec_name(ty);
+        self.decls.push_str(&format!("typedef struct {{ {et}* data; size_t len, cap; }} {n};\n"));
+        self.decls.push_str(&format!(
+            "static void {n}_push({n}* v, {et} x) {{\n    \
+             if (v->len == v->cap) {{ v->cap = v->cap ? v->cap * 2 : 4; \
+             v->data = realloc(v->data, v->cap * sizeof({et})); }}\n    \
+             v->data[v->len++] = x;\n}}\n"
+        ));
+        self.decls.push_str(&format!(
+            "static {n} {n}_of(size_t count, {et}* items) {{\n    \
+             {n} v = {{0}};\n    \
+             for (size_t i = 0; i < count; i++) {n}_push(&v, items[i]);\n    \
+             return v;\n}}\n\n"
+        ));
+    }
+
+    fn emit_map_runtime(&mut self, ty: &DeclType) {
+        let DeclType::Map(k, v) = ty else { return };
+        let kt = c_type(k);
+        let vt = c_type(v);
+        let n = map_name(ty);
+        // A linear-probe-free assoc list — simple and readable; iteration is in
+        // insertion order (so a HashMap program is snapshot-only, not diffed
+        // against Rust's randomised order).
+        let key_eq = if is_text(k) {
+            "strcmp(m->entries[i].key, k) == 0"
+        } else {
+            "m->entries[i].key == k"
+        };
+        self.decls.push_str(&format!("typedef struct {{ {kt} key; {vt} val; }} {n}Entry;\n"));
+        self.decls
+            .push_str(&format!("typedef struct {{ {n}Entry* entries; size_t len, cap; }} {n};\n"));
+        self.decls.push_str(&format!(
+            "static void {n}_insert({n}* m, {kt} k, {vt} val) {{\n    \
+             for (size_t i = 0; i < m->len; i++) if ({key_eq}) {{ m->entries[i].val = val; return; }}\n    \
+             if (m->len == m->cap) {{ m->cap = m->cap ? m->cap * 2 : 4; \
+             m->entries = realloc(m->entries, m->cap * sizeof({n}Entry)); }}\n    \
+             m->entries[m->len].key = k; m->entries[m->len].val = val; m->len++;\n}}\n"
+        ));
+        self.decls.push_str(&format!(
+            "static {vt}* {n}_get({n}* m, {kt} k) {{\n    \
+             for (size_t i = 0; i < m->len; i++) if ({key_eq}) return &m->entries[i].val;\n    \
+             return NULL;\n}}\n"
+        ));
+        self.decls.push_str(&format!(
+            "static bool {n}_contains({n}* m, {kt} k) {{ return {n}_get(m, k) != NULL; }}\n\n"
+        ));
     }
 
     /// `Const X As T = v` → a file-scope `static const` (case preserved).
@@ -277,6 +348,9 @@ impl Emitter {
             Stmt::If { branches, else_body } => self.if_stmt(branches, else_body.as_deref()),
             Stmt::For { var, from, to, step, body } => self.for_stmt(var, from, to, step.as_ref(), body),
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body),
+            Stmt::ForEach { var1, var2, iter, body } => {
+                self.for_each(var1, var2.as_deref(), iter, body)
+            }
             Stmt::Match { scrutinee, arms, .. } => self.match_stmt(scrutinee, arms),
             Stmt::Break => self.line("break;"),
             Stmt::Continue => self.line("continue;"),
@@ -290,7 +364,25 @@ impl Emitter {
     fn dim(&mut self, name: &str, ty: &DeclType, init: Option<&Expr>) {
         let cty = c_type(ty);
         let var = c_name(name);
+        let is_collection = matches!(ty, DeclType::Vec(_) | DeclType::Map(..));
         match init {
+            None => {
+                let zero = if is_collection {
+                    "{0}"
+                } else if is_text(ty) {
+                    "NULL"
+                } else {
+                    "0"
+                };
+                self.line(&format!("{} {} = {};", cty, var, zero));
+            }
+            // An empty list literal → an empty container of the declared type.
+            Some(Expr { kind: ExprKind::List(items), .. }) if items.is_empty() => {
+                self.line(&format!("{} {} = {{0}};", cty, var));
+            }
+            // An iterator terminal (`.collect()/.sum()/.any()`) has no expression
+            // form in C — it becomes a preceding loop that fills `var`.
+            Some(e) if is_iter_terminal(e) => self.iter_dim(&var, ty, e),
             // A string literal is copied onto the heap so it's uniform with
             // concat results (both `char*` you may later `= Nothing`).
             Some(Expr { kind: ExprKind::Str(s), .. }) if is_text(ty) => {
@@ -302,11 +394,97 @@ impl Emitter {
                 let v = self.expr(e);
                 self.line(&format!("{} {} = {};", cty, var, v));
             }
-            None => {
-                let zero = if is_text(ty) { "NULL" } else { "0" };
-                self.line(&format!("{} {} = {};", cty, var, zero));
+        }
+    }
+
+    /// Lower a `Dim v = <chain>.collect()/.sum()/.any()` to the empty/zero
+    /// initialiser plus the loop that fills it (C has no comprehension form).
+    fn iter_dim(&mut self, var: &str, ty: &DeclType, e: &Expr) {
+        let ExprKind::MethodCall { recv, method, args } = &e.kind else { return };
+        let cty = c_type(ty);
+        match method.to_ascii_lowercase().as_str() {
+            "collect" => {
+                self.line(&format!("{} {} = {{0}};", cty, var));
+                self.emit_collect_loop(var, ty, recv);
+            }
+            "sum" => {
+                let base = self.expr(recv);
+                self.line(&format!("{} {} = 0;", cty, var));
+                let idx = self.next_tmp();
+                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+                self.indent += 1;
+                self.line(&format!("{} += {}.data[{}];", var, base, idx));
+                self.indent -= 1;
+                self.line("}");
+            }
+            m @ ("any" | "all") => {
+                let elem = self.elem_ctype(recv);
+                let base = self.expr(recv);
+                let Some((param, body)) = closure_parts(&args[0]) else { return };
+                self.line(&format!("{} {} = {};", cty, var, if m == "any" { "false" } else { "true" }));
+                let idx = self.next_tmp();
+                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+                self.indent += 1;
+                self.line(&format!("{} {} = {}.data[{}];", elem, c_name(&param), base, idx));
+                let cond = self.expr(body);
+                if m == "any" {
+                    self.line(&format!("if ({}) {{ {} = true; break; }}", cond, var));
+                } else {
+                    self.line(&format!("if (!({})) {{ {} = false; break; }}", cond, var));
+                }
+                self.indent -= 1;
+                self.line("}");
+            }
+            _ => {}
+        }
+    }
+
+    /// Emit the loop body of a `.collect()`: `chain` is a `filter`/`map` adapter
+    /// over a base Vec, or the base Vec itself.
+    fn emit_collect_loop(&mut self, var: &str, target_ty: &DeclType, chain: &Expr) {
+        let vecn = vec_name(target_ty);
+        if let ExprKind::MethodCall { recv, method, args } = &chain.kind {
+            let m = method.to_ascii_lowercase();
+            if m == "filter" || m == "map" {
+                let elem = self.elem_ctype(recv);
+                let base = self.expr(recv);
+                let Some((param, body)) = closure_parts(&args[0]) else { return };
+                let idx = self.next_tmp();
+                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+                self.indent += 1;
+                self.line(&format!("{} {} = {}.data[{}];", elem, c_name(&param), base, idx));
+                let val = self.expr(body);
+                if m == "filter" {
+                    self.line(&format!("if ({}) {}_push(&{}, {});", val, vecn, var, c_name(&param)));
+                } else {
+                    self.line(&format!("{}_push(&{}, {});", vecn, var, val));
+                }
+                self.indent -= 1;
+                self.line("}");
+                return;
             }
         }
+        // A bare Vec → copy each element.
+        let base = self.expr(chain);
+        let idx = self.next_tmp();
+        self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+        self.indent += 1;
+        self.line(&format!("{}_push(&{}, {}.data[{}]);", vecn, var, base, idx));
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    fn elem_ctype(&self, e: &Expr) -> String {
+        match self.type_of(e) {
+            DeclType::Vec(elem) => c_type(&elem),
+            _ => "long long".to_string(),
+        }
+    }
+
+    fn next_tmp(&mut self) -> String {
+        let t = format!("_i{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        t
     }
 
     fn if_stmt(&mut self, branches: &[(Expr, Vec<Stmt>)], else_body: Option<&[Stmt]>) {
@@ -384,6 +562,41 @@ impl Emitter {
                     raw
                 };
                 self.line(&format!("}} while ({});", test));
+            }
+        }
+    }
+
+    /// `For Each x In v … Next` → an index loop over the container's storage.
+    fn for_each(&mut self, var1: &str, var2: Option<&str>, iter: &Expr, body: &[Stmt]) {
+        let ity = self.type_of(iter);
+        let base = self.expr(iter);
+        let idx = self.next_tmp();
+        match &ity {
+            DeclType::Vec(elem) => {
+                let et = c_type(elem);
+                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+                self.indent += 1;
+                self.line(&format!("{} {} = {}.data[{}];", et, c_name(var1), base, idx));
+                self.block(body);
+                self.indent -= 1;
+                self.line("}");
+            }
+            DeclType::Map(k, v) => {
+                let kt = c_type(k);
+                self.line(&format!("for (size_t {idx} = 0; {idx} < {base}.len; {idx}++) {{"));
+                self.indent += 1;
+                self.line(&format!("{} {} = {}.entries[{}].key;", kt, c_name(var1), base, idx));
+                if let Some(v2) = var2 {
+                    let vt = c_type(v);
+                    self.line(&format!("{} {} = {}.entries[{}].val;", vt, c_name(v2), base, idx));
+                }
+                self.block(body);
+                self.indent -= 1;
+                self.line("}");
+            }
+            _ => {
+                self.warn("`For Each` needs a Vec or HashMap.");
+                self.line("/* [VBR→C] For Each over a non-collection */");
             }
         }
     }
@@ -507,6 +720,26 @@ impl Emitter {
                 format!("({} {} {})", l, bin_op(*op), r)
             }
             ExprKind::Call { name, args } => self.call(name, args),
+            // `v[i]` — a Vec/Map stores its elements in `.data`.
+            ExprKind::Index(recv, idx) => {
+                let r = self.expr(recv);
+                let i = self.expr(idx);
+                format!("{}.data[{}]", r, i)
+            }
+            // `[a, b, …]` — build a Vec via its `_of` constructor.
+            ExprKind::List(items) => {
+                let ty = self.type_of(e);
+                if items.is_empty() {
+                    format!("({}){{0}}", c_type(&ty))
+                } else {
+                    let et = match &ty {
+                        DeclType::Vec(el) => c_type(el),
+                        _ => "long long".to_string(),
+                    };
+                    let parts: Vec<String> = items.iter().map(|i| self.expr(i)).collect();
+                    format!("{}_of({}, ({}[]){{ {} }})", vec_name(&ty), items.len(), et, parts.join(", "))
+                }
+            }
             other => {
                 self.warn(format!("`{}` doesn't lower to C yet.", expr_name(other)));
                 "0 /* [VBR→C] unsupported */".to_string()
@@ -514,7 +747,67 @@ impl Emitter {
         }
     }
 
+    /// Dispatch a `recv.Method(args)` on the receiver's type: a collection op, a
+    /// struct method, or `.get(k).Unwrap()` on a map.
     fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
+        let m = method.to_ascii_lowercase();
+        // `.get(k).Unwrap()` on a map → deref the found value (Option is slice 5;
+        // this is the one shape used so far).
+        if m == "unwrap" {
+            if let ExprKind::MethodCall { recv: gr, method: gm, args: ga } = &recv.kind {
+                if gm.eq_ignore_ascii_case("get") {
+                    if let DeclType::Map(..) = self.type_of(gr) {
+                        let n = map_name(&self.type_of(gr));
+                        let base = self.expr(gr);
+                        let key = self.expr(&ga[0]);
+                        return format!("(*{}_get(&{}, {}))", n, base, key);
+                    }
+                }
+            }
+            return self.expr(recv);
+        }
+        let rty = self.type_of(recv);
+        match &rty {
+            DeclType::Vec(_) => {
+                let n = vec_name(&rty);
+                let base = self.expr(recv);
+                match m.as_str() {
+                    "push" => {
+                        let a = self.expr(&args[0]);
+                        format!("{}_push(&{}, {})", n, base, a)
+                    }
+                    "len" | "count" => format!("{}.len", base),
+                    _ => {
+                        self.warn(format!("`Vec.{}` doesn't lower to C yet.", m));
+                        format!("0 /* Vec.{} */", m)
+                    }
+                }
+            }
+            DeclType::Map(..) => {
+                let n = map_name(&rty);
+                let base = self.expr(recv);
+                match m.as_str() {
+                    "insert" => {
+                        let k = self.expr(&args[0]);
+                        let v = self.expr(&args[1]);
+                        format!("{}_insert(&{}, {}, {})", n, base, k, v)
+                    }
+                    "contains_key" => {
+                        let k = self.expr(&args[0]);
+                        format!("{}_contains(&{}, {})", n, base, k)
+                    }
+                    "len" | "count" => format!("{}.len", base),
+                    _ => {
+                        self.warn(format!("`HashMap.{}` doesn't lower to C yet.", m));
+                        format!("0 /* Map.{} */", m)
+                    }
+                }
+            }
+            _ => self.struct_method_call(recv, method, args),
+        }
+    }
+
+    fn struct_method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
         let struct_name = match self.type_of(recv) {
             DeclType::Named(n) => n,
             _ => {
@@ -858,12 +1151,126 @@ fn c_type(ty: &DeclType) -> String {
         DeclType::Plain(Type::Text) => "char*".to_string(),
         // A user struct is `typedef`'d, so its bare name is the type.
         DeclType::Named(n) => n.clone(),
+        // Collections are monomorphised: `Vec<Long>` → the `Vec_longlong` type.
+        DeclType::Vec(_) => vec_name(ty),
+        DeclType::Map(..) => map_name(ty),
         _ => "long long".to_string(),
+    }
+}
+
+/// Does this expression end in an iterator consumer that must become a loop?
+fn is_iter_terminal(e: &Expr) -> bool {
+    matches!(&e.kind, ExprKind::MethodCall { method, .. }
+        if matches!(method.to_ascii_lowercase().as_str(), "collect" | "sum" | "any" | "all"))
+}
+
+/// A closure `|x| body` → its parameter name and body.
+fn closure_parts(e: &Expr) -> Option<(String, &Expr)> {
+    if let ExprKind::Closure { params, body, .. } = &e.kind {
+        let p = params.first().cloned().unwrap_or_else(|| "_".to_string());
+        Some((p, body))
+    } else {
+        None
+    }
+}
+
+/// A type's name fragment for monomorphised container type names.
+fn mangle(t: &DeclType) -> String {
+    match t {
+        DeclType::Plain(Type::Integer) => "int".to_string(),
+        DeclType::Plain(Type::Long | Type::LongLong) => "longlong".to_string(),
+        DeclType::Plain(Type::Byte) => "byte".to_string(),
+        DeclType::Plain(Type::Single) => "float".to_string(),
+        DeclType::Plain(Type::Double) => "double".to_string(),
+        DeclType::Plain(Type::Boolean) => "bool".to_string(),
+        DeclType::Plain(Type::Text) => "str".to_string(),
+        DeclType::Named(n) => n.clone(),
+        DeclType::Vec(e) => format!("vec_{}", mangle(e)),
+        DeclType::Map(k, v) => format!("map_{}_{}", mangle(k), mangle(v)),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn vec_name(ty: &DeclType) -> String {
+    match ty {
+        DeclType::Vec(e) => format!("Vec_{}", mangle(e)),
+        _ => "Vec".to_string(),
+    }
+}
+
+fn map_name(ty: &DeclType) -> String {
+    match ty {
+        DeclType::Map(k, v) => format!("Map_{}_{}", mangle(k), mangle(v)),
+        _ => "Map".to_string(),
     }
 }
 
 fn is_single(ty: &DeclType) -> bool {
     matches!(ty, DeclType::Plain(Type::Single))
+}
+
+/// Collect every `Vec`/`Map` instantiation used anywhere in the program (types
+/// appear before the containers that hold them, for decl-before-use).
+fn gather_types(program: &Program, vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType>) {
+    for s in &program.structs {
+        for f in &s.fields {
+            visit_ty(&f.ty, vecs, maps);
+        }
+    }
+    for f in &program.functions {
+        for p in &f.params {
+            visit_ty(&p.ty, vecs, maps);
+        }
+        if let Some(r) = &f.ret {
+            visit_ty(r, vecs, maps);
+        }
+        gather_body(&f.body, vecs, maps);
+    }
+}
+
+fn gather_body(stmts: &[Stmt], vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType>) {
+    for s in stmts {
+        match s {
+            Stmt::Dim { ty, .. } => visit_ty(ty, vecs, maps),
+            Stmt::DestructureDim { ty: Some(t), .. } => visit_ty(t, vecs, maps),
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    gather_body(b, vecs, maps);
+                }
+                if let Some(b) = else_body {
+                    gather_body(b, vecs, maps);
+                }
+            }
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                gather_body(body, vecs, maps)
+            }
+            Stmt::Match { arms, .. } => {
+                for a in arms {
+                    gather_body(&a.body, vecs, maps);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn visit_ty(t: &DeclType, vecs: &mut Vec<DeclType>, maps: &mut Vec<DeclType>) {
+    match t {
+        DeclType::Vec(e) => {
+            visit_ty(e, vecs, maps);
+            if !vecs.contains(t) {
+                vecs.push(t.clone());
+            }
+        }
+        DeclType::Map(k, v) => {
+            visit_ty(k, vecs, maps);
+            visit_ty(v, vecs, maps);
+            if !maps.contains(t) {
+                maps.push(t.clone());
+            }
+        }
+        _ => {}
+    }
 }
 
 fn is_text(ty: &DeclType) -> bool {
