@@ -9,6 +9,7 @@ pub mod diagnostics;
 pub mod gui;
 pub mod lexer;
 pub mod parser;
+pub mod python;
 pub mod resolver;
 pub mod span;
 pub mod surface;
@@ -224,4 +225,41 @@ fn compile_with(
 /// matching how identifiers are lowercased everywhere else.
 pub fn module_name(stem: &str) -> String {
     transpiler::rust_name(stem)
+}
+
+/// The result of transpiling one VBR source string to **Python** (an alternative
+/// target to Rust — the core language, not the GUI/TUI/Web surfaces).
+pub struct PyCompiled {
+    /// The generated Python source.
+    pub code: String,
+    /// Parse diagnostics, already rendered.
+    pub diagnostics: Vec<String>,
+    /// True if a parse error means no Python should be used.
+    pub has_errors: bool,
+    /// Constructs that couldn't cross to Python cleanly (rendered `⚠` notes).
+    pub warnings: Vec<String>,
+}
+
+/// Transpile `source` to Python. Parse errors are reported through
+/// `diagnostics`/`has_errors`, exactly as the Rust path does; the resolver's
+/// Rust-specific work (casts, borrows) is skipped — Python needs none of it.
+pub fn compile_python(source: &str) -> PyCompiled {
+    let mut diags = Diagnostics::new();
+    let tokens = lexer::lex(source);
+    let program = parser::parse(tokens, &mut diags);
+    if diags.has_errors() {
+        return PyCompiled {
+            code: String::new(),
+            diagnostics: diags.items().iter().map(|d| d.render()).collect(),
+            has_errors: true,
+            warnings: Vec::new(),
+        };
+    }
+    let out = python::emit_python(&program);
+    PyCompiled {
+        code: out.code,
+        diagnostics: diags.items().iter().map(|d| d.render()).collect(),
+        has_errors: false,
+        warnings: out.warnings,
+    }
 }

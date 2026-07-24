@@ -28,6 +28,7 @@ fn main() {
         Some("test") => cmd_test(&args[1..]),
         Some("transpile") => cmd_transpile(&args[1..]),
         Some("emit") => cmd_emit(&args[1..]),
+        Some("py") => cmd_py(&args[1..]),
         Some("graduate") => cmd_graduate(&args[1..]),
         _ => {
             usage();
@@ -46,6 +47,7 @@ fn usage() {
          \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)\n\
+         \tvbr py <file.vbr>       transpile to Python (core language; -o <file> to write it)\n\
          \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
          \t                        The project keeps building; you maintain that file in Rust\n\
          \t                        from now on. Graduate main.vbr last to finish the journey."
@@ -107,6 +109,41 @@ fn cmd_emit(args: &[String]) {
             eprintln!("✔ Wrote {}", out.display());
         }
         None => print!("{}", result.rust),
+    }
+}
+
+/// `vbr py <file.vbr>` — transpile to Python and print it (or write with `-o`).
+/// Warnings about constructs that couldn't cross to Python go to stderr, so a
+/// redirected `stdout` stays clean Python.
+fn cmd_py(args: &[String]) {
+    let (input, output) = parse_emit_args(args);
+    let source = match fs::read_to_string(&input) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("✘ Could not read {}: {}", input.display(), e);
+            exit(1);
+        }
+    };
+    let result = vbr::compile_python(&source);
+    for d in &result.diagnostics {
+        eprintln!("{}", d);
+    }
+    if result.has_errors {
+        eprintln!("\nTranspilation failed — no Python was produced.");
+        exit(1);
+    }
+    for w in &result.warnings {
+        eprintln!("{}", w);
+    }
+    match output {
+        Some(out) => {
+            if let Err(e) = fs::write(&out, &result.code) {
+                eprintln!("✘ Could not write {}: {}", out.display(), e);
+                exit(1);
+            }
+            eprintln!("✔ Wrote {}", out.display());
+        }
+        None => print!("{}", result.code),
     }
 }
 

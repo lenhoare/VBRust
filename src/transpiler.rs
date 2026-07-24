@@ -818,7 +818,12 @@ fn emit_fn_body(
 
 /// Rewrite `FunctionName = value` (assignment to the function's own name) into
 /// a `Return`, recursing through nested blocks.
-fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
+///
+/// This is a target-neutral *desugaring* (VB's assign-to-own-name return has no
+/// Rust or Python analogue), so it's shared: the Python backend (`python.rs`)
+/// runs it too. It's the first of the lowering steps that will, once a second
+/// backend makes the duplication concrete, coalesce into a proper typed IR.
+pub(crate) fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
     for stmt in stmts.iter_mut() {
         match stmt {
             Stmt::Assign {
