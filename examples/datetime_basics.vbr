@@ -1,0 +1,15 @@
+' DateTime from the standard library — parse a fixed moment, then read, format
+' and shift it. (Uses Parse, not Now, so the output is deterministic.)
+Function Main()
+    Dim d As DateTime = DateTime.Parse("2026-07-24 09:30:00", "%Y-%m-%d %H:%M:%S").Unwrap()
+    Debug.Print "year:  " & d.Year()
+    Debug.Print "month: " & d.Month()
+    Debug.Print "day:   " & d.Day()
+    Debug.Print "iso:   " & d.Format("%Y-%m-%d")
+
+    Dim later As DateTime = d.AddDays(10)
+    Debug.Print "in 10 days: " & later.Format("%Y-%m-%d")
+
+    Dim soon As DateTime = d.AddHours(5)
+    Debug.Print "in 5 hours: " & soon.Format("%H:%M")
+End Function

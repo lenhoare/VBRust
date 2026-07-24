@@ -37,11 +37,12 @@ pub struct PyProgram {
 /// Standard-library namespaces/value-types the Python target supports so far
 /// (mirrors the `vbrpy` package). Used as a call receiver (`FileSystem.Read`) or
 /// a declared type (`As Json`).
-const STDLIB_SUPPORTED: &[&str] = &["FileSystem", "Regex", "Json", "Database"];
+const STDLIB_SUPPORTED: &[&str] =
+    &["FileSystem", "Regex", "Json", "Database", "DateTime", "Http", "DataFrame"];
 
 /// Namespaces that exist in `vbr_stdlib` but aren't lowered to Python yet — so a
 /// use gets a clear "later slice" warning rather than silently wrong output.
-const STDLIB_PENDING: &[&str] = &["DateTime", "Http", "DataFrame", "Shell"];
+const STDLIB_PENDING: &[&str] = &["Shell"];
 
 /// Emit Python for a whole parsed program.
 pub fn emit_python(program: &Program) -> PyProgram {
@@ -80,6 +81,10 @@ struct Emitter {
     // Standard-library namespaces/types referenced (`FileSystem`, `Json`, …) —
     // these turn the output into a project that imports the `vbrpy` package.
     stdlib_used: std::collections::BTreeSet<String>,
+    // The polars expression builders a DataFrame program needs (`col`/`when`/
+    // `read_csv`), re-exported from `vbrpy` — mirrors the Rust side re-exporting
+    // `col`/`lit`/`when` from `vbr_stdlib::dataframe`.
+    df_builders: std::collections::BTreeSet<&'static str>,
     // Prelude features, switched on as the body needs them.
     needs_vb: bool,
     needs_round: bool,
@@ -349,6 +354,16 @@ impl Emitter {
                 self.line(indent, &head);
                 self.block_or_pass(body, indent + 1);
             }
+            Stmt::DestructureDim { names, ty, value } => {
+                let v = self.expr(value);
+                let lhs = names.iter().map(|n| rust_name(n)).collect::<Vec<_>>().join(", ");
+                if let Some(DeclType::Tuple(ts)) = ty {
+                    for (n, t) in names.iter().zip(ts) {
+                        self.var_types.insert(rust_name(n), t.clone());
+                    }
+                }
+                self.line(indent, &format!("{} = {}", lhs, v));
+            }
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body, indent),
             Stmt::Match { scrutinee, arms, .. } => self.match_stmt(scrutinee, arms, indent),
             Stmt::Break => self.line(indent, "break"),
@@ -534,7 +549,15 @@ impl Emitter {
         // → the matching `vbrpy` class method; the namespace is recorded so the
         // import (and project mode) is emitted.
         if let ExprKind::Ident(ns) = &recv.kind {
-            if STDLIB_SUPPORTED.contains(&ns.as_str()) {
+            if ns == "DataFrame" {
+                // `DataFrame.ReadCsv(path)` → polars `read_csv(path)` (re-exported).
+                self.stdlib_used.insert("DataFrame".to_string());
+                if m == "readcsv" {
+                    self.df_builders.insert("read_csv");
+                    let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                    return format!("read_csv({})", a.join(", "));
+                }
+            } else if STDLIB_SUPPORTED.contains(&ns.as_str()) {
                 self.stdlib_used.insert(ns.clone());
                 let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                 return format!("{}.{}({})", ns, m, a.join(", "));
@@ -545,6 +568,12 @@ impl Emitter {
                     ns
                 ));
             }
+        }
+
+        // An instance method on a DataFrame (`df.WithColumn(...)`, `df.Filter(...)`)
+        // → idiomatic polars, with column-formula arguments lowered.
+        if self.is_df_expr(recv) {
+            return self.df_method(recv, &m, args);
         }
 
         // Terminal consumers.
@@ -719,6 +748,180 @@ impl Emitter {
             &recv.kind,
             ExprKind::Ident(name) if matches!(self.var_types.get(&rust_name(name)), Some(DeclType::Map(_, _)))
         )
+    }
+
+    /// Is `e` a DataFrame-valued expression? A variable declared `As DataFrame`,
+    /// a `DataFrame.ReadCsv(...)` constructor, or a transform chained off one.
+    fn is_df_expr(&self, e: &Expr) -> bool {
+        match &e.kind {
+            ExprKind::Ident(n) => matches!(
+                self.var_types.get(&rust_name(n)),
+                Some(DeclType::Named(t)) if t == "DataFrame"
+            ),
+            ExprKind::MethodCall { recv, .. } => {
+                matches!(&recv.kind, ExprKind::Ident(n) if n == "DataFrame") || self.is_df_expr(recv)
+            }
+            _ => false,
+        }
+    }
+
+    /// A DataFrame instance method → idiomatic polars.
+    fn df_method(&mut self, recv: &Expr, m: &str, args: &[Expr]) -> String {
+        let base = self.expr(recv);
+        match m {
+            "withcolumn" => {
+                let name = self.expr(&args[0]);
+                let formula = self.lower_formula(&args[1]);
+                format!("{}.with_columns({}.alias({}))", base, formula, name)
+            }
+            "filter" => {
+                let mask = self.lower_formula(&args[0]);
+                format!("{}.filter({})", base, mask)
+            }
+            "select" => {
+                let cols: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
+                format!("{}.select([{}])", base, cols.join(", "))
+            }
+            "sort" => format!("{}.sort({})", base, self.expr(&args[0])),
+            "head" => format!("{}.head({})", base, self.expr(&args[0])),
+            "shape" => format!("{}.shape", base),
+            "columns" => format!("{}.columns", base),
+            "column" => format!("{}[{}].to_list()", base, self.expr(&args[0])),
+            "join" | "leftjoin" | "outerjoin" => {
+                let other = self.expr(&args[0]);
+                let keys: Vec<String> = args[1..].iter().map(|a| self.expr(a)).collect();
+                let on = if keys.len() == 1 {
+                    keys[0].clone()
+                } else {
+                    format!("[{}]", keys.join(", "))
+                };
+                let how = match m {
+                    "join" => "inner",
+                    "leftjoin" => "left",
+                    _ => "outer",
+                };
+                format!("{}.join({}, on={}, how='{}')", base, other, on, how)
+            }
+            "groupby" => {
+                let keys: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
+                format!("{}.group_by([{}])", base, keys.join(", "))
+            }
+            "agg" => {
+                let exprs: Vec<String> = args.iter().map(|a| self.lower_agg(a)).collect();
+                format!("{}.agg([{}])", base, exprs.join(", "))
+            }
+            "sum" | "mean" | "min" | "max" => {
+                format!("{}[{}].{}()", base, self.expr(&args[0]), m)
+            }
+            "writecsv" => format!("{}.write_csv({})", base, self.expr(&args[0])),
+            "print" => format!("print({})", base),
+            _ => {
+                self.warn(format!("DataFrame method `{}` isn't lowered to Python yet.", m));
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                format!("{}.{}({})", base, m, a.join(", "))
+            }
+        }
+    }
+
+    /// Rewrite a VBR column formula (`price * qty`, `age >= 18`, `IIf(...)`) into a
+    /// polars expression — the Python-side twin of the resolver's `lower_formula`.
+    /// A bare name is a column (`col("x")`) unless it's a `Dim`'d value; polars
+    /// overloads the operators (`>`, `&`, `~`), so no `.gt()`/`.and()` methods.
+    fn lower_formula(&mut self, e: &Expr) -> String {
+        match &e.kind {
+            // A bare name is a column, unless it's a `Dim`'d value — then it's a
+            // `lit(...)` (as is any literal), matching the Rust resolver and
+            // sidestepping polars reading a bare string as a column name.
+            ExprKind::Ident(name) => {
+                let is_value = matches!(
+                    self.var_types.get(&rust_name(name)),
+                    Some(t) if *t != DeclType::Named("DataFrame".to_string())
+                );
+                if is_value {
+                    self.df_builders.insert("lit");
+                    format!("lit({})", rust_name(name))
+                } else {
+                    self.df_builders.insert("col");
+                    format!("col(\"{}\")", name)
+                }
+            }
+            ExprKind::Str(s) => {
+                self.df_builders.insert("lit");
+                format!("lit({})", py_str(s))
+            }
+            ExprKind::Int(n) => {
+                self.df_builders.insert("lit");
+                format!("lit({})", n)
+            }
+            ExprKind::Float(f) => {
+                self.df_builders.insert("lit");
+                format!("lit({})", py_float(*f))
+            }
+            ExprKind::Bool(b) => {
+                self.df_builders.insert("lit");
+                format!("lit({})", if *b { "True" } else { "False" })
+            }
+            ExprKind::Call { name, args } if name.eq_ignore_ascii_case("IsNull") && args.len() == 1 => {
+                let inner = self.lower_formula(&args[0]);
+                format!("{}.is_null()", inner)
+            }
+            ExprKind::Call { name, args } if name == "Col" && args.len() == 1 => {
+                self.df_builders.insert("col");
+                format!("col({})", self.expr(&args[0]))
+            }
+            ExprKind::Call { name, args } if name.eq_ignore_ascii_case("IIf") && args.len() == 3 => {
+                self.df_builders.insert("when");
+                let c = self.lower_formula(&args[0]);
+                let t = self.lower_formula(&args[1]);
+                let el = self.lower_formula(&args[2]);
+                format!("when({}).then({}).otherwise({})", c, t, el)
+            }
+            ExprKind::Binary { op, lhs, rhs } => {
+                let l = self.lower_formula(lhs);
+                let r = self.lower_formula(rhs);
+                let opstr = match op {
+                    BinOp::Add => "+",
+                    BinOp::Sub => "-",
+                    BinOp::Mul => "*",
+                    BinOp::Div => "/",
+                    BinOp::Mod => "%",
+                    BinOp::Gt => ">",
+                    BinOp::Lt => "<",
+                    BinOp::Ge => ">=",
+                    BinOp::Le => "<=",
+                    BinOp::Eq => "==",
+                    BinOp::Ne => "!=",
+                    BinOp::And => "&",
+                    BinOp::Or => "|",
+                    _ => {
+                        self.warn("operator not supported in a DataFrame formula.");
+                        "+"
+                    }
+                };
+                format!("({} {} {})", l, opstr, r)
+            }
+            ExprKind::Not(inner) => {
+                let i = self.lower_formula(inner);
+                format!("(~{})", i)
+            }
+            _ => {
+                self.warn("unsupported element in a DataFrame formula.");
+                self.expr(e)
+            }
+        }
+    }
+
+    /// Lower one `Agg(...)` argument: `Sum(x)`/`Mean(x)`/`Count(x)`/… → the inner
+    /// formula plus the polars aggregation method; a bare formula passes through.
+    fn lower_agg(&mut self, e: &Expr) -> String {
+        if let ExprKind::Call { name, args } = &e.kind {
+            let low = name.to_ascii_lowercase();
+            if matches!(low.as_str(), "sum" | "mean" | "min" | "max" | "count") && args.len() == 1 {
+                let inner = self.lower_formula(&args[0]);
+                return format!("{}.{}()", inner, low);
+            }
+        }
+        self.lower_formula(e)
     }
 
     /// A coarse numeric class for the `//` vs `/` division choice.
@@ -1036,6 +1239,13 @@ impl Emitter {
             // wrappers, not a bare union — so `object` is the honest annotation.
             DeclType::Option(_) => "object".into(),
             DeclType::Result(_, _) => "object".into(),
+            // A DataFrame is a polars frame (no imported class name); annotate it
+            // `object` so a param/return hint can't NameError. Local-var hints
+            // aren't evaluated at runtime, but params/returns are.
+            DeclType::Named(n) if n == "DataFrame" => {
+                self.stdlib_used.insert("DataFrame".to_string());
+                "object".into()
+            }
             DeclType::Named(n) => {
                 // A stdlib value type (`As Json`) needs the `vbrpy` import too.
                 if STDLIB_SUPPORTED.contains(&n.as_str()) {
@@ -1109,7 +1319,13 @@ impl Emitter {
                 names.push("_vb_round");
             }
             for ns in &self.stdlib_used {
-                names.push(ns);
+                // DataFrame isn't a `vbrpy` class — it re-exports polars builders.
+                if ns != "DataFrame" {
+                    names.push(ns);
+                }
+            }
+            for b in &self.df_builders {
+                names.push(b);
             }
             code.push_str(&format!("from vbrpy import {}\n", names.join(", ")));
             code.push('\n');

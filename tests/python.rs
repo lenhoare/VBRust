@@ -182,7 +182,127 @@ End Function
 /// against a stored `.out` — verified byte-for-byte against `vbr runproject`
 /// (the Rust ground truth) when the snapshots were taken. Kept as a stored
 /// output rather than a live Rust run so the suite needn't compile `vbr_stdlib`.
-const PY_STDLIB: &[&str] = &["stdlib", "json_basics", "database"];
+const PY_STDLIB: &[&str] = &["stdlib", "json_basics", "database", "datetime_basics"];
+
+/// Stdlib examples that are transpiled + snapshotted but NOT run: their output
+/// isn't reproducible (network, wall-clock, …), so there's no stdout to diff —
+/// same situation as `hashmap`. The shim itself is exercised separately (e.g.
+/// `vbrpy_http_roundtrip`).
+const PY_STDLIB_NORUN: &[&str] = &[
+    "http_post",
+    // DataFrame: `.Print()` renders a polars table (formatting differs from
+    // Rust), and polars is a pip install — so snapshot the code, and check
+    // behaviour separately (`python_dataframe_runs`, gated on polars).
+    "dataframe_basics",
+    "dataframe_groupby",
+    "dataframe_join",
+];
+
+#[test]
+fn python_stdlib_snapshot_only() {
+    for name in PY_STDLIB_NORUN {
+        let result = vbr::compile_python(&read_example(name));
+        assert!(!result.has_errors, "{name} errors: {:?}", result.diagnostics);
+        assert!(result.warnings.is_empty(), "{name} warned: {:?}", result.warnings);
+        assert!(
+            !result.stdlib_used.is_empty(),
+            "{name} should use the stdlib (project mode)"
+        );
+        check_snapshot(name, "py", &result.code);
+    }
+}
+
+/// Exercise the `vbrpy.Http` shim end-to-end against a loopback server — GET,
+/// POST (body + headers echoed back), and the error path — since a real Http
+/// program can't be diffed against Rust. Pure-Python: proves the shim works.
+#[test]
+fn vbrpy_http_roundtrip() {
+    if Command::new("python3").arg("--version").output().is_err() {
+        eprintln!("skipping vbrpy_http_roundtrip: no python3");
+        return;
+    }
+    let vbrpy = Path::new(env!("CARGO_MANIFEST_DIR")).join("vbrpy");
+    let dir = std::env::temp_dir().join("vbr_http_rt");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    copy_dir(&vbrpy, &dir.join("vbrpy"));
+
+    let probe = r#"
+import threading, http.server
+from vbrpy import Http, Ok, Err
+
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers()
+        self.wfile.write(b"hello-get")
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0))
+        data = self.rfile.read(n).decode()
+        auth = self.headers.get("Authorization", "")
+        self.send_response(200); self.end_headers()
+        self.wfile.write(("posted:" + data + "|auth:" + auth).encode())
+    def log_message(self, *a): pass
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+base = "http://127.0.0.1:%d" % srv.server_address[1]
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+g = Http.get(base + "/")
+assert isinstance(g, Ok) and g.value == "hello-get", g
+p = Http.post(base + "/", "body123", {"Authorization": "Bearer xyz"})
+assert isinstance(p, Ok) and p.value == "posted:body123|auth:Bearer xyz", p
+e = Http.get("not-a-valid-url")
+assert isinstance(e, Err), e
+print("OK")
+"#;
+    fs::write(dir.join("probe.py"), probe).unwrap();
+    let run = Command::new("python3")
+        .arg("probe.py")
+        .current_dir(&dir)
+        .output()
+        .expect("run python3");
+    let out = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success() && out.contains("OK"),
+        "http roundtrip failed:\nstdout: {out}\nstderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+/// Run the generated `dataframe_basics` against the real `people.csv` (gated on
+/// polars being installed) and check the deterministic, non-table lines. The
+/// `.Print()` table is skipped — its formatting differs from Rust-polars — but
+/// the computed values (row count, first kept name) prove the lowered formulas,
+/// filter and column extraction actually work.
+#[test]
+fn python_dataframe_runs() {
+    let has_polars = Command::new("python3")
+        .args(["-c", "import polars"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_polars {
+        eprintln!("skipping python_dataframe_runs: polars not installed");
+        return;
+    }
+    let result = vbr::compile_python(&read_example("dataframe_basics"));
+    assert!(!result.has_errors, "errors: {:?}", result.diagnostics);
+    assert!(result.warnings.is_empty(), "warned: {:?}", result.warnings);
+
+    let dir = std::env::temp_dir().join("vbr_df_run");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("main.py"), &result.code).unwrap();
+    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("vbrpy"), &dir.join("vbrpy"));
+    fs::copy(examples_dir().join("people.csv"), dir.join("people.csv")).unwrap();
+
+    let run = Command::new("python3").arg("main.py").current_dir(&dir).output().unwrap();
+    let out = String::from_utf8_lossy(&run.stdout);
+    assert!(run.status.success(), "python failed:\n{}", String::from_utf8_lossy(&run.stderr));
+    for line in ["loaded 5 rows, 5 columns", "first kept: Alice", "wrote out.csv"] {
+        assert!(out.contains(line), "missing {line:?} in output:\n{out}");
+    }
+}
 
 #[test]
 fn python_stdlib_projects() {
