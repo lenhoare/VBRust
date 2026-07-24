@@ -12,6 +12,7 @@ and the generated Rust is always there to read.
 - **`web_spec.md`** — browser apps: a `Page` → a Yew (WebAssembly) application.
 - **`stdlib_spec.md`** — the standard library.
 - **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
+- **`targets_spec.md`** — the alternative transpile targets: `vbr py` (Python) and `vbr c` (C).
 
 ## Building
 
@@ -121,6 +122,29 @@ cd playground && trunk serve --open
 
 `trunk build --release` produces a fully static `dist/` (three files, ~760 KB
 of wasm) that can be hosted anywhere — GitHub Pages included.
+
+## Other targets: Python and C
+
+VBR is Rust-first — the language is defined around Rust, and everything above
+describes that target. As an **additive bolt-on**, the same source can also be
+transpiled to **Python** or **C**, to show one program in three languages:
+
+```sh
+cargo run -- py examples/hello.vbr        # → idiomatic Python (stdout, or -o out.py)
+cargo run -- c  examples/hello.vbr        # → self-contained C (stdout, or -o out.c)
+```
+
+Both cover the **core language** (Python also covers the full standard library, as
+a `main.py` + `vbrpy/` project). The GUI/TUI/Web surfaces stay Rust-only. For
+deterministic programs the output is checked **byte-for-byte against `vbr run`**.
+The C target adds `x = Nothing` — an explicit "release this now" hook (`drop` on
+Rust, `None` on Python, `free` on C) that makes manual memory visible. Full
+detail — packaging, external libraries (`Use` → pip, inline `Python`), and the
+shared front-end that keeps the three in sync — is in **`targets_spec.md`**.
+
+```sh
+cargo run -- c examples/hello.vbr -o hello.c && cc hello.c -lm && ./a.out
+```
 
 ## Running the tests
 

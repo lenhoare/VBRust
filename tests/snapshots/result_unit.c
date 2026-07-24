@@ -7,6 +7,7 @@
 #include <stdbool.h>
 
 typedef struct { bool is_ok; char* err; } Result_unit_str;
+static void Result_unit_str_unwrap(Result_unit_str r) { if (!r.is_ok) { fprintf(stderr, "unwrapped an Err\n"); exit(1); } }
 
 static char* vbr_concat(const char* a, const char* b) {
     char* s = (char*)malloc(strlen(a) + strlen(b) + 1);

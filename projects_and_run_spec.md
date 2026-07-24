@@ -212,6 +212,20 @@ never have to. The door stays wide open for everything else.
 - `build` — generate `build/` without running.
 - `emit` / `-o` — just write the `.rs` (no run).
 
+### `vbr py <file.vbr>` / `vbr c <file.vbr>` — alternative targets
+
+The same source, transpiled to **Python** or **C** instead of Rust — additive
+bolt-ons to the Rust-first language (full detail in `targets_spec.md`).
+
+- `vbr py` — idiomatic Python to stdout (or `-o`). A core-language program is one
+  `.py`; a **stdlib** program is emitted as a project folder (`main.py` + a copied
+  `vbrpy/` package, the parallel of `runproject`). `Use <pkg> <ver> [As <mod>]`
+  declares a **pip** dependency (`import` + `requirements.txt`).
+- `vbr c` — a single self-contained `.c` to stdout (or `-o`); build with any C
+  compiler (`cc out.c -lm && ./a.out`). Core language only (no stdlib yet).
+- Both cover the core language; GUI/TUI/Web stay Rust-only. Deterministic output
+  is checked byte-for-byte against `vbr run`.
+
 ### `vbr graduate <file.vbr>` — the journey out — **BUILT 2026-07-12**
 
 VBR's end goal is that you stop needing it: the generated Rust *is* the

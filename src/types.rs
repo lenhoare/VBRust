@@ -341,6 +341,22 @@ impl Typer {
                 }
             }
             // `Enum.Variant(args)` — constructing a data variant yields the enum.
+            // A standard-library namespace call (`FileSystem.Read(...)`) — its
+            // declared return type (mostly `Result<…>`).
+            ExprKind::MethodCall { recv, method, args }
+                if matches!(&recv.kind,
+                    ExprKind::Ident(n) if stdlib_return(&n.to_ascii_lowercase(), &method.to_ascii_lowercase()).is_some()) =>
+            {
+                for a in args {
+                    self.infer(a);
+                }
+                match &recv.kind {
+                    ExprKind::Ident(n) => {
+                        stdlib_return(&n.to_ascii_lowercase(), &method.to_ascii_lowercase()).unwrap()
+                    }
+                    _ => unreachable!(),
+                }
+            }
             ExprKind::MethodCall { recv, args, .. }
                 if matches!(&recv.kind, ExprKind::Ident(n) if self.enums.contains(&n.to_ascii_lowercase())) =>
             {
@@ -429,6 +445,28 @@ fn join(a: &DeclType, b: &DeclType) -> DeclType {
     } else {
         top.clone()
     }
+}
+
+/// The declared return type of a standard-library **namespace** call
+/// (`FileSystem.Read(...)`), or `None` if `ns` isn't a known namespace method.
+/// Shared knowledge for the non-Rust backends (the C backend needs it to type a
+/// `.Unwrap()`; Python lowers stdlib calls structurally and doesn't).
+pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
+    let text = || DeclType::Plain(Type::Text);
+    let unit = || DeclType::Tuple(Vec::new());
+    // `Result<T>` shorthand — the error is always `String`.
+    let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
+    Some(match (ns, method) {
+        ("filesystem", "read") => res(text()),
+        ("filesystem", "readlines") => res(DeclType::Vec(Box::new(text()))),
+        ("filesystem", "exists" | "folderexists") => DeclType::Plain(Type::Boolean),
+        (
+            "filesystem",
+            "write" | "append" | "delete" | "copy" | "movefile" | "createfolder" | "createfolderall"
+            | "deletefolder" | "deletefolderall",
+        ) => res(unit()),
+        _ => return None,
+    })
 }
 
 /// The result type of a known builtin (the maths/string functions in play this

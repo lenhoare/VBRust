@@ -995,3 +995,31 @@ The `build/` directory is generated, visible, and yours to explore. Nothing is
 hidden. You can ignore it while you are comfortable, read it when you are curious,
 run `cargo` in it yourself when you are ready, and keep it when the day comes that
 you no longer need the VB on top. That day is the whole purpose of the language.
+
+## 11. A bonus: the same program in three languages
+
+Everything above is about Rust — the language is built around it, and the Rust it
+generates is the point. But once a program is written, you can also see it in two
+other languages, which is a quiet way to learn how the ideas travel:
+
+```sh
+vbr py hello.vbr     # → idiomatic Python
+vbr c  hello.vbr     # → portable C
+```
+
+The **Python** output reads like Python you'd write by hand — `Type` becomes a
+`@dataclass`, `Match` becomes `match`/`case`, an iterator chain becomes a
+comprehension, and `Option`/`Result` become small `Some`/`Ok`/`Err` wrappers. It
+covers the whole language *and* the standard library. The **C** output is the
+opposite lesson: it shows what Rust's ownership was quietly doing for you. There's
+no garbage collector and no borrow checker, so a `Vec` becomes a hand-rolled
+growable array, a data-carrying `Enum` becomes a tagged union, and when you're
+done with a heap value you say so — `greeting = Nothing` — which becomes
+`free(greeting)`. That same line is `drop(greeting)` in Rust and `greeting = None`
+in Python: one idea, three memory models, side by side.
+
+These are additions, not the main road (the graphical, terminal and web surfaces
+stay Rust-only). But writing something once and reading it in three languages is
+one of the better ways to see what "idiomatic" really means. The full surface —
+packaging, pip/inline libraries, and how the three stay in step — is in
+`targets_spec.md`.

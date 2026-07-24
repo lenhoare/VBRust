@@ -343,6 +343,26 @@ Debug.Print view                     ' greeting is still usable; view just point
 The borrow (`view`) and the clone (`copy`) make Rust's central distinction —
 **reference vs. ownership** — visible, using familiar VB syntax.
 
+### Release — `x = Nothing`
+
+`x = Nothing` releases a heap value early — VB6's object-release idiom, kept as
+the one explicit "I'm done with this" hook. It lowers idiomatically on every
+target: **Rust** `drop(x)` (what the compiler usually inserts at end of scope),
+**Python** `x = None` (the GC reclaims it), **C** `free(x); x = NULL;` (the real
+work — where it matters most, since C frees nothing for you).
+
+```
+Dim greeting As String = "Hello"
+Debug.Print greeting
+greeting = Nothing                   ' → drop(greeting);   (Rust)
+```
+
+`Nothing` is valid **only** as an assignment right-hand side on a plain variable.
+Because VBR's `Set` means *borrow* (above), **`Set x = Nothing`** is a teaching
+error pointing you to `x = Nothing`. VB6's `Is Nothing` test is not provided:
+Rust has no null (a dropped value is gone, not testable) — the idiomatic
+"maybe-absent, check it" tool is `Option`/`None` + `Match` (§8).
+
 ### Conditional
 ```
 If cond Then
@@ -607,6 +627,9 @@ End Python
   can use them by name.
 - Needs the project build; requires a Python interpreter (with dev headers)
   present. Pulled in only when a `Python` block is used.
+- On the **Python target** (§14) the block *is* Python: it splices through
+  verbatim (no pyo3 marshalling) — the mirror of how inline `Rust` splices on the
+  Rust target.
 
 ---
 
@@ -753,3 +776,31 @@ Use rand 0.8          →   [dependencies]  rand = "0.8"
   crate ecosystem.
 - Any `Use` makes the program a project build: single-file `run` refuses it and
   points to `runproject` (`rustc` alone can't link crates).
+
+`Use` is **target-aware**: on the Rust target it declares a Cargo dependency; on
+the **Python target** (§14) the same statement declares a **pip** dependency
+(`import` + a generated `requirements.txt`). An optional `As <module>` renames the
+import for packages whose install name differs from their import name:
+
+```
+Use PyYAML 6.0 As yaml    →   import yaml       +   PyYAML==6.0   (requirements.txt)
+```
+
+## 14. Alternative targets — Python & C
+
+VBR is **Rust-first**: the semantics are Rust's and the language is defined around
+Rust (§1–§13). As an additive bolt-on, the *same source* can also transpile to:
+
+- **`vbr py <file>`** — idiomatic **Python** (core language **and** the full
+  standard library, emitted as a `main.py` + `vbrpy/` project).
+- **`vbr c <file>`** — self-contained **C** (core language; single `.c` compiled
+  with any C compiler).
+
+Both consume the same parsed AST as the Rust backend via a shared typed/desugared
+front-end. They cover the **core language** (§1–§9, plus collections and
+`Option`/`Result`); the GUI/TUI/Web surfaces stay **Rust-only**. For deterministic
+programs the output is verified **byte-for-byte against `vbr run`**. Inline `Python`
+splices through verbatim on the Python target (the mirror of inline `Rust`).
+
+Full detail — packaging, external libraries, the C memory model (`x = Nothing`),
+and coverage tables — is in **`targets_spec.md`**.

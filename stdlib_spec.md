@@ -14,6 +14,12 @@ the things VB leaned on COM for — file access, JSON, dates, regex. Every
 fallible function returns `Result<T, String>`, which maps straight onto VBR's
 `As Result<T>`.
 
+> On the **Python target** (`targets_spec.md`) the same surface is provided by
+> **`vbrpy/`** — the Python analogue of this crate, implemented on Python's own
+> standard library (`sqlite3`, `urllib`, `subprocess`, …) with zero pip installs,
+> so `FileSystem`/`Regex`/`Json`/`Database`/`DateTime`/`Http`/`DataFrame`/`Shell`
+> work the same way under `vbr py`. The C target does not have the stdlib yet.
+
 ---
 
 ## 2. Calling convention — namespaced (Option A)

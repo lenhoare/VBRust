@@ -36,6 +36,12 @@ const C: &[&str] = &[
 /// so the generated C is snapshotted and merely compiled + run, not diffed.
 const C_SNAPSHOT_ONLY: &[&str] = &["hashmap"];
 
+/// Standard-library examples. `rustc` alone can't link the stdlib, so the Rust
+/// ground truth is a stored `.out` (captured from `vbr runproject`); the C is
+/// compiled, run, and diffed against it — the same discipline as the deterministic
+/// examples, just with the reference precomputed.
+const C_STDLIB: &[&str] = &["filesystem"];
+
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
 }
@@ -67,7 +73,7 @@ fn check_snapshot(name: &str, ext: &str, actual: &str) {
 
 #[test]
 fn c_output_matches_snapshots() {
-    for name in C.iter().chain(C_SNAPSHOT_ONLY) {
+    for name in C.iter().chain(C_SNAPSHOT_ONLY).chain(C_STDLIB) {
         let result = vbr::compile_c(&read_example(name));
         assert!(!result.has_errors, "{name} produced errors: {:?}", result.diagnostics);
         assert!(result.warnings.is_empty(), "{name} warned: {:?}", result.warnings);
@@ -108,6 +114,20 @@ fn c_behaviour_matches_rust() {
             rust_out, c_out,
             "{name}: C stdout differs from Rust stdout (ground truth)"
         );
+    }
+}
+
+/// Standard-library examples: compile the C, run it, and diff stdout against the
+/// stored `.out` (the `vbr runproject` ground truth). Skips without `cc`.
+#[test]
+fn c_stdlib_matches_out() {
+    if Command::new("cc").arg("--version").output().is_err() {
+        eprintln!("skipping c_stdlib_matches_out: no cc");
+        return;
+    }
+    for name in C_STDLIB {
+        let out = run_via_c(name, &read_example(name));
+        check_snapshot(name, "out", &out);
     }
 }
 

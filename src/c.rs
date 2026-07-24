@@ -50,6 +50,8 @@ pub fn emit_c(program: &Program) -> CProgram {
         need_from_double: false,
         need_from_float: false,
         need_concat: false,
+        stdlib_fns: std::collections::BTreeSet::new(),
+        needs_fs: false,
     };
     e.program(program);
     e.finish(program)
@@ -108,6 +110,10 @@ struct Emitter {
     need_from_double: bool,
     need_from_float: bool,
     need_concat: bool,
+    // Standard-library runtime functions used (`fs_read`, …) — emitted on demand.
+    stdlib_fns: std::collections::BTreeSet<&'static str>,
+    // `FileSystem` used → the file-I/O includes (`errno.h`, `sys/stat.h`).
+    needs_fs: bool,
 }
 
 impl Emitter {
@@ -203,6 +209,11 @@ impl Emitter {
     fn collection_runtimes(&mut self, program: &Program) {
         let mut c = Collected::default();
         gather_types(program, &mut c);
+        // Also from every *inferred* expression type — this is how a stdlib
+        // call's `Result<…>` return (never written as a `Dim`) gets a runtime.
+        for ty in self.types.values() {
+            visit_ty(ty, &mut c);
+        }
         for ty in &c.opts {
             self.emit_option_runtime(ty);
         }
@@ -236,7 +247,12 @@ impl Emitter {
         let n = res_name(ty);
         let et = c_type(e);
         if is_unit(t) {
-            self.decls.push_str(&format!("typedef struct {{ bool is_ok; {et} err; }} {n};\n\n"));
+            self.decls.push_str(&format!("typedef struct {{ bool is_ok; {et} err; }} {n};\n"));
+            // A unit `.Unwrap()` returns nothing — it just aborts on an `Err`.
+            self.decls.push_str(&format!(
+                "static void {n}_unwrap({n} r) {{ \
+                 if (!r.is_ok) {{ fprintf(stderr, \"unwrapped an Err\\n\"); exit(1); }} }}\n\n"
+            ));
             return;
         }
         let ot = c_type(t);
@@ -816,9 +832,15 @@ impl Emitter {
         }
     }
 
-    /// Dispatch a `recv.Method(args)` on the receiver's type: a collection op, a
-    /// struct method, or `.get(k).Unwrap()` on a map.
+    /// Dispatch a `recv.Method(args)` on the receiver's type: a stdlib namespace
+    /// call, a collection op, a struct method, or `.get(k).Unwrap()` on a map.
     fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
+        // A standard-library namespace call (`FileSystem.Read(...)`) → a runtime fn.
+        if let ExprKind::Ident(ns) = &recv.kind {
+            if let Some(call) = self.stdlib_call(ns, method, args) {
+                return call;
+            }
+        }
         let m = method.to_ascii_lowercase();
         // `.get(k).Unwrap()` on a map → deref the found value (Option is slice 5;
         // this is the one shape used so far).
@@ -1123,6 +1145,32 @@ impl Emitter {
         format!("{}_{}", ename, cvariant)
     }
 
+    /// A standard-library namespace call → its C runtime function (registered for
+    /// emission), or `None` if `ns.method` isn't a known stdlib call.
+    fn stdlib_call(&mut self, ns: &str, method: &str, args: &[Expr]) -> Option<String> {
+        let fname = match (ns.to_ascii_lowercase().as_str(), method.to_ascii_lowercase().as_str()) {
+            ("filesystem", "read") => self.use_stdlib("fs_read", true),
+            ("filesystem", "write") => self.use_stdlib("fs_write", true),
+            ("filesystem", "delete") => self.use_stdlib("fs_delete", true),
+            ("filesystem", "exists") => self.use_stdlib("fs_exists", false),
+            _ => return None,
+        };
+        let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+        Some(format!("{}({})", fname, a.join(", ")))
+    }
+
+    /// Register a stdlib runtime function for emission and return its C name.
+    fn use_stdlib(&mut self, fname: &'static str, needs_dup: bool) -> String {
+        self.stdlib_fns.insert(fname);
+        if fname.starts_with("fs_") {
+            self.needs_fs = true;
+        }
+        if needs_dup {
+            self.need_dup = true;
+        }
+        format!("vbr_{}", fname)
+    }
+
     fn call(&mut self, name: &str, args: &[Expr]) -> String {
         // `Some`/`Ok`/`Err` construct an Option/Result compound literal, using
         // the surrounding context (`type_hint`) for the target type.
@@ -1237,6 +1285,10 @@ impl Emitter {
         if self.needs_math {
             code.push_str("#include <math.h>\n");
         }
+        if self.needs_fs {
+            code.push_str("#include <errno.h>\n");
+            code.push_str("#include <sys/stat.h>\n");
+        }
         code.push('\n');
 
         // Struct `typedef`s + module constants come before the functions that
@@ -1274,6 +1326,15 @@ impl Emitter {
             code.push('\n');
         }
 
+        // Standard-library runtime functions (file I/O, …), after the string
+        // helpers they build on.
+        for f in &self.stdlib_fns {
+            code.push_str(stdlib_helper(f));
+        }
+        if !self.stdlib_fns.is_empty() {
+            code.push('\n');
+        }
+
         // Prototypes for every non-`main` function, so call order is free.
         let mut protos = String::new();
         for func in &program.functions {
@@ -1290,6 +1351,17 @@ impl Emitter {
         code.push_str(&self.out);
 
         CProgram { code, warnings: self.warnings }
+    }
+}
+
+/// The C source of a standard-library runtime function, by its registered name.
+fn stdlib_helper(name: &str) -> &'static str {
+    match name {
+        "fs_read" => RT_FS_READ,
+        "fs_write" => RT_FS_WRITE,
+        "fs_delete" => RT_FS_DELETE,
+        "fs_exists" => RT_FS_EXISTS,
+        _ => "",
     }
 }
 
@@ -1351,6 +1423,49 @@ static char* vbr_concat(const char* a, const char* b) {
     strcpy(s, a);
     strcat(s, b);
     return s;
+}
+";
+
+// ---- standard library: FileSystem (file I/O over stdio + POSIX) ----
+// Each fallible call returns the same `Result<_, String>` the Rust stdlib does;
+// the error text is the C library's `strerror(errno)`.
+
+const RT_FS_READ: &str = "\
+static Result_str_str vbr_fs_read(char* path) {
+    FILE* f = fopen(path, \"rb\");
+    if (!f) return (Result_str_str){ .is_ok = false, .err = vbr_dup(strerror(errno)) };
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* buf = (char*)malloc((size_t)n + 1);
+    size_t got = fread(buf, 1, (size_t)n, f);
+    buf[got] = '\\0';
+    fclose(f);
+    return (Result_str_str){ .is_ok = true, .ok = buf };
+}
+";
+
+const RT_FS_WRITE: &str = "\
+static Result_unit_str vbr_fs_write(char* path, char* contents) {
+    FILE* f = fopen(path, \"wb\");
+    if (!f) return (Result_unit_str){ .is_ok = false, .err = vbr_dup(strerror(errno)) };
+    fwrite(contents, 1, strlen(contents), f);
+    fclose(f);
+    return (Result_unit_str){ .is_ok = true };
+}
+";
+
+const RT_FS_DELETE: &str = "\
+static Result_unit_str vbr_fs_delete(char* path) {
+    if (remove(path) != 0) return (Result_unit_str){ .is_ok = false, .err = vbr_dup(strerror(errno)) };
+    return (Result_unit_str){ .is_ok = true };
+}
+";
+
+const RT_FS_EXISTS: &str = "\
+static bool vbr_fs_exists(char* path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 ";
 
