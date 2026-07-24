@@ -26,6 +26,8 @@ const PY: &[&str] = &[
     "types", "structs", "methods", "constants",
     // slice 3
     "match", "match_guards", "enums", "sum_types",
+    // slice 4 — collections + the method table
+    "vec", "list_literal", "iterators", "enum_payloads", "field_inference",
 ];
 
 fn examples_dir() -> PathBuf {

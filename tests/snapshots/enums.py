@@ -20,20 +20,20 @@ def color(s: Suit) -> str:
     _m0 = s
     match _m0:
         case Suit.Hearts:
-            return "red"
+            return 'red'
         case Suit.Diamonds:
-            return "red"
+            return 'red'
         case Suit.Clubs:
-            return "black"
+            return 'black'
         case Suit.Spades:
-            return "black"
+            return 'black'
 
 def main():
     s: Suit = Suit.Spades
     print(f"Spades are {_vb(color(s))}")
     print(f"Hearts are {_vb(color(Suit.Hearts))}")
     if s == Suit.Spades:
-        print("yes, spades")
+        print('yes, spades')
 
 
 if __name__ == "__main__":

@@ -16,11 +16,11 @@ def main():
     print(f"Sum 1..{_vb(count)} = {_vb(total)}")
     print(f"ratio is {_vb(ratio)}")
     if total > 5:
-        print("big")
+        print('big')
     elif total == 5:
-        print("exactly five")
+        print('exactly five')
     else:
-        print("small")
+        print('small')
 
 
 if __name__ == "__main__":

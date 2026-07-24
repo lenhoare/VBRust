@@ -12,13 +12,13 @@ def describe(n: int) -> str:
     _m0 = n
     match _m0:
         case 0:
-            return "zero"
+            return 'zero'
         case x if x < 0:
-            return "negative"
+            return 'negative'
         case x if x > 100:
-            return "huge"
+            return 'huge'
         case _:
-            return "ordinary"
+            return 'ordinary'
 
 def main():
     print(f"-3 is {_vb(describe(-3))}")

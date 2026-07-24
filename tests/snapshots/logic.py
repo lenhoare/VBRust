@@ -12,15 +12,15 @@ def main():
     age: int = 30
     member: bool = True
     if (age >= 18) and member:
-        print("admitted")
+        print('admitted')
     if (age < 13) or (age > 65):
-        print("discounted")
+        print('discounted')
     else:
-        print("full price")
+        print('full price')
     if not (member):
-        print("please join")
+        print('please join')
     else:
-        print("welcome back")
+        print('welcome back')
     # Xor: true when exactly one side is true.
     heads: bool = True
     tails: bool = False

@@ -15,7 +15,7 @@ class Person:
     age: int
 
 def main():
-    alice: Person = Person(name="Alice", age=30)
+    alice: Person = Person(name='Alice', age=30)
     print(f"{_vb(alice.name)} is {_vb(alice.age)}")
     alice.age = alice.age + 1
     print(f"after a birthday, {_vb(alice.name)} is {_vb(alice.age)}")

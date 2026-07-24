@@ -52,6 +52,9 @@ struct Emitter {
     // Per-`Match` counter, so the scrutinee temp (`_m0`) is unique and matches
     // can nest.
     match_counter: usize,
+    // A light, function-local type map (reset per function): enough to pick `//`
+    // vs `/` for division, and to tell a dict `.insert` from a list `.insert`.
+    var_types: std::collections::HashMap<String, DeclType>,
     // Prelude features, switched on as the body needs them.
     needs_vb: bool,
     needs_round: bool,
@@ -185,6 +188,7 @@ impl Emitter {
     /// the Rust backend).
     fn function(&mut self, func: &Function, indent: usize, is_method: bool) {
         let name = rust_name(&func.name);
+        self.var_types.clear();
         let mut params: Vec<String> = Vec::new();
         if is_method {
             params.push("self".to_string());
@@ -197,6 +201,7 @@ impl Emitter {
                     p.name
                 ));
             }
+            self.var_types.insert(rust_name(&p.name), p.ty.clone());
             let hint = self.type_hint(&p.ty);
             params.push(format!("{}: {}", rust_name(&p.name), hint));
         }
@@ -231,6 +236,7 @@ impl Emitter {
                     None => self.default_value(ty),
                 };
                 let hint = self.type_hint(ty);
+                self.var_types.insert(rust_name(name), ty.clone());
                 self.line(indent, &format!("{}: {} = {}", rust_name(name), hint, value));
             }
             Stmt::Assign { target, value, op } => {
@@ -247,6 +253,20 @@ impl Emitter {
             }
             Stmt::Return(None) => self.line(indent, "return"),
             Stmt::Expr(e) => {
+                // A dict `.insert(k, v)` is a subscript assignment in Python
+                // (`d[k] = v`); a Vec `.insert(i, x)` keeps `list.insert(i, x)`.
+                if let ExprKind::MethodCall { recv, method, args } = &e.kind {
+                    if method.eq_ignore_ascii_case("insert")
+                        && args.len() == 2
+                        && self.recv_is_map(recv)
+                    {
+                        let base = self.expr(recv);
+                        let k = self.expr(&args[0]);
+                        let val = self.expr(&args[1]);
+                        self.line(indent, &format!("{}[{}] = {}", base, k, val));
+                        return;
+                    }
+                }
                 let v = self.expr(e);
                 self.line(indent, &v);
             }
@@ -267,6 +287,8 @@ impl Emitter {
                 }
             }
             Stmt::For { var, from, to, step, body } => {
+                // A `For` counter over an integer range is an int (used by `//`).
+                self.var_types.insert(rust_name(var), DeclType::Plain(Type::Long));
                 let header = self.for_range(var, from, to, step.as_ref());
                 self.line(indent, &header);
                 self.block_or_pass(body, indent + 1);
@@ -421,6 +443,136 @@ impl Emitter {
         self.block(stmts, indent);
     }
 
+    /// A method call → its Python form. The curated table turns Rust/VBR method
+    /// names into Python idioms (`.push`→`.append`, `.len()`→`len()`, iterator
+    /// chains → comprehensions); anything unrecognised passes straight through.
+    fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
+        let m = method.to_ascii_lowercase();
+
+        // Terminal consumers.
+        match m.as_str() {
+            "collect" => return self.comprehension(recv),
+            "sum" => return format!("sum({})", self.expr(recv)),
+            "count" | "len" => return format!("len({})", self.expr(recv)),
+            "any" => return self.quantifier(recv, args, "any"),
+            "all" => return self.quantifier(recv, args, "all"),
+            _ => {}
+        }
+
+        // `map.get(k).Unwrap()` — a get-then-unwrap is a direct subscript (which,
+        // like `.unwrap()`, raises if the key is absent). Full Option support is a
+        // later slice; this keeps the common HashMap read working now.
+        if m == "unwrap" {
+            if let ExprKind::MethodCall { recv: inner, method: im, args: iargs } = &recv.kind {
+                if im.eq_ignore_ascii_case("get") && iargs.len() == 1 {
+                    let base = self.expr(inner);
+                    let key = self.expr(&iargs[0]);
+                    return format!("{}[{}]", base, key);
+                }
+            }
+            self.warn("`.Unwrap()` needs Option/Result support (a later slice) — emitted as-is.");
+            return format!("{}.unwrap()", self.expr(recv));
+        }
+
+        // `map.contains_key(k)` → `k in map`.
+        if m == "contains_key" && args.len() == 1 {
+            let base = self.expr(recv);
+            let key = self.expr(&args[0]);
+            return format!("{} in {}", key, base);
+        }
+
+        // Straight name remaps (receiver method → Python method).
+        let mapped = match m.as_str() {
+            "push" => Some("append"),
+            "to_uppercase" => Some("upper"),
+            "to_lowercase" => Some("lower"),
+            "starts_with" => Some("startswith"),
+            "ends_with" => Some("endswith"),
+            "trim" => Some("strip"),
+            _ => None,
+        };
+        let base = self.expr(recv);
+        let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+        match mapped {
+            Some(py) => format!("{}.{}({})", base, py, a.join(", ")),
+            None => format!("{}.{}({})", base, rust_name(method), a.join(", ")),
+        }
+    }
+
+    /// A `.collect()`'d chain → a list comprehension. Handles a single
+    /// `filter`/`map` adapter (the common shape); anything else is wrapped in
+    /// `list(...)` with a warning.
+    fn comprehension(&mut self, chain: &Expr) -> String {
+        if let ExprKind::MethodCall { recv, method, args } = &chain.kind {
+            let m = method.to_ascii_lowercase();
+            if (m == "filter" || m == "map") && args.len() == 1 {
+                if let ExprKind::Closure { params, body, .. } = &args[0].kind {
+                    if params.len() == 1 {
+                        let var = rust_name(&params[0]);
+                        let src = self.expr(recv);
+                        let body_s = self.expr(body);
+                        return match m.as_str() {
+                            "filter" => format!("[{v} for {v} in {src} if {body_s}]", v = var),
+                            _ => format!("[{body_s} for {var} in {src}]"),
+                        };
+                    }
+                }
+            }
+        }
+        self.warn("iterator chain not recognised — wrapped in `list(...)`.");
+        let s = self.expr(chain);
+        format!("list({})", s)
+    }
+
+    /// `.any(|v| cond)` / `.all(…)` → a generator quantifier.
+    fn quantifier(&mut self, recv: &Expr, args: &[Expr], kind: &str) -> String {
+        if args.len() == 1 {
+            if let ExprKind::Closure { params, body, .. } = &args[0].kind {
+                if params.len() == 1 {
+                    let var = rust_name(&params[0]);
+                    let src = self.expr(recv);
+                    let cond = self.expr(body);
+                    return format!("{}({} for {} in {})", kind, cond, var, src);
+                }
+            }
+        }
+        self.warn(format!("`.{}(…)` needs a single-parameter closure — wrapped as-is.", kind));
+        format!("{}({})", kind, self.expr(recv))
+    }
+
+    /// Is `recv` known to be a `Map`/`HashMap` (so `.insert` is a subscript)?
+    fn recv_is_map(&self, recv: &Expr) -> bool {
+        matches!(
+            &recv.kind,
+            ExprKind::Ident(name) if matches!(self.var_types.get(&rust_name(name)), Some(DeclType::Map(_, _)))
+        )
+    }
+
+    /// A coarse numeric class for the `//` vs `/` division choice.
+    fn numeric(&self, e: &Expr) -> Num {
+        match &e.kind {
+            ExprKind::Int(_) => Num::Int,
+            ExprKind::Float(_) => Num::Float,
+            ExprKind::Ident(name) => match self.var_types.get(&rust_name(name)) {
+                Some(DeclType::Plain(Type::Integer | Type::Long | Type::LongLong | Type::Byte)) => {
+                    Num::Int
+                }
+                Some(DeclType::Plain(Type::Single | Type::Double)) => Num::Float,
+                _ => Num::Unknown,
+            },
+            ExprKind::Binary { op, lhs, rhs }
+                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Mod) =>
+            {
+                match (self.numeric(lhs), self.numeric(rhs)) {
+                    (Num::Float, _) | (_, Num::Float) => Num::Float,
+                    (Num::Int, Num::Int) => Num::Int,
+                    _ => Num::Unknown,
+                }
+            }
+            _ => Num::Unknown,
+        }
+    }
+
     /// `For i = a To b [Step s]` → a Python `range`. `To` is inclusive, so the
     /// stop bound is nudged by one in the step's direction.
     fn for_range(&mut self, var: &str, from: &Expr, to: &Expr, step: Option<&Expr>) -> String {
@@ -554,28 +706,47 @@ impl Emitter {
                     }
                     format!("{}({})", method, a.join(", "))
                 } else {
-                    let r = self.expr(recv);
-                    let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
-                    format!("{}.{}({})", r, rust_name(method), a.join(", "))
+                    self.method_call(recv, method, args)
                 }
+            }
+            ExprKind::List(items) => {
+                let parts: Vec<String> = items.iter().map(|i| self.expr(i)).collect();
+                format!("[{}]", parts.join(", "))
+            }
+            ExprKind::Index(recv, idx) => {
+                let r = self.expr(recv);
+                let i = self.expr(idx);
+                format!("{}[{}]", r, i)
             }
             ExprKind::Not(inner) => {
                 let i = self.expr(inner);
                 format!("not ({})", i)
             }
             ExprKind::Binary { op: BinOp::Concat, .. } => self.concat_fstring(e),
+            ExprKind::Binary { op: BinOp::Div, lhs, rhs } => {
+                // Rust's `/` truncates for integer operands but divides for floats;
+                // Python's `/` is always float, so integer operands need `//`. When
+                // the operand types can't be proven, keep `/` and warn.
+                let l = self.operand(lhs);
+                let r = self.operand(rhs);
+                match (self.numeric(lhs), self.numeric(rhs)) {
+                    (Num::Int, Num::Int) => format!("{} // {}", l, r),
+                    (Num::Float, _) | (_, Num::Float) => format!("{} / {}", l, r),
+                    _ => {
+                        self.warn(
+                            "`/` on values of unknown type — kept as Python float division; \
+                             if these are integers you may want `//`.",
+                        );
+                        format!("{} / {}", l, r)
+                    }
+                }
+            }
             ExprKind::Binary { op, lhs, rhs } => {
                 let l = self.operand(lhs);
                 let r = self.operand(rhs);
                 if *op == BinOp::Pow {
                     format!("{} ** {}", l, r)
                 } else {
-                    if *op == BinOp::Div {
-                        self.warn(
-                            "`/` on integers truncates in Rust but is float division in Python — \
-                             check whether you meant integer division (`//`).",
-                        );
-                    }
                     format!("{} {} {}", l, self.bin_op(*op), r)
                 }
             }
@@ -736,18 +907,39 @@ def _vb_round(x):
     return _math.floor(x + 0.5) if x >= 0 else _math.ceil(x - 0.5)
 ";
 
-/// A Python double-quoted string literal.
+/// A coarse numeric class used only to choose integer (`//`) vs float (`/`)
+/// division — the one place Python and Rust arithmetic diverge on operand type.
+#[derive(Clone, Copy, PartialEq)]
+enum Num {
+    Int,
+    Float,
+    Unknown,
+}
+
+/// A Python string literal. **Single-quoted on purpose**: f-strings are
+/// double-quoted, so a string literal interpolated inside one (`f"{d['k']}"`)
+/// never clashes quotes — which keeps the output valid on Python < 3.12 too
+/// (nested same-quotes in an f-string are only legal from 3.12).
 fn py_str(s: &str) -> String {
-    format!("\"{}\"", py_escape(s))
+    format!("'{}'", py_escape_sq(s))
 }
 
-/// The literal-text portion of an f-string: the usual escapes, plus `{`/`}`
-/// doubled so they aren't read as interpolations.
+/// The literal-text portion of a (double-quoted) f-string: the usual escapes,
+/// plus `{`/`}` doubled so they aren't read as interpolations.
 fn fstring_text(s: &str) -> String {
-    py_escape(s).replace('{', "{{").replace('}', "}}")
+    py_escape_dq(s).replace('{', "{{").replace('}', "}}")
 }
 
-fn py_escape(s: &str) -> String {
+/// Escape for a single-quoted literal.
+fn py_escape_sq(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+}
+
+/// Escape for a double-quoted context (f-string text).
+fn py_escape_dq(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")

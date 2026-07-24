@@ -8,7 +8,7 @@ def _vb(x):
     return str(x)
 
 MAX_RETRIES: int = 3
-GREETING: str = "Hello"
+GREETING: str = 'Hello'
 VERSION: float = 1.5
 
 def main():

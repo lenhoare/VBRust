@@ -21,7 +21,7 @@ class Person:
         self.age = self.age + 1
 
 def main():
-    alice: Person = Person(name="Alice", age=30)
+    alice: Person = Person(name='Alice', age=30)
     print(_vb(alice.greet()))
     alice.havebirthday()
     print(_vb(alice.greet()))
