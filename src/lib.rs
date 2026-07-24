@@ -10,6 +10,7 @@ pub mod diagnostics;
 pub mod gui;
 pub mod lexer;
 pub mod parser;
+pub mod pattern;
 pub mod python;
 pub mod resolver;
 pub mod span;

@@ -11,9 +11,10 @@
 //! will fold into this once the shared IR is lifted out; for now this is the
 //! neutral seed, kept small and honest (slice-1 forms only).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
+use crate::pattern::{self, Pat};
 use crate::span::Span;
 use crate::transpiler::convert_returns;
 
@@ -44,6 +45,16 @@ pub fn type_program(program: &Program) -> TypeTable {
             Some(((recv.to_ascii_lowercase(), f.name.to_ascii_lowercase()), ret))
         })
         .collect();
+    let enums: HashSet<String> = program.enums.iter().map(|e| e.name.to_ascii_lowercase()).collect();
+    let variant_payloads = program
+        .enums
+        .iter()
+        .flat_map(|e| {
+            e.variants.iter().map(move |v| {
+                ((e.name.to_ascii_lowercase(), v.name.to_ascii_lowercase()), v.payload.clone())
+            })
+        })
+        .collect();
     let mut typer = Typer {
         fns: program
             .functions
@@ -58,6 +69,8 @@ pub fn type_program(program: &Program) -> TypeTable {
             .collect(),
         structs,
         methods,
+        enums,
+        variant_payloads,
         env: HashMap::new(),
         table: HashMap::new(),
     };
@@ -76,6 +89,12 @@ struct Typer {
     structs: HashMap<String, HashMap<String, DeclType>>,
     /// Method return types: (struct, method) → type, for a `recv.M()` call.
     methods: HashMap<(String, String), DeclType>,
+    /// Enum type names (lowercased) — an `Enum.Variant` reference/construction is
+    /// the enum's own type.
+    enums: HashSet<String>,
+    /// Variant payload types: (enum, variant) → field types, for binding a
+    /// destructuring pattern's names.
+    variant_payloads: HashMap<(String, String), Vec<DeclType>>,
     /// The current function's variables (params, `Dim`s, `For` counters).
     env: HashMap<String, DeclType>,
     table: TypeTable,
@@ -150,8 +169,41 @@ impl Typer {
                 }
                 self.block(body);
             }
+            Stmt::Match { scrutinee, arms, .. } => {
+                let scrut_ty = self.infer(scrutinee);
+                for arm in arms {
+                    // Pattern bindings are scoped to the arm — snapshot + restore.
+                    let saved = self.env.clone();
+                    self.bind_pattern(&pattern::parse(&arm.pattern), &scrut_ty);
+                    if let Some(g) = &arm.guard {
+                        self.infer(g);
+                    }
+                    self.block(&arm.body);
+                    self.env = saved;
+                }
+            }
             // `Destroy`/`Break`/`Continue`/`Comment`/`LineMark` carry no slice-1
             // expression to type; other statement kinds arrive in later slices.
+            _ => {}
+        }
+    }
+
+    /// Add a pattern's bindings to the environment: a bare `x` takes the
+    /// scrutinee's type; a data-variant's names take their payload field types.
+    fn bind_pattern(&mut self, pat: &Pat, scrut_ty: &DeclType) {
+        match pat {
+            Pat::Binding(x) => {
+                self.env.insert(x.to_ascii_lowercase(), scrut_ty.clone());
+            }
+            Pat::Variant { enom, variant, binds } => {
+                if let Some(payloads) =
+                    self.variant_payloads.get(&(enom.to_ascii_lowercase(), variant.to_ascii_lowercase()))
+                {
+                    for (b, t) in binds.iter().zip(payloads.clone()) {
+                        self.env.insert(b.to_ascii_lowercase(), t);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -217,6 +269,17 @@ impl Typer {
                 }
                 DeclType::Named(name.clone())
             }
+            // `Enum.Variant` — a C-like value or a unit data variant; either way
+            // the enum's own type.
+            ExprKind::Field(recv, _)
+                if matches!(&recv.kind, ExprKind::Ident(n) if self.enums.contains(&n.to_ascii_lowercase())) =>
+            {
+                if let ExprKind::Ident(n) = &recv.kind {
+                    DeclType::Named(n.clone())
+                } else {
+                    unreachable!()
+                }
+            }
             // `recv.field` — look the field up in the receiver's struct.
             ExprKind::Field(recv, fname) => {
                 let recv_ty = self.infer(recv);
@@ -228,6 +291,18 @@ impl Typer {
                         .unwrap_or(DeclType::Plain(Type::Long))
                 } else {
                     DeclType::Plain(Type::Long)
+                }
+            }
+            // `Enum.Variant(args)` — constructing a data variant yields the enum.
+            ExprKind::MethodCall { recv, args, .. }
+                if matches!(&recv.kind, ExprKind::Ident(n) if self.enums.contains(&n.to_ascii_lowercase())) =>
+            {
+                for a in args {
+                    self.infer(a);
+                }
+                match &recv.kind {
+                    ExprKind::Ident(n) => DeclType::Named(n.clone()),
+                    _ => unreachable!(),
                 }
             }
             // `recv.Method(args)` — the method's declared return type.

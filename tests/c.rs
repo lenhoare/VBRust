@@ -15,11 +15,14 @@ use std::process::Command;
 
 /// Slice 1: pure computation + strings + `= Nothing`.
 /// Slice 2: `Type`/struct, methods (`Me`→`self->`), module `Const`.
+/// Slice 3: `Match`/`Enum` — C `enum` + tagged unions + if-chain lowering.
 const C: &[&str] = &[
     // slice 1
     "hello", "functions", "logic", "maths", "doloop", "memory",
     // slice 2
     "types", "structs", "methods", "constants",
+    // slice 3
+    "match", "match_guards", "enums", "sum_types",
 ];
 
 fn examples_dir() -> PathBuf {

@@ -14,7 +14,10 @@
 //! top (the C analogue of the Python prelude / `vbr_stdlib`); it's split into a
 //! real `vbr_runtime.{h,c}` in a later slice, once it grows.
 
+use std::collections::HashMap;
+
 use crate::ast::*;
+use crate::pattern::{self, Pat};
 use crate::transpiler::convert_returns;
 use crate::types::{type_program, TypeTable};
 
@@ -30,7 +33,10 @@ pub fn emit_c(program: &Program) -> CProgram {
         types: type_program(program),
         out: String::new(),
         decls: String::new(),
-        const_names: std::collections::HashMap::new(),
+        const_names: HashMap::new(),
+        enums: HashMap::new(),
+        aliases: HashMap::new(),
+        match_counter: 0,
         indent: 0,
         warnings: Vec::new(),
         needs_math: false,
@@ -45,14 +51,32 @@ pub fn emit_c(program: &Program) -> CProgram {
     e.finish(program)
 }
 
+/// What the C backend needs to know about an enum: its C name, whether any
+/// variant carries data (a tagged union vs a plain C `enum`), and each variant's
+/// payload types.
+struct EnumInfo {
+    name: String,
+    is_data: bool,
+    variants: Vec<(String, Vec<DeclType>)>,
+}
+
 struct Emitter {
     types: TypeTable,
     out: String,
-    /// Struct `typedef`s + module constants, emitted before the functions.
+    /// Enum + struct `typedef`s + module constants, emitted before the functions.
     decls: String,
     /// Module constants keep their exact casing (`MAX_RETRIES`) — lowercased
     /// name → original spelling, so a reference isn't snake-cased like a local.
-    const_names: std::collections::HashMap<String, String>,
+    const_names: HashMap<String, String>,
+    /// Enum metadata by lowercased name.
+    enums: HashMap<String, EnumInfo>,
+    /// Active pattern bindings inside a `Match` arm: a bound name → the C
+    /// expression it stands for (`x`→`_m0`), so guards/bodies can reference it
+    /// without a separate declaration (needed since a C `if` condition can't
+    /// introduce one).
+    aliases: HashMap<String, String>,
+    /// Per-`Match` counter, so scrutinee temps (`_m0`) are unique and nest.
+    match_counter: usize,
     indent: usize,
     warnings: Vec<String>,
     // Runtime helpers switched on as the body needs them.
@@ -88,6 +112,13 @@ impl Emitter {
         for c in &program.constants {
             self.const_names.insert(c.name.to_ascii_lowercase(), c.name.clone());
         }
+        for e in &program.enums {
+            let is_data = e.variants.iter().any(|v| !v.payload.is_empty());
+            let variants = e.variants.iter().map(|v| (v.name.clone(), v.payload.clone())).collect();
+            self.enums
+                .insert(e.name.to_ascii_lowercase(), EnumInfo { name: e.name.clone(), is_data, variants });
+        }
+        self.enum_typedefs(program);
         self.struct_typedefs(program);
         self.constants(program);
         for (i, func) in program.functions.iter().enumerate() {
@@ -95,6 +126,40 @@ impl Emitter {
                 self.out.push('\n');
             }
             self.function(func);
+        }
+    }
+
+    /// `Enum … End Enum` → a plain C `enum` (all variants payload-free) or a
+    /// **tagged union** (a `tag` enum + a `union` of per-variant payload structs).
+    fn enum_typedefs(&mut self, program: &Program) {
+        for e in &program.enums {
+            let name = &e.name;
+            let is_data = e.variants.iter().any(|v| !v.payload.is_empty());
+            let tags: Vec<String> = e.variants.iter().map(|v| format!("{}_{}", name, v.name)).collect();
+            if !is_data {
+                // A C-like enum: `typedef enum { Suit_Hearts, … } Suit;`
+                self.decls.push_str(&format!("typedef enum {{ {} }} {};\n\n", tags.join(", "), name));
+                continue;
+            }
+            // A sum type: a tag enum, then a struct wrapping tag + payload union.
+            self.decls.push_str(&format!("typedef enum {{ {} }} {}Tag;\n", tags.join(", "), name));
+            self.decls.push_str("typedef struct {\n");
+            self.decls.push_str(&format!("    {}Tag tag;\n", name));
+            self.decls.push_str("    union {\n");
+            for v in &e.variants {
+                if v.payload.is_empty() {
+                    continue;
+                }
+                let fields: Vec<String> = v
+                    .payload
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| format!("{} f{};", c_type(t), i))
+                    .collect();
+                self.decls.push_str(&format!("        struct {{ {} }} {};\n", fields.join(" "), v.name));
+            }
+            self.decls.push_str("    } data;\n");
+            self.decls.push_str(&format!("}} {};\n\n", name));
         }
     }
 
@@ -212,6 +277,7 @@ impl Emitter {
             Stmt::If { branches, else_body } => self.if_stmt(branches, else_body.as_deref()),
             Stmt::For { var, from, to, step, body } => self.for_stmt(var, from, to, step.as_ref(), body),
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body),
+            Stmt::Match { scrutinee, arms, .. } => self.match_stmt(scrutinee, arms),
             Stmt::Break => self.line("break;"),
             Stmt::Continue => self.line("continue;"),
             other => {
@@ -355,6 +421,10 @@ impl Emitter {
             ExprKind::Float(f) => c_float(*f),
             ExprKind::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             ExprKind::Str(s) => c_string(s),
+            // A `Match`-arm binding stands for a C expression (`x`→`_m0`).
+            ExprKind::Ident(name) if self.aliases.contains_key(&name.to_ascii_lowercase()) => {
+                self.aliases[&name.to_ascii_lowercase()].clone()
+            }
             ExprKind::Ident(name) if name.eq_ignore_ascii_case("Me") => "(*self)".to_string(),
             // A constant keeps its exact casing (`MAX_RETRIES`); a plain variable
             // lowercases like any C identifier.
@@ -368,6 +438,13 @@ impl Emitter {
                 .get(&name.to_ascii_lowercase())
                 .cloned()
                 .unwrap_or_else(|| name.clone()),
+            // `Enum.Variant` — a C-like enum value (`Suit_Hearts`) or a unit data
+            // variant (constructs `(Shape){ .tag = Shape_Empty }`).
+            ExprKind::Field(recv, variant)
+                if matches!(&recv.kind, ExprKind::Ident(n) if self.is_enum(n)) =>
+            {
+                self.enum_value(recv, variant)
+            }
             // `Me.field` → `self->field`; any other `recv.field` → `recv.field`.
             ExprKind::Field(recv, field) => {
                 if matches!(&recv.kind, ExprKind::Ident(n) if n.eq_ignore_ascii_case("Me")) {
@@ -387,6 +464,12 @@ impl Emitter {
                     })
                     .collect();
                 format!("({}){{ {} }}", name, parts.join(", "))
+            }
+            // `Enum.Variant(args)` — construct a data variant (tagged union).
+            ExprKind::MethodCall { recv, method, args }
+                if matches!(&recv.kind, ExprKind::Ident(n) if self.is_enum(n)) =>
+            {
+                self.enum_construct(recv, method, args)
             }
             // `recv.Method(args)` → `Struct_method(&recv, args)` — the receiver
             // goes in first, by pointer (already a pointer when it's `Me`).
@@ -451,6 +534,165 @@ impl Emitter {
             rendered.push(self.expr(a));
         }
         format!("{}_{}({})", struct_name, c_name(method), rendered.join(", "))
+    }
+
+    fn is_enum(&self, name: &str) -> bool {
+        self.enums.contains_key(&name.to_ascii_lowercase())
+    }
+
+    /// The canonical `Enum_Variant` tag constant + the variant's payload types.
+    fn variant_canon(&self, enum_key: &str, variant: &str) -> (String, String, Vec<DeclType>) {
+        if let Some(info) = self.enums.get(enum_key) {
+            if let Some((v, pl)) = info.variants.iter().find(|(v, _)| v.eq_ignore_ascii_case(variant)) {
+                return (info.name.clone(), v.clone(), pl.clone());
+            }
+            return (info.name.clone(), variant.to_string(), Vec::new());
+        }
+        (enum_key.to_string(), variant.to_string(), Vec::new())
+    }
+
+    /// `Enum.Variant` in value position: a C-like enum constant, or a unit data
+    /// variant constructed as a tagged union.
+    fn enum_value(&mut self, recv: &Expr, variant: &str) -> String {
+        let key = match &recv.kind {
+            ExprKind::Ident(n) => n.to_ascii_lowercase(),
+            _ => unreachable!(),
+        };
+        let is_data = self.enums.get(&key).map(|e| e.is_data).unwrap_or(false);
+        let (ename, cvariant, _) = self.variant_canon(&key, variant);
+        if is_data {
+            format!("({}){{ .tag = {}_{} }}", ename, ename, cvariant)
+        } else {
+            format!("{}_{}", ename, cvariant)
+        }
+    }
+
+    /// `Enum.Variant(args)` → a tagged-union compound literal.
+    fn enum_construct(&mut self, recv: &Expr, variant: &str, args: &[Expr]) -> String {
+        let key = match &recv.kind {
+            ExprKind::Ident(n) => n.to_ascii_lowercase(),
+            _ => unreachable!(),
+        };
+        let (ename, cvariant, _) = self.variant_canon(&key, variant);
+        let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+        if a.is_empty() {
+            format!("({}){{ .tag = {}_{} }}", ename, ename, cvariant)
+        } else {
+            format!(
+                "({}){{ .tag = {}_{}, .data.{} = {{ {} }} }}",
+                ename,
+                ename,
+                cvariant,
+                cvariant,
+                a.join(", ")
+            )
+        }
+    }
+
+    /// `Match <scrutinee> … End Match` → a scrutinee temp + an if/else-if chain.
+    /// (C `switch` can't do ranges/guards/bindings, so one uniform lowering.)
+    fn match_stmt(&mut self, scrutinee: &Expr, arms: &[MatchArm]) {
+        let temp = format!("_m{}", self.match_counter);
+        self.match_counter += 1;
+        let sty = self.type_of(scrutinee);
+        let cty = c_type(&sty);
+        let sval = self.expr(scrutinee);
+        self.line(&format!("{} {} = {};", cty, temp, sval));
+
+        let scrut_key = match &sty {
+            DeclType::Named(n) => Some(n.to_ascii_lowercase()),
+            _ => None,
+        };
+        let is_data = scrut_key.as_ref().and_then(|k| self.enums.get(k)).map(|e| e.is_data).unwrap_or(false);
+
+        let last = arms.len().saturating_sub(1);
+        // Does an earlier guardless arm already catch everything?
+        let has_catch_all = arms.iter().any(|a| {
+            a.guard.is_none() && matches!(pattern::parse(&a.pattern), Pat::Wildcard | Pat::Binding(_))
+        });
+
+        for (i, arm) in arms.iter().enumerate() {
+            let pat = pattern::parse(&arm.pattern);
+            // Bind a bare `x` to the scrutinee temp for the guard/body.
+            let mut added: Vec<String> = Vec::new();
+            if let Pat::Binding(x) = &pat {
+                self.aliases.insert(x.to_ascii_lowercase(), temp.clone());
+                added.push(x.to_ascii_lowercase());
+            }
+
+            // The unconditional `else`: a wildcard/bare binding, or the last
+            // guardless arm of an exhaustive match (so C sees the chain as total).
+            let is_closer = arm.guard.is_none()
+                && (matches!(pat, Pat::Wildcard | Pat::Binding(_)) || (i == last && !has_catch_all));
+
+            let cond = if matches!(pat, Pat::Wildcard | Pat::Binding(_)) || is_closer {
+                None
+            } else {
+                Some(self.condition(&pat, &temp, is_data))
+            };
+            let guard = arm.guard.as_ref().map(|g| self.expr(g));
+            let effective = match (cond, guard) {
+                (Some(c), Some(g)) => Some(format!("{} && {}", c, g)),
+                (Some(c), None) => Some(c),
+                (None, Some(g)) => Some(g),
+                (None, None) => None,
+            };
+            let header = match (i, &effective) {
+                (0, Some(c)) => format!("if ({}) {{", c),
+                (0, None) => "if (1) {".to_string(),
+                (_, Some(c)) => format!("}} else if ({}) {{", c),
+                (_, None) => "} else {".to_string(),
+            };
+            self.line(&header);
+            self.indent += 1;
+            // A data variant's payload fields become locals in the arm block.
+            if let Pat::Variant { variant, binds, .. } = &pat {
+                if let Some(key) = &scrut_key {
+                    let (_, cvariant, payloads) = self.variant_canon(key, variant);
+                    for (idx, b) in binds.iter().enumerate() {
+                        let pty = payloads.get(idx).map(c_type).unwrap_or_else(|| "long long".to_string());
+                        self.line(&format!("{} {} = {}.data.{}.f{};", pty, c_name(b), temp, cvariant, idx));
+                    }
+                }
+            }
+            self.block(&arm.body);
+            self.indent -= 1;
+            for a in added {
+                self.aliases.remove(&a);
+            }
+        }
+        self.line("}");
+    }
+
+    /// The C boolean condition testing whether `temp` matches `pat`.
+    fn condition(&self, pat: &Pat, temp: &str, is_data: bool) -> String {
+        match pat {
+            Pat::Int(n) => format!("{} == {}", temp, n),
+            Pat::Range(a, b) => format!("{} >= {} && {} <= {}", temp, a, temp, b),
+            Pat::Alt(subs) => {
+                let parts: Vec<String> =
+                    subs.iter().map(|p| format!("({})", self.condition(p, temp, is_data))).collect();
+                format!("({})", parts.join(" || "))
+            }
+            Pat::EnumTag { enom, variant } => {
+                let tag = self.tag_const(enom, variant);
+                if is_data {
+                    format!("{}.tag == {}", temp, tag)
+                } else {
+                    format!("{} == {}", temp, tag)
+                }
+            }
+            Pat::Variant { enom, variant, .. } => {
+                format!("{}.tag == {}", temp, self.tag_const(enom, variant))
+            }
+            Pat::Wildcard | Pat::Binding(_) => "1".to_string(),
+            Pat::Other(s) => format!("0 /* unsupported pattern: {} */", s),
+        }
+    }
+
+    fn tag_const(&self, enom: &str, variant: &str) -> String {
+        let (ename, cvariant, _) = self.variant_canon(&enom.to_ascii_lowercase(), variant);
+        format!("{}_{}", ename, cvariant)
     }
 
     fn call(&mut self, name: &str, args: &[Expr]) -> String {
