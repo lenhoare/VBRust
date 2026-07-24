@@ -28,7 +28,21 @@ pub struct PyProgram {
     /// so the user knows what was stubbed (the "we expect you to know that" made
     /// explicit).
     pub warnings: Vec<String>,
+    /// Standard-library namespaces used (`FileSystem`, `Regex`, `Json`). When
+    /// non-empty the program is a *project*: `main.py` imports the `vbrpy`
+    /// package (the Python parallel of a `vbr runproject` build).
+    pub stdlib_used: Vec<String>,
 }
+
+/// Standard-library namespaces/value-types the Python target supports so far
+/// (mirrors the `vbrpy` package). Used as a call receiver (`FileSystem.Read`) or
+/// a declared type (`As Json`).
+const STDLIB_SUPPORTED: &[&str] = &["FileSystem", "Regex", "Json"];
+
+/// Namespaces that exist in `vbr_stdlib` but aren't lowered to Python yet — so a
+/// use gets a clear "later slice" warning rather than silently wrong output.
+const STDLIB_PENDING: &[&str] =
+    &["DateTime", "Http", "Database", "DataFrame", "Shell"];
 
 /// Emit Python for a whole parsed program.
 pub fn emit_python(program: &Program) -> PyProgram {
@@ -60,6 +74,9 @@ struct Emitter {
     current_ret: Option<DeclType>,
     // Temp counter for `?` hoisting (`_t0`).
     tmp_counter: usize,
+    // Standard-library namespaces/types referenced (`FileSystem`, `Json`, …) —
+    // these turn the output into a project that imports the `vbrpy` package.
+    stdlib_used: std::collections::BTreeSet<String>,
     // Prelude features, switched on as the body needs them.
     needs_vb: bool,
     needs_round: bool,
@@ -494,6 +511,23 @@ impl Emitter {
     /// chains → comprehensions); anything unrecognised passes straight through.
     fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
         let m = method.to_ascii_lowercase();
+
+        // A standard-library static call (`FileSystem.Read(...)`, `Json.Parse(...)`)
+        // → the matching `vbrpy` class method; the namespace is recorded so the
+        // import (and project mode) is emitted.
+        if let ExprKind::Ident(ns) = &recv.kind {
+            if STDLIB_SUPPORTED.contains(&ns.as_str()) {
+                self.stdlib_used.insert(ns.clone());
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                return format!("{}.{}({})", ns, m, a.join(", "));
+            }
+            if STDLIB_PENDING.contains(&ns.as_str()) {
+                self.warn(format!(
+                    "the `{}` standard-library namespace isn't lowered to Python yet — coming in a later slice.",
+                    ns
+                ));
+            }
+        }
 
         // Terminal consumers.
         match m.as_str() {
@@ -985,7 +1019,13 @@ impl Emitter {
             // wrappers, not a bare union — so `object` is the honest annotation.
             DeclType::Option(_) => "object".into(),
             DeclType::Result(_, _) => "object".into(),
-            DeclType::Named(n) => n.clone(),
+            DeclType::Named(n) => {
+                // A stdlib value type (`As Json`) needs the `vbrpy` import too.
+                if STDLIB_SUPPORTED.contains(&n.as_str()) {
+                    self.stdlib_used.insert(n.clone());
+                }
+                n.clone()
+            }
             other => {
                 self.warn(format!("type `{}` has no Python hint yet.", other.vb()));
                 "object".into()
@@ -1013,40 +1053,74 @@ impl Emitter {
         if !program.leading_comments.is_empty() {
             code.push('\n');
         }
-        // Option/Result wrappers are dataclasses too.
-        let needs_dataclass = self.needs_dataclass || self.needs_option || self.needs_result;
+        let project = !self.stdlib_used.is_empty();
+
         if self.needs_math {
             code.push_str("import math\n");
         }
+        // In a project the `Some`/`Ok`/`Err` wrappers come from `vbrpy`, so only
+        // user `Type`/`Enum` need the dataclass import here; single-file inlines
+        // the wrappers, so they need it too.
+        let needs_dataclass =
+            self.needs_dataclass || (!project && (self.needs_option || self.needs_result));
         if needs_dataclass {
             code.push_str("from dataclasses import dataclass\n");
         }
         if self.needs_enum {
             code.push_str("from enum import Enum\n");
         }
-        if self.needs_math || needs_dataclass || self.needs_enum {
+
+        if project {
+            // A stdlib program imports the shared prelude + namespaces from the
+            // bundled `vbrpy` package — one definition of every class, so their
+            // `isinstance` checks line up across `main.py` and `vbrpy`.
+            let mut names: Vec<&str> = Vec::new();
+            if self.needs_option {
+                names.push("Some");
+            }
+            if self.needs_result {
+                names.push("Ok");
+                names.push("Err");
+            }
+            if self.needs_vb {
+                names.push("_vb");
+            }
+            if self.needs_unwrap {
+                names.push("_unwrap");
+            }
+            if self.needs_round {
+                names.push("_vb_round");
+            }
+            for ns in &self.stdlib_used {
+                names.push(ns);
+            }
+            code.push_str(&format!("from vbrpy import {}\n", names.join(", ")));
             code.push('\n');
-        }
-        // The Option/Result wrappers (`None` is Python's own).
-        if self.needs_option {
-            code.push_str(OPTION_CLASS);
-            code.push('\n');
-        }
-        if self.needs_result {
-            code.push_str(RESULT_CLASSES);
-            code.push('\n');
-        }
-        if self.needs_vb {
-            code.push_str(VB_DISPLAY_HELPER);
-            code.push('\n');
-        }
-        if self.needs_round {
-            code.push_str(VB_ROUND_HELPER);
-            code.push('\n');
-        }
-        if self.needs_unwrap {
-            code.push_str(UNWRAP_HELPER);
-            code.push('\n');
+        } else {
+            if self.needs_math || needs_dataclass || self.needs_enum {
+                code.push('\n');
+            }
+            // Single-file: inline the wrappers/helpers (`None` is Python's own).
+            if self.needs_option {
+                code.push_str(OPTION_CLASS);
+                code.push('\n');
+            }
+            if self.needs_result {
+                code.push_str(RESULT_CLASSES);
+                code.push('\n');
+            }
+            if self.needs_vb {
+                code.push_str(VB_DISPLAY_HELPER);
+                code.push('\n');
+            }
+            if self.needs_round {
+                code.push_str(VB_ROUND_HELPER);
+                code.push('\n');
+            }
+            if self.needs_unwrap {
+                code.push_str(UNWRAP_HELPER);
+                code.push('\n');
+            }
         }
         code.push_str(&self.body);
 
@@ -1055,7 +1129,11 @@ impl Emitter {
             code.push_str("\n\nif __name__ == \"__main__\":\n    main()\n");
         }
 
-        PyProgram { code, warnings: self.warnings }
+        PyProgram {
+            code,
+            warnings: self.warnings,
+            stdlib_used: self.stdlib_used.into_iter().collect(),
+        }
     }
 }
 

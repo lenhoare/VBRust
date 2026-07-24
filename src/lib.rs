@@ -238,6 +238,9 @@ pub struct PyCompiled {
     pub has_errors: bool,
     /// Constructs that couldn't cross to Python cleanly (rendered `⚠` notes).
     pub warnings: Vec<String>,
+    /// Standard-library namespaces used — non-empty means the output is a
+    /// *project* that imports the bundled `vbrpy` package.
+    pub stdlib_used: Vec<String>,
 }
 
 /// Transpile `source` to Python. Parse errors are reported through
@@ -253,6 +256,7 @@ pub fn compile_python(source: &str) -> PyCompiled {
             diagnostics: diags.items().iter().map(|d| d.render()).collect(),
             has_errors: true,
             warnings: Vec::new(),
+            stdlib_used: Vec::new(),
         };
     }
     let out = python::emit_python(&program);
@@ -261,5 +265,16 @@ pub fn compile_python(source: &str) -> PyCompiled {
         diagnostics: diags.items().iter().map(|d| d.render()).collect(),
         has_errors: false,
         warnings: out.warnings,
+        stdlib_used: out.stdlib_used,
     }
+}
+
+/// Where the `vbrpy` package lives (the Python stdlib, bundled into projects):
+/// `$VBR_PYSTDLIB_PATH`, else the compile-time default beside the crate.
+pub fn pystdlib_path() -> std::path::PathBuf {
+    std::env::var("VBR_PYSTDLIB_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/vbrpy"))
+        })
 }

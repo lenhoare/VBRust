@@ -1,0 +1,13 @@
+' Json from the standard library — parse a document and read typed fields.
+Function Main()
+    Dim person As Json = Json.Parse("{""name"":""Alice"",""age"":42}").Unwrap()
+    Debug.Print "name = " & person.GetString("name").Unwrap()
+    Debug.Print "age  = " & person.GetInt("age").Unwrap()
+
+    Dim doc As Json = Json.Parse("{""tags"":[""red"",""green"",""blue""]}").Unwrap()
+    Dim tags As Vec<Json> = doc.GetArray("tags").Unwrap()
+    Debug.Print "tag count: " & tags.Len()
+    For Each tag In tags
+        Debug.Print "  tag: " & tag.AsString().Unwrap()
+    Next
+End Function

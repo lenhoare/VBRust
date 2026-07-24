@@ -112,9 +112,10 @@ fn cmd_emit(args: &[String]) {
     }
 }
 
-/// `vbr py <file.vbr>` — transpile to Python and print it (or write with `-o`).
-/// Warnings about constructs that couldn't cross to Python go to stderr, so a
-/// redirected `stdout` stays clean Python.
+/// `vbr py <file.vbr>` — transpile to Python. A core-language program prints (or
+/// writes with `-o`); a standard-library program becomes a *project* folder
+/// (`main.py` + the bundled `vbrpy` package), the parallel of `vbr runproject`.
+/// Warnings go to stderr, so a redirected `stdout` stays clean Python.
 fn cmd_py(args: &[String]) {
     let (input, output) = parse_emit_args(args);
     let source = match fs::read_to_string(&input) {
@@ -135,6 +136,31 @@ fn cmd_py(args: &[String]) {
     for w in &result.warnings {
         eprintln!("{}", w);
     }
+
+    if !result.stdlib_used.is_empty() {
+        // A stdlib program is a project: a folder with main.py + vbrpy/.
+        let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("app");
+        let dir = output.unwrap_or_else(|| {
+            input.parent().unwrap_or_else(|| Path::new(".")).join(format!("{}_py", stem))
+        });
+        if let Err(e) = fs::create_dir_all(&dir) {
+            eprintln!("✘ Could not create {}: {}", dir.display(), e);
+            exit(1);
+        }
+        if let Err(e) = fs::write(dir.join("main.py"), &result.code) {
+            eprintln!("✘ Could not write main.py: {}", e);
+            exit(1);
+        }
+        copy_dir_recursive(&vbr::pystdlib_path(), &dir.join("vbrpy"));
+        eprintln!(
+            "✔ Wrote {} (uses {}) — run it with:\n    cd {} && python3 main.py",
+            dir.join("main.py").display(),
+            result.stdlib_used.join(", "),
+            dir.display()
+        );
+        return;
+    }
+
     match output {
         Some(out) => {
             if let Err(e) = fs::write(&out, &result.code) {

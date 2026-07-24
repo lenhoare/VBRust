@@ -1,0 +1,6 @@
+name = Alice
+age  = 42
+tag count: 3
+  tag: red
+  tag: green
+  tag: blue

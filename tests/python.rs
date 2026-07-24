@@ -128,6 +128,115 @@ fn run_via_rust(name: &str, src: &str) -> String {
     String::from_utf8_lossy(&run.stdout).into_owned()
 }
 
+/// The single-file inlined prelude (`src/python.rs`) and the project prelude
+/// (`vbrpy/prelude.py`) must stay identical — otherwise `Some`/`Ok`/`Err` would
+/// be different classes across the two modes and `isinstance` would break. Emit
+/// a program that triggers every helper, and assert its distinctive lines also
+/// appear in `vbrpy/prelude.py`.
+#[test]
+fn inlined_prelude_matches_vbrpy() {
+    let src = "\
+Function Maker() As Result<Long>
+    Return Ok(1)
+End Function
+Function Half(ByVal n As Long) As Option<Long>
+    Return None
+End Function
+Function Main()
+    Dim r As Double = 2.5
+    Debug.Print \"\" & Round(r)
+    Dim k As Long = Maker().Unwrap()
+    Match Half(4)
+        Some(v) => Debug.Print \"\" & v
+        None => Debug.Print \"none\"
+    End Match
+End Function
+";
+    let inlined = vbr::compile_python(src);
+    assert!(!inlined.has_errors, "prelude probe errors: {:?}", inlined.diagnostics);
+    let vbrpy = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("vbrpy/prelude.py"),
+    )
+    .expect("read vbrpy/prelude.py");
+
+    for line in [
+        "return \"true\" if x else \"false\"",
+        "raise Exception(f'unwrapped an Err: {x.error}')",
+        "_math.floor(x + 0.5) if x >= 0 else _math.ceil(x - 0.5)",
+        "    value: object",
+        "    error: object",
+    ] {
+        assert!(
+            inlined.code.contains(line),
+            "single-file prelude missing distinctive line: {line:?}"
+        );
+        assert!(
+            vbrpy.contains(line),
+            "vbrpy/prelude.py drifted from the inlined prelude — missing: {line:?}"
+        );
+    }
+}
+
+/// Standard-library examples: emitted as a *project* (main.py + vbrpy/). Their
+/// generated `main.py` is snapshotted, and their runtime stdout is checked
+/// against a stored `.out` — verified byte-for-byte against `vbr runproject`
+/// (the Rust ground truth) when the snapshots were taken. Kept as a stored
+/// output rather than a live Rust run so the suite needn't compile `vbr_stdlib`.
+const PY_STDLIB: &[&str] = &["stdlib", "json_basics"];
+
+#[test]
+fn python_stdlib_projects() {
+    if Command::new("python3").arg("--version").output().is_err() {
+        eprintln!("skipping python_stdlib_projects: no python3");
+        return;
+    }
+    let vbrpy = Path::new(env!("CARGO_MANIFEST_DIR")).join("vbrpy");
+    for name in PY_STDLIB {
+        let result = vbr::compile_python(&read_example(name));
+        assert!(!result.has_errors, "{name} errors: {:?}", result.diagnostics);
+        assert!(result.warnings.is_empty(), "{name} warned: {:?}", result.warnings);
+        assert!(
+            !result.stdlib_used.is_empty(),
+            "{name} should use the stdlib (project mode), but stdlib_used is empty"
+        );
+        check_snapshot(name, "py", &result.code);
+
+        // Lay out the project in a temp dir and run it.
+        let dir = std::env::temp_dir().join(format!("vbr_pystd_{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("main.py"), &result.code).unwrap();
+        copy_dir(&vbrpy, &dir.join("vbrpy"));
+
+        let run = Command::new("python3")
+            .arg("main.py")
+            .current_dir(&dir)
+            .output()
+            .expect("run python3");
+        assert!(
+            run.status.success(),
+            "{name}: python3 failed:\n{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let out = String::from_utf8_lossy(&run.stdout).into_owned();
+        check_snapshot(name, "out", &out);
+    }
+}
+
+/// Recursively copy a directory (the `vbrpy` package into the test project).
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap().flatten() {
+        let p = entry.path();
+        let dest = to.join(entry.file_name());
+        if p.is_dir() {
+            copy_dir(&p, &dest);
+        } else {
+            fs::copy(&p, &dest).unwrap();
+        }
+    }
+}
+
 /// Transpile to Python, run with python3, return stdout.
 fn run_via_python(name: &str, src: &str) -> String {
     let compiled = vbr::compile_python(src);
