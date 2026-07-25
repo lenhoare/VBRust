@@ -62,6 +62,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         needs_regex: false,
         needs_unistd: false,
         needs_json: false,
+        needs_database: false,
     };
     e.program(program);
     e.finish(program)
@@ -130,6 +131,9 @@ struct Emitter {
     needs_unistd: bool,
     /// The `Json` namespace/value type — wraps vendored cJSON (a project folder).
     needs_json: bool,
+    /// The `Database` value type — wraps SQLite (links `-lsqlite3`; rows are
+    /// `Json`, so it implies `needs_json`).
+    needs_database: bool,
 }
 
 impl Emitter {
@@ -174,6 +178,10 @@ impl Emitter {
             }
             if type_mentions(ty, "Json") {
                 self.needs_json = true;
+            }
+            if type_mentions(ty, "Database") {
+                self.needs_database = true;
+                self.needs_json = true; // query rows come back as `Json`
             }
         }
         self.stdlib_type_defs();
@@ -250,6 +258,10 @@ impl Emitter {
             // pointer copy — the leak-by-default memory model keeps the doc alive.
             self.decls.push_str("typedef struct { cJSON *node; } Json;\n\n");
         }
+        if self.needs_database {
+            // A live SQLite connection handle (linked `-lsqlite3`).
+            self.decls.push_str("typedef struct { sqlite3 *conn; } Database;\n\n");
+        }
     }
 
     /// Emit a monomorphised runtime (`typedef` + functions) for every `Vec<T>`
@@ -280,6 +292,18 @@ impl Emitter {
                 res(json()),
                 DeclType::Vec(Box::new(json())),
                 res(DeclType::Vec(Box::new(json()))),
+            ] {
+                visit_ty(&ty, &mut c);
+            }
+        }
+        // The `Database` runtime is one block too — force its `Result<Database>`
+        // return and the `Vec<String>` params type (an all-empty-`[]` program
+        // would otherwise never instantiate `Vec_str`).
+        if self.needs_database {
+            let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
+            for ty in [
+                res(DeclType::Named("Database".to_string())),
+                DeclType::Vec(Box::new(DeclType::Plain(Type::Text))),
             ] {
                 visit_ty(&ty, &mut c);
             }
@@ -1234,6 +1258,7 @@ impl Emitter {
             ("json", "parse") => self.use_ns("vbr_json_parse", "json"),
             ("json", "object") => self.use_ns("vbr_json_object", "json"),
             ("json", "array") => self.use_ns("vbr_json_array", "json"),
+            ("database", "open") => self.use_ns("vbr_db_open", "database"),
             _ => return None,
         };
         let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
@@ -1248,6 +1273,10 @@ impl Emitter {
             "shell" => self.needs_shell = true,
             "regex" => self.needs_regex = true,
             "json" => self.needs_json = true,
+            "database" => {
+                self.needs_database = true;
+                self.needs_json = true;
+            }
             _ => {}
         }
         fname.to_string()
@@ -1261,6 +1290,11 @@ impl Emitter {
             "datetime" => self.needs_datetime = true,
             "process" => self.needs_shell = true,
             "json" => self.needs_json = true,
+            "database" => {
+                self.needs_database = true;
+                self.needs_json = true;
+                return self.database_call(recv, &method.to_ascii_lowercase(), args);
+            }
             _ => {}
         }
         let recv_c = self.expr(recv);
@@ -1269,6 +1303,32 @@ impl Emitter {
             all.push(self.expr(a));
         }
         format!("vbr_{}_{}({})", t, method.to_ascii_lowercase(), all.join(", "))
+    }
+
+    /// A `Database` connection method. `Execute`/`Query` take an SQL string and a
+    /// `Vec<String>` of params — an empty `[]` argument is forced to `Vec_str`
+    /// (its default inference is `Vec<Long>`, which would mistype the runtime).
+    fn database_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
+        let recv_c = self.expr(recv);
+        match method {
+            "execute" | "query" => {
+                let sql = self.expr(&args[0]);
+                let params = self.db_params(&args[1]);
+                format!("vbr_db_{}(&{}, {}, {})", method, recv_c, sql, params)
+            }
+            _ => format!("vbr_db_{}(&{})", method, recv_c),
+        }
+    }
+
+    /// The params argument of a `Database` call as a `Vec_str` — an empty list
+    /// literal becomes `(Vec_str){0}` (typed, unlike the default `Vec<Long>`).
+    fn db_params(&mut self, arg: &Expr) -> String {
+        if let ExprKind::List(items) = &arg.kind {
+            if items.is_empty() {
+                return "(Vec_str){0}".to_string();
+            }
+        }
+        self.expr(arg)
     }
 
     /// Register a stdlib runtime function for emission and return its C name.
@@ -1288,6 +1348,11 @@ impl Emitter {
         // the surrounding context (`type_hint`) for the target type.
         if matches!(name, "Some" | "Ok" | "Err") {
             return self.construct(name, args);
+        }
+        // `CStr(x)`/`Str(x)` — a number → its string, the same conversion the
+        // `&`-concat machinery uses (`vbr_from_ll`/`vbr_from_double`/…).
+        if (name.eq_ignore_ascii_case("cstr") || name.eq_ignore_ascii_case("str")) && args.len() == 1 {
+            return self.as_str(&args[0]);
         }
         // `Sleep <ms>` — VB6's kernel32 Sleep (milliseconds) → POSIX `usleep`.
         if name.eq_ignore_ascii_case("Sleep") {
@@ -1321,6 +1386,13 @@ impl Emitter {
         } else {
             let ret = self.propagate_err(&tmp);
             self.line(&format!("if (!{}.is_ok) return {};", tmp, ret));
+            // A unit `Result<()>?` has no `.ok` field — it yields nothing (used
+            // only as a statement), so give a valid no-op expression.
+            if let DeclType::Result(t, _) = &ity {
+                if is_unit(t) {
+                    return "(void)0".to_string();
+                }
+            }
             format!("{}.ok", tmp)
         }
     }
@@ -1427,6 +1499,10 @@ impl Emitter {
         if self.needs_regex {
             code.push_str("#include <regex.h>\n");
         }
+        // SQLite — a system header (linked `-lsqlite3`).
+        if self.needs_database {
+            code.push_str("#include <sqlite3.h>\n");
+        }
         // Vendored cJSON — a project-local header (bundled beside `main.c`).
         if self.needs_json {
             code.push_str("#include \"cJSON.h\"\n");
@@ -1446,7 +1522,8 @@ impl Emitter {
             || self.needs_datetime
             || self.needs_regex
             || self.needs_shell
-            || self.needs_json;
+            || self.needs_json
+            || self.needs_database;
         if need_dup {
             code.push_str(RT_DUP);
         }
@@ -1493,11 +1570,15 @@ impl Emitter {
         if self.needs_json {
             code.push_str(RT_JSON);
         }
+        if self.needs_database {
+            code.push_str(RT_DATABASE);
+        }
         if !self.stdlib_fns.is_empty()
             || self.needs_datetime
             || self.needs_regex
             || self.needs_shell
             || self.needs_json
+            || self.needs_database
         {
             code.push('\n');
         }
@@ -1526,6 +1607,9 @@ impl Emitter {
         }
         if self.needs_json {
             vendored.push("cJSON".to_string());
+        }
+        if self.needs_database {
+            link_flags.push("sqlite3".to_string());
         }
 
         CProgram { code, warnings: self.warnings, vendored, link_flags }
@@ -1915,6 +1999,67 @@ static void vbr_json_push(Json* self, Json val) {
 }
 ";
 
+// ---- standard library: Database (SQLite, linked -lsqlite3) ----
+// A `Database` is a live connection. Params bind positionally as text (SQLite
+// column affinity types them); a `Query` row comes back as a `Json` object keyed
+// by column name, each column carrying its storage class (INTEGER/REAL → number,
+// TEXT → string, NULL → json null) — so the `Json` accessors read it typed.
+const RT_DATABASE: &str = "\
+static Result_Database_str vbr_db_open(char* path) {
+    sqlite3* conn;
+    if (sqlite3_open(path, &conn) != SQLITE_OK) {
+        char* e = vbr_dup(sqlite3_errmsg(conn));
+        sqlite3_close(conn);
+        return (Result_Database_str){ .is_ok = false, .err = e };
+    }
+    return (Result_Database_str){ .is_ok = true, .ok = (Database){ .conn = conn } };
+}
+static void vbr_db__bind(sqlite3_stmt* stmt, Vec_str params) {
+    for (size_t i = 0; i < params.len; i++)
+        sqlite3_bind_text(stmt, (int)i + 1, params.data[i], -1, SQLITE_TRANSIENT);
+}
+static Result_longlong_str vbr_db_execute(Database* self, char* sql, Vec_str params) {
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(self->conn, sql, -1, &stmt, NULL) != SQLITE_OK)
+        return (Result_longlong_str){ .is_ok = false, .err = vbr_dup(sqlite3_errmsg(self->conn)) };
+    vbr_db__bind(stmt, params);
+    int rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        char* e = vbr_dup(sqlite3_errmsg(self->conn));
+        sqlite3_finalize(stmt);
+        return (Result_longlong_str){ .is_ok = false, .err = e };
+    }
+    sqlite3_finalize(stmt);
+    return (Result_longlong_str){ .is_ok = true, .ok = sqlite3_changes(self->conn) };
+}
+static Result_vec_Json_str vbr_db_query(Database* self, char* sql, Vec_str params) {
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(self->conn, sql, -1, &stmt, NULL) != SQLITE_OK)
+        return (Result_vec_Json_str){ .is_ok = false, .err = vbr_dup(sqlite3_errmsg(self->conn)) };
+    vbr_db__bind(stmt, params);
+    Vec_Json out = {0};
+    int ncol = sqlite3_column_count(stmt);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        cJSON* obj = cJSON_CreateObject();
+        for (int i = 0; i < ncol; i++) {
+            const char* name = sqlite3_column_name(stmt, i);
+            switch (sqlite3_column_type(stmt, i)) {
+                case SQLITE_INTEGER: cJSON_AddNumberToObject(obj, name, (double)sqlite3_column_int64(stmt, i)); break;
+                case SQLITE_FLOAT:   cJSON_AddNumberToObject(obj, name, sqlite3_column_double(stmt, i)); break;
+                case SQLITE_TEXT:    cJSON_AddStringToObject(obj, name, (const char*)sqlite3_column_text(stmt, i)); break;
+                default:             cJSON_AddNullToObject(obj, name); break;
+            }
+        }
+        Vec_Json_push(&out, (Json){ .node = obj });
+    }
+    sqlite3_finalize(stmt);
+    return (Result_vec_Json_str){ .is_ok = true, .ok = out };
+}
+static long long vbr_db_lastinsertid(Database* self) {
+    return sqlite3_last_insert_rowid(self->conn);
+}
+";
+
 // ---- helpers ----
 
 /// The C type a `DeclType` lowers to (slice 1–2 scalars, strings, structs).
@@ -1960,7 +2105,7 @@ fn is_iter_terminal(e: &Expr) -> bool {
 
 /// Is `name` a standard-library value type (with instance methods)?
 fn is_stdlib_type(name: &str) -> bool {
-    matches!(name.to_ascii_lowercase().as_str(), "datetime" | "process" | "json")
+    matches!(name.to_ascii_lowercase().as_str(), "datetime" | "process" | "json" | "database")
 }
 
 /// Does `ty` mention the named type anywhere (including nested in a `Result`/

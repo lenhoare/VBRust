@@ -141,6 +141,14 @@ namespace needs anything beyond libc:
   - **`Json`** vendors **cJSON** (MIT, `csupport/cJSON.{c,h}`) — no system
     package, no network; a `Json` is a thin handle over a `cJSON*` node, with the
     typed `get_*`/`as_*` accessors returning the same `Result<T>` as `vbr_stdlib`.
+  - **`Database`** *links* **SQLite** (`-lsqlite3` — the most-deployed library on
+    earth, so the pragmatic path over checking in the 9 MB amalgamation, which
+    would also recompile on every `make`). A `Database` is a live `sqlite3*`
+    connection; params bind positionally as text (column affinity types them);
+    `Query` rows come back as `Json` objects keyed by column, so it reuses the
+    vendored cJSON — a `Database` program both **links** `-lsqlite3` **and
+    vendors** `cJSON`. (The amalgamation stays available: the vendor path exists
+    for anyone who prefers a zero-system-dep build.)
 
 The `vbr runproject` stdout is the ground truth: a C stdlib example's output is
 byte-identical to the Rust build where deterministic (`Json` field reads, file
@@ -148,9 +156,8 @@ I/O), and snapshot-only where it isn't (HashMap order, wall-clock, network). The
 error/serialisation *failure* paths can differ from Rust's wording (cJSON's parse
 message, number formatting) — those aren't on the byte-identical happy path.
 
-Remaining stdlib namespaces on C: **`Database`** (SQLite — vendor the amalgamation
-or link `-lsqlite3`) and **`Http`** (link `-lcurl`); **`DataFrame`** has no C
-equivalent and warns.
+Remaining stdlib namespace on C: **`Http`** (link `-lcurl`); **`DataFrame`** has
+no C equivalent and warns.
 
 ### Memory model — `x = Nothing`
 

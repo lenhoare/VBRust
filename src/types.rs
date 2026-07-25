@@ -479,6 +479,7 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
         ("shell", "start") => res(named("Process")),
         ("json", "parse") => res(named("Json")),
         ("json", "object" | "array") => named("Json"),
+        ("database", "open") => res(named("Database")),
         _ => return None,
     })
 }
@@ -500,6 +501,11 @@ pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
         ("json", "get") => res(DeclType::Named("Json".to_string())),
         ("json", "haskey" | "isnull") => DeclType::Plain(Type::Boolean),
         ("json", "setstring" | "setint" | "setbool" | "set" | "push") => DeclType::Tuple(Vec::new()),
+        // `Database` connection methods — `Execute` returns the rows changed,
+        // `Query` returns one `Json` object per row, `LastInsertId` a rowid.
+        ("database", "execute") => res(DeclType::Plain(Type::Long)),
+        ("database", "query") => res(DeclType::Vec(Box::new(DeclType::Named("Json".to_string())))),
+        ("database", "lastinsertid") => DeclType::Plain(Type::Long),
         ("datetime", "year" | "month" | "day") => DeclType::Plain(Type::Long),
         ("datetime", "format") => DeclType::Plain(Type::Text),
         ("datetime", "adddays" | "addhours" | "addminutes") => DeclType::Named("DateTime".to_string()),

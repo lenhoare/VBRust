@@ -46,7 +46,7 @@ const C_STDLIB: &[&str] = &["filesystem", "datetime_basics", "stdlib", "shell"];
 /// folder* (`main.c` + the bundled sources + a `Makefile`) rather than a single
 /// `.c`. Built by compiling `main.c` alongside the vendored sources, then diffed
 /// against the stored `.out` — the same `vbr runproject` ground truth.
-const C_STDLIB_PROJECT: &[&str] = &["json_basics"];
+const C_STDLIB_PROJECT: &[&str] = &["json_basics", "database"];
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
