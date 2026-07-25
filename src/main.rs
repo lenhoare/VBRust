@@ -254,10 +254,21 @@ fn cmd_c(args: &[String]) {
             eprintln!("✘ Could not write Makefile: {}", e);
             exit(1);
         }
+        // Describe the dependencies: vendored sources and/or linked libraries.
+        let mut deps = Vec::new();
+        if !result.vendored.is_empty() {
+            deps.push(format!("vendors {}", result.vendored.join(", ")));
+        }
+        let links: Vec<String> =
+            result.link_flags.iter().filter(|f| *f != "m").map(|f| format!("-l{}", f)).collect();
+        if !links.is_empty() {
+            deps.push(format!("links {}", links.join(" ")));
+        }
+        let deps = if deps.is_empty() { String::new() } else { format!(" ({})", deps.join(", ")) };
         eprintln!(
-            "✔ Wrote {} (vendors {}) — build it with:\n    cd {} && make && ./main",
+            "✔ Wrote {}{} — build it with:\n    cd {} && make && ./main",
             dir.join("main.c").display(),
-            result.vendored.join(", "),
+            deps,
             dir.display(),
         );
         return;

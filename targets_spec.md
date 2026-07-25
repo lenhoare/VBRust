@@ -149,6 +149,14 @@ namespace needs anything beyond libc:
     vendored cJSON — a `Database` program both **links** `-lsqlite3` **and
     vendors** `cJSON`. (The amalgamation stays available: the vendor path exists
     for anyone who prefers a zero-system-dep build.)
+  - **`Http`** *links* **libcurl** (`-lcurl`) — one-shot blocking `Get`/`Post`
+    with the full `https` support the Rust/Python targets have (TLS rules out a
+    hand-rolled or vendored version). `Post` takes a `HashMap<String,String>` of
+    request headers. A link-only namespace still becomes a project folder (for
+    the `Makefile`'s `-lcurl`), just with no vendored sources.
+
+Linked namespaces need the library's dev package at build time (`libsqlite3-dev`,
+`libcurl4-openssl-dev`); vendored ones (cJSON) need nothing but a C compiler.
 
 The `vbr runproject` stdout is the ground truth: a C stdlib example's output is
 byte-identical to the Rust build where deterministic (`Json` field reads, file
@@ -156,8 +164,10 @@ I/O), and snapshot-only where it isn't (HashMap order, wall-clock, network). The
 error/serialisation *failure* paths can differ from Rust's wording (cJSON's parse
 message, number formatting) — those aren't on the byte-identical happy path.
 
-Remaining stdlib namespace on C: **`Http`** (link `-lcurl`); **`DataFrame`** has
-no C equivalent and warns.
+The C standard library is **complete** — every namespace the Rust/Python targets
+have (`FileSystem`, `DateTime`, `Shell`, `Regex`, `Json`, `Database`, `Http`).
+The one exception is **`DataFrame`**: there's no idiomatic C equivalent, so it
+warns rather than lowering.
 
 ### Memory model — `x = Nothing`
 

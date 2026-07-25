@@ -63,6 +63,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         needs_unistd: false,
         needs_json: false,
         needs_database: false,
+        needs_http: false,
     };
     e.program(program);
     e.finish(program)
@@ -134,6 +135,8 @@ struct Emitter {
     /// The `Database` value type — wraps SQLite (links `-lsqlite3`; rows are
     /// `Json`, so it implies `needs_json`).
     needs_database: bool,
+    /// The `Http` namespace — one-shot requests over libcurl (links `-lcurl`).
+    needs_http: bool,
 }
 
 impl Emitter {
@@ -185,7 +188,6 @@ impl Emitter {
             }
         }
         self.stdlib_type_defs();
-        self.collection_runtimes(program);
         self.constants(program);
         for (i, func) in program.functions.iter().enumerate() {
             if i > 0 {
@@ -193,6 +195,11 @@ impl Emitter {
             }
             self.function(func);
         }
+        // Emitted last (into `decls`, which `finish` places before the function
+        // bodies): only now is every `needs_*` flag settled — a stateless
+        // namespace like `Http` sets its flag while its call is rendered above,
+        // and its whole-block runtime names types that must be instantiated here.
+        self.collection_runtimes(program);
     }
 
     /// `Enum … End Enum` → a plain C `enum` (all variants payload-free) or a
@@ -304,6 +311,18 @@ impl Emitter {
             for ty in [
                 res(DeclType::Named("Database".to_string())),
                 DeclType::Vec(Box::new(DeclType::Plain(Type::Text))),
+            ] {
+                visit_ty(&ty, &mut c);
+            }
+        }
+        // `Http` (one block) returns `Result<String>` and `Post` takes a
+        // `Map<String,String>` of headers — force both so a `Get`-only program
+        // still declares the `Map_str_str` the runtime names.
+        if self.needs_http {
+            let text = || DeclType::Plain(Type::Text);
+            for ty in [
+                DeclType::Result(Box::new(text()), Box::new(text())),
+                DeclType::Map(Box::new(text()), Box::new(text())),
             ] {
                 visit_ty(&ty, &mut c);
             }
@@ -958,6 +977,11 @@ impl Emitter {
         }
         let rty = self.type_of(recv);
         match &rty {
+            // `s.Len()` on a String → `strlen` (VB's `Len`, method form).
+            DeclType::Plain(Type::Text) if matches!(m.as_str(), "len") => {
+                let base = self.expr(recv);
+                format!("(long long)strlen({})", base)
+            }
             DeclType::Vec(_) => {
                 let n = vec_name(&rty);
                 let base = self.expr(recv);
@@ -1259,6 +1283,8 @@ impl Emitter {
             ("json", "object") => self.use_ns("vbr_json_object", "json"),
             ("json", "array") => self.use_ns("vbr_json_array", "json"),
             ("database", "open") => self.use_ns("vbr_db_open", "database"),
+            ("http", "get") => self.use_ns("vbr_http_get", "http"),
+            ("http", "post") => self.use_ns("vbr_http_post", "http"),
             _ => return None,
         };
         let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
@@ -1277,6 +1303,7 @@ impl Emitter {
                 self.needs_database = true;
                 self.needs_json = true;
             }
+            "http" => self.needs_http = true,
             _ => {}
         }
         fname.to_string()
@@ -1503,6 +1530,10 @@ impl Emitter {
         if self.needs_database {
             code.push_str("#include <sqlite3.h>\n");
         }
+        // libcurl — a system header (linked `-lcurl`).
+        if self.needs_http {
+            code.push_str("#include <curl/curl.h>\n");
+        }
         // Vendored cJSON — a project-local header (bundled beside `main.c`).
         if self.needs_json {
             code.push_str("#include \"cJSON.h\"\n");
@@ -1523,7 +1554,8 @@ impl Emitter {
             || self.needs_regex
             || self.needs_shell
             || self.needs_json
-            || self.needs_database;
+            || self.needs_database
+            || self.needs_http;
         if need_dup {
             code.push_str(RT_DUP);
         }
@@ -1573,12 +1605,16 @@ impl Emitter {
         if self.needs_database {
             code.push_str(RT_DATABASE);
         }
+        if self.needs_http {
+            code.push_str(RT_HTTP);
+        }
         if !self.stdlib_fns.is_empty()
             || self.needs_datetime
             || self.needs_regex
             || self.needs_shell
             || self.needs_json
             || self.needs_database
+            || self.needs_http
         {
             code.push('\n');
         }
@@ -1610,6 +1646,9 @@ impl Emitter {
         }
         if self.needs_database {
             link_flags.push("sqlite3".to_string());
+        }
+        if self.needs_http {
+            link_flags.push("curl".to_string());
         }
 
         CProgram { code, warnings: self.warnings, vendored, link_flags }
@@ -2057,6 +2096,66 @@ static Result_vec_Json_str vbr_db_query(Database* self, char* sql, Vec_str param
 }
 static long long vbr_db_lastinsertid(Database* self) {
     return sqlite3_last_insert_rowid(self->conn);
+}
+";
+
+// ---- standard library: Http (one-shot requests over libcurl, linked -lcurl) ----
+// Each call is an independent blocking request (no shared session), matching the
+// Rust stdlib. The response body accumulates through a write callback; a 60s
+// timeout turns a hung server into an `Err` rather than a forever-wait.
+const RT_HTTP: &str = "\
+struct vbr_http_buf { char* data; size_t len; };
+static size_t vbr_http__write(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    size_t n = size * nmemb;
+    struct vbr_http_buf* b = (struct vbr_http_buf*)userdata;
+    char* d = (char*)realloc(b->data, b->len + n + 1);
+    if (!d) return 0;
+    b->data = d;
+    memcpy(b->data + b->len, ptr, n);
+    b->len += n;
+    b->data[b->len] = '\\0';
+    return n;
+}
+static Result_str_str vbr_http__perform(CURL* curl, struct vbr_http_buf* buf, struct curl_slist* hdrs) {
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, vbr_http__write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, buf);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    CURLcode rc = curl_easy_perform(curl);
+    if (hdrs) curl_slist_free_all(hdrs);
+    if (rc != CURLE_OK) {
+        char* e = vbr_dup(curl_easy_strerror(rc));
+        free(buf->data);
+        curl_easy_cleanup(curl);
+        return (Result_str_str){ .is_ok = false, .err = e };
+    }
+    curl_easy_cleanup(curl);
+    return (Result_str_str){ .is_ok = true, .ok = buf->data ? buf->data : vbr_dup(\"\") };
+}
+static Result_str_str vbr_http_get(char* url) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return (Result_str_str){ .is_ok = false, .err = vbr_dup(\"curl init failed\") };
+    struct vbr_http_buf buf = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    return vbr_http__perform(curl, &buf, NULL);
+}
+static Result_str_str vbr_http_post(char* url, char* body, Map_str_str headers) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return (Result_str_str){ .is_ok = false, .err = vbr_dup(\"curl init failed\") };
+    struct vbr_http_buf buf = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+    struct curl_slist* hdrs = NULL;
+    for (size_t i = 0; i < headers.len; i++) {
+        char* k = headers.entries[i].key;
+        char* v = headers.entries[i].val;
+        char* line = (char*)malloc(strlen(k) + strlen(v) + 3);
+        strcpy(line, k); strcat(line, \": \"); strcat(line, v);
+        hdrs = curl_slist_append(hdrs, line);
+        free(line);
+    }
+    if (hdrs) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+    return vbr_http__perform(curl, &buf, hdrs);
 }
 ";
 

@@ -301,10 +301,11 @@ pub struct CCompiled {
 }
 
 impl CCompiled {
-    /// A program is a *project* (a folder, not one file) when it vendors a C
-    /// library — it then needs the bundled sources and a `Makefile` to build.
+    /// A program is a *project* (a folder + `Makefile`, not one file) when it
+    /// needs anything beyond the plain `cc main.c -lm` build — a vendored library
+    /// source, or a link flag other than `libm` (`-lsqlite3`, `-lcurl`).
     pub fn is_project(&self) -> bool {
-        !self.vendored.is_empty()
+        !self.vendored.is_empty() || self.link_flags.iter().any(|f| f != "m")
     }
 }
 

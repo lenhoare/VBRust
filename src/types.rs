@@ -480,6 +480,7 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
         ("json", "parse") => res(named("Json")),
         ("json", "object" | "array") => named("Json"),
         ("database", "open") => res(named("Database")),
+        ("http", "get" | "post") => res(text()),
         _ => return None,
     })
 }
