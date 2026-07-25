@@ -26,6 +26,11 @@ use crate::types::{type_program, TypeTable};
 pub struct CProgram {
     pub code: String,
     pub warnings: Vec<String>,
+    /// Vendored C libraries to bundle beside `main.c` (base names under
+    /// `csupport/`) — non-empty means a project folder, not a single file.
+    pub vendored: Vec<String>,
+    /// Extra `-l` linker flags the `Makefile` must pass.
+    pub link_flags: Vec<String>,
 }
 
 /// Emit C for a whole parsed program.
@@ -52,6 +57,11 @@ pub fn emit_c(program: &Program) -> CProgram {
         need_concat: false,
         stdlib_fns: std::collections::BTreeSet::new(),
         needs_fs: false,
+        needs_datetime: false,
+        needs_shell: false,
+        needs_regex: false,
+        needs_unistd: false,
+        needs_json: false,
     };
     e.program(program);
     e.finish(program)
@@ -112,8 +122,14 @@ struct Emitter {
     need_concat: bool,
     // Standard-library runtime functions used (`fs_read`, …) — emitted on demand.
     stdlib_fns: std::collections::BTreeSet<&'static str>,
-    // `FileSystem` used → the file-I/O includes (`errno.h`, `sys/stat.h`).
+    // Which stdlib namespaces' runtimes to emit + which system headers to pull in.
     needs_fs: bool,
+    needs_datetime: bool,
+    needs_shell: bool,
+    needs_regex: bool,
+    needs_unistd: bool,
+    /// The `Json` namespace/value type — wraps vendored cJSON (a project folder).
+    needs_json: bool,
 }
 
 impl Emitter {
@@ -147,6 +163,20 @@ impl Emitter {
         }
         self.enum_typedefs(program);
         self.struct_typedefs(program);
+        // Stdlib value types (`DateTime`, `Process`) need their `typedef` before
+        // any `Result<DateTime>` runtime — detect them from the inferred types.
+        for ty in self.types.values() {
+            if type_mentions(ty, "DateTime") {
+                self.needs_datetime = true;
+            }
+            if type_mentions(ty, "Process") {
+                self.needs_shell = true;
+            }
+            if type_mentions(ty, "Json") {
+                self.needs_json = true;
+            }
+        }
+        self.stdlib_type_defs();
         self.collection_runtimes(program);
         self.constants(program);
         for (i, func) in program.functions.iter().enumerate() {
@@ -203,6 +233,25 @@ impl Emitter {
         }
     }
 
+    /// `typedef`s for stdlib value types, before any container/`Result` runtime
+    /// that embeds them.
+    fn stdlib_type_defs(&mut self) {
+        if self.needs_datetime {
+            self.decls.push_str("typedef struct tm DateTime;\n\n");
+        }
+        if self.needs_shell {
+            // A launched child: its pid, whether it's been reaped, and its code.
+            self.decls
+                .push_str("typedef struct { int pid; int reaped; long long code; } Process;\n\n");
+        }
+        if self.needs_json {
+            // A thin handle over a vendored cJSON node. The node is owned by the
+            // parsed document (children borrow it); copying the wrapper is a cheap
+            // pointer copy — the leak-by-default memory model keeps the doc alive.
+            self.decls.push_str("typedef struct { cJSON *node; } Json;\n\n");
+        }
+    }
+
     /// Emit a monomorphised runtime (`typedef` + functions) for every `Vec<T>`
     /// and `HashMap<K, V>` instantiation the program uses — inner types first,
     /// so a nested container is declared before the one that holds it.
@@ -211,20 +260,38 @@ impl Emitter {
         gather_types(program, &mut c);
         // Also from every *inferred* expression type — this is how a stdlib
         // call's `Result<…>` return (never written as a `Dim`) gets a runtime.
-        for ty in self.types.values() {
+        // Visit in source order (the table is a HashMap) so emission is stable.
+        let mut inferred: Vec<(&crate::span::Span, &DeclType)> = self.types.iter().collect();
+        inferred.sort_by_key(|(s, _)| (s.start, s.end));
+        for (_, ty) in inferred {
             visit_ty(ty, &mut c);
         }
-        for ty in &c.opts {
-            self.emit_option_runtime(ty);
+        // The `Json` runtime is emitted as one whole block, so every wrapper it
+        // names must exist even when the program uses only a few accessors —
+        // force-instantiate the full set of `Result<T>` returns (+`Vec<Json>`).
+        if self.needs_json {
+            let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
+            let json = || DeclType::Named("Json".to_string());
+            for ty in [
+                res(DeclType::Plain(Type::Text)),
+                res(DeclType::Plain(Type::Long)),
+                res(DeclType::Plain(Type::Double)),
+                res(DeclType::Plain(Type::Boolean)),
+                res(json()),
+                DeclType::Vec(Box::new(json())),
+                res(DeclType::Vec(Box::new(json()))),
+            ] {
+                visit_ty(&ty, &mut c);
+            }
         }
-        for ty in &c.results {
-            self.emit_result_runtime(ty);
-        }
-        for ty in &c.vecs {
-            self.emit_vec_runtime(ty);
-        }
-        for ty in &c.maps {
-            self.emit_map_runtime(ty);
+        for ty in &c.order {
+            match ty {
+                DeclType::Option(_) => self.emit_option_runtime(ty),
+                DeclType::Result(..) => self.emit_result_runtime(ty),
+                DeclType::Vec(_) => self.emit_vec_runtime(ty),
+                DeclType::Map(..) => self.emit_map_runtime(ty),
+                _ => {}
+            }
         }
     }
 
@@ -902,6 +969,11 @@ impl Emitter {
                     }
                 }
             }
+            // A stdlib value type's instance method (`d.Year()`, `child.Kill()`).
+            DeclType::Named(n) if is_stdlib_type(n) => {
+                let n = n.clone();
+                self.stdlib_instance_call(&n, recv, method, args)
+            }
             _ => self.struct_method_call(recv, method, args),
         }
     }
@@ -1153,10 +1225,50 @@ impl Emitter {
             ("filesystem", "write") => self.use_stdlib("fs_write", true),
             ("filesystem", "delete") => self.use_stdlib("fs_delete", true),
             ("filesystem", "exists") => self.use_stdlib("fs_exists", false),
+            ("datetime", "parse") => self.use_ns("vbr_datetime_parse", "datetime"),
+            ("datetime", "now") => self.use_ns("vbr_datetime_now", "datetime"),
+            ("regex", "replaceall") => self.use_ns("vbr_regex_replaceall", "regex"),
+            ("regex", "replace") => self.use_ns("vbr_regex_replace", "regex"),
+            ("shell", "run") => self.use_ns("vbr_shell_run", "shell"),
+            ("shell", "start") => self.use_ns("vbr_shell_start", "shell"),
+            ("json", "parse") => self.use_ns("vbr_json_parse", "json"),
+            ("json", "object") => self.use_ns("vbr_json_object", "json"),
+            ("json", "array") => self.use_ns("vbr_json_array", "json"),
             _ => return None,
         };
         let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
         Some(format!("{}({})", fname, a.join(", ")))
+    }
+
+    /// Mark a whole-namespace runtime (`datetime`/`shell`/`regex`, emitted as one
+    /// block) as needed and return the C function name.
+    fn use_ns(&mut self, fname: &str, ns: &str) -> String {
+        match ns {
+            "datetime" => self.needs_datetime = true,
+            "shell" => self.needs_shell = true,
+            "regex" => self.needs_regex = true,
+            "json" => self.needs_json = true,
+            _ => {}
+        }
+        fname.to_string()
+    }
+
+    /// A method on a stdlib value type (`d.Year()`, `child.Kill()`) → its runtime
+    /// function, receiver passed by pointer.
+    fn stdlib_instance_call(&mut self, ty: &str, recv: &Expr, method: &str, args: &[Expr]) -> String {
+        let t = ty.to_ascii_lowercase();
+        match t.as_str() {
+            "datetime" => self.needs_datetime = true,
+            "process" => self.needs_shell = true,
+            "json" => self.needs_json = true,
+            _ => {}
+        }
+        let recv_c = self.expr(recv);
+        let mut all = vec![format!("&{}", recv_c)];
+        for a in args {
+            all.push(self.expr(a));
+        }
+        format!("vbr_{}_{}({})", t, method.to_ascii_lowercase(), all.join(", "))
     }
 
     /// Register a stdlib runtime function for emission and return its C name.
@@ -1176,6 +1288,12 @@ impl Emitter {
         // the surrounding context (`type_hint`) for the target type.
         if matches!(name, "Some" | "Ok" | "Err") {
             return self.construct(name, args);
+        }
+        // `Sleep <ms>` — VB6's kernel32 Sleep (milliseconds) → POSIX `usleep`.
+        if name.eq_ignore_ascii_case("Sleep") {
+            self.needs_unistd = true;
+            let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+            return format!("usleep(({}) * 1000)", a.join(", "));
         }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         // Maths builtins → the C standard library (all in `<math.h>`).
@@ -1278,6 +1396,11 @@ impl Emitter {
             code.push('\n');
         }
 
+        // `strptime`/`timegm` (and later `popen`) are POSIX/GNU extensions —
+        // the feature-test macro must precede every system header.
+        if self.needs_datetime || self.needs_shell || self.needs_regex {
+            code.push_str("#define _GNU_SOURCE\n");
+        }
         code.push_str("#include <stdio.h>\n");
         code.push_str("#include <stdlib.h>\n");
         code.push_str("#include <string.h>\n");
@@ -1285,9 +1408,28 @@ impl Emitter {
         if self.needs_math {
             code.push_str("#include <math.h>\n");
         }
-        if self.needs_fs {
+        if self.needs_fs || self.needs_shell {
             code.push_str("#include <errno.h>\n");
+        }
+        if self.needs_fs {
             code.push_str("#include <sys/stat.h>\n");
+        }
+        if self.needs_datetime {
+            code.push_str("#include <time.h>\n");
+        }
+        if self.needs_shell {
+            code.push_str("#include <sys/wait.h>\n");
+            code.push_str("#include <signal.h>\n");
+        }
+        if self.needs_shell || self.needs_unistd {
+            code.push_str("#include <unistd.h>\n");
+        }
+        if self.needs_regex {
+            code.push_str("#include <regex.h>\n");
+        }
+        // Vendored cJSON — a project-local header (bundled beside `main.c`).
+        if self.needs_json {
+            code.push_str("#include \"cJSON.h\"\n");
         }
         code.push('\n');
 
@@ -1297,7 +1439,14 @@ impl Emitter {
 
         // The inlined runtime — only the helpers the body used, in dependency
         // order (`vbr_from_*` build on `vbr_dup`).
-        let need_dup = self.need_dup || self.need_from_bool || self.need_from_double || self.need_from_float;
+        let need_dup = self.need_dup
+            || self.need_from_bool
+            || self.need_from_double
+            || self.need_from_float
+            || self.needs_datetime
+            || self.needs_regex
+            || self.needs_shell
+            || self.needs_json;
         if need_dup {
             code.push_str(RT_DUP);
         }
@@ -1326,12 +1475,30 @@ impl Emitter {
             code.push('\n');
         }
 
-        // Standard-library runtime functions (file I/O, …), after the string
-        // helpers they build on.
+        // Standard-library runtime — after the string helpers (`vbr_dup`, …) and
+        // the `Result`/type definitions they build on. Per-function (file I/O)
+        // and whole-namespace (DateTime, …) blocks.
         for f in &self.stdlib_fns {
             code.push_str(stdlib_helper(f));
         }
-        if !self.stdlib_fns.is_empty() {
+        if self.needs_datetime {
+            code.push_str(RT_DATETIME);
+        }
+        if self.needs_regex {
+            code.push_str(RT_REGEX);
+        }
+        if self.needs_shell {
+            code.push_str(RT_SHELL);
+        }
+        if self.needs_json {
+            code.push_str(RT_JSON);
+        }
+        if !self.stdlib_fns.is_empty()
+            || self.needs_datetime
+            || self.needs_regex
+            || self.needs_shell
+            || self.needs_json
+        {
             code.push('\n');
         }
 
@@ -1350,7 +1517,18 @@ impl Emitter {
 
         code.push_str(&self.out);
 
-        CProgram { code, warnings: self.warnings }
+        // Vendored/linked dependencies → a project folder + `Makefile`. `libm`
+        // (`-lm`) is a link flag too when the maths builtins are used.
+        let mut vendored = Vec::new();
+        let mut link_flags = Vec::new();
+        if self.needs_math {
+            link_flags.push("m".to_string());
+        }
+        if self.needs_json {
+            vendored.push("cJSON".to_string());
+        }
+
+        CProgram { code, warnings: self.warnings, vendored, link_flags }
     }
 }
 
@@ -1469,6 +1647,274 @@ static bool vbr_fs_exists(char* path) {
 }
 ";
 
+// ---- standard library: DateTime (naive local time over <time.h>) ----
+// A `DateTime` is a `struct tm`; `Parse`/`Format` use the same strftime patterns
+// chrono does. Arithmetic goes through `timegm` (UTC, no DST) so it stays naive,
+// matching chrono's `NaiveDateTime + Duration`.
+const RT_DATETIME: &str = "\
+static Result_DateTime_str vbr_datetime_parse(char* text, char* pattern) {
+    struct tm tm = {0};
+    if (strptime(text, pattern, &tm) == NULL)
+        return (Result_DateTime_str){ .is_ok = false, .err = vbr_dup(\"could not parse date\") };
+    return (Result_DateTime_str){ .is_ok = true, .ok = tm };
+}
+static DateTime vbr_datetime_now(void) {
+    time_t t = time(NULL);
+    struct tm r;
+    localtime_r(&t, &r);
+    return r;
+}
+static long long vbr_datetime_year(DateTime* d) { return d->tm_year + 1900; }
+static long long vbr_datetime_month(DateTime* d) { return d->tm_mon + 1; }
+static long long vbr_datetime_day(DateTime* d) { return d->tm_mday; }
+static char* vbr_datetime_format(DateTime* d, char* pattern) {
+    char buf[256];
+    strftime(buf, sizeof buf, pattern, d);
+    return vbr_dup(buf);
+}
+static DateTime vbr_datetime_shift(DateTime* d, long long seconds) {
+    struct tm t = *d;
+    time_t s = timegm(&t) + seconds;
+    struct tm r;
+    gmtime_r(&s, &r);
+    return r;
+}
+static DateTime vbr_datetime_adddays(DateTime* d, long long days) { return vbr_datetime_shift(d, days * 86400); }
+static DateTime vbr_datetime_addhours(DateTime* d, long long hours) { return vbr_datetime_shift(d, hours * 3600); }
+static DateTime vbr_datetime_addminutes(DateTime* d, long long mins) { return vbr_datetime_shift(d, mins * 60); }
+";
+
+// ---- standard library: Regex (POSIX <regex.h>) ----
+// POSIX ERE has no `\\s`/`\\d`/`\\w`, so translate those PCRE escapes (the ones
+// Rust's regex crate has) to POSIX classes first — enough for common patterns.
+const RT_REGEX: &str = "\
+static char* vbr_regex_posix(char* pat) {
+    char* out = (char*)malloc(strlen(pat) * 12 + 1);
+    char* o = out;
+    for (char* p = pat; *p; p++) {
+        if (*p == '\\\\' && p[1]) {
+            const char* rep = NULL;
+            switch (p[1]) {
+                case 's': rep = \"[[:space:]]\"; break;
+                case 'S': rep = \"[^[:space:]]\"; break;
+                case 'd': rep = \"[[:digit:]]\"; break;
+                case 'D': rep = \"[^[:digit:]]\"; break;
+                case 'w': rep = \"[[:alnum:]_]\"; break;
+                case 'W': rep = \"[^[:alnum:]_]\"; break;
+            }
+            if (rep) { strcpy(o, rep); o += strlen(rep); p++; continue; }
+        }
+        *o++ = *p;
+    }
+    *o = '\\0';
+    return out;
+}
+static Result_str_str vbr_regex_replaceall(char* pattern, char* text, char* replacement) {
+    char* pat = vbr_regex_posix(pattern);
+    regex_t re;
+    if (regcomp(&re, pat, REG_EXTENDED) != 0) {
+        free(pat);
+        return (Result_str_str){ .is_ok = false, .err = vbr_dup(\"invalid regex\") };
+    }
+    free(pat);
+    size_t cap = 64, len = 0, rlen = strlen(replacement);
+    char* out = (char*)malloc(cap);
+    const char* cur = text;
+    int not_bol = 0;
+    regmatch_t m;
+    while (regexec(&re, cur, 1, &m, not_bol ? REG_NOTBOL : 0) == 0) {
+        size_t pre = (size_t)m.rm_so;
+        while (len + pre + rlen + 2 > cap) { cap *= 2; out = (char*)realloc(out, cap); }
+        memcpy(out + len, cur, pre); len += pre;
+        memcpy(out + len, replacement, rlen); len += rlen;
+        size_t adv = (size_t)m.rm_eo;
+        if (m.rm_eo == m.rm_so) {
+            if (cur[m.rm_eo] == '\\0') break;
+            out[len++] = cur[m.rm_eo];
+            adv = (size_t)m.rm_eo + 1;
+        }
+        cur += adv;
+        not_bol = 1;
+        if (*cur == '\\0') break;
+    }
+    size_t tail = strlen(cur);
+    while (len + tail + 1 > cap) { cap *= 2; out = (char*)realloc(out, cap); }
+    memcpy(out + len, cur, tail); len += tail;
+    out[len] = '\\0';
+    regfree(&re);
+    return (Result_str_str){ .is_ok = true, .ok = out };
+}
+";
+
+// ---- standard library: Shell (run/start over POSIX) ----
+// `Run` captures stdout via popen and waits; `Start` forks a child and hands
+// back a Process handle (kill / poll / wait). A signal-killed child's exit code
+// is unknowable, reported as -1, matching the Rust/Python stdlib.
+const RT_SHELL: &str = "\
+static Result_str_str vbr_shell_run(char* cmd) {
+    FILE* p = popen(cmd, \"r\");
+    if (!p) return (Result_str_str){ .is_ok = false, .err = vbr_dup(strerror(errno)) };
+    size_t cap = 256, len = 0;
+    char* out = (char*)malloc(cap);
+    int c;
+    while ((c = fgetc(p)) != EOF) {
+        if (len + 2 > cap) { cap *= 2; out = (char*)realloc(out, cap); }
+        out[len++] = (char)c;
+    }
+    out[len] = '\\0';
+    while (len > 0 && (out[len - 1] == '\\n' || out[len - 1] == '\\r' || out[len - 1] == ' ' || out[len - 1] == '\\t'))
+        out[--len] = '\\0';
+    int status = pclose(p);
+    int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    if (code == 0) return (Result_str_str){ .is_ok = true, .ok = out };
+    char msg[64];
+    snprintf(msg, sizeof msg, \"command failed with code %d\", code);
+    free(out);
+    return (Result_str_str){ .is_ok = false, .err = vbr_dup(msg) };
+}
+static Result_Process_str vbr_shell_start(char* cmd) {
+    pid_t pid = fork();
+    if (pid < 0) return (Result_Process_str){ .is_ok = false, .err = vbr_dup(strerror(errno)) };
+    if (pid == 0) { execl(\"/bin/sh\", \"sh\", \"-c\", cmd, (char*)NULL); _exit(127); }
+    return (Result_Process_str){ .is_ok = true, .ok = (Process){ .pid = pid, .reaped = 0, .code = 0 } };
+}
+static void vbr_process_kill(Process* p) {
+    if (p->reaped) return;
+    kill(p->pid, SIGKILL);
+    int st; waitpid(p->pid, &st, 0);
+    p->reaped = 1; p->code = -1;
+}
+static bool vbr_process_isrunning(Process* p) {
+    if (p->reaped) return false;
+    int st;
+    pid_t r = waitpid(p->pid, &st, WNOHANG);
+    if (r == 0) return true;
+    p->reaped = 1;
+    p->code = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    return false;
+}
+static long long vbr_process_wait(Process* p) {
+    if (p->reaped) return p->code;
+    int st; waitpid(p->pid, &st, 0);
+    p->reaped = 1;
+    p->code = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    return p->code;
+}
+";
+
+// ---- standard library: Json (vendored cJSON) ----
+// A `Json` wraps a `cJSON*` node owned by the parsed document. The typed
+// accessors mirror `vbr_stdlib::Json` — `get_*`/`as_*` return a `Result`, the
+// error text echoing serde's `Key '…' is not a …`. (cJSON's parse error and
+// number formatting differ from serde in the failure/serialisation paths, which
+// this slice's example doesn't exercise.)
+const RT_JSON: &str = "\
+static char* vbr_json__err(const char* pre, const char* key, const char* post) {
+    char* s = (char*)malloc(strlen(pre) + strlen(key) + strlen(post) + 1);
+    strcpy(s, pre); strcat(s, key); strcat(s, post);
+    return s;
+}
+static cJSON* vbr_json__field(Json* self, char* key) {
+    return cJSON_GetObjectItemCaseSensitive(self->node, key);
+}
+static Result_Json_str vbr_json_parse(char* text) {
+    cJSON* n = cJSON_Parse(text);
+    if (!n) return (Result_Json_str){ .is_ok = false, .err = vbr_dup(\"invalid JSON\") };
+    return (Result_Json_str){ .is_ok = true, .ok = (Json){ .node = n } };
+}
+static Json vbr_json_object(void) { return (Json){ .node = cJSON_CreateObject() }; }
+static Json vbr_json_array(void) { return (Json){ .node = cJSON_CreateArray() }; }
+static bool vbr_json_haskey(Json* self, char* key) { return vbr_json__field(self, key) != NULL; }
+static bool vbr_json_isnull(Json* self) { return cJSON_IsNull(self->node); }
+static Result_str_str vbr_json_getstring(Json* self, char* key) {
+    cJSON* f = vbr_json__field(self, key);
+    if (!f) return (Result_str_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' not found\") };
+    if (!cJSON_IsString(f)) return (Result_str_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' is not a string\") };
+    return (Result_str_str){ .is_ok = true, .ok = vbr_dup(f->valuestring) };
+}
+static Result_longlong_str vbr_json_getint(Json* self, char* key) {
+    cJSON* f = vbr_json__field(self, key);
+    if (!f) return (Result_longlong_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' not found\") };
+    if (!cJSON_IsNumber(f) || f->valuedouble != (double)(long long)f->valuedouble)
+        return (Result_longlong_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' is not an integer\") };
+    return (Result_longlong_str){ .is_ok = true, .ok = (long long)f->valuedouble };
+}
+static Result_double_str vbr_json_getfloat(Json* self, char* key) {
+    cJSON* f = vbr_json__field(self, key);
+    if (!f) return (Result_double_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' not found\") };
+    if (!cJSON_IsNumber(f)) return (Result_double_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' is not a float\") };
+    return (Result_double_str){ .is_ok = true, .ok = f->valuedouble };
+}
+static Result_bool_str vbr_json_getbool(Json* self, char* key) {
+    cJSON* f = vbr_json__field(self, key);
+    if (!f) return (Result_bool_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' not found\") };
+    if (!cJSON_IsBool(f)) return (Result_bool_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' is not a boolean\") };
+    return (Result_bool_str){ .is_ok = true, .ok = cJSON_IsTrue(f) };
+}
+static Result_vec_Json_str vbr_json_getarray(Json* self, char* key) {
+    cJSON* f = vbr_json__field(self, key);
+    if (!f) return (Result_vec_Json_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' not found\") };
+    if (!cJSON_IsArray(f)) return (Result_vec_Json_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' is not an array\") };
+    Vec_Json out = {0};
+    cJSON* it = NULL;
+    cJSON_ArrayForEach(it, f) Vec_Json_push(&out, (Json){ .node = it });
+    return (Result_vec_Json_str){ .is_ok = true, .ok = out };
+}
+static Result_Json_str vbr_json_get(Json* self, char* key) {
+    cJSON* f = vbr_json__field(self, key);
+    if (!f) return (Result_Json_str){ .is_ok = false, .err = vbr_json__err(\"Key '\", key, \"' not found\") };
+    return (Result_Json_str){ .is_ok = true, .ok = (Json){ .node = f } };
+}
+static Result_str_str vbr_json_asstring(Json* self) {
+    if (!cJSON_IsString(self->node)) return (Result_str_str){ .is_ok = false, .err = vbr_dup(\"value is not a string\") };
+    return (Result_str_str){ .is_ok = true, .ok = vbr_dup(self->node->valuestring) };
+}
+static Result_longlong_str vbr_json_asint(Json* self) {
+    if (!cJSON_IsNumber(self->node) || self->node->valuedouble != (double)(long long)self->node->valuedouble)
+        return (Result_longlong_str){ .is_ok = false, .err = vbr_dup(\"value is not an integer\") };
+    return (Result_longlong_str){ .is_ok = true, .ok = (long long)self->node->valuedouble };
+}
+static Result_double_str vbr_json_asfloat(Json* self) {
+    if (!cJSON_IsNumber(self->node)) return (Result_double_str){ .is_ok = false, .err = vbr_dup(\"value is not a float\") };
+    return (Result_double_str){ .is_ok = true, .ok = self->node->valuedouble };
+}
+static Result_bool_str vbr_json_asbool(Json* self) {
+    if (!cJSON_IsBool(self->node)) return (Result_bool_str){ .is_ok = false, .err = vbr_dup(\"value is not a boolean\") };
+    return (Result_bool_str){ .is_ok = true, .ok = cJSON_IsTrue(self->node) };
+}
+static Result_str_str vbr_json_tostring(Json* self) {
+    char* s = cJSON_PrintUnformatted(self->node);
+    if (!s) return (Result_str_str){ .is_ok = false, .err = vbr_dup(\"could not serialise\") };
+    char* d = vbr_dup(s); free(s);
+    return (Result_str_str){ .is_ok = true, .ok = d };
+}
+static Result_str_str vbr_json_topretty(Json* self) {
+    char* s = cJSON_Print(self->node);
+    if (!s) return (Result_str_str){ .is_ok = false, .err = vbr_dup(\"could not serialise\") };
+    char* d = vbr_dup(s); free(s);
+    return (Result_str_str){ .is_ok = true, .ok = d };
+}
+static void vbr_json_setstring(Json* self, char* key, char* val) {
+    cJSON_DeleteItemFromObjectCaseSensitive(self->node, key);
+    cJSON_AddStringToObject(self->node, key, val);
+}
+static void vbr_json_setint(Json* self, char* key, long long val) {
+    cJSON_DeleteItemFromObjectCaseSensitive(self->node, key);
+    cJSON_AddNumberToObject(self->node, key, (double)val);
+}
+static void vbr_json_setbool(Json* self, char* key, bool val) {
+    cJSON_DeleteItemFromObjectCaseSensitive(self->node, key);
+    cJSON_AddBoolToObject(self->node, key, val);
+}
+static void vbr_json_set(Json* self, char* key, Json val) {
+    cJSON_DeleteItemFromObjectCaseSensitive(self->node, key);
+    cJSON_AddItemToObject(self->node, key, val.node);
+}
+static void vbr_json_push(Json* self, Json val) {
+    cJSON_AddItemToArray(self->node, val.node);
+}
+";
+
 // ---- helpers ----
 
 /// The C type a `DeclType` lowers to (slice 1–2 scalars, strings, structs).
@@ -1510,6 +1956,23 @@ fn is_iter_terminal(e: &Expr) -> bool {
             ..
         })
     )
+}
+
+/// Is `name` a standard-library value type (with instance methods)?
+fn is_stdlib_type(name: &str) -> bool {
+    matches!(name.to_ascii_lowercase().as_str(), "datetime" | "process" | "json")
+}
+
+/// Does `ty` mention the named type anywhere (including nested in a `Result`/
+/// `Vec`/…)? Used to detect a stdlib value type from the inferred types.
+fn type_mentions(ty: &DeclType, name: &str) -> bool {
+    match ty {
+        DeclType::Named(n) => n == name,
+        DeclType::Vec(e) | DeclType::Option(e) => type_mentions(e, name),
+        DeclType::Map(a, b) | DeclType::Result(a, b) => type_mentions(a, name) || type_mentions(b, name),
+        DeclType::Tuple(ts) => ts.iter().any(|t| type_mentions(t, name)),
+        _ => false,
+    }
 }
 
 /// A type's name fragment for monomorphised container type names.
@@ -1564,14 +2027,13 @@ fn is_single(ty: &DeclType) -> bool {
     matches!(ty, DeclType::Plain(Type::Single))
 }
 
-/// Every generic instantiation used in the program, in decl-before-use order
-/// (inner types precede the containers holding them).
+/// Every generic instantiation used in the program, in one dependency-respecting
+/// order (inner types precede the containers holding them) — so a nested
+/// container like `Result<Vec<Json>>` emits its `Vec_Json` typedef before the
+/// `Result_vec_Json_str` that embeds it, across all container kinds.
 #[derive(Default)]
 struct Collected {
-    vecs: Vec<DeclType>,
-    maps: Vec<DeclType>,
-    opts: Vec<DeclType>,
-    results: Vec<DeclType>,
+    order: Vec<DeclType>,
 }
 
 fn gather_types(program: &Program, c: &mut Collected) {
@@ -1619,33 +2081,17 @@ fn gather_body(stmts: &[Stmt], c: &mut Collected) {
 
 fn visit_ty(t: &DeclType, c: &mut Collected) {
     match t {
-        DeclType::Vec(e) => {
-            visit_ty(e, c);
-            if !c.vecs.contains(t) {
-                c.vecs.push(t.clone());
-            }
-        }
-        DeclType::Map(k, v) => {
-            visit_ty(k, c);
-            visit_ty(v, c);
-            if !c.maps.contains(t) {
-                c.maps.push(t.clone());
-            }
-        }
-        DeclType::Option(e) => {
-            visit_ty(e, c);
-            if !c.opts.contains(t) {
-                c.opts.push(t.clone());
-            }
-        }
-        DeclType::Result(a, b) => {
+        DeclType::Vec(e) | DeclType::Option(e) => visit_ty(e, c),
+        DeclType::Map(a, b) | DeclType::Result(a, b) => {
             visit_ty(a, c);
             visit_ty(b, c);
-            if !c.results.contains(t) {
-                c.results.push(t.clone());
-            }
         }
-        _ => {}
+        _ => return,
+    }
+    // Each container is recorded *after* its inner types, so the single ordered
+    // list is already a valid decl-before-use emission order.
+    if !c.order.contains(t) {
+        c.order.push(t.clone());
     }
 }
 

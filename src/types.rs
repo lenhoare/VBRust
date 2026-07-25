@@ -389,14 +389,19 @@ impl Typer {
                         "len" | "count" => DeclType::Plain(Type::Long),
                         _ => recv_ty.clone(),
                     },
-                    DeclType::Named(s) => self
-                        .methods
-                        .get(&(s.to_ascii_lowercase(), m))
-                        .cloned()
+                    // A stdlib value type's method (`d.Year()`) first, then a
+                    // user struct's method.
+                    DeclType::Named(s) => stdlib_instance_return(&s.to_ascii_lowercase(), &m)
+                        .or_else(|| self.methods.get(&(s.to_ascii_lowercase(), m.clone())).cloned())
                         .unwrap_or(DeclType::Plain(Type::Long)),
-                    // `.Unwrap()` passes its receiver's type through (an
-                    // `Option<V>`/`Result<V>` is modelled as `V` this slice).
-                    _ if m == "unwrap" => recv_ty.clone(),
+                    // `.Unwrap()` yields the success value — strip the
+                    // `Option<V>`/`Result<V>` wrapper (a bare `V`, from a slice
+                    // that models the wrapper as its inner, passes straight
+                    // through).
+                    _ if m == "unwrap" => match &recv_ty {
+                        DeclType::Option(t) | DeclType::Result(t, _) => (**t).clone(),
+                        other => other.clone(),
+                    },
                     _ => DeclType::Plain(Type::Long),
                 }
             }
@@ -456,6 +461,7 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
     let unit = || DeclType::Tuple(Vec::new());
     // `Result<T>` shorthand — the error is always `String`.
     let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
+    let named = |n: &str| DeclType::Named(n.to_string());
     Some(match (ns, method) {
         ("filesystem", "read") => res(text()),
         ("filesystem", "readlines") => res(DeclType::Vec(Box::new(text()))),
@@ -465,6 +471,43 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
             "write" | "append" | "delete" | "copy" | "movefile" | "createfolder" | "createfolderall"
             | "deletefolder" | "deletefolderall",
         ) => res(unit()),
+        ("datetime", "now") => named("DateTime"),
+        ("datetime", "parse") => res(named("DateTime")),
+        ("regex", "replace" | "replaceall") => res(text()),
+        ("regex", "ismatch") => res(DeclType::Plain(Type::Boolean)),
+        ("shell", "run") => res(text()),
+        ("shell", "start") => res(named("Process")),
+        ("json", "parse") => res(named("Json")),
+        ("json", "object" | "array") => named("Json"),
+        _ => return None,
+    })
+}
+
+/// The return type of a standard-library **value type**'s instance method
+/// (`d.Year()`, `p.Wait()`), or `None` if `(ty, method)` isn't known.
+pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
+    // `Result<T>` shorthand for the fallible `Json` accessors (error = String).
+    let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
+    let text = || DeclType::Plain(Type::Text);
+    Some(match (ty, method) {
+        // `Json` accessors — the typed `get_*`/`as_*` return `Result<T>`; the
+        // `set_*`/`push` mutators and `has_key`/`is_null` are non-fallible.
+        ("json", "getstring" | "asstring" | "tostring" | "topretty") => res(text()),
+        ("json", "getint" | "asint") => res(DeclType::Plain(Type::Long)),
+        ("json", "getfloat" | "asfloat") => res(DeclType::Plain(Type::Double)),
+        ("json", "getbool" | "asbool") => res(DeclType::Plain(Type::Boolean)),
+        ("json", "getarray") => res(DeclType::Vec(Box::new(DeclType::Named("Json".to_string())))),
+        ("json", "get") => res(DeclType::Named("Json".to_string())),
+        ("json", "haskey" | "isnull") => DeclType::Plain(Type::Boolean),
+        ("json", "setstring" | "setint" | "setbool" | "set" | "push") => DeclType::Tuple(Vec::new()),
+        ("datetime", "year" | "month" | "day") => DeclType::Plain(Type::Long),
+        ("datetime", "format") => DeclType::Plain(Type::Text),
+        ("datetime", "adddays" | "addhours" | "addminutes") => DeclType::Named("DateTime".to_string()),
+        ("datetime", "diffdays" | "diffhours") => DeclType::Plain(Type::Long),
+        ("process", "isrunning") => DeclType::Plain(Type::Boolean),
+        ("process", "wait") => DeclType::Plain(Type::Long),
+        // `Kill` returns nothing → typed `Long` (unused).
+        ("process", "kill") => DeclType::Plain(Type::Long),
         _ => return None,
     })
 }

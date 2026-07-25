@@ -110,7 +110,7 @@ cc hello.c -lm && ./a.out
 
 - **Coverage:** the **entire core language** — scalars/strings, `If`/`For`/`Do`,
   `Type`/methods, `Const`, `Match`/`Enum`, `Vec`/`HashMap`, iterators,
-  `Option`/`Result`/`?`. (The **standard library** is not yet on C.)
+  `Option`/`Result`/`?` — **plus the standard library** (see below).
 - **Idioms:**
   - `Type` → a `typedef struct`; methods → free functions taking a `Struct* self`
     (`Me.field` → `self->field`).
@@ -126,6 +126,32 @@ cc hello.c -lm && ./a.out
 - **Float formatting** matches Rust byte-for-byte via shortest-round-trip
   (increasing `%g` precision until it re-parses to the same bits).
 
+### The C standard library — single file vs. project folder
+
+The stdlib namespaces lower to C in two packagings, chosen by whether the
+namespace needs anything beyond libc:
+
+- **Self-contained** (`FileSystem`, `DateTime`, `Shell`, `Regex`) — the runtime
+  is inlined over libc/POSIX, so the program stays a **single `.c`** you build
+  with plain `cc`. No external dependency.
+- **Vendored / linked** — a namespace with no libc equivalent is emitted as a
+  **project folder** (the parallel of Python's `vbrpy/` mode): `main.c`, the
+  bundled library sources from `csupport/`, and a `Makefile`. `vbr c` reports
+  this and writes the folder; build it with `cd <name>_c && make && ./main`.
+  - **`Json`** vendors **cJSON** (MIT, `csupport/cJSON.{c,h}`) — no system
+    package, no network; a `Json` is a thin handle over a `cJSON*` node, with the
+    typed `get_*`/`as_*` accessors returning the same `Result<T>` as `vbr_stdlib`.
+
+The `vbr runproject` stdout is the ground truth: a C stdlib example's output is
+byte-identical to the Rust build where deterministic (`Json` field reads, file
+I/O), and snapshot-only where it isn't (HashMap order, wall-clock, network). The
+error/serialisation *failure* paths can differ from Rust's wording (cJSON's parse
+message, number formatting) — those aren't on the byte-identical happy path.
+
+Remaining stdlib namespaces on C: **`Database`** (SQLite — vendor the amalgamation
+or link `-lsqlite3`) and **`Http`** (link `-lcurl`); **`DataFrame`** has no C
+equivalent and warns.
+
 ### Memory model — `x = Nothing`
 
 C has no ownership and no GC, so VBR takes the deliberately-simple, **teaching**
@@ -139,8 +165,8 @@ hides.
   carried over). See §5 — it is a real language statement that lowers on all three
   targets.
 
-The standard library, arrays, and finer memory management are the next slices;
-until then a `⚠` warning marks anything a C slice doesn't cover yet.
+Arrays and finer memory management are later slices; a `⚠` warning marks
+anything a C slice doesn't cover yet.
 
 ---
 

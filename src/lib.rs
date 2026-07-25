@@ -290,6 +290,22 @@ pub struct CCompiled {
     pub has_errors: bool,
     /// Constructs that couldn't cross to C cleanly (rendered `⚠` notes).
     pub warnings: Vec<String>,
+    /// Vendored C libraries this program needs bundled beside `main.c` (base
+    /// names under `csupport/`, e.g. `"cJSON"` → `cJSON.c` + `cJSON.h`). When
+    /// non-empty the output is a *project folder* (`main.c` + the sources + a
+    /// `Makefile`), the parallel of Python's `vbrpy/` project mode.
+    pub vendored: Vec<String>,
+    /// Extra linker flags the `Makefile` must pass (`"m"` → `-lm`, `"curl"` →
+    /// `-lcurl`) — a system library the program links rather than vendoring.
+    pub link_flags: Vec<String>,
+}
+
+impl CCompiled {
+    /// A program is a *project* (a folder, not one file) when it vendors a C
+    /// library — it then needs the bundled sources and a `Makefile` to build.
+    pub fn is_project(&self) -> bool {
+        !self.vendored.is_empty()
+    }
 }
 
 /// Transpile `source` to C. Like the Python path, the resolver's Rust-specific
@@ -305,6 +321,8 @@ pub fn compile_c(source: &str) -> CCompiled {
             diagnostics: diags.items().iter().map(|d| d.render()).collect(),
             has_errors: true,
             warnings: Vec::new(),
+            vendored: Vec::new(),
+            link_flags: Vec::new(),
         };
     }
     let out = c::emit_c(&program);
@@ -313,7 +331,20 @@ pub fn compile_c(source: &str) -> CCompiled {
         diagnostics: diags.items().iter().map(|d| d.render()).collect(),
         has_errors: false,
         warnings: out.warnings,
+        vendored: out.vendored,
+        link_flags: out.link_flags,
     }
+}
+
+/// Where the vendored C support libraries live (cJSON, later the SQLite
+/// amalgamation), bundled into a C project folder the way `vbrpy/` is for
+/// Python: `$VBR_CSTDLIB_PATH`, else the compile-time default beside the crate.
+pub fn cstdlib_path() -> std::path::PathBuf {
+    std::env::var("VBR_CSTDLIB_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/csupport"))
+        })
 }
 
 /// Where the `vbrpy` package lives (the Python stdlib, bundled into projects):

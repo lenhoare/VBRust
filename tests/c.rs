@@ -40,7 +40,13 @@ const C_SNAPSHOT_ONLY: &[&str] = &["hashmap"];
 /// ground truth is a stored `.out` (captured from `vbr runproject`); the C is
 /// compiled, run, and diffed against it — the same discipline as the deterministic
 /// examples, just with the reference precomputed.
-const C_STDLIB: &[&str] = &["filesystem"];
+const C_STDLIB: &[&str] = &["filesystem", "datetime_basics", "stdlib", "shell"];
+
+/// Standard-library examples that vendor a C library, so the output is a *project
+/// folder* (`main.c` + the bundled sources + a `Makefile`) rather than a single
+/// `.c`. Built by compiling `main.c` alongside the vendored sources, then diffed
+/// against the stored `.out` — the same `vbr runproject` ground truth.
+const C_STDLIB_PROJECT: &[&str] = &["json_basics"];
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
@@ -73,7 +79,7 @@ fn check_snapshot(name: &str, ext: &str, actual: &str) {
 
 #[test]
 fn c_output_matches_snapshots() {
-    for name in C.iter().chain(C_SNAPSHOT_ONLY).chain(C_STDLIB) {
+    for name in C.iter().chain(C_SNAPSHOT_ONLY).chain(C_STDLIB).chain(C_STDLIB_PROJECT) {
         let result = vbr::compile_c(&read_example(name));
         assert!(!result.has_errors, "{name} produced errors: {:?}", result.diagnostics);
         assert!(result.warnings.is_empty(), "{name} warned: {:?}", result.warnings);
@@ -127,6 +133,50 @@ fn c_stdlib_matches_out() {
     }
     for name in C_STDLIB {
         let out = run_via_c(name, &read_example(name));
+        check_snapshot(name, "out", &out);
+    }
+}
+
+/// Project stdlib examples: emit `main.c`, bundle the vendored sources, build
+/// them together with the `Makefile`'s link flags, run, and diff stdout against
+/// the stored `.out`. Skips without `cc`.
+#[test]
+fn c_stdlib_project_matches_out() {
+    if Command::new("cc").arg("--version").output().is_err() {
+        eprintln!("skipping c_stdlib_project_matches_out: no cc");
+        return;
+    }
+    for name in C_STDLIB_PROJECT {
+        let result = vbr::compile_c(&read_example(name));
+        assert!(!result.has_errors, "{name} (c) errors: {:?}", result.diagnostics);
+        assert!(result.is_project(), "{name}: expected a vendored project");
+        let dir = std::env::temp_dir().join(format!("vbr_c_proj_{name}"));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("main.c"), &result.code).unwrap();
+        // Copy each vendored `.c`/`.h` from `csupport/`.
+        let csupport = Path::new(env!("CARGO_MANIFEST_DIR")).join("csupport");
+        let mut sources = vec![dir.join("main.c")];
+        for base in &result.vendored {
+            for ext in ["c", "h"] {
+                let f = format!("{base}.{ext}");
+                fs::copy(csupport.join(&f), dir.join(&f)).unwrap();
+            }
+            sources.push(dir.join(format!("{base}.c")));
+        }
+        let bin = dir.join("main_bin");
+        let mut cc = Command::new("cc");
+        cc.args(&sources).arg("-o").arg(&bin);
+        for flag in &result.link_flags {
+            cc.arg(format!("-l{flag}"));
+        }
+        let built = cc.output().expect("cc");
+        assert!(
+            built.status.success(),
+            "{name}: cc failed:\n{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let run = Command::new(&bin).current_dir(&dir).output().expect("run c binary");
+        let out = String::from_utf8_lossy(&run.stdout).into_owned();
         check_snapshot(name, "out", &out);
     }
 }
