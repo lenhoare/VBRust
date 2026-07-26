@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 use vbr_ide_core::{
     complete, create_form as core_create_form, definition, design_to_vbr, graduate, hover,
-    read_file, read_project, run, run_project, test_project, transpile, CompletionItem, Node,
-    Project, Range, RunOutput, TranspileResult,
+    read_file, read_project, run_project, run_target, test_project, transpile_target,
+    CompletionItem, Node, Project, Range, RunOutput, TranspileResult,
 };
 
 /// A file the user opened: its path (so Save can write back to it) and text.
@@ -18,18 +18,21 @@ struct OpenedFile {
     content: String,
 }
 
-/// Turn the editor's current text into Rust + diagnostics. Everything heavy
-/// lives in `vbr-ide-core`; this is just the bridge across the webview boundary.
+/// Turn the editor's current text into the chosen target's code + diagnostics.
+/// Everything heavy lives in `vbr-ide-core`; this is just the bridge across the
+/// webview boundary. `target` is `"rust"` (default), `"python"`, or `"c"`.
 #[tauri::command]
-fn transpile_source(source: String) -> TranspileResult {
-    transpile(&source)
+fn transpile_source(source: String, target: Option<String>) -> TranspileResult {
+    transpile_target(&source, target.as_deref().unwrap_or("rust"))
 }
 
-/// Compile and run the current buffer, returning its output. rustc can take a
-/// moment, so this runs on a blocking thread to keep the UI responsive.
+/// Compile and run the current buffer on the chosen target, returning its
+/// output. Building can take a moment, so this runs on a blocking thread to keep
+/// the UI responsive. `target` is `"rust"` (default), `"python"`, or `"c"`.
 #[tauri::command]
-async fn run_source(source: String) -> RunOutput {
-    tauri::async_runtime::spawn_blocking(move || run(&source))
+async fn run_source(source: String, target: Option<String>) -> RunOutput {
+    let target = target.unwrap_or_else(|| "rust".to_string());
+    tauri::async_runtime::spawn_blocking(move || run_target(&source, &target))
         .await
         .unwrap_or_else(|e| RunOutput {
             stage: "compile".to_string(),

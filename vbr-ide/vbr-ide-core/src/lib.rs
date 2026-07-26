@@ -70,11 +70,15 @@ pub struct Diagnostic {
     pub range: Option<Range>,
 }
 
-/// Everything the editor needs from one compile: the Rust the source became,
-/// and the diagnostics to render.
+/// Everything the editor needs from one compile: the code the source became (in
+/// the chosen target language), the Monaco language id to highlight it with, and
+/// the diagnostics to render.
 #[derive(Debug, Clone, Serialize)]
 pub struct TranspileResult {
-    pub rust: String,
+    pub code: String,
+    /// Monaco language id for the output pane — `"rust"`, `"python"`, or `"cpp"`
+    /// (C is highlighted with Monaco's C/C++ grammar).
+    pub language: String,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -99,11 +103,45 @@ fn map_diagnostics(source: &str, items: &[vbr::diagnostics::Diagnostic]) -> Vec<
         .collect()
 }
 
+/// Transpile to Rust (the default target) — the same call the playground makes.
 pub fn transpile(source: &str) -> TranspileResult {
-    let compiled = vbr::compile(source);
-    TranspileResult {
-        diagnostics: map_diagnostics(source, &compiled.diagnostic_items),
-        rust: compiled.rust,
+    transpile_target(source, "rust")
+}
+
+/// Transpile `source` to a chosen output target: `"rust"` (default), `"python"`,
+/// or `"c"`. The **structured** VBR diagnostics (with spans, for the editor's
+/// squiggles) are target-neutral, so they always come from the Rust front-end;
+/// the code + Monaco language switch per target, and each non-Rust target's own
+/// warnings (unsupported constructs) are appended as span-less notes.
+pub fn transpile_target(source: &str, target: &str) -> TranspileResult {
+    let base = vbr::compile(source);
+    let mut diagnostics = map_diagnostics(source, &base.diagnostic_items);
+    let (code, language) = match target {
+        "python" => {
+            let out = vbr::compile_python(source);
+            append_warnings(&mut diagnostics, &out.warnings);
+            (out.code, "python")
+        }
+        "c" => {
+            let out = vbr::compile_c(source);
+            append_warnings(&mut diagnostics, &out.warnings);
+            (out.code, "cpp")
+        }
+        _ => (base.rust, "rust"),
+    };
+    TranspileResult { code, language: language.to_string(), diagnostics }
+}
+
+/// Append a target backend's warnings (plain strings, no span) as note-level
+/// diagnostics so the Problems pane shows what a target couldn't render.
+fn append_warnings(diagnostics: &mut Vec<Diagnostic>, warnings: &[String]) {
+    for w in warnings {
+        diagnostics.push(Diagnostic {
+            level: "note".to_string(),
+            message: w.trim_start_matches(['⚠', ' ']).to_string(),
+            line: None,
+            range: None,
+        });
     }
 }
 
@@ -223,6 +261,147 @@ pub fn run(source: &str) -> RunOutput {
         },
         Err(stderr) => RunOutput::blocked("compile", compiled.rust, diagnostics, stderr),
     }
+}
+
+/// Run `source` on a chosen target: `"rust"` (the default `run`), `"python"`
+/// (transpile → `python3`), or `"c"` (transpile → `cc` → execute). Python and C
+/// run the **full standard library** the way the CLI does — a stdlib program
+/// stages its bundled support (the `vbrpy` package / the vendored C sources) into
+/// the temp build. The one thing that still needs the CLI is a `Use` pip
+/// dependency (a `pip install` the IDE won't run for you).
+pub fn run_target(source: &str, target: &str) -> RunOutput {
+    match target {
+        "python" => run_python(source),
+        "c" => run_c(source),
+        _ => run(source),
+    }
+}
+
+/// A private temp directory for one run, named by `tag` + a nanosecond stamp.
+fn fresh_temp_dir(tag: &str) -> Option<PathBuf> {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("vbr-ide-{tag}-{nanos}"));
+    std::fs::create_dir_all(&dir).ok().map(|_| dir)
+}
+
+/// Recursively copy `src` into `dst` (used to stage the bundled `vbrpy` package).
+fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &to)?;
+        } else {
+            std::fs::copy(entry.path(), &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Assemble the successful/failed `RunOutput` from a captured process result.
+fn finish_run(code: String, diagnostics: Vec<Diagnostic>, result: Result<(String, String, bool), String>) -> RunOutput {
+    match result {
+        Ok((stdout, stderr, success)) => {
+            RunOutput { stage: "run".to_string(), rust: code, diagnostics, stdout, stderr, success }
+        }
+        Err(stderr) => RunOutput::blocked("compile", code, diagnostics, stderr),
+    }
+}
+
+/// Transpile to Python and run it with `python3`, staging the `vbrpy` package
+/// when the program uses the standard library.
+fn run_python(source: &str) -> RunOutput {
+    let base = vbr::compile(source);
+    let diagnostics = map_diagnostics(source, &base.diagnostic_items);
+    let out = vbr::compile_python(source);
+    if out.has_errors {
+        return RunOutput::blocked("diagnostics", out.code, diagnostics, String::new());
+    }
+    if !out.requirements.is_empty() {
+        return RunOutput::blocked(
+            "project",
+            out.code,
+            diagnostics,
+            "This program declares pip dependencies (via `Use`), so it needs a \
+             `pip install`. Transpile it with `vbr py` and run it from the CLI."
+                .to_string(),
+        );
+    }
+    let Some(dir) = fresh_temp_dir("py") else {
+        return RunOutput::blocked("compile", out.code, diagnostics, "Could not create a temporary build directory.".to_string());
+    };
+    let result = (|| {
+        std::fs::write(dir.join("main.py"), &out.code)
+            .map_err(|e| format!("Could not write the generated Python: {e}"))?;
+        if !out.stdlib_used.is_empty() {
+            copy_dir(&vbr::pystdlib_path(), &dir.join("vbrpy"))
+                .map_err(|e| format!("Could not stage the vbrpy package: {e}"))?;
+        }
+        let run = Command::new("python3")
+            .arg("main.py")
+            .current_dir(&dir)
+            .output()
+            .map_err(|e| format!("Could not run python3 — is Python installed? ({e})"))?;
+        Ok((
+            String::from_utf8_lossy(&run.stdout).into_owned(),
+            String::from_utf8_lossy(&run.stderr).into_owned(),
+            run.status.success(),
+        ))
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    finish_run(out.code, diagnostics, result)
+}
+
+/// Transpile to C, compile it with `cc` (staging any vendored sources and passing
+/// the project's link flags), and run the built binary.
+fn run_c(source: &str) -> RunOutput {
+    let base = vbr::compile(source);
+    let diagnostics = map_diagnostics(source, &base.diagnostic_items);
+    let out = vbr::compile_c(source);
+    if out.has_errors {
+        return RunOutput::blocked("diagnostics", out.code, diagnostics, String::new());
+    }
+    let Some(dir) = fresh_temp_dir("c") else {
+        return RunOutput::blocked("compile", out.code, diagnostics, "Could not create a temporary build directory.".to_string());
+    };
+    let bin = dir.join(format!("vbr-prog{}", std::env::consts::EXE_SUFFIX));
+    let result = (|| {
+        std::fs::write(dir.join("main.c"), &out.code)
+            .map_err(|e| format!("Could not write the generated C: {e}"))?;
+        // Stage each vendored library's `.c`/`.h` pair beside `main.c`.
+        let mut sources = vec![dir.join("main.c")];
+        for base_name in &out.vendored {
+            for ext in ["c", "h"] {
+                let f = format!("{base_name}.{ext}");
+                std::fs::copy(vbr::cstdlib_path().join(&f), dir.join(&f))
+                    .map_err(|e| format!("Could not stage the vendored {f}: {e}"))?;
+            }
+            sources.push(dir.join(format!("{base_name}.c")));
+        }
+        let mut cc = Command::new("cc");
+        cc.args(&sources).arg("-o").arg(&bin).arg("-lm");
+        for flag in out.link_flags.iter().filter(|f| *f != "m") {
+            cc.arg(format!("-l{flag}"));
+        }
+        let compile = cc
+            .output()
+            .map_err(|e| format!("Could not run cc — is a C compiler installed? ({e})"))?;
+        if !compile.status.success() {
+            return Err(String::from_utf8_lossy(&compile.stderr).into_owned());
+        }
+        let run = Command::new(&bin)
+            .current_dir(&dir)
+            .output()
+            .map_err(|e| format!("Could not launch the built program: {e}"))?;
+        Ok((
+            String::from_utf8_lossy(&run.stdout).into_owned(),
+            String::from_utf8_lossy(&run.stderr).into_owned(),
+            run.status.success(),
+        ))
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    finish_run(out.code, diagnostics, result)
 }
 
 // --- Projects ---------------------------------------------------------------
@@ -525,11 +704,25 @@ mod tests {
     #[test]
     fn transpiles_to_rust() {
         let out = transpile(&in_main("    Debug.Print \"hello\""));
+        assert_eq!(out.language, "rust");
         assert!(
-            out.rust.contains("println!"),
+            out.code.contains("println!"),
             "expected a println! in the generated Rust, got:\n{}",
-            out.rust
+            out.code
         );
+    }
+
+    #[test]
+    fn transpiles_to_python_and_c() {
+        let src = in_main("    Debug.Print \"hello\"");
+        let py = transpile_target(&src, "python");
+        assert_eq!(py.language, "python");
+        assert!(py.code.contains("print("), "expected Python print, got:\n{}", py.code);
+
+        let c = transpile_target(&src, "c");
+        assert_eq!(c.language, "cpp");
+        assert!(c.code.contains("printf"), "expected C printf, got:\n{}", c.code);
+        assert!(c.code.contains("int main"), "expected a C main, got:\n{}", c.code);
     }
 
     #[test]
@@ -576,6 +769,45 @@ mod tests {
             "stdout should carry the printed line, got: {:?}",
             out.stdout
         );
+    }
+
+    #[test]
+    fn runs_a_simple_program_on_python() {
+        if Command::new("python3").arg("--version").output().is_err() {
+            eprintln!("skipping runs_a_simple_program_on_python: no python3");
+            return;
+        }
+        let out = run_target(&in_main("    Debug.Print \"hi from python\""), "python");
+        assert_eq!(out.stage, "run", "should reach the run stage: {out:?}");
+        assert!(out.success && out.stdout.contains("hi from python"), "got: {out:?}");
+    }
+
+    #[test]
+    fn runs_a_simple_program_on_c() {
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping runs_a_simple_program_on_c: no cc");
+            return;
+        }
+        let out = run_target(&in_main("    Debug.Print \"hi from c\""), "c");
+        assert_eq!(out.stage, "run", "should reach the run stage: {out:?}");
+        assert!(out.success && out.stdout.contains("hi from c"), "got: {out:?}");
+    }
+
+    /// Python runs the standard library too — a `DateTime` program stages `vbrpy`
+    /// and runs (unlike the Rust single-file path, which defers to the project
+    /// runner). Output is wall-clock, so only the stage is asserted.
+    #[test]
+    fn runs_a_stdlib_program_on_python() {
+        if Command::new("python3").arg("--version").output().is_err() {
+            eprintln!("skipping runs_a_stdlib_program_on_python: no python3");
+            return;
+        }
+        let out = run_target(
+            &in_main("    Dim now As DateTime = DateTime.Now()\n    Debug.Print now.Year()"),
+            "python",
+        );
+        assert_eq!(out.stage, "run", "stdlib Python should run, got: {out:?}");
+        assert!(out.success, "should exit cleanly: {out:?}");
     }
 
     #[test]

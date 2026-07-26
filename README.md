@@ -134,17 +134,26 @@ cargo run -- py examples/hello.vbr        # → idiomatic Python (stdout, or -o 
 cargo run -- c  examples/hello.vbr        # → self-contained C (stdout, or -o out.c)
 ```
 
-Both cover the **core language** (Python also covers the full standard library, as
-a `main.py` + `vbrpy/` project). The GUI/TUI/Web surfaces stay Rust-only. For
-deterministic programs the output is checked **byte-for-byte against `vbr run`**.
-The C target adds `x = Nothing` — an explicit "release this now" hook (`drop` on
-Rust, `None` on Python, `free` on C) that makes manual memory visible. Full
-detail — packaging, external libraries (`Use` → pip, inline `Python`), and the
-shared front-end that keeps the three in sync — is in **`targets_spec.md`**.
+Both cover the **core language and the full standard library** — Python as a
+`main.py` + `vbrpy/` project, C as a self-contained `.c` (or a project folder +
+`Makefile` when a namespace needs a library). The GUI/TUI/Web surfaces stay
+Rust-only. For deterministic programs the output is checked **byte-for-byte
+against `vbr run`**. The C target adds `x = Nothing` — an explicit "release this
+now" hook (`drop` on Rust, `None` on Python, `free` on C) that makes manual
+memory visible. Full detail — packaging, external libraries (`Use` → pip, inline
+`Python`), and the shared front-end that keeps the three in sync — is in
+**`targets_spec.md`**.
 
 ```sh
 cargo run -- c examples/hello.vbr -o hello.c && cc hello.c -lm && ./a.out
 ```
+
+A C program that uses a *linked* standard-library namespace becomes a project
+folder and needs that library's development package at build time: **`Database`**
+needs `libsqlite3-dev` (`-lsqlite3`) and **`Http`** needs `libcurl4-openssl-dev`
+(`-lcurl`). The vendored ones (`Json` → cJSON) need nothing but a C compiler.
+Python's stdlib and the other C namespaces (FileSystem, DateTime, Shell, Regex)
+have no external requirements.
 
 ## Running the tests
 

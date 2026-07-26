@@ -27,7 +27,8 @@ interface Diagnostic {
 }
 
 interface TranspileResult {
-  rust: string;
+  code: string;
+  language: string;
   diagnostics: Diagnostic[];
 }
 
@@ -302,8 +303,21 @@ function renderTabs(): void {
   }
 }
 
+// The chosen output target (Rust / Python / C), persisted across sessions. Rust
+// is primary; Python and C are additive views of the same source.
+const TARGET_KEY = "vbr-ide.target";
+const TARGET_LABELS: Record<string, string> = { rust: "Rust", python: "Python", c: "C" };
+const targetSelect = document.getElementById("target") as HTMLSelectElement;
+let currentTarget = localStorage.getItem(TARGET_KEY) ?? "rust";
+targetSelect.value = currentTarget;
+targetSelect.addEventListener("change", () => {
+  currentTarget = targetSelect.value;
+  localStorage.setItem(TARGET_KEY, currentTarget);
+  void refresh();
+});
+
 async function refresh(): Promise<void> {
-  // Non-VBR files keep the split but blank the Rust view.
+  // Non-VBR files keep the split but blank the output view.
   if (!isVbrTab(activeTab())) {
     rustView.setValue("");
     const m = editor.getModel();
@@ -317,9 +331,15 @@ async function refresh(): Promise<void> {
   const source = editor.getValue();
   try {
     const t0 = performance.now();
-    const result = await invoke<TranspileResult>("transpile_source", { source });
+    const result = await invoke<TranspileResult>("transpile_source", {
+      source,
+      target: currentTarget,
+    });
     const ms = Math.max(1, Math.round(performance.now() - t0));
-    rustView.setValue(result.rust);
+    rustView.setValue(result.code);
+    // Highlight the output pane in the target's own language.
+    const outModel = rustView.getModel();
+    if (outModel) monaco.editor.setModelLanguage(outModel, result.language);
     renderDiagnostics(result.diagnostics);
     setMarkers(result.diagnostics);
     updateStatus(result.diagnostics, ms);
@@ -481,12 +501,18 @@ async function runProgram(): Promise<void> {
   runBtn.disabled = true;
   runBtn.textContent = "▶ Running…";
   consoleEl.className = "";
-  consoleEl.textContent = isProject ? "Building and running the project…" : "Compiling and running…";
+  const label = TARGET_LABELS[currentTarget] ?? "Rust";
+  consoleEl.textContent = isProject
+    ? "Building and running the project…"
+    : `Compiling and running (${label})…`;
   try {
     const out =
       isProject && projectRoot
         ? await invoke<RunOutput>("run_project_at", { root: projectRoot })
-        : await invoke<RunOutput>("run_source", { source: editor.getValue() });
+        : await invoke<RunOutput>("run_source", {
+            source: editor.getValue(),
+            target: currentTarget,
+          });
     renderRunOutput(out);
   } catch (e) {
     consoleEl.className = "err";
@@ -510,7 +536,7 @@ function renderRunOutput(out: RunOutput): void {
   }
   if (out.stage === "compile") {
     consoleEl.className = "err";
-    consoleEl.textContent = "The generated Rust did not compile:\n\n" + out.stderr;
+    consoleEl.textContent = "The generated code did not compile:\n\n" + out.stderr;
     return;
   }
   const body = [out.stdout, out.stderr].filter(Boolean).join("\n").trimEnd();

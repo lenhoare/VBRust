@@ -288,6 +288,28 @@ body.designer-mode .designer-only {
   border-bottom: 1px solid var(--border);
 }
 
+/* The output pane's header carries the target selector. Keep the row at full
+   opacity (so the dropdown is readable) and dim just the label word to match
+   the other headers. */
+.pane-label.with-select {
+  opacity: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.pane-label.with-select label {
+  opacity: 0.5;
+  cursor: default;
+}
+.select.small {
+  font-size: 11px;
+  padding: 1px 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .editor {
   flex: 1;
   min-height: 0;

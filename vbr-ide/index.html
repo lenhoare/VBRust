@@ -19,7 +19,7 @@
         <select id="examples" class="select code-only" title="Load an example">
           <option value="">Load example…</option>
         </select>
-        <button id="copy-rust" class="btn code-only" title="Copy the generated Rust">Copy Rust</button>
+        <button id="copy-rust" class="btn code-only" title="Copy the generated output">Copy</button>
         <button id="test" class="btn code-only" title="Run the project's tests (vbr test)" disabled>Test</button>
         <button id="graduate" class="btn code-only" title="Promote this module's Rust to source (vbr graduate)" disabled>Graduate</button>
         <button id="run" class="btn primary code-only" title="Run (Ctrl+Enter)">▶ Run</button>
@@ -46,7 +46,14 @@
             </section>
             <div class="gutter" id="gutter" title="Drag to resize"></div>
             <section class="pane">
-              <div class="pane-label">Rust</div>
+              <div class="pane-label with-select">
+                <label for="target">Target</label>
+                <select id="target" class="select small" title="Output language — Rust is primary; Python and C are additive">
+                  <option value="rust">Rust</option>
+                  <option value="python">Python</option>
+                  <option value="c">C</option>
+                </select>
+              </div>
               <div id="rust" class="editor"></div>
             </section>
           </div>
