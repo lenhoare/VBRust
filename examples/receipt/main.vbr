@@ -1,0 +1,16 @@
+' A tiny till: three line items at 20% VAT, printed as a receipt. Every sum comes
+' from the `Receipt` module (whose specs live in `receipt.test.vbr`); `Main` is
+' thin — it only arranges the numbers and prints them.
+Function Main()
+    Dim apples As Long = Receipt.LineTotal(30, 4)   ' 4 @ 30p
+    Dim bread As Long = Receipt.LineTotal(115, 1)   ' 1 @ 115p
+    Dim milk As Long = Receipt.LineTotal(89, 2)     ' 2 @ 89p
+    Dim net As Long = apples + bread + milk
+
+    Debug.Print "apples: " & apples & "p"
+    Debug.Print "bread:  " & bread & "p"
+    Debug.Print "milk:   " & milk & "p"
+    Debug.Print "net:    " & net & "p"
+    Debug.Print "vat:    " & Receipt.TaxPence(net, 20) & "p"
+    Debug.Print "total:  " & Receipt.GrandTotal(net, 20) & "p"
+End Function

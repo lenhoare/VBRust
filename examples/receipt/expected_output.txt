@@ -1,0 +1,6 @@
+apples: 120p
+bread:  115p
+milk:   178p
+net:    413p
+vat:    82p
+total:  495p

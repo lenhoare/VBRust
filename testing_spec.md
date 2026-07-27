@@ -56,6 +56,25 @@ as unused in the app build.
 `Test` blocks may also sit inline in any `.vbr` file (next to the code, Rust's
 `#[cfg(test)]` style); the dedicated `.test.vbr` file is the recommended home.
 
+### The entry module isn't testable — keep logic in a sibling module
+
+A `.test.vbr` file exercises the **public surface of the sibling module of the
+same name**, so two rules follow:
+
+- **Put the code under test in a non-entry module.** The entry module (`main.vbr`,
+  the one with `Function Main()`) is *not* reachable from a test file — a
+  `main.test.vbr` calling `Main.Foo(…)` (or bare `Foo(…)`) won't resolve. Keep
+  `main.vbr` thin (arrange + print) and put the logic in `receipt.vbr`,
+  `life.vbr`, … with `receipt.test.vbr`, `life.test.vbr` beside it.
+- **Call the module qualified** (`Receipt.Total(…)`, prefix = the filename
+  capitalised), and mark every tested function `Public`.
+
+A single **self-contained file** is different: `Test` blocks inline in one `.vbr`
+call same-file functions by their bare name (no `Public`, no qualifier) and run
+with `vbr test <file>` — see `examples/tests.vbr`. The sibling-module form is for
+a **project folder**; see `examples/receipt/` for a worked example (`main.vbr` +
+`receipt.vbr` + `receipt.test.vbr`), run with `vbr test examples/receipt`.
+
 ## Running: `vbr test [path]`
 
 `vbr test` builds the project with its tests active and runs them, reporting each

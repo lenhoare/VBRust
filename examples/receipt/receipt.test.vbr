@@ -1,0 +1,23 @@
+' Executable specs for receipt.vbr — run with `vbr test`. Each `Assert` calls a
+' Public function of the sibling module *directly* (never via `Main`), so a
+' failure pins the exact rule that broke and shows the operand values. This file
+' is compiled only by `vbr test`; `vbr run`/`build`/`runproject` ignore it.
+
+Test "a line total multiplies unit price by quantity"
+    Assert Receipt.LineTotal(30, 4) = 120
+    Assert Receipt.LineTotal(115, 1) = 115
+End Test
+
+Test "an empty line costs nothing"
+    Assert Receipt.LineTotal(99, 0) = 0
+End Test
+
+Test "tax is a whole-penny percentage of the amount"
+    Assert Receipt.TaxPence(413, 20) = 82
+    Assert Receipt.TaxPence(100, 0) = 0
+End Test
+
+Test "the grand total adds tax onto the net"
+    Assert Receipt.GrandTotal(413, 20) = 495
+    Assert Receipt.GrandTotal(500, 0) = 500
+End Test

@@ -1,0 +1,19 @@
+' Pure receipt arithmetic — the logic under test. Every function is `Public` so
+' both the entry module (`main.vbr`) and the tests (`receipt.test.vbr`) can call
+' it, qualified as `Receipt.<Name>`. Amounts are whole pence, so every sum is
+' exact integer arithmetic — deterministic, no floating point.
+
+' The cost of one line: unit price times quantity.
+Public Function LineTotal(ByVal pencePer As Long, ByVal qty As Long) As Long
+    Return pencePer * qty
+End Function
+
+' Whole-penny tax at `ratePercent` of `amount` (integer division truncates).
+Public Function TaxPence(ByVal amount As Long, ByVal ratePercent As Long) As Long
+    Return (amount * ratePercent) / 100
+End Function
+
+' The net amount plus its tax — the amount actually charged.
+Public Function GrandTotal(ByVal net As Long, ByVal ratePercent As Long) As Long
+    Return net + TaxPence(net, ratePercent)
+End Function
