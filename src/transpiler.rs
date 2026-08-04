@@ -166,6 +166,14 @@ pub fn transpile_module(
         diags.clear_line_map();
         return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
     }
+    // A Godot program (one with a `Node2D`/… block) compiles to a gdext
+    // GDExtension: a cdylib of node classes Godot loads and drives. No `fn main`
+    // — Godot is the host; VBR contributes the node scripts.
+    if !program.godot_nodes.is_empty() {
+        let rust = crate::godot::emit_godot_program(program, modules, interfaces, is_entry, diags);
+        diags.clear_line_map();
+        return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
+    }
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
     for func in &program.functions {

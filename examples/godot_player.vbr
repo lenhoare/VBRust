@@ -1,0 +1,31 @@
+' A Godot 2D node written in VBR — the "moving square" (Godot slice 1).
+'
+' A `Node2D` block is one Godot class: Godot instantiates it, drops it into a
+' scene, and calls its lifecycle events. Unlike a Window/Screen (a whole app),
+' this contributes a *behaviour script* — Godot owns the scene and the loop.
+'
+' Lowers to a gdext GDExtension (`#[derive(GodotClass)]` + `impl INode2D`) built
+' as a cdylib the Godot editor loads. Build it with `vbr rungodot` (needs Godot 4).
+'
+' Surface notes:
+'   * `Export` makes a member tweakable in Godot's inspector.
+'   * A bare name is a member field (`Speed` → this node's `speed`).
+'   * `Me.Position` is the node's built-in transform property.
+'   * `delta` is seconds since the last frame (a Single).
+
+Node2D "Player"
+    Export Speed As Single = 200
+
+    On Ready
+        Debug.Print "Player ready"
+    End Ready
+
+    On Process(delta)
+        Dim velocity As Vector2 = Vector2.Zero
+        If Input.IsPressed("ui_right") Then velocity.X = velocity.X + 1.0
+        If Input.IsPressed("ui_left") Then velocity.X = velocity.X - 1.0
+        If Input.IsPressed("ui_down") Then velocity.Y = velocity.Y + 1.0
+        If Input.IsPressed("ui_up") Then velocity.Y = velocity.Y - 1.0
+        Me.Position = Me.Position + velocity * Speed * delta
+    End Process
+End Node2D

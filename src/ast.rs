@@ -71,6 +71,9 @@ pub struct Program {
     pub windows: Vec<Window>,
     pub canvases: Vec<CanvasDef>,
     pub screens: Vec<Screen>,
+    /// `Node2D … End Node2D` blocks — Godot node classes (gdext). A program with
+    /// any of these builds a cdylib GDExtension rather than a normal binary.
+    pub godot_nodes: Vec<GodotNode>,
     /// Web pages (`Page … End Page`) — the same State/View/Events shape as a
     /// `Window` (so the same struct), rendered to a Yew browser app instead.
     pub pages: Vec<Window>,
@@ -90,6 +93,46 @@ pub struct TestBlock {
     pub description: String,
     pub body: Vec<Stmt>,
     pub line: usize,
+}
+
+/// A Godot game object: a node class VBR contributes to a Godot scene. Unlike a
+/// `Window`/`Screen` (a whole State/View/Events app), a `Node2D` block is *one
+/// class* that Godot instantiates and drives — inversion of control. `base` is
+/// the Godot base class (`Node2D`, later `CharacterBody2D`…); `fields` are the
+/// node's members (`Export` ones surface in the editor); `events` are lifecycle
+/// callbacks (`On Ready`, `On Process(delta)`) Godot calls into. Lowers to a
+/// gdext `#[derive(GodotClass)]` + `#[godot_api] impl I<Base>`. (Godot slice 1.)
+#[derive(Debug, Clone)]
+pub struct GodotNode {
+    /// The Godot base class this node extends — `Node2D`, etc. Names both the
+    /// `#[class(base = …)]` and the virtual trait implemented (`INode2D`).
+    pub base: String,
+    /// The registered class / Rust struct name (`Player`).
+    pub name: String,
+    pub fields: Vec<GodotField>,
+    pub events: Vec<GodotEvent>,
+    pub line: usize,
+}
+
+/// One member of a `GodotNode`. `export` = `#[export]` (editor-visible, tweakable
+/// in the inspector); otherwise a private member field. A `default` seeds `init`.
+#[derive(Debug, Clone)]
+pub struct GodotField {
+    pub name: String,
+    pub ty: DeclType,
+    pub default: Option<Expr>,
+    pub export: bool,
+}
+
+/// A lifecycle callback on a `GodotNode` (`On Ready`, `On Process(delta)`). `name`
+/// is the VBR event name (`Ready`, `Process`); `params` carry the one built-in
+/// argument some callbacks get (`Process`'s `delta`). Lowers to the matching
+/// gdext virtual method (`fn ready`, `fn process(&mut self, delta: f64)`).
+#[derive(Debug, Clone)]
+pub struct GodotEvent {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub body: Vec<Stmt>,
 }
 
 /// A terminal UI app: the same State/View/Events model as a `Window`, but

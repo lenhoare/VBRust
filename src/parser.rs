@@ -111,6 +111,7 @@ impl<'a> Parser<'a> {
         let mut windows = Vec::new();
         let mut canvases = Vec::new();
         let mut screens = Vec::new();
+        let mut godot_nodes = Vec::new();
         let mut pages = Vec::new();
         let mut css = Vec::new();
         let mut tests = Vec::new();
@@ -224,6 +225,13 @@ impl<'a> Parser<'a> {
                         self.recover_to_item();
                     }
                 }
+                Tok::Ident(w) if Self::godot_base(w) => {
+                    if let Some(n) = self.parse_godot_node() {
+                        godot_nodes.push(n);
+                    } else {
+                        self.recover_to_item();
+                    }
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Test") => {
                     match self.parse_test() {
                         Some(t) => tests.push(t),
@@ -267,10 +275,17 @@ impl<'a> Parser<'a> {
             windows,
             canvases,
             screens,
+            godot_nodes,
             pages,
             css,
             tests,
         }
+    }
+
+    /// The Godot base classes a top-level block may open (`Node2D "Player" …`).
+    /// Kept as one list so the dispatch and slice-2 additions stay in one place.
+    fn godot_base(w: &str) -> bool {
+        matches!(w, "Node2D" | "Node" | "CharacterBody2D" | "Area2D" | "Sprite2D")
     }
 
     /// `Use <crate> <version> [As <name>]` — the line was captured raw by the
@@ -819,6 +834,118 @@ impl<'a> Parser<'a> {
             }
         };
         Some(Screen { name, title, state, view, keys, timers, events })
+    }
+
+    /// `Node2D "Player" … End Node2D` — a Godot node class. The opening token is
+    /// the base class (`Node2D`); the name is a string (the registered class /
+    /// Rust struct). Members are `Export`/`Dim` fields; `On Ready` / `On
+    /// Process(delta)` are lifecycle callbacks. (Godot slice 1.)
+    fn parse_godot_node(&mut self) -> Option<GodotNode> {
+        let line = self.line();
+        let base = match self.advance() {
+            Tok::Ident(w) => w,
+            other => {
+                self.diags.error_at(
+                    self.prev_span(),
+                    line,
+                    format!("Expected a Godot base class, found {:?}.", other),
+                );
+                return None;
+            }
+        };
+        let name = self.expect_string("for the node's class name (e.g. `Node2D \"Player\"`)")?;
+        self.expect(&Tok::Newline, "after the node name")?;
+
+        let mut fields = Vec::new();
+        let mut events = Vec::new();
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident(&base)?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Comment(_) => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                }
+                // `Export Speed As Single = 200` / `Dim Health As Long = 100` —
+                // a member field. `Export` surfaces it in the Godot inspector.
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Export") => {
+                    self.advance();
+                    fields.push(self.parse_godot_field(true)?);
+                }
+                Tok::Dim => {
+                    self.advance();
+                    fields.push(self.parse_godot_field(false)?);
+                }
+                // `On Ready … End Ready` / `On Process(delta) … End Process`.
+                Tok::On => {
+                    self.advance();
+                    let ev_name = self.expect_ident("for the event name (e.g. `On Process`)")?;
+                    let params = if self.eat(&Tok::LParen) {
+                        self.parse_godot_event_params()?
+                    } else {
+                        Vec::new()
+                    };
+                    self.expect(&Tok::Newline, "after the event name")?;
+                    let body = self.parse_block()?;
+                    self.expect(&Tok::End, "to close the event")?;
+                    self.expect_kw_ident(&ev_name)?;
+                    self.eat(&Tok::Newline);
+                    events.push(GodotEvent { name: ev_name, params, body });
+                }
+                other => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!(
+                            "Unexpected {:?} inside a {} — expected `Export`, `Dim`, \
+                             `On <Event>`, or `End {}`.",
+                            other, base, base
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+        Some(GodotNode { base, name, fields, events, line })
+    }
+
+    /// A Godot event's parameter list (the `(` is already eaten). A lifecycle
+    /// callback's built-in argument may be written untyped (`On Process(delta)`) —
+    /// its type is known from the event, so it defaults to `Single` (delta is
+    /// seconds since the last frame). An explicit `As <Type>` is also accepted.
+    fn parse_godot_event_params(&mut self) -> Option<Vec<Param>> {
+        let mut params = Vec::new();
+        if !matches!(self.peek(), Tok::RParen) {
+            loop {
+                let name = self.expect_ident("for the parameter")?;
+                let ty = if self.eat(&Tok::As) {
+                    self.parse_decl_type()?
+                } else {
+                    DeclType::Plain(Type::Single)
+                };
+                params.push(Param { name, ty, mode: ParamMode::ByVal });
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen, "to close the parameter list")?;
+        Some(params)
+    }
+
+    /// One `[Export] <Name> As <Type> [= <default>]` member of a Godot node.
+    fn parse_godot_field(&mut self, export: bool) -> Option<GodotField> {
+        let name = self.expect_ident("for the field name")?;
+        self.expect(&Tok::As, "after the field name")?;
+        let ty = self.parse_decl_type()?;
+        let default = if self.eat(&Tok::Eq) { Some(self.parse_expr()?) } else { None };
+        self.eat(&Tok::Newline);
+        Some(GodotField { name, ty, default, export })
     }
 
     /// A key spec after `On Key`: a string literal for a character (`"q"`, `"+"`)

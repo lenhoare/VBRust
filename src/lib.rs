@@ -7,6 +7,7 @@ pub mod ast;
 pub mod c;
 pub mod complete;
 pub mod diagnostics;
+pub mod godot;
 pub mod gui;
 pub mod iter;
 pub mod lexer;
