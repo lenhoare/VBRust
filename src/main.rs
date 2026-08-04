@@ -24,6 +24,7 @@ fn main() {
         Some("run") => cmd_run(&args[1..]),
         Some("runproject") => cmd_project(&args[1..], true),
         Some("runweb") => cmd_runweb(&args[1..]),
+        Some("rungodot") => cmd_rungodot(&args[1..]),
         Some("build") => cmd_project(&args[1..], false),
         Some("test") => cmd_test(&args[1..]),
         Some("transpile") => cmd_transpile(&args[1..]),
@@ -44,6 +45,7 @@ fn usage() {
          \tvbr run <file.vbr>      compile with rustc and run (single file, no stdlib/crates)\n\
          \tvbr runproject [path]   generate a cargo project in build/ and run it\n\
          \tvbr runweb [path]       build a Page or Screen for WebAssembly and serve it (trunk)\n\
+         \tvbr rungodot <file.vbr> build a Node2D program as a Godot GDExtension and open it in Godot 4\n\
          \tvbr build [path]        generate the cargo project without running (--web for the browser form)\n\
          \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
@@ -86,6 +88,23 @@ fn needs_project(rust: &str) -> bool {
 /// for the web)? Those build for WebAssembly via `vbr runweb`.
 fn is_web_rust(rust: &str) -> bool {
     rust.contains("yew::Renderer::<") || rust.contains("ratzilla::")
+}
+/// Does the generated Rust define a Godot GDExtension (a `Node2D` program)?
+fn is_godot_rust(rust: &str) -> bool {
+    rust.contains("impl ExtensionLibrary for")
+}
+/// The first node class in a Godot program: `(base, name)` pulled from the
+/// generated `#[class(base = <Base>)]` / `struct <Name>`. Slice 1 has one node.
+fn godot_class_info(rust: &str) -> Option<(String, String)> {
+    let base = rust
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("#[class(base = ")?.strip_suffix(")]"))
+        .map(str::to_string)?;
+    let name = rust
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("struct ")?.strip_suffix(" {"))
+        .map(str::to_string)?;
+    Some((base, name))
 }
 
 fn cmd_transpile(args: &[String]) {
@@ -784,6 +803,201 @@ fn cmd_runweb(args: &[String]) {
             exit(1);
         }
     }
+}
+
+/// `vbr rungodot <file.vbr>` — build a `Node2D` program as a Godot 4
+/// **GDExtension** and open it in the editor.
+///
+/// A Godot program is a cdylib, not a binary: Godot is the host. So we assemble a
+/// self-contained Godot *project folder* beside the source —
+/// `<stem>_godot/` holding `project.godot`, a `.gdextension` pointing at the
+/// built library, a starter `main.tscn`, and a `rust/` crate — build the crate,
+/// then hand off to Godot (opening the editor). The folder is stable: you keep
+/// editing the scene in Godot while `rungodot` regenerates the Rust.
+fn cmd_rungodot(args: &[String]) {
+    let input = match args.first() {
+        Some(a) => PathBuf::from(a),
+        None => {
+            eprintln!("Usage: vbr rungodot <file.vbr>");
+            exit(2);
+        }
+    };
+    let result = transpile(&input);
+    if !is_godot_rust(&result.rust) {
+        eprintln!(
+            "\n✘ This isn't a Godot program — `rungodot` builds a `Node2D` (…) block \
+             into a Godot GDExtension.\n  Run an ordinary program with `vbr run`/`runproject`."
+        );
+        exit(1);
+    }
+    let (_, class) = godot_class_info(&result.rust).unwrap_or_else(|| {
+        eprintln!("✘ Could not find the node class in the generated code.");
+        exit(1);
+    });
+
+    // Names: the crate (→ `lib<crate>.so`) from the file stem, sanitised.
+    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("game");
+    let crate_name = sanitise_crate(stem);
+    let proj = input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{}_godot", stem));
+
+    // --- write the project folder ---------------------------------------
+    let rust_dir = proj.join("rust");
+    if let Err(e) = fs::create_dir_all(rust_dir.join("src")) {
+        eprintln!("✘ Could not create {}: {}", proj.display(), e);
+        exit(1);
+    }
+    let write = |path: PathBuf, contents: &str| {
+        if let Err(e) = fs::write(&path, contents) {
+            eprintln!("✘ Could not write {}: {}", path.display(), e);
+            exit(1);
+        }
+    };
+    write(rust_dir.join("src/lib.rs"), &result.rust);
+    write(rust_dir.join("Cargo.toml"), &godot_cargo_toml(&crate_name));
+    write(proj.join("project.godot"), &godot_project_file(stem));
+    write(proj.join(format!("{}.gdextension", crate_name)), &gdextension_file(&crate_name));
+    write(proj.join("main.tscn"), &godot_main_scene(&class));
+    eprintln!("→ project: {}", proj.display());
+
+    // --- build the cdylib (JSON diagnostics → .vbr lines) ---------------
+    eprintln!("→ Building the GDExtension — compiling the `godot` crate takes a minute the first time.");
+    let built = Command::new("cargo")
+        .args(["build", "--message-format", "json", "--quiet"])
+        .current_dir(&rust_dir)
+        .output();
+    match built {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let errors = parse_cargo_json(&stdout);
+            report_errors(&errors, |e| {
+                let name = e.file.as_deref()?;
+                name.ends_with("lib.rs").then(|| (input.clone(), result.line_map.clone()))
+            });
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("✘ Could not run cargo (is it installed?): {}", e);
+            exit(1);
+        }
+    }
+
+    // --- hand off to Godot ----------------------------------------------
+    match find_godot() {
+        Some(bin) => {
+            eprintln!("→ opening in Godot ({}) — press Play ▶ to run\n", bin);
+            match Command::new(&bin).arg("-e").arg("--path").arg(&proj).status() {
+                Ok(s) => exit(s.code().unwrap_or(0)),
+                Err(e) => {
+                    eprintln!("✘ Could not launch Godot: {}", e);
+                    exit(1);
+                }
+            }
+        }
+        None => {
+            eprintln!(
+                "\n✔ Built. Godot 4 wasn't found on your PATH, so open the project yourself:\n\n    \
+                 godot4 --path {}\n\n  \
+                 (install Godot 4 from https://godotengine.org, or `snap install godot4`; \
+                 set GODOT4_BIN to point at it). Then press Play ▶.",
+                proj.display()
+            );
+        }
+    }
+}
+
+/// A Cargo crate name from a file stem: lowercase, non-alphanumerics → `_`.
+fn sanitise_crate(stem: &str) -> String {
+    let s: String = stem
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .collect();
+    if s.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        format!("g_{}", s)
+    } else {
+        s
+    }
+}
+
+/// The cdylib crate's `Cargo.toml` — a GDExtension against gdext.
+fn godot_cargo_toml(crate_name: &str) -> String {
+    format!(
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [lib]\ncrate-type = [\"cdylib\"]\n\n\
+         [dependencies]\ngodot = \"0.5\"\n",
+        crate_name
+    )
+}
+
+/// The `.gdextension` manifest — points Godot at the built library per platform.
+/// `entry_symbol` is gdext's fixed init hook. Paths are `res://`-relative to the
+/// project folder (so they point straight at cargo's `target/debug` output).
+fn gdextension_file(crate_name: &str) -> String {
+    let dbg = "res://rust/target/debug";
+    let rel = "res://rust/target/release";
+    format!(
+        "[configuration]\n\
+         entry_symbol = \"gdext_rust_init\"\n\
+         compatibility_minimum = 4.2\n\
+         reloadable = true\n\n\
+         [libraries]\n\
+         linux.debug.x86_64 =     \"{dbg}/lib{c}.so\"\n\
+         linux.release.x86_64 =   \"{rel}/lib{c}.so\"\n\
+         windows.debug.x86_64 =   \"{dbg}/{c}.dll\"\n\
+         windows.release.x86_64 = \"{rel}/{c}.dll\"\n\
+         macos.debug =            \"{dbg}/lib{c}.dylib\"\n\
+         macos.release =          \"{rel}/lib{c}.dylib\"\n",
+        c = crate_name
+    )
+}
+
+/// A minimal Godot 4 `project.godot`. GL-compatibility renderer keeps it working
+/// on machines without a Vulkan driver (e.g. WSL).
+fn godot_project_file(name: &str) -> String {
+    format!(
+        "config_version=5\n\n\
+         [application]\n\
+         config/name=\"{name}\"\n\
+         run/main_scene=\"res://main.tscn\"\n\
+         config/features=PackedStringArray(\"4.2\", \"GL Compatibility\")\n\n\
+         [rendering]\n\
+         renderer/rendering_method=\"gl_compatibility\"\n"
+    )
+}
+
+/// A starter scene: the VBR node class as the root, with a coloured box child so
+/// there's something visible to move. `type="<Class>"` resolves once Godot loads
+/// the GDExtension.
+fn godot_main_scene(class: &str) -> String {
+    format!(
+        "[gd_scene format=3]\n\n\
+         [node name=\"{class}\" type=\"{class}\"]\n\n\
+         [node name=\"Box\" type=\"ColorRect\" parent=\".\"]\n\
+         offset_right = 40.0\n\
+         offset_bottom = 40.0\n\
+         color = Color(0.3, 0.7, 1, 1)\n"
+    )
+}
+
+/// Find a Godot 4 executable: `$GODOT4_BIN`/`$GODOT_BIN`, then `godot4`/`godot`
+/// on PATH.
+fn find_godot() -> Option<String> {
+    for var in ["GODOT4_BIN", "GODOT_BIN"] {
+        if let Ok(p) = std::env::var(var) {
+            if !p.is_empty() {
+                return Some(p);
+            }
+        }
+    }
+    for bin in ["godot4", "godot"] {
+        if Command::new(bin).arg("--version").output().is_ok_and(|o| o.status.success()) {
+            return Some(bin.to_string());
+        }
+    }
+    None
 }
 
 /// Does the generated project use `Log` (so the run writes `vbr.log`)? Scans the

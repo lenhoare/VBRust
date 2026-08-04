@@ -78,3 +78,52 @@ fn godot_player_compiles_as_cdylib() {
     let _ = fs::remove_dir_all(&dir);
     assert!(ok, "the generated gdext cdylib should compile");
 }
+
+/// `vbr rungodot` assembles a loadable Godot 4 project: `project.godot`, a
+/// `.gdextension` pointing at the built library, a starter scene using the node
+/// class, and a `rust/` crate that builds to the `.so` the manifest names.
+/// Opt-in (`VBR_GODOT_BUILD=1`) — it builds the cdylib. Godot itself isn't
+/// needed: with none on PATH the command still exits 0 after building.
+#[test]
+fn rungodot_assembles_a_loadable_project() {
+    if std::env::var("VBR_GODOT_BUILD").is_err() {
+        eprintln!("skipping rungodot_assembles_a_loadable_project (set VBR_GODOT_BUILD=1 to run)");
+        return;
+    }
+    let work = std::env::temp_dir().join("vbr_rungodot_test");
+    let _ = fs::remove_dir_all(&work);
+    fs::create_dir_all(&work).unwrap();
+    let src = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/godot_player.vbr"),
+    )
+    .unwrap();
+    let vbr_file = work.join("game.vbr");
+    fs::write(&vbr_file, src).unwrap();
+
+    // Stub the handoff with `/bin/true` so the test is deterministic whether or
+    // not a real Godot is installed (it just exits 0 in place of the editor).
+    let ok = Command::new(env!("CARGO_BIN_EXE_vbr"))
+        .arg("rungodot")
+        .arg(&vbr_file)
+        .env("GODOT4_BIN", "/bin/true")
+        .status()
+        .expect("run vbr rungodot")
+        .success();
+    assert!(ok, "rungodot should succeed and hand off cleanly");
+
+    let proj = work.join("game_godot");
+    let gdext = fs::read_to_string(proj.join("game.gdextension")).expect("read .gdextension");
+    assert!(gdext.contains("entry_symbol = \"gdext_rust_init\""), "gdext init symbol:\n{gdext}");
+    assert!(
+        gdext.contains("res://rust/target/debug/libgame.so"),
+        "gdextension should point at the built .so:\n{gdext}"
+    );
+    let scene = fs::read_to_string(proj.join("main.tscn")).expect("read main.tscn");
+    assert!(scene.contains("type=\"Player\""), "scene should use the node class:\n{scene}");
+    assert!(proj.join("project.godot").exists(), "project.godot should exist");
+    assert!(
+        proj.join("rust/target/debug/libgame.so").exists(),
+        "the cdylib the manifest names should be built"
+    );
+    let _ = fs::remove_dir_all(&work);
+}

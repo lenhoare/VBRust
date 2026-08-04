@@ -109,6 +109,24 @@ cargo run -- runweb examples/tui_counter.vbr
 One-time setup (each checked with a friendly error): `rustup target add
 wasm32-unknown-unknown` and `cargo install trunk --locked`. See `web_spec.md`.
 
+## Games (Godot)
+
+A program with a `Node2D` (…) block is a **Godot** game object — one node class
+Godot instantiates and drives. It compiles to a **GDExtension** (a cdylib, via
+[godot-rust](https://godot-rust.github.io/)) and is opened in the Godot editor:
+
+```sh
+cargo run -- rungodot examples/godot_player.vbr
+```
+
+That assembles a self-contained Godot 4 project beside the source
+(`godot_player_godot/`: `project.godot`, a `.gdextension`, a starter scene, and
+the `rust/` crate), builds it, and opens it in Godot — press Play ▶ to steer the
+square with the arrow keys. Requires **Godot 4** (from
+[godotengine.org](https://godotengine.org) or `snap install godot4`; set
+`GODOT4_BIN` if it isn't on your PATH). Building the crate needs nothing extra —
+gdext bundles the Godot API, so the cdylib compiles without Godot installed.
+
 ## Playground
 
 The transpiler itself compiles to WebAssembly: `playground/` is a two-pane
