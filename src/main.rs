@@ -815,51 +815,67 @@ fn cmd_runweb(args: &[String]) {
 /// then hand off to Godot (opening the editor). The folder is stable: you keep
 /// editing the scene in Godot while `rungodot` regenerates the Rust.
 fn cmd_rungodot(args: &[String]) {
-    let input = match args.first() {
-        Some(a) => PathBuf::from(a),
+    let arg = match args.first() {
+        Some(a) => a.as_str(),
         None => {
-            eprintln!("Usage: vbr rungodot <file.vbr>");
+            eprintln!("Usage: vbr rungodot <file.vbr | project-dir>");
             exit(2);
         }
     };
-    let result = transpile(&input);
-    if !is_godot_rust(&result.rust) {
+    let entry = match resolve_entry(arg) {
+        Some(e) => e,
+        None => exit(1),
+    };
+    // A folder (entry `main.vbr`) is a multi-file project; a lone file is a
+    // project of one. Named/located beside the source unit either way.
+    let is_project = entry.file_name().and_then(|s| s.to_str()) == Some("main.vbr");
+    let src_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let name = if is_project {
+        src_dir.file_name().and_then(|s| s.to_str()).unwrap_or("game").to_string()
+    } else {
+        entry.file_stem().and_then(|s| s.to_str()).unwrap_or("game").to_string()
+    };
+    let crate_name = sanitise_crate(&name);
+    let proj = src_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{}_godot", name));
+    let rust_dir = proj.join("rust");
+
+    // --- compile the entry (+ any sibling modules) into rust/src/ -------
+    let (entry_rust, file_maps, deps) = generate_godot_sources(&entry, is_project, &rust_dir);
+    if !is_godot_rust(&entry_rust) {
         eprintln!(
-            "\n✘ This isn't a Godot program — `rungodot` builds a `Node2D` (…) block \
-             into a Godot GDExtension.\n  Run an ordinary program with `vbr run`/`runproject`."
+            "\n✘ This isn't a Godot program — `rungodot` builds a `Node2D` (…) block into \
+             a Godot GDExtension.\n  (In a project, the entry `main.vbr` must contain the \
+             main scene's root node.)\n  Run an ordinary program with `vbr run`/`runproject`."
         );
         exit(1);
     }
-    let (_, class) = godot_class_info(&result.rust).unwrap_or_else(|| {
+    let (_, class) = godot_class_info(&entry_rust).unwrap_or_else(|| {
         eprintln!("✘ Could not find the node class in the generated code.");
         exit(1);
     });
 
-    // Names: the crate (→ `lib<crate>.so`) from the file stem, sanitised.
-    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("game");
-    let crate_name = sanitise_crate(stem);
-    let proj = input
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(format!("{}_godot", stem));
-
-    // --- write the project folder ---------------------------------------
-    let rust_dir = proj.join("rust");
-    if let Err(e) = fs::create_dir_all(rust_dir.join("src")) {
-        eprintln!("✘ Could not create {}: {}", proj.display(), e);
-        exit(1);
-    }
+    // --- the rest of the Godot project folder ---------------------------
     let write = |path: PathBuf, contents: &str| {
         if let Err(e) = fs::write(&path, contents) {
             eprintln!("✘ Could not write {}: {}", path.display(), e);
             exit(1);
         }
     };
-    write(rust_dir.join("src/lib.rs"), &result.rust);
-    write(rust_dir.join("Cargo.toml"), &godot_cargo_toml(&crate_name));
-    write(proj.join("project.godot"), &godot_project_file(stem));
+    write(rust_dir.join("Cargo.toml"), &godot_cargo_toml(&crate_name, &deps));
+    write(proj.join("project.godot"), &godot_project_file(&name));
     write(proj.join(format!("{}.gdextension", crate_name)), &gdextension_file(&crate_name));
-    write(proj.join("main.tscn"), &godot_main_scene(&class));
+    // A project's assets (scenes, textures, audio, an `assets/` folder) → the
+    // Godot project root, so `res://…` paths resolve.
+    if is_project {
+        copy_data_files(&src_dir, &proj);
+    }
+    // A starter scene, only if the project doesn't supply its own `main.tscn`.
+    if !proj.join("main.tscn").exists() {
+        write(proj.join("main.tscn"), &godot_main_scene(&class));
+    }
     eprintln!("→ project: {}", proj.display());
 
     // --- build the cdylib (JSON diagnostics → .vbr lines) ---------------
@@ -874,8 +890,11 @@ fn cmd_rungodot(args: &[String]) {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let errors = parse_cargo_json(&stdout);
             report_errors(&errors, |e| {
-                let name = e.file.as_deref()?;
-                name.ends_with("lib.rs").then(|| (input.clone(), result.line_map.clone()))
+                let fname = e.file.as_deref()?;
+                file_maps
+                    .iter()
+                    .find(|m| fname.ends_with(&m.rs_name))
+                    .map(|m| (m.source.clone(), m.map.clone()))
             });
             exit(1);
         }
@@ -926,6 +945,91 @@ fn cmd_rungodot(args: &[String]) {
     }
 }
 
+/// Compile a Godot program's entry (+ any sibling `.vbr` modules, for a project
+/// folder) into the cdylib crate's `src/`: the entry → `lib.rs` (crate root:
+/// `mod` decls + the `ExtensionLibrary` stub), each sibling → `<name>.rs`. gdext
+/// registers every `#[derive(GodotClass)]` in the cdylib regardless of module, so
+/// nodes can live in any file. Returns the entry's Rust (for the Godot-program +
+/// class checks), the per-file line maps (build errors → `.vbr` lines), and the
+/// accumulated `Use` dependencies.
+fn generate_godot_sources(
+    entry: &Path,
+    is_project: bool,
+    rust_dir: &Path,
+) -> (String, Vec<FileMap>, Vec<(String, String)>) {
+    let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
+    let entry_canon = entry.canonicalize().ok();
+    let mut vbr_files: Vec<PathBuf> = Vec::new();
+    if is_project {
+        if let Ok(entries) = fs::read_dir(project_dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.canonicalize().ok() == entry_canon {
+                    continue;
+                }
+                let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if p.extension().and_then(|s| s.to_str()) == Some("vbr") && !n.ends_with(".test.vbr")
+                {
+                    vbr_files.push(p);
+                }
+            }
+        }
+    }
+    vbr_files.sort();
+    let vbr_names: Vec<String> = vbr_files.iter().map(|p| module_of(p)).collect();
+    let module_names = vbr_names.clone();
+
+    // Harvest each module's public interface, so a qualified cross-module call
+    // gets the same argument treatment as a local one.
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    for (f, n) in vbr_files.iter().zip(&vbr_names) {
+        if let Ok(source) = fs::read_to_string(f) {
+            interfaces.insert(n.clone(), vbr::module_interface(&source));
+        }
+    }
+
+    let src = rust_dir.join("src");
+    if let Err(e) = fs::create_dir_all(&src) {
+        eprintln!("✘ Could not create {}: {}", src.display(), e);
+        exit(1);
+    }
+
+    let mut file_maps: Vec<FileMap> = Vec::new();
+    let mut deps: Vec<(String, String)> = Vec::new();
+
+    let entry_compiled = compile_path(entry, &module_names, &interfaces, true, false);
+    if let Err(e) = fs::write(src.join("lib.rs"), &entry_compiled.rust) {
+        eprintln!("✘ Could not write lib.rs: {}", e);
+        exit(1);
+    }
+    file_maps.push(FileMap {
+        rs_name: "src/lib.rs".to_string(),
+        source: entry.to_path_buf(),
+        map: entry_compiled.line_map.clone(),
+        tests: entry_compiled.tests.clone(),
+    });
+    deps.extend(entry_compiled.dependencies.clone());
+    let entry_rust = entry_compiled.rust;
+
+    for (f, n) in vbr_files.iter().zip(&vbr_names) {
+        let compiled = compile_path(f, &module_names, &interfaces, false, false);
+        if let Err(e) = fs::write(src.join(format!("{}.rs", n)), &compiled.rust) {
+            eprintln!("✘ Could not write {}.rs: {}", n, e);
+            exit(1);
+        }
+        file_maps.push(FileMap {
+            rs_name: format!("src/{}.rs", n),
+            source: f.clone(),
+            map: compiled.line_map.clone(),
+            tests: compiled.tests.clone(),
+        });
+        deps.extend(compiled.dependencies);
+    }
+    deps.sort();
+    deps.dedup();
+    (entry_rust, file_maps, deps)
+}
+
 /// A Cargo crate name from a file stem: lowercase, non-alphanumerics → `_`.
 fn sanitise_crate(stem: &str) -> String {
     let s: String = stem
@@ -939,14 +1043,19 @@ fn sanitise_crate(stem: &str) -> String {
     }
 }
 
-/// The cdylib crate's `Cargo.toml` — a GDExtension against gdext.
-fn godot_cargo_toml(crate_name: &str) -> String {
-    format!(
+/// The cdylib crate's `Cargo.toml` — a GDExtension against gdext, plus any crates
+/// the project's modules pulled in with `Use`.
+fn godot_cargo_toml(crate_name: &str, deps: &[(String, String)]) -> String {
+    let mut s = format!(
         "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
          [lib]\ncrate-type = [\"cdylib\"]\n\n\
          [dependencies]\ngodot = \"0.5\"\n",
         crate_name
-    )
+    );
+    for (c, v) in deps {
+        s.push_str(&format!("{} = \"{}\"\n", c, v));
+    }
+    s
 }
 
 /// The `.gdextension` manifest — points Godot at the built library per platform.

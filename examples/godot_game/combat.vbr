@@ -1,0 +1,5 @@
+' A shared pure-logic module (no nodes) — ordinary VBR, called from any node.
+
+Public Function Damage(ByVal hp As Long, ByVal hit As Long) As Long
+    Return hp - hit
+End Function

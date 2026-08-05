@@ -1,0 +1,12 @@
+' The entry module of a Godot *project* (a folder). `vbr rungodot examples/godot_game`
+' compiles main.vbr + its sibling modules into one GDExtension.
+'
+' `main.vbr` holds the main scene's root node; it may call sibling modules by
+' qualified name (`Combat.Damage`). Nodes can live in any module — gdext registers
+' them all. Assets (like main.tscn here) are copied into the Godot project.
+
+Node2D "Game"
+    On Ready
+        Debug.Print "game starting; a 15-hit leaves " & Combat.Damage(100, 15) & " hp"
+    End Ready
+End Node2D

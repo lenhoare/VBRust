@@ -203,6 +203,60 @@ fn godot_examples_compile_as_cdylib() {
     }
 }
 
+/// `vbr rungodot <dir>` builds a multi-file Godot project: the entry `main.vbr`
+/// plus sibling modules compile into one cdylib (entry → `lib.rs` with `mod`
+/// decls + the `ExtensionLibrary`; siblings → `<name>.rs`), a user-supplied
+/// `main.tscn` is kept, and the `.so` builds. Opt-in (`VBR_GODOT_BUILD=1`).
+#[test]
+fn rungodot_builds_a_multi_module_project() {
+    if std::env::var("VBR_GODOT_BUILD").is_err() {
+        eprintln!("skipping rungodot_builds_a_multi_module_project (set VBR_GODOT_BUILD=1 to run)");
+        return;
+    }
+    // Copy the example project to a temp dir so nothing is left in examples/.
+    let root = std::env::temp_dir().join("vbr_godot_proj");
+    let _ = fs::remove_dir_all(&root);
+    let work = root.join("godot_game");
+    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/godot_game"), &work);
+
+    let ok = Command::new(env!("CARGO_BIN_EXE_vbr"))
+        .arg("rungodot")
+        .arg(&work)
+        .env("GODOT4_BIN", "/bin/true") // stub the editor launch
+        .status()
+        .expect("run vbr rungodot")
+        .success();
+    assert!(ok, "rungodot on the multi-module project should succeed");
+
+    let proj = root.join("godot_game_godot");
+    let lib = fs::read_to_string(proj.join("rust/src/lib.rs")).expect("read lib.rs");
+    assert!(lib.contains("mod combat;") && lib.contains("mod enemy;"), "mod decls:\n{lib}");
+    assert!(lib.contains("impl ExtensionLibrary for"), "entry has the extension stub");
+    assert!(proj.join("rust/src/enemy.rs").exists(), "sibling node module written");
+    assert!(proj.join("rust/src/combat.rs").exists(), "shared logic module written");
+    assert!(
+        proj.join("rust/target/debug/libgodot_game.so").exists(),
+        "the cdylib built"
+    );
+    let scene = fs::read_to_string(proj.join("main.tscn")).expect("read main.tscn");
+    assert!(scene.contains("Enemy"), "the project's own main.tscn is kept, not overwritten");
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Recursively copy a directory (test helper).
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for e in fs::read_dir(from).unwrap().flatten() {
+        let p = e.path();
+        let dst = to.join(p.file_name().unwrap());
+        if p.is_dir() {
+            copy_dir(&p, &dst);
+        } else {
+            fs::copy(&p, &dst).unwrap();
+        }
+    }
+}
+
 /// `vbr rungodot` assembles a loadable Godot 4 project: `project.godot`, a
 /// `.gdextension` pointing at the built library, a starter scene using the node
 /// class, and a `rust/` crate that builds to the `.so` the manifest names.

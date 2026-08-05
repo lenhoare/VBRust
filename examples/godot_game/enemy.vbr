@@ -1,0 +1,9 @@
+' A node class in a *sibling* module — gdext registers it alongside the entry's.
+
+Node2D "Enemy"
+    Export Health As Long = 100
+
+    On Ready
+        Debug.Print "enemy spawned with " & Health & " hp"
+    End Ready
+End Node2D

@@ -133,10 +133,25 @@ wires a signal to a handler — `Sub OnPinged(count As Long)` plus
 `Connect emitter.Pinged To OnPinged`; `examples/godot_spawn.vbr` spawns nodes at
 runtime — `Dim b As Node2D = Spawn("res://bullet.tscn")` then `Me.AddChild(b)`;
 `examples/godot_input.vbr` handles discrete input with `On Input(event)` +
-`event.IsActionPressed(…)`. Requires **Godot 4** (from
-[godotengine.org](https://godotengine.org) or `snap install godot4`; set
-`GODOT4_BIN` if it isn't on your PATH). Building the crate needs nothing extra —
-gdext bundles the Godot API, so the cdylib compiles without Godot installed.
+`event.IsActionPressed(…)`.
+
+`rungodot` also takes a **project folder** (like `runproject`) — since games are
+asset-heavy and multi-file:
+
+```sh
+cargo run -- rungodot examples/godot_game
+```
+
+The entry `main.vbr` (holding the main scene's root node) plus its sibling
+`.vbr` modules compile into one GDExtension — nodes can live in any module
+(gdext registers them all), and modules call each other by qualified name
+(`Combat.Damage`). Your assets (scenes, textures, audio, an `assets/` folder) are
+copied into the Godot project, and your own `main.tscn` is kept if you supply one.
+
+Requires **Godot 4** (from [godotengine.org](https://godotengine.org) or
+`snap install godot4`; set `GODOT4_BIN` if it isn't on your PATH). Building the
+crate needs nothing extra — gdext bundles the Godot API, so the cdylib compiles
+without Godot installed.
 
 ## Playground
 
