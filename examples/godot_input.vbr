@@ -1,0 +1,20 @@
+' Handling input events in VBR (Godot slice 7).
+'
+' `On Input(event)` runs on every input event Godot delivers — key presses, mouse
+' clicks, gamepad. The `event` is an InputEvent object you query; the cleanest
+' check is by *action* (mapped in Godot's Input Map), so it works for keyboard and
+' pad alike. Lowers to gdext `fn input(&mut self, event: Gd<InputEvent>)`.
+'
+' (For continuous movement, poll `Input.IsPressed` in `On Process` instead — see
+' godot_player.vbr. `On Input` is for discrete, one-shot events.)
+
+Node2D "Controller"
+    On Input(event)
+        If event.IsActionPressed("ui_accept") Then
+            Debug.Print "accept pressed"
+        End If
+        If event.IsActionPressed("ui_cancel") Then
+            Debug.Print "cancel pressed"
+        End If
+    End Input
+End Node2D

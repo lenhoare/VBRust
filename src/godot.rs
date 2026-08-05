@@ -50,6 +50,13 @@ pub fn emit_godot_program(
         // Node types fetched via `GetNode` (`Dim h As Label = …`) need importing.
         for ev in &node.events {
             collect_handle_types(&ev.body, &mut classes);
+            // `On Input`/`On UnhandledInput` take an `InputEvent` object param.
+            if matches!(to_snake(&ev.name).as_str(), "input" | "unhandled_input") {
+                classes.push("InputEvent".to_string());
+            }
+        }
+        for h in &node.handlers {
+            collect_handle_types(&h.body, &mut classes);
         }
     }
     classes.extend(referenced_classes(program).into_iter().map(str::to_string));
@@ -172,6 +179,9 @@ fn emit_event(
     out: &mut String,
 ) {
     let name = to_snake(&ev.name);
+    // `seed_handles` seeds the body-lowering with object-handle params (the input
+    // event), so `event.IsActionPressed(…)` routes to the Godot method name.
+    let mut seed_handles: Vec<String> = Vec::new();
     let (sig, rebinds): (String, Vec<String>) = match name.as_str() {
         "ready" | "enter_tree" | "exit_tree" | "draw" => {
             (format!("fn {}(&mut self)", name), vec![])
@@ -189,6 +199,18 @@ fn emit_event(
             };
             (format!("fn {}(&mut self, {}: f64)", name, pname), rebind)
         }
+        // `On Input(event)` / `On UnhandledInput(event)` — Godot hands an
+        // `InputEvent` object. The param is a handle (`event.IsActionPressed(…)`
+        // routes to the Godot method), seeded so the rewrite treats it as one.
+        "input" | "unhandled_input" => {
+            let pname = ev
+                .params
+                .first()
+                .map(|p| rust_name(&p.name))
+                .unwrap_or_else(|| "event".to_string());
+            seed_handles.push(pname.clone());
+            (format!("fn {}(&mut self, {}: Gd<InputEvent>)", name, pname), vec![])
+        }
         // An unknown event name: emit it snake-cased and let gdext validate that
         // it's a real virtual method (translated back to the .vbr line if not).
         _ => (format!("fn {}(&mut self)", name), vec![]),
@@ -198,7 +220,7 @@ fn emit_event(
     for line in rebinds {
         out.push_str(&format!("        {}\n", line));
     }
-    lower_body(&ev.body, &ev.params, fields, field_ty, enums, t, diags, out);
+    lower_body(&ev.body, &ev.params, &seed_handles, fields, field_ty, enums, t, diags, out);
     out.push_str("    }\n");
 }
 
@@ -221,7 +243,7 @@ fn emit_handler(
     let sep = if params.is_empty() { "" } else { ", " };
     out.push_str("    #[func]\n");
     out.push_str(&format!("    fn {}(&mut self{}{}) {{\n", to_snake(&h.name), sep, params.join(", ")));
-    lower_body(&h.body, &h.params, fields, field_ty, enums, t, diags, out);
+    lower_body(&h.body, &h.params, &[], fields, field_ty, enums, t, diags, out);
     out.push_str("    }\n");
 }
 
@@ -234,6 +256,7 @@ fn emit_handler(
 fn lower_body(
     body: &[Stmt],
     params: &[Param],
+    seed_handles: &[String],
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
@@ -250,10 +273,10 @@ fn lower_body(
     // Godot rewrite see the settled form.
     let body: Vec<Stmt> =
         body.into_iter().map(|s| rewrite_stmt(s, "self", fields, enums)).collect();
-    // Scene-tree handles (`Dim h As T = Me.GetNode(...)`): route their method
-    // calls to Godot names, and always take `let mut` (a fetched node is usually
-    // mutated — `SetText`/`SetVelocity`/…; a read-only one costs only a warning).
-    let mut handles: HashSet<String> = HashSet::new();
+    // Object handles route their method calls to Godot names: the `On Input`
+    // event's `event: Gd<InputEvent>` param (seeded), plus scene-tree handles
+    // (`Dim h As T = Me.GetNode(...)` / `Spawn(...)`), which also take `let mut`.
+    let mut handles: HashSet<String> = seed_handles.iter().cloned().collect();
     collect_handles(&body, &mut handles);
     let rw = Rw { handles: &handles };
     let body: Vec<Stmt> = body.into_iter().map(|s| rw.stmt(s)).collect();
