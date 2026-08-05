@@ -1,0 +1,30 @@
+' Godot scene-tree access in VBR (Godot slice 4).
+'
+' `Me.GetNode("Path")` reaches another node in the scene, typed by the `As` on the
+' `Dim` — a handle you then call methods on. Here a scoreboard node counts up and
+' pushes the score into a child `Label`, once a second.
+'
+' Lowers to gdext `self.base().get_node_as::<Label>("ScoreLabel")`; the handle's
+' calls (`SetText`) pass straight through to Godot (`set_text`). Build with
+' `vbr rungodot examples/godot_scene.vbr` (needs a `Label` named "ScoreLabel" in
+' the scene — add it in the Godot editor).
+
+Node2D "Scoreboard"
+    Dim score As Long = 0
+    Dim elapsed As Single = 0
+
+    On Ready
+        Dim label As Label = Me.GetNode("ScoreLabel")
+        label.SetText("Score: 0")
+    End Ready
+
+    On Process(delta)
+        elapsed = elapsed + delta
+        If elapsed >= 1.0 Then
+            elapsed = 0
+            score = score + 1
+            Dim label As Label = Me.GetNode("ScoreLabel")
+            label.SetText("Score: " & score)
+        End If
+    End Process
+End Node2D

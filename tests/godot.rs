@@ -113,6 +113,23 @@ fn godot_signal_has_slice3_shape() {
     }
 }
 
+/// Slice 4: scene-tree access. `Me.GetNode("Path")` (typed by the `Dim`'s `As`)
+/// becomes a `Gd<T>` handle via `get_node_as`; a call on the handle routes to the
+/// Godot method name, and a concat arg is borrowed for `AsArg<GString>`.
+#[test]
+fn godot_scene_has_slice4_shape() {
+    let rust = example_rust("godot_scene");
+    for needle in [
+        "use godot::classes::{INode2D, Label, Node2D};",  // the fetched node type imported
+        "let mut label: Gd<Label>",                       // typed handle binding
+        "self.base().get_node_as::<Label>(\"ScoreLabel\")",
+        "label.set_text(\"Score: 0\")",                   // cross-node call, snake-cased, literal arg
+        "label.set_text(&format!(\"Score: {}\", self.score))", // concat arg borrowed
+    ] {
+        assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
+    }
+}
+
 /// The real proof: the examples compile as gdext cdylibs. Opt-in —
 /// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building pulls the
 /// (large) `godot` crate.
@@ -122,7 +139,7 @@ fn godot_examples_compile_as_cdylib() {
         eprintln!("skipping godot_examples_compile_as_cdylib (set VBR_GODOT_BUILD=1 to run)");
         return;
     }
-    for name in ["godot_player", "godot_runner", "godot_signal"] {
+    for name in ["godot_player", "godot_runner", "godot_signal", "godot_scene"] {
         assert!(compiles_as_cdylib(name, &example_rust(name)), "{name} cdylib");
     }
 }

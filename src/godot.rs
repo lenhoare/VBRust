@@ -47,6 +47,10 @@ pub fn emit_godot_program(
     for node in &program.godot_nodes {
         classes.push(node.base.clone());
         classes.push(format!("I{}", node.base));
+        // Node types fetched via `GetNode` (`Dim h As Label = …`) need importing.
+        for ev in &node.events {
+            collect_handle_types(&ev.body, &mut classes);
+        }
     }
     classes.extend(referenced_classes(program).into_iter().map(str::to_string));
     classes.sort();
@@ -198,12 +202,20 @@ fn emit_event(
         &mut body, &ev.params, field_ty, &t.fns, &t.methods, &t.consts, &t.modules,
         &t.interfaces, enums, &t.structs, diags,
     );
-    // Then member rewrite (bare `speed` → `self.speed`) and the Godot rewrite
-    // (properties / `Input` / `Vector2` / `Emit` → verbatim gdext), then emit.
+    // Member rewrite first (bare `speed` → `self.speed`), so handle detection and
+    // the Godot rewrite below see the settled form.
     let body: Vec<Stmt> =
-        body.into_iter().map(|s| godot_stmt(rewrite_stmt(s, "self", fields, enums))).collect();
+        body.into_iter().map(|s| rewrite_stmt(s, "self", fields, enums)).collect();
+    // Scene-tree handles (`Dim h As T = Me.GetNode(...)`): route their method
+    // calls to Godot names, and always take `let mut` (a fetched node is usually
+    // mutated — `SetText`/`SetVelocity`/…; a read-only one costs only a warning).
+    let mut handles: HashSet<String> = HashSet::new();
+    collect_handles(&body, &mut handles);
+    let rw = Rw { handles: &handles };
+    let body: Vec<Stmt> = body.into_iter().map(|s| rw.stmt(s)).collect();
     let mut mutated: HashSet<String> = HashSet::new();
     collect_mutated(&body, &mut mutated);
+    mutated.extend(handles.iter().cloned());
     let byref: HashSet<String> = HashSet::new();
     for stmt in &body {
         emit_stmt(stmt, &mutated, &byref, 2, diags, out);
@@ -292,202 +304,294 @@ fn inline(s: String) -> Expr {
     Expr { kind: ExprKind::InlineRust(s), span: crate::span::Span::none() }
 }
 
-/// Rewrite one statement. The only structural case is a property assignment
-/// (`Me.Position = v`), which becomes a hoisted `set_…` block; everything else
-/// just has its expressions Godot-rewritten (recursing into nested bodies).
-fn godot_stmt(s: Stmt) -> Stmt {
-    match s {
-        // `Me.<Prop> = value` → `{ let __v = value; self.base_mut().set_<prop>(__v); }`.
-        // The value is hoisted first because `base_mut()` borrows `self` mutably
-        // and the value may read another field.
-        Stmt::Assign { target, value, op: None }
-            if matches!(&target.kind, ExprKind::Field(recv, _)
-                if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")) =>
-        {
-            let prop = match &target.kind {
-                ExprKind::Field(_, p) => to_snake(p),
-                _ => unreachable!(),
-            };
-            let v = render_expr(&godot_expr(value), None);
-            Stmt::Expr(inline(format!(
-                "{{ let __vbr_v = {}; self.base_mut().set_{}(__vbr_v); }}",
-                v, prop
-            )))
-        }
-        Stmt::Assign { target, value, op } => Stmt::Assign {
-            target: godot_expr(target),
-            value: godot_expr(value),
-            op,
-        },
-        Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim {
-            name,
-            name_span,
-            ty,
-            init: init.map(godot_expr),
-            line,
-        },
-        // `Emit Sig(a, b)` → hoist the args, then emit — `self.signals()` borrows
-        // `self` mutably, so an arg reading a field can't be evaluated inside the
-        // call (same reason as a property write).
-        Stmt::Expr(Expr { kind: ExprKind::MethodCall { recv, method, args }, .. })
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "__vbr_emit") =>
-        {
-            let sig = to_snake(&method);
-            if args.is_empty() {
-                return Stmt::Expr(inline(format!("self.signals().{}().emit()", sig)));
+/// A body-lowering pass carrying the node handles in scope — locals bound by
+/// `Dim h As T = Me.GetNode(...)`. A method call on a handle (`h.SetText(…)`)
+/// routes to the Godot method name (`to_snake`) rather than a user method.
+struct Rw<'a> {
+    handles: &'a HashSet<String>,
+}
+
+impl Rw<'_> {
+    /// Rewrite one statement. Structural cases: a base-class property assignment
+    /// (hoisted `set_…`), an `Emit` (hoisted signal emit), and a `GetNode`
+    /// binding (a typed scene-tree handle); everything else just has its
+    /// expressions Godot-rewritten (recursing into nested bodies).
+    fn stmt(&self, s: Stmt) -> Stmt {
+        match s {
+            // `Dim h As T = Me.GetNode("Path")` → a typed scene-tree handle,
+            // `let [mut] h: Gd<T> = self.base().get_node_as::<T>("Path");`. Kept a
+            // real `Dim` (not an inline-Rust block) so `h` is visible afterwards;
+            // the type is rewritten to `Gd<T>` (what `get_node_as` returns).
+            Stmt::Dim { name, name_span, ty, init: Some(init), line }
+                if get_node_path(&init).is_some() =>
+            {
+                let path = render_expr(&self.expr(get_node_path(&init).unwrap().clone()), None);
+                let t = decltype_rust(&ty);
+                Stmt::Dim {
+                    name,
+                    name_span,
+                    ty: DeclType::Named(format!("Gd<{}>", t)),
+                    init: Some(inline(format!("self.base().get_node_as::<{}>({})", t, path))),
+                    line,
+                }
             }
-            let lets: Vec<String> = args
-                .into_iter()
-                .enumerate()
-                .map(|(i, a)| format!("let __vbr_a{} = {};", i, render_expr(&godot_expr(a), None)))
-                .collect();
-            let names: Vec<String> =
-                (0..lets.len()).map(|i| format!("__vbr_a{}", i)).collect();
-            Stmt::Expr(inline(format!(
-                "{{ {} self.signals().{}().emit({}); }}",
-                lets.join(" "),
-                sig,
-                names.join(", ")
-            )))
+            // `Me.<Prop> = value` → `{ let __v = value; self.base_mut().set_<prop>(__v); }`.
+            // The value is hoisted first because `base_mut()` borrows `self` mutably
+            // and the value may read another field.
+            Stmt::Assign { target, value, op: None }
+                if matches!(&target.kind, ExprKind::Field(recv, _)
+                    if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")) =>
+            {
+                let prop = match &target.kind {
+                    ExprKind::Field(_, p) => to_snake(p),
+                    _ => unreachable!(),
+                };
+                let v = render_expr(&self.expr(value), None);
+                Stmt::Expr(inline(format!(
+                    "{{ let __vbr_v = {}; self.base_mut().set_{}(__vbr_v); }}",
+                    v, prop
+                )))
+            }
+            Stmt::Assign { target, value, op } => Stmt::Assign {
+                target: self.expr(target),
+                value: self.expr(value),
+                op,
+            },
+            Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim {
+                name,
+                name_span,
+                ty,
+                init: init.map(|e| self.expr(e)),
+                line,
+            },
+            // `Emit Sig(a, b)` → hoist the args, then emit — `self.signals()` borrows
+            // `self` mutably, so an arg reading a field can't be evaluated inside the
+            // call (same reason as a property write).
+            Stmt::Expr(Expr { kind: ExprKind::MethodCall { recv, method, args }, .. })
+                if matches!(&recv.kind, ExprKind::Ident(n) if n == "__vbr_emit") =>
+            {
+                let sig = to_snake(&method);
+                if args.is_empty() {
+                    return Stmt::Expr(inline(format!("self.signals().{}().emit()", sig)));
+                }
+                let lets: Vec<String> = args
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, a)| format!("let __vbr_a{} = {};", i, render_expr(&self.expr(a), None)))
+                    .collect();
+                let names: Vec<String> = (0..lets.len()).map(|i| format!("__vbr_a{}", i)).collect();
+                Stmt::Expr(inline(format!(
+                    "{{ {} self.signals().{}().emit({}); }}",
+                    lets.join(" "),
+                    sig,
+                    names.join(", ")
+                )))
+            }
+            Stmt::Expr(e) => Stmt::Expr(self.expr(e)),
+            Stmt::Print(e) => Stmt::Print(self.expr(e)),
+            Stmt::Return(e) => Stmt::Return(e.map(|e| self.expr(e))),
+            Stmt::If { branches, else_body } => Stmt::If {
+                branches: branches
+                    .into_iter()
+                    .map(|(c, b)| (self.expr(c), b.into_iter().map(|s| self.stmt(s)).collect()))
+                    .collect(),
+                else_body: else_body.map(|b| b.into_iter().map(|s| self.stmt(s)).collect()),
+            },
+            Stmt::For { var, from, to, step, body } => Stmt::For {
+                var,
+                from: self.expr(from),
+                to: self.expr(to),
+                step: step.map(|e| self.expr(e)),
+                body: body.into_iter().map(|s| self.stmt(s)).collect(),
+            },
+            other => other,
         }
-        Stmt::Expr(e) => Stmt::Expr(godot_expr(e)),
-        Stmt::Print(e) => Stmt::Print(godot_expr(e)),
-        Stmt::Return(e) => Stmt::Return(e.map(godot_expr)),
-        Stmt::If { branches, else_body } => Stmt::If {
-            branches: branches
-                .into_iter()
-                .map(|(c, b)| (godot_expr(c), b.into_iter().map(godot_stmt).collect()))
-                .collect(),
-            else_body: else_body.map(|b| b.into_iter().map(godot_stmt).collect()),
-        },
-        Stmt::For { var, from, to, step, body } => Stmt::For {
-            var,
-            from: godot_expr(from),
-            to: godot_expr(to),
-            step: step.map(godot_expr),
-            body: body.into_iter().map(godot_stmt).collect(),
-        },
-        other => other,
+    }
+
+    /// Rewrite one expression, converting the Godot-specific forms to verbatim
+    /// gdext and recursing through the ordinary containers.
+    fn expr(&self, e: Expr) -> Expr {
+        match e.kind {
+            // `Me.<Prop>` (read) → `self.base().get_<prop>()` (any base-class property).
+            ExprKind::Field(recv, prop) if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") => {
+                inline(format!("self.base().{}()", property_getter(&prop)))
+            }
+            // `Vector2.Zero` / `Color.Red` → `Vector2::ZERO` / `Color::RED`.
+            ExprKind::Field(recv, name)
+                if matches!(&recv.kind, ExprKind::Ident(n) if value_type(n)) =>
+            {
+                let ty = match &recv.kind {
+                    ExprKind::Ident(n) => n.clone(),
+                    _ => unreachable!(),
+                };
+                inline(format!("{}::{}", ty, screaming_snake(&name)))
+            }
+            // `Input.IsPressed("ui_right")` → `Input::singleton().is_action_pressed("ui_right")`.
+            ExprKind::MethodCall { recv, method, args }
+                if matches!(&recv.kind, ExprKind::Ident(n) if n == "Input") =>
+            {
+                let rendered = self.render_args(args);
+                inline(format!("Input::singleton().{}({})", input_method(&method), rendered))
+            }
+            // `Emit ScoreChanged(10)` (a call on `__vbr_emit`) →
+            // `self.signals().score_changed().emit(10)` — gdext's typed signal API.
+            ExprKind::MethodCall { recv, method, args }
+                if matches!(&recv.kind, ExprKind::Ident(n) if n == "__vbr_emit") =>
+            {
+                let rendered = self.render_args(args);
+                inline(format!("self.signals().{}().emit({})", to_snake(&method), rendered))
+            }
+            // `Me.MoveAndSlide()` (a base-class *method*) → `self.base_mut().move_and_slide()`.
+            // A mutable handle serves both `&self` and `&mut self` methods.
+            ExprKind::MethodCall { recv, method, args }
+                if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") =>
+            {
+                let rendered = self.render_godot_args(args);
+                inline(format!("self.base_mut().{}({})", to_snake(&method), rendered))
+            }
+            // `handle.SetText("hi")` on a scene-tree handle → `handle.set_text("hi")`
+            // (Godot method names are snake_case; a user method would keep its name).
+            ExprKind::MethodCall { recv, method, args }
+                if matches!(&recv.kind, ExprKind::Ident(n) if self.handles.contains(&rust_name(n))) =>
+            {
+                let h = match &recv.kind {
+                    ExprKind::Ident(n) => rust_name(n),
+                    _ => unreachable!(),
+                };
+                let rendered = self.render_godot_args(args);
+                inline(format!("{}.{}({})", h, to_snake(&method), rendered))
+            }
+            // `Vector2(x, y)` / `Color(r, g, b)` — construct a Godot value type.
+            ExprKind::Call { name, args } if value_type(&name) => {
+                let rendered: Vec<String> = args.into_iter().map(|a| render_expr(&self.expr(a), None)).collect();
+                inline(value_ctor(&name, &rendered))
+            }
+            // Unary minus is parsed as `0 - x`; if the resolver couldn't type it
+            // (an opaque operand), the `0` stays integer (`0 - f32` won't compile),
+            // so fold it into a real, type-agnostic negation.
+            ExprKind::Binary { op: BinOp::Sub, lhs, rhs } if matches!(&lhs.kind, ExprKind::Int(0)) => {
+                inline(format!("-({})", render_expr(&self.expr(*rhs), None)))
+            }
+            // Recurse through the ordinary containers so a Godot form nested inside
+            // arithmetic (`velocity * Speed * delta`) is still reached.
+            ExprKind::Binary { op, lhs, rhs } => Expr {
+                kind: ExprKind::Binary {
+                    op,
+                    lhs: Box::new(self.expr(*lhs)),
+                    rhs: Box::new(self.expr(*rhs)),
+                },
+                span: e.span,
+            },
+            ExprKind::Not(inner) => Expr { kind: ExprKind::Not(Box::new(self.expr(*inner))), span: e.span },
+            ExprKind::Field(recv, name) => Expr {
+                kind: ExprKind::Field(Box::new(self.expr(*recv)), name),
+                span: e.span,
+            },
+            ExprKind::Index(recv, idx) => Expr {
+                kind: ExprKind::Index(Box::new(self.expr(*recv)), Box::new(self.expr(*idx))),
+                span: e.span,
+            },
+            ExprKind::MethodCall { recv, method, args } => Expr {
+                kind: ExprKind::MethodCall {
+                    recv: Box::new(self.expr(*recv)),
+                    method,
+                    args: args.into_iter().map(|a| self.expr(a)).collect(),
+                },
+                span: e.span,
+            },
+            ExprKind::Call { name, args } => Expr {
+                kind: ExprKind::Call { name, args: args.into_iter().map(|a| self.expr(a)).collect() },
+                span: e.span,
+            },
+            // Wrappers the resolver may insert (a numeric `as` cast, a `&`/`&mut`
+            // borrow, a deref) — recurse so a Godot form tucked inside is reached.
+            ExprKind::Cast(inner, t) => Expr {
+                kind: ExprKind::Cast(Box::new(self.expr(*inner)), t),
+                span: e.span,
+            },
+            ExprKind::Ref(inner) => Expr { kind: ExprKind::Ref(Box::new(self.expr(*inner))), span: e.span },
+            ExprKind::MutRef(inner) => Expr { kind: ExprKind::MutRef(Box::new(self.expr(*inner))), span: e.span },
+            ExprKind::Deref(inner) => Expr { kind: ExprKind::Deref(Box::new(self.expr(*inner))), span: e.span },
+            _ => e,
+        }
+    }
+
+    /// Godot-rewrite and render a call's arguments, comma-joined.
+    fn render_args(&self, args: Vec<Expr>) -> String {
+        args.into_iter().map(|a| render_expr(&self.expr(a), None)).collect::<Vec<_>>().join(", ")
+    }
+
+    /// Like `render_args`, but a concatenation (`"x: " & v` → a `String`) is
+    /// **borrowed**: Godot's string-taking methods want `impl AsArg<GString>`,
+    /// which a `String` doesn't satisfy but `&String` does. A string *literal*
+    /// (`&str`) already satisfies it, so it's passed as-is. (A bare `String`
+    /// variable arg still needs a manual `&` for now.)
+    fn render_godot_args(&self, args: Vec<Expr>) -> String {
+        args.into_iter()
+            .map(|a| {
+                let borrow = matches!(&a.kind, ExprKind::Binary { op: BinOp::Concat, .. });
+                let r = render_expr(&self.expr(a), None);
+                if borrow { format!("&{}", r) } else { r }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
-/// Rewrite one expression, converting the Godot-specific forms to verbatim gdext
-/// and recursing through the containers a slice-1 body uses.
-fn godot_expr(e: Expr) -> Expr {
-    match e.kind {
-        // `Me.<Prop>` (read) → `self.base().get_<prop>()` (any base-class property).
-        ExprKind::Field(recv, prop)
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") =>
+/// If `e` is `Me.GetNode("Path")`, return the path argument.
+fn get_node_path(e: &Expr) -> Option<&Expr> {
+    if let ExprKind::MethodCall { recv, method, args } = &e.kind {
+        if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")
+            && method.eq_ignore_ascii_case("getnode")
+            && args.len() == 1
         {
-            inline(format!("self.base().{}()", property_getter(&prop)))
+            return args.first();
         }
-        // `Vector2.Zero` / `Color.Red` → `Vector2::ZERO` / `Color::RED`.
-        ExprKind::Field(recv, name)
-            if matches!(&recv.kind, ExprKind::Ident(n) if value_type(n)) =>
-        {
-            let ty = match &recv.kind {
-                ExprKind::Ident(n) => n.clone(),
-                _ => unreachable!(),
-            };
-            inline(format!("{}::{}", ty, screaming_snake(&name)))
+    }
+    None
+}
+
+/// Collect the node-handle locals (`Dim h As T = Me.GetNode(...)`) declared
+/// anywhere in a body, by their `rust_name`.
+fn collect_handles(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::Dim { name, init: Some(init), .. } if get_node_path(init).is_some() => {
+                out.insert(rust_name(name));
+            }
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    collect_handles(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_handles(b, out);
+                }
+            }
+            Stmt::For { body, .. } => collect_handles(body, out),
+            _ => {}
         }
-        // `Input.IsPressed("ui_right")` → `Input::singleton().is_action_pressed("ui_right")`.
-        ExprKind::MethodCall { recv, method, args }
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Input") =>
-        {
-            let rendered: Vec<String> =
-                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
-            inline(format!(
-                "Input::singleton().{}({})",
-                input_method(&method),
-                rendered.join(", ")
-            ))
+    }
+}
+
+/// The node types fetched via `GetNode` in a body (`Dim h As Label = …` → `Label`)
+/// — each needs a `use godot::classes::…`.
+fn collect_handle_types(stmts: &[Stmt], out: &mut Vec<String>) {
+    for s in stmts {
+        match s {
+            Stmt::Dim { ty, init: Some(init), .. } if get_node_path(init).is_some() => {
+                out.push(decltype_rust(ty));
+            }
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    collect_handle_types(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_handle_types(b, out);
+                }
+            }
+            Stmt::For { body, .. } => collect_handle_types(body, out),
+            _ => {}
         }
-        // `Emit ScoreChanged(10)` (parsed as a call on `__vbr_emit`) →
-        // `self.signals().score_changed().emit(10)` — gdext's typed signal API.
-        ExprKind::MethodCall { recv, method, args }
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "__vbr_emit") =>
-        {
-            let rendered: Vec<String> =
-                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
-            inline(format!(
-                "self.signals().{}().emit({})",
-                to_snake(&method),
-                rendered.join(", ")
-            ))
-        }
-        // `Me.MoveAndSlide()` (a base-class *method*) → `self.base_mut().move_and_slide()`.
-        // A mutable handle serves both `&self` and `&mut self` methods.
-        ExprKind::MethodCall { recv, method, args }
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") =>
-        {
-            let rendered: Vec<String> =
-                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
-            inline(format!("self.base_mut().{}({})", to_snake(&method), rendered.join(", ")))
-        }
-        // `Vector2(x, y)` / `Color(r, g, b)` — construct a Godot value type.
-        ExprKind::Call { name, args } if value_type(&name) => {
-            let rendered: Vec<String> =
-                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
-            inline(value_ctor(&name, &rendered))
-        }
-        // Unary minus is parsed as `0 - x`; without the resolver's type pass the
-        // `0` stays an integer (`0 - f32` won't compile), so fold it into a real
-        // negation, which is type-agnostic (`-(f32)`, `-(i64)`).
-        ExprKind::Binary { op: BinOp::Sub, lhs, rhs }
-            if matches!(&lhs.kind, ExprKind::Int(0)) =>
-        {
-            inline(format!("-({})", render_expr(&godot_expr(*rhs), None)))
-        }
-        // Recurse through the ordinary containers so a Godot form nested inside
-        // arithmetic (`velocity * Speed * delta`) is still reached.
-        ExprKind::Binary { op, lhs, rhs } => Expr {
-            kind: ExprKind::Binary {
-                op,
-                lhs: Box::new(godot_expr(*lhs)),
-                rhs: Box::new(godot_expr(*rhs)),
-            },
-            span: e.span,
-        },
-        ExprKind::Not(inner) => Expr {
-            kind: ExprKind::Not(Box::new(godot_expr(*inner))),
-            span: e.span,
-        },
-        ExprKind::Field(recv, name) => Expr {
-            kind: ExprKind::Field(Box::new(godot_expr(*recv)), name),
-            span: e.span,
-        },
-        ExprKind::Index(recv, idx) => Expr {
-            kind: ExprKind::Index(Box::new(godot_expr(*recv)), Box::new(godot_expr(*idx))),
-            span: e.span,
-        },
-        ExprKind::MethodCall { recv, method, args } => Expr {
-            kind: ExprKind::MethodCall {
-                recv: Box::new(godot_expr(*recv)),
-                method,
-                args: args.into_iter().map(godot_expr).collect(),
-            },
-            span: e.span,
-        },
-        ExprKind::Call { name, args } => Expr {
-            kind: ExprKind::Call { name, args: args.into_iter().map(godot_expr).collect() },
-            span: e.span,
-        },
-        // Wrappers the resolver may insert (a numeric `as` cast, a `&`/`&mut`
-        // borrow, a deref) — recurse through so a Godot form tucked inside is
-        // still reached.
-        ExprKind::Cast(inner, t) => Expr {
-            kind: ExprKind::Cast(Box::new(godot_expr(*inner)), t),
-            span: e.span,
-        },
-        ExprKind::Ref(inner) => Expr { kind: ExprKind::Ref(Box::new(godot_expr(*inner))), span: e.span },
-        ExprKind::MutRef(inner) => {
-            Expr { kind: ExprKind::MutRef(Box::new(godot_expr(*inner))), span: e.span }
-        }
-        ExprKind::Deref(inner) => {
-            Expr { kind: ExprKind::Deref(Box::new(godot_expr(*inner))), span: e.span }
-        }
-        _ => e,
     }
 }
 
