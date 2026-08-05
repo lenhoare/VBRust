@@ -1,0 +1,8 @@
+' Pac-Man in VBR Godot — the game root. Visuals (maze + sprites) live in main.tscn;
+' VBR drives the behaviour. (M1: get the maze and Pac-Man on screen.)
+
+Node2D "Game"
+    On Ready
+        Debug.Print "Pac-Man: game ready"
+    End Ready
+End Node2D
