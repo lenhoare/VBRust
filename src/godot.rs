@@ -361,20 +361,27 @@ impl Rw<'_> {
     /// expressions Godot-rewritten (recursing into nested bodies).
     fn stmt(&self, s: Stmt) -> Stmt {
         match s {
-            // `Dim h As T = Me.GetNode("Path")` → a typed scene-tree handle,
-            // `let [mut] h: Gd<T> = self.base().get_node_as::<T>("Path");`. Kept a
-            // real `Dim` (not an inline-Rust block) so `h` is visible afterwards;
-            // the type is rewritten to `Gd<T>` (what `get_node_as` returns).
+            // `Dim h As T = Me.GetNode("Path")` (a scene-tree handle) or
+            // `Dim h As T = Spawn("res://…")` (load + instantiate) → a typed
+            // `Gd<T>` handle. Kept a real `Dim` (not an inline-Rust block) so `h`
+            // is visible afterwards; the type is rewritten to `Gd<T>`.
             Stmt::Dim { name, name_span, ty, init: Some(init), line }
-                if get_node_path(&init).is_some() =>
+                if handle_init(&init).is_some() =>
             {
-                let path = render_expr(&self.expr(get_node_path(&init).unwrap().clone()), None);
+                let (kind, path_expr) = handle_init(&init).unwrap();
+                let path = render_expr(&self.expr(path_expr.clone()), None);
                 let t = decltype_rust(&ty);
+                let rhs = match kind {
+                    HandleKind::GetNode => format!("self.base().get_node_as::<{}>({})", t, path),
+                    HandleKind::Spawn => {
+                        format!("load::<PackedScene>({}).instantiate_as::<{}>()", path, t)
+                    }
+                };
                 Stmt::Dim {
                     name,
                     name_span,
                     ty: DeclType::Named(format!("Gd<{}>", t)),
-                    init: Some(inline(format!("self.base().get_node_as::<{}>({})", t, path))),
+                    init: Some(inline(rhs)),
                     line,
                 }
             }
@@ -591,7 +598,11 @@ impl Rw<'_> {
     fn render_godot_args(&self, args: Vec<Expr>) -> String {
         args.into_iter()
             .map(|a| {
-                let borrow = matches!(&a.kind, ExprKind::Binary { op: BinOp::Concat, .. });
+                // A concat (`String`) or a node handle (`Gd<T>`) is borrowed: Godot
+                // string params want `impl AsArg<GString>` and node params want
+                // `&Gd<Node>` (`AddChild(bullet)` → `add_child(&bullet)`).
+                let borrow = matches!(&a.kind, ExprKind::Binary { op: BinOp::Concat, .. })
+                    || matches!(&a.kind, ExprKind::Ident(n) if self.handles.contains(&rust_name(n)));
                 let r = render_expr(&self.expr(a), None);
                 if borrow { format!("&{}", r) } else { r }
             })
@@ -609,25 +620,38 @@ fn str_of(e: Option<&Expr>) -> String {
     }
 }
 
-/// If `e` is `Me.GetNode("Path")`, return the path argument.
-fn get_node_path(e: &Expr) -> Option<&Expr> {
-    if let ExprKind::MethodCall { recv, method, args } = &e.kind {
-        if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")
-            && method.eq_ignore_ascii_case("getnode")
-            && args.len() == 1
-        {
-            return args.first();
-        }
-    }
-    None
+/// How a node handle is produced.
+enum HandleKind {
+    /// `Me.GetNode("Path")` — an existing node in the tree.
+    GetNode,
+    /// `Spawn("res://…")` — load a scene and instantiate a fresh node.
+    Spawn,
 }
 
-/// Collect the node-handle locals (`Dim h As T = Me.GetNode(...)`) declared
-/// anywhere in a body, by their `rust_name`.
+/// If `e` fetches (`Me.GetNode("Path")`) or spawns (`Spawn("res://…")`) a node,
+/// return how, plus the path/scene argument. Both bind a typed `Gd<T>` handle.
+fn handle_init(e: &Expr) -> Option<(HandleKind, &Expr)> {
+    match &e.kind {
+        ExprKind::MethodCall { recv, method, args }
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")
+                && method.eq_ignore_ascii_case("getnode")
+                && args.len() == 1 =>
+        {
+            Some((HandleKind::GetNode, args.first()?))
+        }
+        ExprKind::Call { name, args } if name.eq_ignore_ascii_case("spawn") && args.len() == 1 => {
+            Some((HandleKind::Spawn, args.first()?))
+        }
+        _ => None,
+    }
+}
+
+/// Collect the node-handle locals (`Dim h As T = Me.GetNode(...)` / `= Spawn(...)`)
+/// declared anywhere in a body, by their `rust_name`.
 fn collect_handles(stmts: &[Stmt], out: &mut HashSet<String>) {
     for s in stmts {
         match s {
-            Stmt::Dim { name, init: Some(init), .. } if get_node_path(init).is_some() => {
+            Stmt::Dim { name, init: Some(init), .. } if handle_init(init).is_some() => {
                 out.insert(rust_name(name));
             }
             Stmt::If { branches, else_body } => {
@@ -644,13 +668,16 @@ fn collect_handles(stmts: &[Stmt], out: &mut HashSet<String>) {
     }
 }
 
-/// The node types fetched via `GetNode` in a body (`Dim h As Label = …` → `Label`)
-/// — each needs a `use godot::classes::…`.
+/// The Godot classes a body's handles need imported: each handle's node type
+/// (`Dim h As Label = …` → `Label`), plus `PackedScene` when it `Spawn`s.
 fn collect_handle_types(stmts: &[Stmt], out: &mut Vec<String>) {
     for s in stmts {
         match s {
-            Stmt::Dim { ty, init: Some(init), .. } if get_node_path(init).is_some() => {
+            Stmt::Dim { ty, init: Some(init), .. } if handle_init(init).is_some() => {
                 out.push(decltype_rust(ty));
+                if matches!(handle_init(init), Some((HandleKind::Spawn, _))) {
+                    out.push("PackedScene".to_string());
+                }
             }
             Stmt::If { branches, else_body } => {
                 for (_, b) in branches {

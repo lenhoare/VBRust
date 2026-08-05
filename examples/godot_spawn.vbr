@@ -1,0 +1,23 @@
+' Spawning nodes in VBR (Godot slice 6).
+'
+' `Spawn("res://scene.tscn")` loads a scene and instantiates a fresh node — a
+' typed `Gd<T>` handle, like `GetNode` but new. Set it up, then `Me.AddChild(it)`
+' to put it in the tree. The bread and butter of bullets, enemies, pickups…
+'
+' Lowers to gdext `load::<PackedScene>(…).instantiate_as::<T>()` +
+' `self.base_mut().add_child(&…)`. Needs a `res://bullet.tscn` in the project
+' (make one in the Godot editor).
+
+Node2D "Spawner"
+    Dim elapsed As Single = 0
+
+    On Process(delta)
+        elapsed = elapsed + delta
+        If elapsed >= 0.5 Then
+            elapsed = 0
+            Dim bullet As Node2D = Spawn("res://bullet.tscn")
+            bullet.SetPosition(Vector2(100, 50))
+            Me.AddChild(bullet)
+        End If
+    End Process
+End Node2D

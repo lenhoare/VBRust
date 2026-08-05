@@ -149,6 +149,23 @@ fn godot_connect_has_slice5_shape() {
     }
 }
 
+/// Slice 6: spawning. `Spawn("res://…")` loads + instantiates a fresh typed
+/// `Gd<T>` handle (`PackedScene` auto-imported); `Me.AddChild(it)` borrows the
+/// handle into `add_child`.
+#[test]
+fn godot_spawn_has_slice6_shape() {
+    let rust = example_rust("godot_spawn");
+    for needle in [
+        "use godot::classes::{INode2D, Node2D, PackedScene};",
+        "load::<PackedScene>(\"res://bullet.tscn\").instantiate_as::<Node2D>()",
+        "let mut bullet: Gd<Node2D>",
+        "bullet.set_position(",                 // handle method (slice 4)
+        "self.base_mut().add_child(&bullet)",   // node handle borrowed into add_child
+    ] {
+        assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
+    }
+}
+
 /// The real proof: the examples compile as gdext cdylibs. Opt-in —
 /// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building pulls the
 /// (large) `godot` crate.
@@ -158,7 +175,9 @@ fn godot_examples_compile_as_cdylib() {
         eprintln!("skipping godot_examples_compile_as_cdylib (set VBR_GODOT_BUILD=1 to run)");
         return;
     }
-    for name in ["godot_player", "godot_runner", "godot_signal", "godot_scene", "godot_connect"] {
+    for name in
+        ["godot_player", "godot_runner", "godot_signal", "godot_scene", "godot_connect", "godot_spawn"]
+    {
         assert!(compiles_as_cdylib(name, &example_rust(name)), "{name} cdylib");
     }
 }
