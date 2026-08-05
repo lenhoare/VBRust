@@ -1,0 +1,28 @@
+' Godot signals in VBR (Godot slice 3).
+'
+' A node's *outgoing* events. `Signal` declares one (with an optional typed
+' payload); `Emit` fires it. Another node — or the Godot editor — connects a
+' handler to it. This node pings once a second, counting up, and emits the count.
+'
+' Lowers to gdext's `#[signal]` (in a second, inherent `#[godot_api] impl`) and
+' the typed `self.signals().pinged().emit(count)`. Build with
+' `vbr rungodot examples/godot_signal.vbr` (needs Godot 4).
+
+Node2D "Pinger"
+    Signal Pinged(count As Long)
+
+    Export Interval As Single = 1.0
+
+    Dim elapsed As Single = 0
+    Dim count As Long = 0
+
+    On Process(delta)
+        elapsed = elapsed + delta
+        If elapsed >= Interval Then
+            elapsed = 0.0
+            count = count + 1
+            Debug.Print "ping " & count
+            Emit Pinged(count)
+        End If
+    End Process
+End Node2D

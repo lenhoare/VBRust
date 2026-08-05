@@ -114,6 +114,24 @@ fn emit_node(node: &GodotNode, diags: &mut Diagnostics, out: &mut String) {
     }
 
     out.push_str("}\n");
+
+    // --- signals: a second, inherent `#[godot_api] impl` -----------------
+    // gdext requires `#[signal]` in the inherent impl, not the trait impl. The
+    // typed `self.signals().<name>()` API (used by `Emit`) is generated from
+    // these declarations.
+    if !node.signals.is_empty() {
+        out.push_str(&format!("\n#[godot_api]\nimpl {} {{\n", node.name));
+        for sig in &node.signals {
+            let params: Vec<String> = sig
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", rust_name(&p.name), decltype_rust(&p.ty)))
+                .collect();
+            out.push_str("    #[signal]\n");
+            out.push_str(&format!("    fn {}({});\n", to_snake(&sig.name), params.join(", ")));
+        }
+        out.push_str("}\n");
+    }
 }
 
 /// A field initialiser for `init`: a literal-ish default rendered in the field's
@@ -296,6 +314,30 @@ fn godot_stmt(s: Stmt) -> Stmt {
             init: init.map(godot_expr),
             line,
         },
+        // `Emit Sig(a, b)` → hoist the args, then emit — `self.signals()` borrows
+        // `self` mutably, so an arg reading a field can't be evaluated inside the
+        // call (same reason as a property write).
+        Stmt::Expr(Expr { kind: ExprKind::MethodCall { recv, method, args }, .. })
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == "__vbr_emit") =>
+        {
+            let sig = to_snake(&method);
+            if args.is_empty() {
+                return Stmt::Expr(inline(format!("self.signals().{}().emit()", sig)));
+            }
+            let lets: Vec<String> = args
+                .into_iter()
+                .enumerate()
+                .map(|(i, a)| format!("let __vbr_a{} = {};", i, render_expr(&godot_expr(a), None)))
+                .collect();
+            let names: Vec<String> =
+                (0..lets.len()).map(|i| format!("__vbr_a{}", i)).collect();
+            Stmt::Expr(inline(format!(
+                "{{ {} self.signals().{}().emit({}); }}",
+                lets.join(" "),
+                sig,
+                names.join(", ")
+            )))
+        }
         Stmt::Expr(e) => Stmt::Expr(godot_expr(e)),
         Stmt::Print(e) => Stmt::Print(godot_expr(e)),
         Stmt::Return(e) => Stmt::Return(e.map(godot_expr)),
@@ -346,6 +388,19 @@ fn godot_expr(e: Expr) -> Expr {
             inline(format!(
                 "Input::singleton().{}({})",
                 input_method(&method),
+                rendered.join(", ")
+            ))
+        }
+        // `Emit ScoreChanged(10)` (parsed as a call on `__vbr_emit`) →
+        // `self.signals().score_changed().emit(10)` — gdext's typed signal API.
+        ExprKind::MethodCall { recv, method, args }
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == "__vbr_emit") =>
+        {
+            let rendered: Vec<String> =
+                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
+            inline(format!(
+                "self.signals().{}().emit({})",
+                to_snake(&method),
                 rendered.join(", ")
             ))
         }

@@ -125,7 +125,9 @@ the `rust/` crate), builds it, and opens it in Godot — press Play ▶ to steer
 square with the arrow keys. `examples/godot_runner.vbr` is a fuller one — a
 `CharacterBody2D` platformer (gravity, jump, run) showing how base-class
 properties (`Me.Velocity`) and methods (`Me.MoveAndSlide()`) pass straight
-through to Godot's API. Requires **Godot 4** (from
+through to Godot's API; `examples/godot_signal.vbr` shows a node's outgoing
+events — `Signal Pinged(count As Long)` to declare one, `Emit Pinged(count)` to
+fire it. Requires **Godot 4** (from
 [godotengine.org](https://godotengine.org) or `snap install godot4`; set
 `GODOT4_BIN` if it isn't on your PATH). Building the crate needs nothing extra —
 gdext bundles the Godot API, so the cdylib compiles without Godot installed.

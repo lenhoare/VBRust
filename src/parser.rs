@@ -858,6 +858,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         let mut events = Vec::new();
+        let mut signals = Vec::new();
         loop {
             self.skip_newlines();
             match self.peek().clone() {
@@ -870,6 +871,18 @@ impl<'a> Parser<'a> {
                 Tok::Comment(_) => {
                     self.advance();
                     self.eat(&Tok::Newline);
+                }
+                // `Signal Died` / `Signal ScoreChanged(points As Long)`.
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Signal") => {
+                    self.advance();
+                    let sig_name = self.expect_ident("for the signal name")?;
+                    let params = if self.eat(&Tok::LParen) {
+                        self.parse_params_until_rparen()?
+                    } else {
+                        Vec::new()
+                    };
+                    self.eat(&Tok::Newline);
+                    signals.push(GodotSignal { name: sig_name, params });
                 }
                 // `Export Speed As Single = 200` / `Dim Health As Long = 100` —
                 // a member field. `Export` surfaces it in the Godot inspector.
@@ -911,7 +924,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Some(GodotNode { base, name, fields, events, line })
+        Some(GodotNode { base, name, fields, events, signals, line })
     }
 
     /// A Godot event's parameter list (the `(` is already eaten). A lifecycle
@@ -2345,6 +2358,36 @@ impl<'a> Parser<'a> {
             {
                 self.advance();
                 Some(Stmt::Log(LogLevel::Info, self.parse_expr()?))
+            }
+            // `Emit <Signal>[(args)]` — fire a Godot signal (only in a node body).
+            // Like `Assert`, `Emit` is recognised only at statement start followed
+            // by a name, so a variable/function `emit` elsewhere is untouched. It
+            // lowers (Godot backend) to `self.signals().<signal>().emit(args)`; it
+            // is carried as a call on a reserved receiver so no new `Stmt` variant
+            // leaks into the other backends.
+            Tok::Ident(w) if w.eq_ignore_ascii_case("emit") && matches!(self.peek2(), Tok::Ident(_)) => {
+                let span = self.span();
+                self.advance(); // `Emit`
+                let signal = self.expect_ident("for the signal name after `Emit`")?;
+                let args = if self.eat(&Tok::LParen) {
+                    let mut args = Vec::new();
+                    if !matches!(self.peek(), Tok::RParen) {
+                        loop {
+                            args.push(self.parse_expr()?);
+                            if !self.eat(&Tok::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(&Tok::RParen, "to close the signal arguments")?;
+                    args
+                } else {
+                    Vec::new()
+                };
+                let recv = ExprKind::Ident("__vbr_emit".to_string()).at(span);
+                Some(Stmt::Expr(
+                    ExprKind::MethodCall { recv: Box::new(recv), method: signal, args }.at(span),
+                ))
             }
             Tok::Ident(name) => self.parse_ident_stmt(name),
             other => {

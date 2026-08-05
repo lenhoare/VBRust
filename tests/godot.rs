@@ -96,7 +96,24 @@ fn godot_runner_has_slice2_shape() {
     }
 }
 
-/// The real proof: both examples compile as gdext cdylibs. Opt-in —
+/// Slice 3: signals. `Signal` declares them in a second, inherent `#[godot_api]
+/// impl` (`#[signal] fn …`); `Emit` fires them through gdext's typed API, hoisting
+/// args past the `self.signals()` borrow.
+#[test]
+fn godot_signal_has_slice3_shape() {
+    let rust = example_rust("godot_signal");
+    for needle in [
+        "#[godot_api]\nimpl Pinger {",   // the second, inherent impl
+        "#[signal]",
+        "fn pinged(count: i64);",        // typed payload
+        "self.signals().pinged().emit(", // typed emit
+        "let __vbr_a0 = self.count;",    // args hoisted past the borrow
+    ] {
+        assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
+    }
+}
+
+/// The real proof: the examples compile as gdext cdylibs. Opt-in —
 /// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building pulls the
 /// (large) `godot` crate.
 #[test]
@@ -105,8 +122,9 @@ fn godot_examples_compile_as_cdylib() {
         eprintln!("skipping godot_examples_compile_as_cdylib (set VBR_GODOT_BUILD=1 to run)");
         return;
     }
-    assert!(compiles_as_cdylib("player", &example_rust("godot_player")), "player cdylib");
-    assert!(compiles_as_cdylib("runner", &example_rust("godot_runner")), "runner cdylib");
+    for name in ["godot_player", "godot_runner", "godot_signal"] {
+        assert!(compiles_as_cdylib(name, &example_rust(name)), "{name} cdylib");
+    }
 }
 
 /// `vbr rungodot` assembles a loadable Godot 4 project: `project.godot`, a

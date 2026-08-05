@@ -111,7 +111,20 @@ pub struct GodotNode {
     pub name: String,
     pub fields: Vec<GodotField>,
     pub events: Vec<GodotEvent>,
+    /// `Signal Died` / `Signal ScoreChanged(points As Long)` declarations — the
+    /// node's outgoing events. Lowered to a `#[signal]`-carrying inherent
+    /// `#[godot_api] impl`; fired from a body with `Emit`.
+    pub signals: Vec<GodotSignal>,
     pub line: usize,
+}
+
+/// A `Signal <Name>[(<params>)]` declaration on a `GodotNode`. Params are the
+/// signal's payload (typed, always by value). Lowers to gdext `#[signal] fn
+/// <name>(<params>);`.
+#[derive(Debug, Clone)]
+pub struct GodotSignal {
+    pub name: String,
+    pub params: Vec<Param>,
 }
 
 /// One member of a `GodotNode`. `export` = `#[export]` (editor-visible, tweakable
