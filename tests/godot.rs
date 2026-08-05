@@ -181,6 +181,24 @@ fn godot_input_has_slice7_shape() {
     }
 }
 
+/// Slice 9: 3D. A `Node3D` (…) block lowers the same as its 2D cousin — the
+/// property/method passthrough is dimension-agnostic — so `Me.Rotation` and
+/// `Vector3` just work with no 3D-specific codegen.
+#[test]
+fn godot_3d_has_slice9_shape() {
+    let rust = example_rust("godot_3d");
+    for needle in [
+        "#[class(base = Node3D)]",
+        "impl INode3D for Spinner",
+        "base: Base<Node3D>",
+        "self.base().get_rotation()",       // property passthrough on a 3D node
+        "Vector3::new(",                    // 3-component vector
+        "self.base_mut().set_rotation(",
+    ] {
+        assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
+    }
+}
+
 /// The real proof: the examples compile as gdext cdylibs. Opt-in —
 /// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building pulls the
 /// (large) `godot` crate.
@@ -198,6 +216,7 @@ fn godot_examples_compile_as_cdylib() {
         "godot_connect",
         "godot_spawn",
         "godot_input",
+        "godot_3d",
     ] {
         assert!(compiles_as_cdylib(name, &example_rust(name)), "{name} cdylib");
     }

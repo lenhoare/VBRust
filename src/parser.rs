@@ -283,9 +283,20 @@ impl<'a> Parser<'a> {
     }
 
     /// The Godot base classes a top-level block may open (`Node2D "Player" …`).
-    /// Kept as one list so the dispatch and slice-2 additions stay in one place.
+    /// Kept as one list so the dispatch and additions stay in one place. Emission
+    /// is dimension-agnostic (the property/method passthrough doesn't care), so
+    /// the 3D bases need only be named here.
     fn godot_base(w: &str) -> bool {
-        matches!(w, "Node2D" | "Node" | "CharacterBody2D" | "Area2D" | "Sprite2D")
+        matches!(
+            w,
+            // 2D
+            "Node2D" | "CharacterBody2D" | "Area2D" | "Sprite2D" | "RigidBody2D" | "StaticBody2D"
+            // 3D
+            | "Node3D" | "CharacterBody3D" | "Area3D" | "MeshInstance3D" | "Camera3D"
+            | "RigidBody3D" | "StaticBody3D"
+            // dimensionless
+            | "Node"
+        )
     }
 
     /// `Use <crate> <version> [As <name>]` — the line was captured raw by the

@@ -836,10 +836,11 @@ fn cmd_rungodot(args: &[String]) {
         entry.file_stem().and_then(|s| s.to_str()).unwrap_or("game").to_string()
     };
     let crate_name = sanitise_crate(&name);
-    let proj = src_dir
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(format!("{}_godot", name));
+    // Placed beside the *source unit*: for a project folder, next to the folder
+    // (`src_dir.parent()`); for a lone file, next to the file (`src_dir`).
+    let proj_parent =
+        if is_project { src_dir.parent().unwrap_or_else(|| Path::new(".")) } else { &src_dir };
+    let proj = proj_parent.join(format!("{}_godot", name));
     let rust_dir = proj.join("rust");
 
     // --- compile the entry (+ any sibling modules) into rust/src/ -------
@@ -852,7 +853,7 @@ fn cmd_rungodot(args: &[String]) {
         );
         exit(1);
     }
-    let (_, class) = godot_class_info(&entry_rust).unwrap_or_else(|| {
+    let (base, class) = godot_class_info(&entry_rust).unwrap_or_else(|| {
         eprintln!("✘ Could not find the node class in the generated code.");
         exit(1);
     });
@@ -874,7 +875,7 @@ fn cmd_rungodot(args: &[String]) {
     }
     // A starter scene, only if the project doesn't supply its own `main.tscn`.
     if !proj.join("main.tscn").exists() {
-        write(proj.join("main.tscn"), &godot_main_scene(&class));
+        write(proj.join("main.tscn"), &godot_main_scene(&base, &class));
     }
     eprintln!("→ project: {}", proj.display());
 
@@ -1097,15 +1098,32 @@ fn godot_project_file(name: &str) -> String {
 /// A starter scene: the VBR node class as the root, with a coloured box child so
 /// there's something visible to move. `type="<Class>"` resolves once Godot loads
 /// the GDExtension.
-fn godot_main_scene(class: &str) -> String {
-    format!(
-        "[gd_scene format=3]\n\n\
-         [node name=\"{class}\" type=\"{class}\"]\n\n\
-         [node name=\"Box\" type=\"ColorRect\" parent=\".\"]\n\
-         offset_right = 40.0\n\
-         offset_bottom = 40.0\n\
-         color = Color(0.3, 0.7, 1, 1)\n"
-    )
+fn godot_main_scene(base: &str, class: &str) -> String {
+    if base.ends_with("3D") {
+        // 3D needs a camera and a light to see anything, plus a mesh so the node
+        // has a visible body. A real game supplies its own scene (drop a
+        // `main.tscn` beside the source); this just gets *something* on screen.
+        format!(
+            "[gd_scene load_steps=2 format=3]\n\n\
+             [sub_resource type=\"BoxMesh\" id=\"BoxMesh_1\"]\n\n\
+             [node name=\"{class}\" type=\"{class}\"]\n\n\
+             [node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\n\
+             mesh = SubResource(\"BoxMesh_1\")\n\n\
+             [node name=\"Camera\" type=\"Camera3D\" parent=\".\"]\n\
+             transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 4)\n\n\
+             [node name=\"Light\" type=\"DirectionalLight3D\" parent=\".\"]\n\
+             transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 5, 0)\n"
+        )
+    } else {
+        format!(
+            "[gd_scene format=3]\n\n\
+             [node name=\"{class}\" type=\"{class}\"]\n\n\
+             [node name=\"Box\" type=\"ColorRect\" parent=\".\"]\n\
+             offset_right = 40.0\n\
+             offset_bottom = 40.0\n\
+             color = Color(0.3, 0.7, 1, 1)\n"
+        )
+    }
 }
 
 /// Find a Godot 4 executable: `$GODOT4_BIN`/`$GODOT_BIN`, then `godot4`/`godot`

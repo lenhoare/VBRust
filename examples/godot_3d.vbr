@@ -1,0 +1,21 @@
+' A 3D node in VBR (Godot slice 9) — a spinning cube.
+'
+' 3D is the same surface as 2D: a different base class (`Node3D`, `CharacterBody3D`,
+' Camera3D…) and 3-component vectors. The property/method passthrough is identical,
+' so `Me.Rotation`, `Me.Position`, `Me.LookAt(…)` all just work.
+'
+' `vbr rungodot examples/godot_3d.vbr` generates a 3D starter scene (a box mesh, a
+' camera, a light). For a real game, build your own scene in the Godot editor.
+
+Node3D "Spinner"
+    Export Speed As Single = 1.0
+
+    On Ready
+        Debug.Print "3D spinner ready"
+    End Ready
+
+    On Process(delta)
+        ' Spin around the Y axis (rotation is a Vector3 of euler angles, radians).
+        Me.Rotation = Me.Rotation + Vector3(0, Speed * delta, 0)
+    End Process
+End Node3D

@@ -13,6 +13,7 @@ and the generated Rust is always there to read.
 - **`stdlib_spec.md`** — the standard library.
 - **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
 - **`targets_spec.md`** — the alternative transpile targets: `vbr py` (Python) and `vbr c` (C).
+- **`godot_spec.md`** — an optional extra: a `Node2D`/`Node3D` (…) → a Godot game, via godot-rust.
 
 ## Building
 
@@ -109,49 +110,24 @@ cargo run -- runweb examples/tui_counter.vbr
 One-time setup (each checked with a friendly error): `rustup target add
 wasm32-unknown-unknown` and `cargo install trunk --locked`. See `web_spec.md`.
 
-## Games (Godot)
+## Games (Godot) — an optional extra
 
-A program with a `Node2D` (…) block is a **Godot** game object — one node class
-Godot instantiates and drives. It compiles to a **GDExtension** (a cdylib, via
-[godot-rust](https://godot-rust.github.io/)) and is opened in the Godot editor:
-
-```sh
-cargo run -- rungodot examples/godot_player.vbr
-```
-
-That assembles a self-contained Godot 4 project beside the source
-(`godot_player_godot/`: `project.godot`, a `.gdextension`, a starter scene, and
-the `rust/` crate), builds it, and opens it in Godot — press Play ▶ to steer the
-square with the arrow keys. `examples/godot_runner.vbr` is a fuller one — a
-`CharacterBody2D` platformer (gravity, jump, run) showing how base-class
-properties (`Me.Velocity`) and methods (`Me.MoveAndSlide()`) pass straight
-through to Godot's API; `examples/godot_signal.vbr` shows a node's outgoing
-events — `Signal Pinged(count As Long)` to declare one, `Emit Pinged(count)` to
-fire it; `examples/godot_scene.vbr` reaches another node with `Me.GetNode("Path")`
-(typed by the `Dim`'s `As`) and calls methods on it; `examples/godot_connect.vbr`
-wires a signal to a handler — `Sub OnPinged(count As Long)` plus
-`Connect emitter.Pinged To OnPinged`; `examples/godot_spawn.vbr` spawns nodes at
-runtime — `Dim b As Node2D = Spawn("res://bullet.tscn")` then `Me.AddChild(b)`;
-`examples/godot_input.vbr` handles discrete input with `On Input(event)` +
-`event.IsActionPressed(…)`.
-
-`rungodot` also takes a **project folder** (like `runproject`) — since games are
-asset-heavy and multi-file:
+An **optional** bolt-on, not a core VBR target: a `Node2D`/`Node3D` (…) block is a
+**Godot** game object that compiles to a GDExtension (a cdylib, via
+[godot-rust](https://godot-rust.github.io/)) the Godot editor loads. It's for
+making 2D (and 3D) games, built on the same machinery as the other surfaces — so
+it reads like the rest of VBR, but you can ignore it entirely.
 
 ```sh
-cargo run -- rungodot examples/godot_game
+cargo run -- rungodot examples/godot_player.vbr    # a single node
+cargo run -- rungodot examples/godot_game          # a multi-file project
 ```
 
-The entry `main.vbr` (holding the main scene's root node) plus its sibling
-`.vbr` modules compile into one GDExtension — nodes can live in any module
-(gdext registers them all), and modules call each other by qualified name
-(`Combat.Damage`). Your assets (scenes, textures, audio, an `assets/` folder) are
-copied into the Godot project, and your own `main.tscn` is kept if you supply one.
-
-Requires **Godot 4** (from [godotengine.org](https://godotengine.org) or
-`snap install godot4`; set `GODOT4_BIN` if it isn't on your PATH). Building the
-crate needs nothing extra — gdext bundles the Godot API, so the cdylib compiles
-without Godot installed.
+`rungodot` assembles a Godot 4 project beside the source, builds the crate, and
+opens it in Godot — press Play ▶. It covers the full 2D game loop (movement,
+signals, scene tree, spawning, input) and asset-aware project folders. Needs
+**Godot 4** installed (`snap install godot4`, or set `GODOT4_BIN`). See
+**`godot_spec.md`** for the whole surface.
 
 ## Playground
 
