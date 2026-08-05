@@ -859,6 +859,7 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         let mut events = Vec::new();
         let mut signals = Vec::new();
+        let mut handlers = Vec::new();
         loop {
             self.skip_newlines();
             match self.peek().clone() {
@@ -894,6 +895,23 @@ impl<'a> Parser<'a> {
                     self.advance();
                     fields.push(self.parse_godot_field(false)?);
                 }
+                // `Sub OnPinged(count As Long) … End Sub` — a signal handler
+                // (a callable `#[func]`), wired up with `Connect … To`.
+                Tok::Sub => {
+                    self.advance();
+                    let h_name = self.expect_ident("for the handler name")?;
+                    let params = if self.eat(&Tok::LParen) {
+                        self.parse_params_until_rparen()?
+                    } else {
+                        Vec::new()
+                    };
+                    self.expect(&Tok::Newline, "after the handler name")?;
+                    let body = self.parse_block()?;
+                    self.expect(&Tok::End, "to close the handler")?;
+                    self.expect(&Tok::Sub, "after `End`")?;
+                    self.eat(&Tok::Newline);
+                    handlers.push(GodotEvent { name: h_name, params, body });
+                }
                 // `On Ready … End Ready` / `On Process(delta) … End Process`.
                 Tok::On => {
                     self.advance();
@@ -924,7 +942,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Some(GodotNode { base, name, fields, events, signals, line })
+        Some(GodotNode { base, name, fields, events, signals, handlers, line })
     }
 
     /// A Godot event's parameter list (the `(` is already eaten). A lifecycle
@@ -2358,6 +2376,30 @@ impl<'a> Parser<'a> {
             {
                 self.advance();
                 Some(Stmt::Log(LogLevel::Info, self.parse_expr()?))
+            }
+            // `Connect <source>.<Signal> To <Handler>` — wire a signal to a
+            // handler method (only in a node body). `source` is `Me` (own signal)
+            // or a `GetNode` handle. Carried as a call on a reserved receiver so
+            // no new `Stmt` variant leaks into the other backends (like `Emit`).
+            Tok::Ident(w) if w.eq_ignore_ascii_case("connect") && matches!(self.peek2(), Tok::Ident(_)) => {
+                let span = self.span();
+                self.advance(); // `Connect`
+                let source = self.expect_ident("for the signal's source (`Me` or a node)")?;
+                self.expect(&Tok::Dot, "before the signal name")?;
+                let signal = self.expect_ident("for the signal name")?;
+                self.expect(&Tok::To, "before the handler (`… To OnPinged`)")?;
+                let handler = self.expect_ident("for the handler name after `To`")?;
+                self.eat(&Tok::Newline);
+                let recv = ExprKind::Ident(source).at(span);
+                let args = vec![ExprKind::Str(signal).at(span), ExprKind::Str(handler).at(span)];
+                Some(Stmt::Expr(
+                    ExprKind::MethodCall {
+                        recv: Box::new(recv),
+                        method: "__vbr_connect".to_string(),
+                        args,
+                    }
+                    .at(span),
+                ))
             }
             // `Emit <Signal>[(args)]` — fire a Godot signal (only in a node body).
             // Like `Assert`, `Emit` is recognised only at statement start followed

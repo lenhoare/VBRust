@@ -53,6 +53,10 @@ pub fn emit_godot_program(
         }
     }
     classes.extend(referenced_classes(program).into_iter().map(str::to_string));
+    // A fetched node whose type is one of *this* program's nodes is a local
+    // struct, not a `godot::classes` type — don't import it.
+    let own: HashSet<&str> = program.godot_nodes.iter().map(|n| n.name.as_str()).collect();
+    classes.retain(|c| !own.contains(c.as_str()));
     classes.sort();
     classes.dedup();
     if !classes.is_empty() {
@@ -123,11 +127,11 @@ fn emit_node(node: &GodotNode, t: &Tables, diags: &mut Diagnostics, out: &mut St
 
     out.push_str("}\n");
 
-    // --- signals: a second, inherent `#[godot_api] impl` -----------------
-    // gdext requires `#[signal]` in the inherent impl, not the trait impl. The
-    // typed `self.signals().<name>()` API (used by `Emit`) is generated from
-    // these declarations.
-    if !node.signals.is_empty() {
+    // --- signals + handlers: a second, inherent `#[godot_api] impl` ------
+    // gdext requires `#[signal]` and `#[func]` in the inherent impl, not the trait
+    // impl. Signals back the typed `self.signals().<name>()` API (used by `Emit`);
+    // handlers are the `#[func]`s a `Connect … To` wires a signal to.
+    if !node.signals.is_empty() || !node.handlers.is_empty() {
         out.push_str(&format!("\n#[godot_api]\nimpl {} {{\n", node.name));
         for sig in &node.signals {
             let params: Vec<String> = sig
@@ -137,6 +141,9 @@ fn emit_node(node: &GodotNode, t: &Tables, diags: &mut Diagnostics, out: &mut St
                 .collect();
             out.push_str("    #[signal]\n");
             out.push_str(&format!("    fn {}({});\n", to_snake(&sig.name), params.join(", ")));
+        }
+        for h in &node.handlers {
+            emit_handler(h, &fields, &field_ty, &t.enums, t, diags, out);
         }
         out.push_str("}\n");
     }
@@ -191,19 +198,56 @@ fn emit_event(
     for line in rebinds {
         out.push_str(&format!("        {}\n", line));
     }
+    lower_body(&ev.body, &ev.params, fields, field_ty, enums, t, diags, out);
+    out.push_str("    }\n");
+}
 
-    // Resolve first (bare names + `field_ty` in scope, like every other
-    // surface): types the arithmetic and applies VB's numeric coercions — an
-    // integer literal in a float slot gets its `.0`, so `elapsed = 0` compiles.
-    // The Godot-only forms (`Me.Velocity`, `Input`, `Vector2`, `Emit`) resolve to
-    // `Unknown` and pass through untouched, ready for the Godot rewrite below.
-    let mut body: Vec<Stmt> = ev.body.clone();
+/// Emit one signal handler as a `#[func]` method (Godot can call it back). The
+/// body is lowered exactly like an event body; it goes in the inherent impl.
+fn emit_handler(
+    h: &GodotEvent,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+    t: &Tables,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    let params: Vec<String> = h
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", rust_name(&p.name), decltype_rust(&p.ty)))
+        .collect();
+    let sep = if params.is_empty() { "" } else { ", " };
+    out.push_str("    #[func]\n");
+    out.push_str(&format!("    fn {}(&mut self{}{}) {{\n", to_snake(&h.name), sep, params.join(", ")));
+    lower_body(&h.body, &h.params, fields, field_ty, enums, t, diags, out);
+    out.push_str("    }\n");
+}
+
+/// Lower an event/handler body and emit its statements at 2-indent. Resolve first
+/// (bare names + `field_ty` in scope, like every other surface): types the
+/// arithmetic and applies VB's numeric coercions — an integer literal in a float
+/// slot gets its `.0`, so `elapsed = 0` compiles. The Godot-only forms
+/// (`Me.Velocity`, `Input`, `Vector2`, `Emit`, `Connect`) resolve to `Unknown`
+/// and pass through, ready for the member rewrite and Godot rewrite below.
+fn lower_body(
+    body: &[Stmt],
+    params: &[Param],
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+    t: &Tables,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    let mut body: Vec<Stmt> = body.to_vec();
     resolver::resolve_event_body(
-        &mut body, &ev.params, field_ty, &t.fns, &t.methods, &t.consts, &t.modules,
-        &t.interfaces, enums, &t.structs, diags,
+        &mut body, params, field_ty, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces,
+        enums, &t.structs, diags,
     );
-    // Member rewrite first (bare `speed` → `self.speed`), so handle detection and
-    // the Godot rewrite below see the settled form.
+    // Member rewrite (bare `speed` → `self.speed`), so handle detection and the
+    // Godot rewrite see the settled form.
     let body: Vec<Stmt> =
         body.into_iter().map(|s| rewrite_stmt(s, "self", fields, enums)).collect();
     // Scene-tree handles (`Dim h As T = Me.GetNode(...)`): route their method
@@ -220,7 +264,6 @@ fn emit_event(
     for stmt in &body {
         emit_stmt(stmt, &mutated, &byref, 2, diags, out);
     }
-    out.push_str("    }\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +455,25 @@ impl Rw<'_> {
     /// gdext and recursing through the ordinary containers.
     fn expr(&self, e: Expr) -> Expr {
         match e.kind {
+            // `Connect src.Signal To Handler` (a call on `__vbr_connect`, args =
+            // [signal, handler]) → `src.connect("signal", &Callable::from_object_
+            // method(&self.to_gd(), "handler"))`. The callable is bound first so
+            // `self.to_gd()` (shared borrow) is done before a `self.base_mut()`
+            // source (a `Me` self-connect) borrows mutably.
+            ExprKind::MethodCall { recv, method, args } if method == "__vbr_connect" => {
+                let signal = to_snake(&str_of(args.first()));
+                let handler = to_snake(&str_of(args.get(1)));
+                let source = match &recv.kind {
+                    ExprKind::Ident(n) if n == "Me" => "self.base_mut()".to_string(),
+                    ExprKind::Ident(n) => rust_name(n),
+                    _ => render_expr(&self.expr(*recv), None),
+                };
+                inline(format!(
+                    "let __vbr_cb = Callable::from_object_method(&self.to_gd(), \"{}\"); \
+                     {}.connect(\"{}\", &__vbr_cb)",
+                    handler, source, signal
+                ))
+            }
             // `Me.<Prop>` (read) → `self.base().get_<prop>()` (any base-class property).
             ExprKind::Field(recv, prop) if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") => {
                 inline(format!("self.base().{}()", property_getter(&prop)))
@@ -535,6 +597,15 @@ impl Rw<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+/// The string a `Str` literal carries (empty for anything else / `None`) — used
+/// to read a `Connect`'s encoded signal/handler names.
+fn str_of(e: Option<&Expr>) -> String {
+    match e.map(|e| &e.kind) {
+        Some(ExprKind::Str(s)) => s.clone(),
+        _ => String::new(),
     }
 }
 

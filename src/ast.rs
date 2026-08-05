@@ -115,6 +115,11 @@ pub struct GodotNode {
     /// node's outgoing events. Lowered to a `#[signal]`-carrying inherent
     /// `#[godot_api] impl`; fired from a body with `Emit`.
     pub signals: Vec<GodotSignal>,
+    /// `Sub OnPinged(count As Long) … End Sub` — signal handlers: named methods
+    /// Godot can call back. Lowered to `#[func] fn …` in the inherent impl; wired
+    /// to a signal with `Connect <source>.<Signal> To <Handler>`. Same shape as an
+    /// event body, so they reuse `GodotEvent`.
+    pub handlers: Vec<GodotEvent>,
     pub line: usize,
 }
 

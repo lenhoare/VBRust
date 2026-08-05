@@ -128,7 +128,9 @@ properties (`Me.Velocity`) and methods (`Me.MoveAndSlide()`) pass straight
 through to Godot's API; `examples/godot_signal.vbr` shows a node's outgoing
 events — `Signal Pinged(count As Long)` to declare one, `Emit Pinged(count)` to
 fire it; `examples/godot_scene.vbr` reaches another node with `Me.GetNode("Path")`
-(typed by the `Dim`'s `As`) and calls methods on it. Requires **Godot 4** (from
+(typed by the `Dim`'s `As`) and calls methods on it; `examples/godot_connect.vbr`
+wires a signal to a handler — `Sub OnPinged(count As Long)` plus
+`Connect emitter.Pinged To OnPinged`. Requires **Godot 4** (from
 [godotengine.org](https://godotengine.org) or `snap install godot4`; set
 `GODOT4_BIN` if it isn't on your PATH). Building the crate needs nothing extra —
 gdext bundles the Godot API, so the cdylib compiles without Godot installed.

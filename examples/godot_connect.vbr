@@ -1,0 +1,36 @@
+' Godot signal handlers + connecting in VBR (Godot slice 5).
+'
+' Slice 3 declared (`Signal`) and fired (`Emit`) signals; this closes the loop:
+' `Connect <source>.<Signal> To <Handler>` wires a signal to a handler method
+' (`Sub … End Sub`) that Godot calls back. The wiring is explicit — no magic
+' name-matching. `source` is `Me` (own signal) or a `GetNode` handle.
+'
+' The Emitter pings once a second; the Listener connects to it and prints each
+' ping. Lowers to gdext `#[func]` handlers + a string-based `connect(…)`.
+
+Node2D "Emitter"
+    Signal Pinged(count As Long)
+
+    Dim elapsed As Single = 0
+    Dim count As Long = 0
+
+    On Process(delta)
+        elapsed = elapsed + delta
+        If elapsed >= 1.0 Then
+            elapsed = 0
+            count = count + 1
+            Emit Pinged(count)
+        End If
+    End Process
+End Node2D
+
+Node2D "Listener"
+    On Ready
+        Dim emitter As Emitter = Me.GetNode("Emitter")
+        Connect emitter.Pinged To OnPinged
+    End Ready
+
+    Sub OnPinged(count As Long)
+        Debug.Print "listener heard ping " & count
+    End Sub
+End Node2D

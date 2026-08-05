@@ -130,6 +130,25 @@ fn godot_scene_has_slice4_shape() {
     }
 }
 
+/// Slice 5: signal-connect. `Connect src.Signal To Handler` wires a signal to a
+/// `Sub` handler (a `#[func]`) via a string-based `connect` + a `Callable`; the
+/// callable is bound before the source borrows, and user node types aren't
+/// imported from `godot::classes`.
+#[test]
+fn godot_connect_has_slice5_shape() {
+    let rust = example_rust("godot_connect");
+    for needle in [
+        "use godot::classes::{INode2D, Node2D};",  // Emitter (a user node) NOT imported
+        "get_node_as::<Emitter>(\"Emitter\")",
+        "Callable::from_object_method(&self.to_gd(), \"on_pinged\")",
+        "emitter.connect(\"pinged\", &__vbr_cb)", // string-based connect, snake names
+        "#[func]",
+        "fn on_pinged(&mut self, count: i64)",     // the handler in the inherent impl
+    ] {
+        assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
+    }
+}
+
 /// The real proof: the examples compile as gdext cdylibs. Opt-in —
 /// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building pulls the
 /// (large) `godot` crate.
@@ -139,7 +158,7 @@ fn godot_examples_compile_as_cdylib() {
         eprintln!("skipping godot_examples_compile_as_cdylib (set VBR_GODOT_BUILD=1 to run)");
         return;
     }
-    for name in ["godot_player", "godot_runner", "godot_signal", "godot_scene"] {
+    for name in ["godot_player", "godot_runner", "godot_signal", "godot_scene", "godot_connect"] {
         assert!(compiles_as_cdylib(name, &example_rust(name)), "{name} cdylib");
     }
 }
