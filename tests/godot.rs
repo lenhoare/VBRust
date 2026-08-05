@@ -10,15 +10,40 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// Transpile the bundled `examples/godot_player.vbr` and return its Rust.
-fn player_rust() -> String {
+/// Transpile a bundled `examples/<name>.vbr` and return its Rust.
+fn example_rust(name: &str) -> String {
     let src = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/godot_player.vbr"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("examples/{name}.vbr")),
     )
-    .expect("read godot_player.vbr");
+    .unwrap_or_else(|_| panic!("read {name}.vbr"));
     let out = vbr::compile(&src);
-    assert!(!out.has_errors, "godot_player.vbr should transpile cleanly:\n{:?}", out.diagnostics);
+    assert!(!out.has_errors, "{name}.vbr should transpile cleanly:\n{:?}", out.diagnostics);
     out.rust
+}
+
+/// Build `rust` as a gdext cdylib in a fresh temp crate; return whether it
+/// compiled. Opt-in behind `VBR_GODOT_BUILD=1` (pulls the large `godot` crate).
+fn compiles_as_cdylib(name: &str, rust: &str) -> bool {
+    let dir = std::env::temp_dir().join(format!("vbr_godot_{name}"));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"vbr_godot_{name}\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+             [lib]\ncrate-type = [\"cdylib\"]\n\n[dependencies]\ngodot = \"0.5\"\n"
+        ),
+    )
+    .unwrap();
+    fs::write(dir.join("src/lib.rs"), rust).unwrap();
+    let ok = Command::new("cargo")
+        .arg("build")
+        .current_dir(&dir)
+        .status()
+        .expect("run cargo build")
+        .success();
+    let _ = fs::remove_dir_all(&dir);
+    ok
 }
 
 /// The moving-square example lowers to the gdext shape the probe proved: a
@@ -27,10 +52,10 @@ fn player_rust() -> String {
 /// (a class `use`, and a hoisted `set_position`).
 #[test]
 fn godot_player_has_gdext_shape() {
-    let rust = player_rust();
+    let rust = example_rust("godot_player");
     for needle in [
         "use godot::prelude::*;",
-        "use godot::classes::Input;",       // rule 1: a class needs its `use`
+        "use godot::classes::{INode2D, Input, Node2D};", // base + I-trait + singleton
         "unsafe impl ExtensionLibrary for", // the entry stub
         "#[derive(GodotClass)]",
         "#[class(base = Node2D)]",
@@ -48,35 +73,40 @@ fn godot_player_has_gdext_shape() {
     }
 }
 
-/// The real proof: the generated Rust compiles as a gdext cdylib. Opt-in —
-/// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building it downloads
-/// and compiles the `godot` crate (large, slow the first time).
+/// Slice 2: a different base class and the general passthrough — any `Me.<Prop>`
+/// is a property, `Me.<Method>()` a base-class method, `Input.GetAxis` snake-cased
+/// generally, and unary minus folded so it survives without the resolver.
 #[test]
-fn godot_player_compiles_as_cdylib() {
+fn godot_runner_has_slice2_shape() {
+    let rust = example_rust("godot_runner");
+    for needle in [
+        "use godot::classes::{CharacterBody2D, ICharacterBody2D, Input};",
+        "#[class(base = CharacterBody2D)]",
+        "impl ICharacterBody2D for Runner",
+        "fn physics_process(&mut self, delta: f64)",
+        "self.base().get_velocity()",             // general property read
+        "self.base_mut().set_velocity(",          // general property write (hoisted)
+        "self.base_mut().move_and_slide()",       // base-class method
+        "self.base_mut().is_on_floor()",          // base-class method (as condition)
+        "Input::singleton().get_axis(",           // general snake_case (not `getaxis`)
+        "Input::singleton().is_action_just_pressed(",
+        "-(self.jumpforce)",                      // unary minus folded, not `0 - `
+    ] {
+        assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
+    }
+}
+
+/// The real proof: both examples compile as gdext cdylibs. Opt-in —
+/// `VBR_GODOT_BUILD=1 cargo test --test godot` — because building pulls the
+/// (large) `godot` crate.
+#[test]
+fn godot_examples_compile_as_cdylib() {
     if std::env::var("VBR_GODOT_BUILD").is_err() {
-        eprintln!("skipping godot_player_compiles_as_cdylib (set VBR_GODOT_BUILD=1 to run)");
+        eprintln!("skipping godot_examples_compile_as_cdylib (set VBR_GODOT_BUILD=1 to run)");
         return;
     }
-    let rust = player_rust();
-    let dir = std::env::temp_dir().join("vbr_godot_build");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(
-        dir.join("Cargo.toml"),
-        "[package]\nname = \"vbr_godot_build\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
-         [lib]\ncrate-type = [\"cdylib\"]\n\n[dependencies]\ngodot = \"0.5\"\n",
-    )
-    .unwrap();
-    fs::write(dir.join("src/lib.rs"), &rust).unwrap();
-
-    let ok = Command::new("cargo")
-        .arg("build")
-        .current_dir(&dir)
-        .status()
-        .expect("run cargo build")
-        .success();
-    let _ = fs::remove_dir_all(&dir);
-    assert!(ok, "the generated gdext cdylib should compile");
+    assert!(compiles_as_cdylib("player", &example_rust("godot_player")), "player cdylib");
+    assert!(compiles_as_cdylib("runner", &example_rust("godot_runner")), "runner cdylib");
 }
 
 /// `vbr rungodot` assembles a loadable Godot 4 project: `project.godot`, a

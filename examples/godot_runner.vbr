@@ -1,0 +1,32 @@
+' A Godot platformer character in VBR (Godot slice 2).
+'
+' Shows the wider surface: a different base class (`CharacterBody2D`), the general
+' property rule (any `Me.<Prop>` reads/writes the base-class property), base-class
+' *methods* (`Me.MoveAndSlide()`, `Me.IsOnFloor()`), and more of the `Input`
+' singleton — all passing through to gdext with no per-call wiring.
+'
+' Build/run with `vbr rungodot examples/godot_runner.vbr` (needs Godot 4). The
+' scene gives it a coloured box; arrow keys run and jump (Space/Enter = jump).
+
+CharacterBody2D "Runner"
+    Export Speed As Single = 300
+    Export JumpForce As Single = 600
+    Export Gravity As Single = 980
+
+    On PhysicsProcess(delta)
+        Dim v As Vector2 = Me.Velocity
+
+        ' Fall under gravity while in the air.
+        If Not Me.IsOnFloor() Then v.Y = v.Y + Gravity * delta
+
+        ' Jump when grounded.
+        If Me.IsOnFloor() And Input.IsJustPressed("ui_accept") Then v.Y = -JumpForce
+
+        ' Run left/right (GetAxis returns -1, 0, or 1).
+        Dim direction As Single = Input.GetAxis("ui_left", "ui_right")
+        v.X = direction * Speed
+
+        Me.Velocity = v
+        Me.MoveAndSlide()
+    End PhysicsProcess
+End CharacterBody2D

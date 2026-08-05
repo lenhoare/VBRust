@@ -38,9 +38,20 @@ pub fn emit_godot_program(
 ) -> String {
     let mut out = String::new();
     out.push_str("use godot::prelude::*;\n");
-    // Godot classes referenced in bodies each need a `use godot::classes::…`.
-    for class in referenced_classes(program) {
-        out.push_str(&format!("use godot::classes::{};\n", class));
+    // Each node's base class + its `I<Base>` interface trait need importing (some
+    // are in the prelude too — a redundant `use` of the same item is harmless),
+    // as does any Godot singleton class referenced in a body (`Input`). One
+    // sorted, de-duplicated list.
+    let mut classes: Vec<String> = Vec::new();
+    for node in &program.godot_nodes {
+        classes.push(node.base.clone());
+        classes.push(format!("I{}", node.base));
+    }
+    classes.extend(referenced_classes(program).into_iter().map(str::to_string));
+    classes.sort();
+    classes.dedup();
+    if !classes.is_empty() {
+        out.push_str(&format!("use godot::classes::{{{}}};\n", classes.join(", ")));
     }
     out.push('\n');
 
@@ -125,9 +136,11 @@ fn emit_event(
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
-    let name = ev.name.to_ascii_lowercase();
+    let name = to_snake(&ev.name);
     let (sig, rebinds): (String, Vec<String>) = match name.as_str() {
-        "ready" => ("fn ready(&mut self)".to_string(), vec![]),
+        "ready" | "enter_tree" | "exit_tree" | "draw" => {
+            (format!("fn {}(&mut self)", name), vec![])
+        }
         // Godot hands `process`/`physics_process` an f64 delta; VBR sees it in
         // the declared type (default `Single`), so rebind: `let delta = … as f32`.
         "process" | "physics_process" => {
@@ -143,7 +156,7 @@ fn emit_event(
         }
         // An unknown event name: emit it snake-cased and let gdext validate that
         // it's a real virtual method (translated back to the .vbr line if not).
-        _ => (format!("fn {}(&mut self)", rust_name(&ev.name)), vec![]),
+        _ => (format!("fn {}(&mut self)", name), vec![]),
     };
 
     out.push_str(&format!("    {} {{\n", sig));
@@ -174,17 +187,61 @@ fn emit_event(
 // into a hoisted `set_…`. Kept AST→AST so the normal emitter does the rest.
 // ---------------------------------------------------------------------------
 
-/// Base-class transform properties (get_/set_ pairs) recognised on `Me` for
-/// slice 1. `Visible` (whose getter is `is_visible`) and the wider set arrive
-/// with slice 2's general property rule.
-fn base_property(name: &str) -> Option<&'static str> {
+/// PascalCase → snake_case for a Godot method or property name
+/// (`GlobalPosition` → `global_position`, `MoveAndSlide` → `move_and_slide`). A
+/// `_` is inserted only before an uppercase that follows a lowercase or digit,
+/// so an acronym run (`RID`) stays together rather than becoming `r_i_d`.
+fn to_snake(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    let chars: Vec<char> = name.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase()
+            && i > 0
+            && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit())
+        {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// PascalCase → SCREAMING_SNAKE for a Godot type constant (`Color.CornflowerBlue`
+/// → `Color::CORNFLOWER_BLUE`, `Vector2.Up` → `Vector2::UP`).
+fn screaming_snake(name: &str) -> String {
+    to_snake(name).to_ascii_uppercase()
+}
+
+/// The getter for a base-class property `Me.<Name>`. Uniform `get_<snake>`,
+/// except the handful of Godot properties whose getter is irregular (a boolean's
+/// `is_*`). Setters are uniformly `set_<snake>`, so no companion table.
+fn property_getter(name: &str) -> String {
     match name.to_ascii_lowercase().as_str() {
-        "position" => Some("position"),
-        "globalposition" | "global_position" => Some("global_position"),
-        "rotation" => Some("rotation"),
-        "scale" => Some("scale"),
-        "skew" => Some("skew"),
-        _ => None,
+        "visible" => "is_visible".to_string(),
+        "insideleaf" | "insidetree" => "is_inside_tree".to_string(),
+        _ => format!("get_{}", to_snake(name)),
+    }
+}
+
+/// A Godot value type usable as a literal/constructor in a body. `Color(r,g,b[,a])`
+/// and `Vector2i(x,y)` construct; `Vector2.Up`/`Color.Red` read a constant.
+fn value_type(name: &str) -> bool {
+    matches!(name, "Vector2" | "Vector2i" | "Vector3" | "Color" | "Rect2" | "Rect2i")
+}
+
+/// Construct a Godot value type from a call `Type(args...)`. Components are typed
+/// (Vector2 = f32, Vector2i = i32, Color = f32 channels), so each argument is
+/// cast; `Color` picks `from_rgb`/`from_rgba` by arity.
+fn value_ctor(name: &str, args: &[String]) -> String {
+    let cast = |t: &str| -> String {
+        args.iter().map(|a| format!("({}) as {}", a, t)).collect::<Vec<_>>().join(", ")
+    };
+    match name {
+        "Vector2" | "Vector3" | "Rect2" => format!("{}::new({})", name, cast("f32")),
+        "Vector2i" | "Rect2i" => format!("{}::new({})", name, cast("i32")),
+        "Color" if args.len() == 3 => format!("Color::from_rgb({})", cast("f32")),
+        "Color" => format!("Color::from_rgba({})", cast("f32")),
+        _ => format!("{}::new({})", name, args.join(", ")),
     }
 }
 
@@ -195,7 +252,9 @@ fn input_method(name: &str) -> String {
         "ispressed" => "is_action_pressed".to_string(),
         "isjustpressed" => "is_action_just_pressed".to_string(),
         "isjustreleased" => "is_action_just_released".to_string(),
-        other => rust_name(other),
+        // Snake-case the *original* (cased) name — lowercasing first would erase
+        // the word boundaries (`GetAxis` → `get_axis`, not `getaxis`).
+        _ => to_snake(name),
     }
 }
 
@@ -208,15 +267,16 @@ fn inline(s: String) -> Expr {
 /// just has its expressions Godot-rewritten (recursing into nested bodies).
 fn godot_stmt(s: Stmt) -> Stmt {
     match s {
-        // `Me.Position = value` → `{ let __v = value; self.base_mut().set_position(__v); }`.
+        // `Me.<Prop> = value` → `{ let __v = value; self.base_mut().set_<prop>(__v); }`.
+        // The value is hoisted first because `base_mut()` borrows `self` mutably
+        // and the value may read another field.
         Stmt::Assign { target, value, op: None }
-            if matches!(&target.kind, ExprKind::Field(recv, p)
-                if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") && base_property(p).is_some()) =>
+            if matches!(&target.kind, ExprKind::Field(recv, _)
+                if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")) =>
         {
-            let prop = if let ExprKind::Field(_, p) = &target.kind {
-                base_property(p).unwrap()
-            } else {
-                unreachable!()
+            let prop = match &target.kind {
+                ExprKind::Field(_, p) => to_snake(p),
+                _ => unreachable!(),
             };
             let v = render_expr(&godot_expr(value), None);
             Stmt::Expr(inline(format!(
@@ -261,18 +321,21 @@ fn godot_stmt(s: Stmt) -> Stmt {
 /// and recursing through the containers a slice-1 body uses.
 fn godot_expr(e: Expr) -> Expr {
     match e.kind {
-        // `Me.Position` (read) → `self.base().get_position()`.
+        // `Me.<Prop>` (read) → `self.base().get_<prop>()` (any base-class property).
         ExprKind::Field(recv, prop)
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me")
-                && base_property(&prop).is_some() =>
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") =>
         {
-            inline(format!("self.base().get_{}()", base_property(&prop).unwrap()))
+            inline(format!("self.base().{}()", property_getter(&prop)))
         }
-        // `Vector2.Zero` → `Vector2::ZERO` (a named constant on a Godot type).
+        // `Vector2.Zero` / `Color.Red` → `Vector2::ZERO` / `Color::RED`.
         ExprKind::Field(recv, name)
-            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Vector2") =>
+            if matches!(&recv.kind, ExprKind::Ident(n) if value_type(n)) =>
         {
-            inline(format!("Vector2::{}", name.to_ascii_uppercase()))
+            let ty = match &recv.kind {
+                ExprKind::Ident(n) => n.clone(),
+                _ => unreachable!(),
+            };
+            inline(format!("{}::{}", ty, screaming_snake(&name)))
         }
         // `Input.IsPressed("ui_right")` → `Input::singleton().is_action_pressed("ui_right")`.
         ExprKind::MethodCall { recv, method, args }
@@ -286,13 +349,28 @@ fn godot_expr(e: Expr) -> Expr {
                 rendered.join(", ")
             ))
         }
-        // `Vector2(x, y)` → `Vector2::new(x as f32, y as f32)` (components are f32).
-        ExprKind::Call { name, args } if name == "Vector2" => {
-            let rendered: Vec<String> = args
-                .into_iter()
-                .map(|a| format!("({}) as f32", render_expr(&godot_expr(a), None)))
-                .collect();
-            inline(format!("Vector2::new({})", rendered.join(", ")))
+        // `Me.MoveAndSlide()` (a base-class *method*) → `self.base_mut().move_and_slide()`.
+        // A mutable handle serves both `&self` and `&mut self` methods.
+        ExprKind::MethodCall { recv, method, args }
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == "Me") =>
+        {
+            let rendered: Vec<String> =
+                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
+            inline(format!("self.base_mut().{}({})", to_snake(&method), rendered.join(", ")))
+        }
+        // `Vector2(x, y)` / `Color(r, g, b)` — construct a Godot value type.
+        ExprKind::Call { name, args } if value_type(&name) => {
+            let rendered: Vec<String> =
+                args.into_iter().map(|a| render_expr(&godot_expr(a), None)).collect();
+            inline(value_ctor(&name, &rendered))
+        }
+        // Unary minus is parsed as `0 - x`; without the resolver's type pass the
+        // `0` stays an integer (`0 - f32` won't compile), so fold it into a real
+        // negation, which is type-agnostic (`-(f32)`, `-(i64)`).
+        ExprKind::Binary { op: BinOp::Sub, lhs, rhs }
+            if matches!(&lhs.kind, ExprKind::Int(0)) =>
+        {
+            inline(format!("-({})", render_expr(&godot_expr(*rhs), None)))
         }
         // Recurse through the ordinary containers so a Godot form nested inside
         // arithmetic (`velocity * Speed * delta`) is still reached.
