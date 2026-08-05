@@ -888,8 +888,25 @@ fn cmd_rungodot(args: &[String]) {
     // --- hand off to Godot ----------------------------------------------
     match find_godot() {
         Some(bin) => {
-            eprintln!("→ opening in Godot ({}) — press Play ▶ to run\n", bin);
-            match Command::new(&bin).arg("-e").arg("--path").arg(&proj).status() {
+            // A fresh project registers the GDExtension only after Godot's
+            // `.godot/` cache is built, so warm it once (headless) before playing
+            // — otherwise the first run can't find the node class. The cache
+            // persists, so this is skipped on later runs. (Headless 4.7 SIGABRTs
+            // on teardown *after* writing the cache; `.output()` swallows it.)
+            if !proj.join(".godot/extension_list.cfg").exists() {
+                eprintln!("→ importing (first run only)…");
+                let _ = Command::new(&bin)
+                    .args(["--headless", "--editor", "--quit", "--path"])
+                    .arg(&proj)
+                    .output();
+            }
+            eprintln!(
+                "→ playing (arrow keys move the square; close the window to stop).\n  \
+                 To edit the scene: {} -e --path {}\n",
+                bin,
+                proj.display()
+            );
+            match Command::new(&bin).arg("--path").arg(&proj).status() {
                 Ok(s) => exit(s.code().unwrap_or(0)),
                 Err(e) => {
                     eprintln!("✘ Could not launch Godot: {}", e);
