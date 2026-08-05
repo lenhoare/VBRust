@@ -1,0 +1,90 @@
+' Pac-Man maze data (28x31), derived from the images so it matches the pixels.
+' Row/IsWall = walls (maze-empty); PelRow/HasPellet = pellets (maze-full).
+
+Public Function Row(ByVal n As Long) As String
+    Match n
+        0 => Return "############################"
+        1 => Return "#............##............#"
+        2 => Return "#.####.#####.##.#####.####.#"
+        3 => Return "#.#..#.#...#.##.#...#.#..#.#"
+        4 => Return "#.####.#####.##.#####.####.#"
+        5 => Return "#..........................#"
+        6 => Return "#.####.##.########.##.####.#"
+        7 => Return "#.####.##.########.##.####.#"
+        8 => Return "#......##....##....##......#"
+        9 => Return "######.#####.##.#####.######"
+        10 => Return ".....#.#####.##.#####.##...."
+        11 => Return ".....#.##..........##.##...."
+        12 => Return ".....#.##.####.###.##.##...."
+        13 => Return "######.##.##.....#.##.######"
+        14 => Return "..........##.....#.........."
+        15 => Return "######.##.##.....#.##.######"
+        16 => Return ".....#.##.########.##.##...."
+        17 => Return ".....#.##..........##.##...."
+        18 => Return ".....#.##.########.##.##...."
+        19 => Return "######.##.########.##.######"
+        20 => Return "#............##............#"
+        21 => Return "#.####.#####.##.#####.####.#"
+        22 => Return "#.####.#####.##.#####.####.#"
+        23 => Return "#...##................##...#"
+        24 => Return "###.##.##.########.##.##.###"
+        25 => Return "###.##.##.########.##.##.###"
+        26 => Return "#......##....##....##......#"
+        27 => Return "#.##########.##.##########.#"
+        28 => Return "#.##########.##.##########.#"
+        29 => Return "#..........................#"
+        30 => Return "############################"
+        _ => Return "############################"
+    End Match
+End Function
+
+Public Function IsWall(ByVal col As Long, ByVal ry As Long) As Boolean
+    If col < 0 Or col > 27 Or ry < 0 Or ry > 30 Then
+        Return True
+    End If
+    Return Mid(Row(ry), col + 1, 1) = "#"
+End Function
+
+Public Function PelRow(ByVal n As Long) As String
+    Match n
+        0 => Return "............................"
+        1 => Return ".oooooooooooo..oooooooooooo."
+        2 => Return ".o....o.....o..o.....o....o."
+        3 => Return ".o....o.....o..o.....o....o."
+        4 => Return ".o....o.....o..o.....o....o."
+        5 => Return ".oooooooooooooooooooooooooo."
+        6 => Return ".o....o..o........o..o....o."
+        7 => Return ".o....o..o........o..o....o."
+        8 => Return ".oooooo..oooo..oooo..oooooo."
+        9 => Return "......o..............o......"
+        10 => Return "......o..............o......"
+        11 => Return "......o..............o......"
+        12 => Return "......o......oo......o......"
+        13 => Return "......o..............o......"
+        14 => Return "......o..............o......"
+        15 => Return "......o..............o......"
+        16 => Return "......o..............o......"
+        17 => Return "......o..............o......"
+        18 => Return "......o..............o......"
+        19 => Return "......o..............o......"
+        20 => Return ".oooooooooooo..oooooooooooo."
+        21 => Return ".o....o.....o..o.....o....o."
+        22 => Return ".o....o.....o..o.....o....o."
+        23 => Return ".ooo..ooooooo..ooooooo..ooo."
+        24 => Return "...o..o..o........o..o..o..."
+        25 => Return "...o..o..o........o..o..o..."
+        26 => Return ".oooooo..oooo..oooo..oooooo."
+        27 => Return ".o..........o..o..........o."
+        28 => Return ".o..........o..o..........o."
+        29 => Return ".oooooooooooooooooooooooooo."
+        30 => Return "............................"
+        _ => Return "............................"
+    End Match
+End Function
+
+Public Function HasPellet(ByVal col As Long, ByVal ry As Long) As Boolean
+    If col < 0 Or col > 27 Or ry < 0 Or ry > 30 Then
+        Return False
+    End If
+    Return Mid(PelRow(ry), col + 1, 1) = "o"
+End Function

@@ -1906,7 +1906,19 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
                 }
             }
         },
-        ExprKind::Call { name, .. } => builtin_vtype(name).unwrap_or_else(|| {
+        ExprKind::Call { name, args } => {
+            // `Abs(x)` renders as `x.abs()`, which keeps `x`'s numeric type — so
+            // `Abs(aSingle)` is a `Single`, not always `Double`. Infer from the
+            // argument when it's a known numeric; fall back to `builtin_vtype`.
+            if name.eq_ignore_ascii_case("abs") {
+                if let Some(a) = args.first() {
+                    let at = infer(a, ctx);
+                    if num_ty(&at).is_some() {
+                        return at;
+                    }
+                }
+            }
+            builtin_vtype(name).unwrap_or_else(|| {
             // A qualified cross-module call (`crate::life::steplife`) — the
             // sibling's harvested interface knows the return type.
             if let Some(rest) = name.strip_prefix("crate::") {
@@ -1927,7 +1939,8 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
                 Some(ty) => VType::Decl(ty),
                 None => VType::Unknown,
             }
-        }),
+            })
+        }
         // Rust methods pass through verbatim; this curated table just tells the
         // coercion logic what the common ones *return*, so e.g. assigning
         // `s.trim()` (a `&str`) to a String still gets its `.to_string()`.

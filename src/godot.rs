@@ -345,8 +345,12 @@ fn value_ctor(name: &str, args: &[String]) -> String {
         args.iter().map(|a| format!("({}) as {}", a, t)).collect::<Vec<_>>().join(", ")
     };
     match name {
-        "Vector2" | "Vector3" | "Rect2" => format!("{}::new({})", name, cast("f32")),
-        "Vector2i" | "Rect2i" => format!("{}::new({})", name, cast("i32")),
+        "Vector2" | "Vector3" => format!("{}::new({})", name, cast("f32")),
+        "Vector2i" => format!("Vector2i::new({})", cast("i32")),
+        // gdext `Rect2::new` takes two `Vector2`s; the x/y/w/h form is
+        // `from_components`.
+        "Rect2" => format!("Rect2::from_components({})", cast("f32")),
+        "Rect2i" => format!("Rect2i::from_components({})", cast("i32")),
         "Color" if args.len() == 3 => format!("Color::from_rgb({})", cast("f32")),
         "Color" => format!("Color::from_rgba({})", cast("f32")),
         _ => format!("{}::new({})", name, args.join(", ")),

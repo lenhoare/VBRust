@@ -1,0 +1,91 @@
+' Pac-Man — grid-aligned movement. Position is kept as scalars (px, py) and only
+' turned into a Vector2 to place the sprite. He glides toward the centre of a
+' target tile; on arriving he may turn (if the wanted direction is open) and steps
+' to the next tile unless it's a wall. Collision via Maze.IsWall.
+
+Sprite2D "Pacman"
+    Export Speed As Single = 70.0
+    Dim tileX As Long = 13
+    Dim tileY As Long = 23
+    Dim dx As Long = 0
+    Dim dy As Long = 0
+    Dim wantX As Long = 0
+    Dim wantY As Long = 0
+    Dim px As Single = 108
+    Dim py As Single = 188
+    Dim score As Long = 0
+    Dim eaten As Vec<Boolean>
+
+    On Ready
+        ' One flag per tile (28 x 31 = 868), so a pellet is only eaten once.
+        Dim i As Long = 0
+        For i = 0 To 867
+            eaten.Push(False)
+        Next
+    End Ready
+
+    On Process(delta)
+        ' Queue the wanted direction (applied at the next tile centre).
+        If Input.IsPressed("ui_right") Then
+            wantX = 1
+            wantY = 0
+        End If
+        If Input.IsPressed("ui_left") Then
+            wantX = -1
+            wantY = 0
+        End If
+        If Input.IsPressed("ui_up") Then
+            wantX = 0
+            wantY = -1
+        End If
+        If Input.IsPressed("ui_down") Then
+            wantX = 0
+            wantY = 1
+        End If
+
+        Dim gx As Single = tileX * 8 + 4
+        Dim gy As Single = tileY * 8 + 4
+        Dim mv As Single = Speed * delta
+
+        If Abs(gx - px) + Abs(gy - py) <= mv Then
+            ' Arrived at the target centre — snap, eat, then choose the next tile.
+            px = gx
+            py = gy
+
+            ' Eat the pellet on this tile (once), score, and black it out.
+            Dim idx As Long = tileY * 28 + tileX
+            If Maze.HasPellet(tileX, tileY) And Not eaten[idx] Then
+                eaten[idx] = True
+                score = score + 10
+                Debug.Print "score: " & score
+                Dim cover As ColorRect = Spawn("res://cover.tscn")
+                cover.SetPosition(Vector2(tileX * 8, tileY * 8))
+                Dim board As Node = Me.GetNode("..")
+                board.AddChild(cover)
+            End If
+
+            If Not Maze.IsWall(tileX + wantX, tileY + wantY) Then
+                dx = wantX
+                dy = wantY
+            End If
+            If Not Maze.IsWall(tileX + dx, tileY + dy) Then
+                tileX = tileX + dx
+                tileY = tileY + dy
+            End If
+        Else
+            ' Glide toward the target centre.
+            If gx > px Then px = px + mv
+            If gx < px Then px = px - mv
+            If gy > py Then py = py + mv
+            If gy < py Then py = py - mv
+        End If
+
+        Me.Position = Vector2(px, py)
+
+        ' Face the direction of travel (open-mouth frame).
+        If dx > 0 Then Me.RegionRect = Rect2(0, 0, 16, 16)
+        If dx < 0 Then Me.RegionRect = Rect2(0, 16, 16, 16)
+        If dy < 0 Then Me.RegionRect = Rect2(0, 32, 16, 16)
+        If dy > 0 Then Me.RegionRect = Rect2(0, 48, 16, 16)
+    End Process
+End Sprite2D

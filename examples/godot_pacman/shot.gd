@@ -1,11 +1,15 @@
-# Dev-only screenshot helper: with PACSHOT=1 in the environment it saves a frame
-# to /tmp/pacshot.png and quits; otherwise it's inert, so the game plays normally.
+# Dev-only: PACSHOT=1 saves /tmp/pacshot.png then quits; PACDIR=left/right/up/down
+# holds that direction (to test movement headlessly). Inert without PACSHOT.
 extends Node
 var f := 0
-func _process(_d):
+func _ready():
+	var d := OS.get_environment("PACDIR")
+	if d != "":
+		Input.action_press("ui_" + d)
+func _process(_x):
 	if OS.get_environment("PACSHOT") == "":
 		return
 	f += 1
-	if f == 8:
+	if f == 250:
 		get_viewport().get_texture().get_image().save_png("/tmp/pacshot.png")
 		get_tree().quit()
