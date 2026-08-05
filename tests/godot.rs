@@ -90,7 +90,7 @@ fn godot_runner_has_slice2_shape() {
         "self.base_mut().is_on_floor()",          // base-class method (as condition)
         "Input::singleton().get_axis(",           // general snake_case (not `getaxis`)
         "Input::singleton().is_action_just_pressed(",
-        "-(self.jumpforce)",                      // unary minus folded, not `0 - `
+        "0.0 - self.jumpforce",                   // `-JumpForce`: resolver widens the 0 (like core VBR)
     ] {
         assert!(rust.contains(needle), "generated Rust missing `{needle}`:\n{rust}");
     }

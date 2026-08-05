@@ -22,9 +22,10 @@
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
-use crate::surface::{self, rewrite_stmt};
+use crate::resolver;
+use crate::surface::{self, rewrite_stmt, Tables};
 use crate::transpiler::{collect_mutated, decltype_rust, emit_stmt, render_expr, rust_name};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Emit a complete Godot program: shared items (consts/structs/enums/helper
 /// functions) plus one gdext class per node, headed by the one-per-crate
@@ -67,7 +68,7 @@ pub fn emit_godot_program(
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
     for node in &program.godot_nodes {
-        emit_node(node, diags, &mut out);
+        emit_node(node, &t, diags, &mut out);
         out.push('\n');
     }
     out
@@ -75,7 +76,7 @@ pub fn emit_godot_program(
 
 /// Emit one node class: the struct (with `#[export]` fields + `base`), then the
 /// `#[godot_api] impl I<Base>` with `init` and the lifecycle callbacks.
-fn emit_node(node: &GodotNode, diags: &mut Diagnostics, out: &mut String) {
+fn emit_node(node: &GodotNode, t: &Tables, diags: &mut Diagnostics, out: &mut String) {
     let base = &node.base;
     // --- the struct ------------------------------------------------------
     out.push_str("#[derive(GodotClass)]\n");
@@ -105,12 +106,15 @@ fn emit_node(node: &GodotNode, diags: &mut Diagnostics, out: &mut String) {
     out.push_str("        }\n");
     out.push_str("    }\n");
 
-    // The node's member names — bare uses in a body rewrite to `self.<name>`.
+    // The node's member names — bare uses in a body rewrite to `self.<name>` —
+    // and their declared types, so the resolver can type-check and coerce a body
+    // (its `field_ty`, exactly like a Screen's state fields).
     let fields: HashSet<String> = node.fields.iter().map(|f| rust_name(&f.name)).collect();
-    let enums: HashSet<String> = HashSet::new();
+    let field_ty: HashMap<String, DeclType> =
+        node.fields.iter().map(|f| (rust_name(&f.name), f.ty.clone())).collect();
 
     for ev in &node.events {
-        emit_event(ev, &fields, &enums, diags, out);
+        emit_event(ev, &fields, &field_ty, &t.enums, t, diags, out);
     }
 
     out.push_str("}\n");
@@ -150,7 +154,9 @@ fn init_value(f: &GodotField) -> String {
 fn emit_event(
     ev: &GodotEvent,
     fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
+    t: &Tables,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
@@ -182,14 +188,20 @@ fn emit_event(
         out.push_str(&format!("        {}\n", line));
     }
 
-    // Member rewrite (bare `speed` → `self.speed`), then the Godot rewrite
-    // (properties / `Input` / `Vector2` → verbatim gdext), then emit.
-    let body: Vec<Stmt> = ev
-        .body
-        .iter()
-        .cloned()
-        .map(|s| godot_stmt(rewrite_stmt(s, "self", fields, enums)))
-        .collect();
+    // Resolve first (bare names + `field_ty` in scope, like every other
+    // surface): types the arithmetic and applies VB's numeric coercions — an
+    // integer literal in a float slot gets its `.0`, so `elapsed = 0` compiles.
+    // The Godot-only forms (`Me.Velocity`, `Input`, `Vector2`, `Emit`) resolve to
+    // `Unknown` and pass through untouched, ready for the Godot rewrite below.
+    let mut body: Vec<Stmt> = ev.body.clone();
+    resolver::resolve_event_body(
+        &mut body, &ev.params, field_ty, &t.fns, &t.methods, &t.consts, &t.modules,
+        &t.interfaces, enums, &t.structs, diags,
+    );
+    // Then member rewrite (bare `speed` → `self.speed`) and the Godot rewrite
+    // (properties / `Input` / `Vector2` / `Emit` → verbatim gdext), then emit.
+    let body: Vec<Stmt> =
+        body.into_iter().map(|s| godot_stmt(rewrite_stmt(s, "self", fields, enums))).collect();
     let mut mutated: HashSet<String> = HashSet::new();
     collect_mutated(&body, &mut mutated);
     let byref: HashSet<String> = HashSet::new();
@@ -461,6 +473,20 @@ fn godot_expr(e: Expr) -> Expr {
             kind: ExprKind::Call { name, args: args.into_iter().map(godot_expr).collect() },
             span: e.span,
         },
+        // Wrappers the resolver may insert (a numeric `as` cast, a `&`/`&mut`
+        // borrow, a deref) — recurse through so a Godot form tucked inside is
+        // still reached.
+        ExprKind::Cast(inner, t) => Expr {
+            kind: ExprKind::Cast(Box::new(godot_expr(*inner)), t),
+            span: e.span,
+        },
+        ExprKind::Ref(inner) => Expr { kind: ExprKind::Ref(Box::new(godot_expr(*inner))), span: e.span },
+        ExprKind::MutRef(inner) => {
+            Expr { kind: ExprKind::MutRef(Box::new(godot_expr(*inner))), span: e.span }
+        }
+        ExprKind::Deref(inner) => {
+            Expr { kind: ExprKind::Deref(Box::new(godot_expr(*inner))), span: e.span }
+        }
         _ => e,
     }
 }

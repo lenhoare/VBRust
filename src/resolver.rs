@@ -1003,7 +1003,20 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
 /// Insert a numeric `as` cast if `value`'s type differs from `target`. Literals
 /// are left alone — the renderer already adapts them to their context.
 fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
-    if matches!(&mut value.kind, ExprKind::Int(_) | ExprKind::Float(_)) {
+    // An integer literal assigned into a float slot widens losslessly to a float
+    // literal (`0` → `0.0`): the same coercion `Dim x As Single = 0` already
+    // gets, now applied to reassignments too (`x = 0`), so a `Single`/`Double`
+    // never trips over a plain `0`. (Real VB stores 0.0 in a Single.) The reverse
+    // — a *float* literal into an *integer* slot — is a narrowing, so it's left
+    // alone (flagged, never silently truncated). Other literals get their type
+    // from context at render time.
+    if let ExprKind::Int(n) = &value.kind {
+        if target.is_float() {
+            value.kind = ExprKind::Float(*n as f64);
+        }
+        return;
+    }
+    if matches!(&value.kind, ExprKind::Float(_)) {
         return;
     }
     let Some(target_n) = num_of_type(target) else {
