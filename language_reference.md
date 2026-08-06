@@ -10,7 +10,9 @@ exhaustive matching — not as obstacles, but a few at a time, in a setting you
 already understand.
 
 This is the discursive guide. Its terse companion, `language_spec.md`, is the
-normative reference; when in doubt, that document is the law. Throughout, examples
+normative reference; when in doubt, that document is the law. In a hurry, or coming
+straight from VB6? `vb6_to_vbr_guide.md` is the short on-ramp — just the
+differences, readable in an afternoon. Throughout, examples
 are shown as a pair — the VBR on the left of the arrow, the Rust it becomes on the
 right — because the second half is the whole point.
 

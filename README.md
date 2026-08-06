@@ -4,7 +4,8 @@ A transpiler that turns VB-flavoured source into idiomatic Rust, compiles it, an
 runs it. It's a teaching tool: the syntax is familiar VB, the semantics are Rust's,
 and the generated Rust is always there to read.
 
-- **`language_reference.md`** — the readable guide (start here).
+- **`vb6_to_vbr_guide.md`** — coming from VB6? Start here: the short list of what's different.
+- **`language_reference.md`** — the readable guide (the full story).
 - **`gui_and_tui_guide.md`** — a friendly tour of building `Window` (GUI) and `Screen` (TUI) interfaces.
 - **`language_spec.md`** — the terse, normative reference.
 - **`gui_spec.md`** — graphical apps: a `Window` → an Iced application.
