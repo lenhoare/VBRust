@@ -15,6 +15,29 @@
   ],
   "main": "./extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "vbr.showRustOutput",
+        "title": "VBR: Open Rust Output to the Side",
+        "category": "VBR",
+        "icon": "$(split-horizontal)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vbr.showRustOutput",
+          "when": "resourceLangId == vbr",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "vbr.showRustOutput",
+          "when": "resourceLangId == vbr"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "vbr",

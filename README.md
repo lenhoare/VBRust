@@ -174,6 +174,14 @@ server at `vbr-lsp/target/release/vbr-lsp(.exe)` inside the open workspace — s
 the same checkout works on Linux and Windows with no per-machine path. (To point
 elsewhere, set `vbr.serverPath`.)
 
+**See the Rust it becomes, side by side.** With a `.vbr` open, run
+*"VBR: Open Rust Output to the Side"* (the split icon in the editor title bar, or
+the Command Palette). A read-only pane opens in the second column showing the
+generated Rust; it refreshes every time you save. If the program doesn't compile,
+the pane shows the transpiler's teaching diagnostics instead. (For a snappy
+refresh, `cargo build --release` once so the extension can use the prebuilt `vbr`
+binary rather than `cargo run`.)
+
 A `.vscode/tasks.json` adds build tasks: **Ctrl+Shift+B** runs the current file;
 Terminal → Run Task also offers *Run project*, *Run in Godot*, and *Test*.
 
