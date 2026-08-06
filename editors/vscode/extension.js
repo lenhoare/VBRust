@@ -137,6 +137,138 @@ function emitRust(sourceUri) {
   });
 }
 
+// ── Running: `.vbr` files, and `.rs` files with embedded VBR ────────────────
+
+// Shell-quote a single argument for the integrated terminal. VS Code's default
+// terminal is PowerShell on Windows, POSIX sh elsewhere; both accept single- or
+// double-quoted args, but paths with spaces are the only real hazard.
+function quoteArg(a) {
+  if (process.platform === "win32") return `"${a}"`;
+  return `'${a.replace(/'/g, "'\\''")}'`;
+}
+
+// [cmd, args] to invoke the VBR CLI: a prebuilt `vbr` binary if present (fast),
+// otherwise `cargo run` from the workspace manifest.
+function vbrCmd(root, subArgs) {
+  const bin = vbrBinary(root);
+  if (bin) return [bin, subArgs];
+  const cargo = process.platform === "win32" ? "cargo.exe" : "cargo";
+  return [
+    cargo,
+    ["run", "--quiet", "--manifest-path", path.join(root, "Cargo.toml"), "--", ...subArgs],
+  ];
+}
+
+// Promise wrapper around execFile — never rejects; resolves {failed,stdout,stderr}.
+function execAsync(cmd, args, cwd) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { maxBuffer: 16 * 1024 * 1024, cwd }, (err, stdout, stderr) => {
+      resolve({ failed: !!err, stdout: stdout || "", stderr: stderr || "" });
+    });
+  });
+}
+
+// One reused "VBR Run" terminal so successive runs don't pile up panels.
+let runTerminal;
+function runInTerminal(cmd, cwd) {
+  if (!runTerminal || runTerminal.exitStatus !== undefined) {
+    runTerminal = vscode.window.createTerminal({ name: "VBR Run", cwd });
+  }
+  runTerminal.show(true);
+  runTerminal.sendText(cmd);
+}
+
+// An output channel for build errors (rustc / embed) that don't belong in the
+// run terminal.
+let outputChannel;
+function showErrors(title, body) {
+  if (!outputChannel) outputChannel = vscode.window.createOutputChannel("VBR");
+  outputChannel.clear();
+  outputChannel.appendLine(title);
+  if (body) outputChannel.append(body);
+  outputChannel.show(true);
+}
+
+// Run a `.vbr` file: prefers the prebuilt binary, else `cargo run`. The
+// no-debugger "click to run" from the ▶ button / Ctrl+Alt+R.
+function runVbrFile(sourceUri) {
+  const filePath = sourceUri.fsPath;
+  const root = rootFor(filePath);
+  const [cmd, args] = vbrCmd(root, ["run", filePath]);
+  runInTerminal([cmd, ...args].map(quoteArg).join(" "), root);
+}
+
+// Run a `.rs` file that embeds VBR: expand the `/* vbr … */` block(s) with
+// `vbr embed`, reload the buffer so the regenerated region is visible, then —
+// for a standalone file (has `fn main`) — compile with rustc and run it. Inside
+// a Cargo crate we stop after expanding and defer to cargo's normal build/run.
+// Single file only; no project mode on this path.
+async function embedAndRunRust(document) {
+  const filePath = document.uri.fsPath;
+
+  // Check on click (cheap) — do nothing if there's no VBR to expand.
+  if (!/\/\*\s*vbr\b/.test(document.getText())) {
+    vscode.window.showInformationMessage(
+      "No `/* vbr … */` block in this file — nothing to embed."
+    );
+    return;
+  }
+
+  // Must be saved: `vbr embed` rewrites the file on disk, so we never race the
+  // buffer. Cancel if the save doesn't take.
+  if (document.isDirty) {
+    const saved = await document.save();
+    if (!saved) return;
+  }
+
+  const root = rootFor(filePath);
+
+  // 1. Expand embedded VBR.
+  const [ec, eargs] = vbrCmd(root, ["embed", filePath]);
+  const embed = await execAsync(ec, eargs, root);
+  // Reload so the regenerated // vbr:gen region shows (also surfaces any in-file
+  // `//` error lines embed writes on a fragment error).
+  await vscode.commands.executeCommand("workbench.action.files.revert");
+  if (embed.failed) {
+    showErrors("vbr embed found problems:", embed.stderr || embed.stdout);
+    vscode.window.showErrorMessage(
+      "vbr embed reported errors — see the VBR output and the file's generated region."
+    );
+    return;
+  }
+
+  // 2. Standalone or crate module? A loose file with `fn main` we can build with
+  //    rustc; anything else we leave for cargo.
+  const expanded = fs.readFileSync(filePath, "utf8");
+  if (!/\bfn\s+main\s*\(/.test(expanded)) {
+    vscode.window.showInformationMessage(
+      "Expanded. No `fn main` here — if this file is part of a Cargo crate, run it with cargo."
+    );
+    return;
+  }
+
+  // 3. Compile standalone.
+  const out = path.join(
+    os.tmpdir(),
+    `vbrrun-${Date.now()}${process.platform === "win32" ? ".exe" : ""}`
+  );
+  const build = await execAsync(
+    "rustc",
+    ["--edition", "2021", filePath, "-o", out],
+    path.dirname(filePath)
+  );
+  if (build.failed) {
+    showErrors("rustc couldn't build this file standalone:", build.stderr || build.stdout);
+    vscode.window.showErrorMessage(
+      "rustc build failed. If this file belongs to a Cargo project, run it with cargo instead."
+    );
+    return;
+  }
+
+  // 4. Run it.
+  runInTerminal(quoteArg(out), path.dirname(filePath));
+}
+
 // Maps a .vbr document URI to its virtual Rust-view URI (same path + ".rs" under
 // the vbr-rust scheme), and back. The ".rs" suffix makes VS Code treat the view
 // as Rust for highlighting.
@@ -222,6 +354,21 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider("vbr-rust", rustProvider),
     vscode.commands.registerCommand("vbr.showRustOutput", showRustOutput),
+    vscode.commands.registerCommand("vbr.runFile", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const lang = editor.document.languageId;
+      if (lang === "vbr") {
+        if (editor.document.isDirty) await editor.document.save();
+        runVbrFile(editor.document.uri);
+      } else if (lang === "rust") {
+        await embedAndRunRust(editor.document);
+      } else {
+        vscode.window.showInformationMessage(
+          "Open a .vbr file, or a .rs file with an embedded /* vbr … */ block."
+        );
+      }
+    }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId === "vbr") scheduleRefresh(e.document.uri);
     }),

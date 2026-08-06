@@ -182,8 +182,19 @@ the pane shows the transpiler's teaching diagnostics instead. (For a snappy
 refresh, `cargo build --release` once so the extension can use the prebuilt `vbr`
 binary rather than `cargo run`.)
 
-A `.vscode/tasks.json` adds build tasks: **Ctrl+Shift+B** runs the current file;
-Terminal → Run Task also offers *Run project*, *Run in Godot*, and *Test*.
+**Run it.** With a `.vbr` open, click the ▶ button in the editor title bar (or
+press **Ctrl+Alt+R**, or *"VBR: Run File"* in the Command Palette) — it runs the
+file in a terminal, no `launch.json` needed. The ▶ also works on a `.rs` file
+that embeds VBR (a `/* vbr … */` block): it expands the block with `vbr embed`,
+reloads the file, and — if it's a standalone file with a `fn main` — compiles it
+with `rustc` and runs it. Inside a Cargo project it stops after expanding and
+leaves running to cargo's own build/run (Ctrl+Shift+B / the ▶ over `fn main`).
+
+A `.vscode/tasks.json` also adds build tasks (in a VBRust checkout):
+**Ctrl+Shift+B** runs the current `.vbr` file; Terminal → Run Task offers
+*Run project*, *Run in Godot*, and *Test*. Note that in an ordinary Rust project
+Ctrl+Shift+B keeps its usual meaning (cargo build the crate) — the VBR run verb
+lives on its own **Ctrl+Alt+R** / ▶ so the two never collide.
 
 **Debugging.** VBR is a transpiler, so debugging means debugging the Rust it
 produces — and the live view above already shows you that Rust. If you ever want

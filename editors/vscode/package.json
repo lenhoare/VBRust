@@ -15,6 +15,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "vbr.runFile",
+        "title": "VBR: Run File",
+        "category": "VBR",
+        "icon": "$(play)"
+      },
+      {
         "command": "vbr.showRustOutput",
         "title": "VBR: Open Rust Output to the Side",
         "category": "VBR",
@@ -24,18 +30,34 @@
     "menus": {
       "editor/title": [
         {
+          "command": "vbr.runFile",
+          "when": "resourceLangId == vbr || resourceLangId == rust",
+          "group": "navigation@1"
+        },
+        {
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "commandPalette": [
+        {
+          "command": "vbr.runFile",
+          "when": "resourceLangId == vbr || resourceLangId == rust"
+        },
         {
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "vbr.runFile",
+        "key": "ctrl+alt+r",
+        "when": "editorTextFocus && (editorLangId == vbr || editorLangId == rust)"
+      }
+    ],
     "languages": [
       {
         "id": "vbr",
