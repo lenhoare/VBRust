@@ -20,11 +20,19 @@ fn plain_statements_become_a_bare_block() {
 
 #[test]
 fn an_unknown_name_passes_through_for_rustc_to_check() {
-    // `compute` isn't defined in VBR — at the embedding seam it's assumed to be
-    // Rust in scope. Fragment mode should still emit the call (rustc checks it).
+    // COHERENCE GUARD: `compute` isn't defined in VBR — at the embedding seam it's
+    // the surrounding Rust, so fragment mode must emit the call and let rustc
+    // check it. If this ever fails, something (likely task #24, an "unknown
+    // function" diagnostic) has started rejecting unknown names WITHOUT exempting
+    // fragments — which breaks `vbr embed`. See the note in resolver.rs's Call arm.
     let frag = compile_fragment("Dim r As Long = compute(3)");
     assert!(!frag.has_errors, "{:?}", frag.diagnostics);
     assert!(frag.rust.contains("compute(3)"), "got: {}", frag.rust);
+
+    // The same must hold for an unknown *variable* read in from the host Rust.
+    let var = compile_fragment("Dim doubled As Long = host_value * 2");
+    assert!(!var.has_errors, "{:?}", var.diagnostics);
+    assert!(var.rust.contains("host_value"), "got: {}", var.rust);
 }
 
 #[test]

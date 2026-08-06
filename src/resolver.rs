@@ -1477,6 +1477,16 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         ExprKind::Call { name, args } => {
+            // COHERENCE NOTE (embedding): a *bare* call to a name we don't know
+            // is left alone on purpose — rustc is the backstop (see the `VType`
+            // doc). Embedding VBR in Rust (`vbr::compile_fragment` / `vbr embed`)
+            // *relies* on this: `square(i)` inside a fragment is a Rust function,
+            // not a VBR one. So if you add an "unknown function — did you mean…?"
+            // diagnostic here (task #24), it MUST be gated off for fragments
+            // (thread a `permissive` flag into `Ctx`), or you'll break embedding.
+            // `tests/fragment.rs::an_unknown_name_passes_through_for_rustc_to_check`
+            // guards this — it will fail loudly if the passthrough regresses.
+
             // `x(i)` where x is an array is the VB way — point at Rust indexing.
             if ctx.is_indexable(name) {
                 ctx.diags.error_once(

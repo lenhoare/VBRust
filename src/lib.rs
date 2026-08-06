@@ -110,6 +110,12 @@ pub struct Fragment {
 /// of the generated `fn main`. So a fragment reuses the whole compiler. A
 /// fragment that would need *top-level* items (imports/helpers) can't be inlined
 /// into a block and is reported as an error.
+///
+/// Embedding contract: a fragment is embedded *inside* Rust, so names it doesn't
+/// recognise (`square`, `limit`) are that surrounding Rust — the resolver's
+/// "unknown passes through, rustc is the backstop" behaviour is what makes that
+/// work. A future diagnostic that flags unknown names (task #24) must exempt
+/// fragments; see the coherence note in `resolver.rs`'s `Call` arm.
 pub fn compile_fragment(source: &str) -> Fragment {
     let wrapped = format!("Function Main()\n{}\nEnd Function\n", source);
     let compiled = compile(&wrapped);
