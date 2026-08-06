@@ -34,3 +34,16 @@ fn a_syntax_error_yields_diagnostics_not_rust() {
     assert!(frag.rust.is_empty());
     assert!(!frag.diagnostics.is_empty());
 }
+
+#[test]
+fn error_line_numbers_are_the_fragments_own() {
+    // The error is on the fragment's line 2 — it must report line 2, not 3
+    // (the internal `Function Main()` wrapper must not leak into the numbers).
+    let frag = compile_fragment("Dim a As Long = 1\nReturn Return");
+    assert!(frag.has_errors);
+    assert!(
+        frag.diagnostics.iter().any(|d| d.contains("[line 2]")),
+        "expected a [line 2] diagnostic, got: {:?}",
+        frag.diagnostics
+    );
+}

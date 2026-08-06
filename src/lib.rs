@@ -113,21 +113,25 @@ pub struct Fragment {
 pub fn compile_fragment(source: &str) -> Fragment {
     let wrapped = format!("Function Main()\n{}\nEnd Function\n", source);
     let compiled = compile(&wrapped);
+    // The `Function Main()` header is one line above the fragment, so every
+    // reported line is one too high — shift it back onto the fragment's own lines.
+    let diagnostics = fragment_diagnostics(&compiled.diagnostic_items);
+
     if compiled.has_errors {
         return Fragment {
             rust: String::new(),
-            diagnostics: compiled.diagnostics,
+            diagnostics,
             has_errors: true,
         };
     }
     match extract_fn_main_body(&compiled.rust) {
         Some(body) => Fragment {
             rust: body,
-            diagnostics: compiled.diagnostics,
+            diagnostics,
             has_errors: false,
         },
         None => {
-            let mut diagnostics = compiled.diagnostics;
+            let mut diagnostics = diagnostics;
             diagnostics.push(
                 "✘ This fragment needs top-level items (imports or helper definitions) that \
                  can't be inlined into a Rust block — keep an embedded fragment to plain \
@@ -141,6 +145,21 @@ pub fn compile_fragment(source: &str) -> Fragment {
             }
         }
     }
+}
+
+/// Re-render the wrapped compile's diagnostics against the fragment's own lines
+/// (undo the `Function Main()` header line the wrapper added).
+fn fragment_diagnostics(items: &[diagnostics::Diagnostic]) -> Vec<String> {
+    items
+        .iter()
+        .map(|d| {
+            let shifted = diagnostics::Diagnostic {
+                line: d.line.map(|l| l.saturating_sub(1).max(1)),
+                ..d.clone()
+            };
+            shifted.render()
+        })
+        .collect()
 }
 
 /// Lift the statements out of a generated `fn main() { … }`, dedented one level.
