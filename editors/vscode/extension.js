@@ -343,15 +343,16 @@ function activate(context) {
     }
   }
 
-  // Build the current .vbr (whatever pane is focused) and launch CodeLLDB on the
-  // resulting binary — no dependence on ${file} variables, so it's not fooled by
-  // the Rust view or the generated .rs being focused.
-  async function debugCurrent() {
+  // Resolve the focused editor back to its .vbr, build a debuggable binary, and
+  // open the generated Rust beside it (breakpoints bind to the Rust, not the
+  // .vbr). Returns { src, binPath } or null. No dependence on ${file} variables,
+  // so it's not fooled by the Rust view or the generated .rs being focused.
+  async function buildActiveTarget() {
     const ed = vscode.window.activeTextEditor;
     const src = ed ? resolveVbrSource(ed.document.uri) : null;
     if (!src) {
       vscode.window.showErrorMessage("Open a .vbr file to debug.");
-      return;
+      return null;
     }
     let binPath;
     try {
@@ -360,14 +361,12 @@ function activate(context) {
         () => debugBuild(src)
       );
     } catch (e) {
-      vscode.window.showErrorMessage("VBR debug build failed — see the message for the first error.");
       const out = vscode.window.createOutputChannel("VBR Debug Build");
       out.append(e.message || String(e));
       out.show(true);
-      return;
+      vscode.window.showErrorMessage("VBR debug build failed — see the 'VBR Debug Build' output.");
+      return null;
     }
-    // Open the generated Rust beside the VB so breakpoints can be set in it
-    // (native breakpoints bind to the Rust, not the .vbr).
     const rsPath = binPath.replace(/\.exe$/i, "") + ".rs";
     try {
       const rsDoc = await vscode.workspace.openTextDocument(vscode.Uri.file(rsPath));
@@ -379,13 +378,28 @@ function activate(context) {
     } catch (_) {
       /* non-fatal — still launch */
     }
-    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(src));
+    return { src, binPath };
+  }
+
+  // The `${command:vbr.debugTargetPath}` used by launch.json's `program`: build
+  // and return the binary path (so the Run panel + default F5 work, focus-proof).
+  async function debugTargetPath() {
+    const t = await buildActiveTarget();
+    if (!t) throw new Error("VBR debug build failed");
+    return t.binPath;
+  }
+
+  // The 🐞 button / palette entry — self-contained (doesn't need launch.json).
+  async function debugCurrent() {
+    const t = await buildActiveTarget();
+    if (!t) return;
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(t.src));
     await vscode.debug.startDebugging(folder, {
       type: "lldb",
       request: "launch",
-      name: "VBR: Debug " + path.basename(src),
-      program: binPath,
-      cwd: path.dirname(src),
+      name: "VBR: Debug " + path.basename(t.src),
+      program: t.binPath,
+      cwd: path.dirname(t.src),
       sourceLanguages: ["rust"],
     });
   }
@@ -420,6 +434,7 @@ function activate(context) {
     vscode.workspace.registerTextDocumentContentProvider("vbr-rust", rustProvider),
     vscode.commands.registerCommand("vbr.showRustOutput", showRustOutput),
     vscode.commands.registerCommand("vbr.debug", debugCurrent),
+    vscode.commands.registerCommand("vbr.debugTargetPath", debugTargetPath),
     vscode.commands.registerCommand("vbr.revealSourceLine", revealSourceLine),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId === "vbr") scheduleRefresh(e.document.uri);

@@ -35,14 +35,9 @@
     ],
     "keybindings": [
       {
-        "command": "vbr.debug",
-        "key": "f5",
-        "when": "resourceLangId == vbr && !inDebugMode"
-      },
-      {
         "command": "vbr.revealSourceLine",
         "key": "alt+shift+o",
-        "when": "editorTextFocus && resourceLangId == rust && resourcePath =~ /\\.vbrdebug/"
+        "when": "editorTextFocus && editorLangId == rust && resourcePath =~ /\\.vbrdebug/"
       }
     ],
     "menus": {
