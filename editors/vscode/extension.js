@@ -168,14 +168,26 @@ function execAsync(cmd, args, cwd) {
   });
 }
 
+// Build a shell command line from an executable + args. The wrinkle: PowerShell
+// (VS Code's default terminal on Windows) parses a command that *starts* with a
+// quoted string as a string literal, not a program to run — it needs the call
+// operator `&` in front. cmd and POSIX shells neither need nor tolerate it, so we
+// add it only for PowerShell, detected from the configured terminal shell.
+function terminalCommand(exe, args) {
+  const line = [exe, ...args].map(quoteArg).join(" ");
+  const shell = (vscode.env.shell || "").toLowerCase();
+  const isPowerShell = shell.includes("powershell") || shell.includes("pwsh");
+  return isPowerShell ? "& " + line : line;
+}
+
 // One reused "VBR Run" terminal so successive runs don't pile up panels.
 let runTerminal;
-function runInTerminal(cmd, cwd) {
+function runInTerminal(exe, args, cwd) {
   if (!runTerminal || runTerminal.exitStatus !== undefined) {
     runTerminal = vscode.window.createTerminal({ name: "VBR Run", cwd });
   }
   runTerminal.show(true);
-  runTerminal.sendText(cmd);
+  runTerminal.sendText(terminalCommand(exe, args));
 }
 
 // An output channel for build errors (rustc / embed) that don't belong in the
@@ -195,7 +207,7 @@ function runVbrFile(sourceUri) {
   const filePath = sourceUri.fsPath;
   const root = rootFor(filePath);
   const [cmd, args] = vbrCmd(root, ["run", filePath]);
-  runInTerminal([cmd, ...args].map(quoteArg).join(" "), root);
+  runInTerminal(cmd, args, root);
 }
 
 // Run a `.rs` file that embeds VBR: expand the `/* vbr … */` block(s) with
@@ -266,7 +278,7 @@ async function embedAndRunRust(document) {
   }
 
   // 4. Run it.
-  runInTerminal(quoteArg(out), path.dirname(filePath));
+  runInTerminal(out, [], path.dirname(filePath));
 }
 
 // Maps a .vbr document URI to its virtual Rust-view URI (same path + ".rs" under
