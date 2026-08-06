@@ -53,7 +53,7 @@ fn usage() {
          \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)\n\
-         \tvbr embed <file.rs>     expand VBR written in `/* vbr … */` block comments in place\n\
+         \tvbr embed [--check] <file.rs>  expand VBR in `/* vbr … */` block comments in place (--check: verify only, for CI)\n\
          \tvbr py <file.vbr>       transpile to Python (core language; -o <file> to write it)\n\
          \tvbr c <file.vbr>        transpile to C (core language; -o <file> to write it)\n\
          \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
@@ -148,10 +148,21 @@ fn cmd_emit(args: &[String]) {
 /// Caveat: block comments end at the first `*/`, so embedded VBR can't contain a
 /// literal `*/` (only realistic inside a string — split it, e.g. `"a*" & "/b"`).
 fn cmd_embed(args: &[String]) {
-    let input = match args.first() {
-        Some(a) => PathBuf::from(a),
+    // `--check` verifies without writing — for a pre-commit hook or CI to catch a
+    // stale generated region (VBR edited but `vbr embed` not re-run).
+    let mut check = false;
+    let mut file: Option<PathBuf> = None;
+    for a in args {
+        if a == "--check" {
+            check = true;
+        } else {
+            file = Some(PathBuf::from(a));
+        }
+    }
+    let input = match file {
+        Some(p) => p,
         None => {
-            eprintln!("Usage: vbr embed <file.rs>");
+            eprintln!("Usage: vbr embed [--check] <file.rs>");
             exit(2);
         }
     };
@@ -163,12 +174,56 @@ fn cmd_embed(args: &[String]) {
         }
     };
 
+    let (result, expanded, errors) = expand_embedded(&text);
+
+    if check {
+        if !errors.is_empty() {
+            eprintln!("✘ {}: embedded VBR has errors:", input.display());
+            for e in &errors {
+                eprintln!("    {}", e);
+            }
+            exit(1);
+        }
+        if result != text {
+            eprintln!(
+                "✘ {}: the generated Rust is out of date — run `vbr embed {}`.",
+                input.display(),
+                input.display()
+            );
+            exit(1);
+        }
+        eprintln!("✔ {}: embedded VBR is up to date.", input.display());
+        return;
+    }
+
+    if let Err(e) = fs::write(&input, &result) {
+        eprintln!("✘ Could not write {}: {}", input.display(), e);
+        exit(1);
+    }
+    eprintln!(
+        "✔ Expanded {} VBR block{} in {}",
+        expanded,
+        if expanded == 1 { "" } else { "s" },
+        input.display()
+    );
+    if !errors.is_empty() {
+        eprintln!("⚠ Some blocks had errors — their diagnostics were written in place.");
+        exit(1);
+    }
+}
+
+/// Expand every `/* vbr … */` block in `text`, returning the rewritten source,
+/// the number of blocks expanded cleanly, and any error messages. Pure (no I/O)
+/// so `--check` can compare against the file without touching it. The original
+/// line ending (LF vs CRLF) is preserved, so a check is byte-exact on Windows.
+fn expand_embedded(text: &str) -> (String, usize, Vec<String>) {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let is = |line: &str, marker: &str| line.trim() == marker;
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::new();
     let mut i = 0;
     let mut expanded = 0usize;
-    let mut had_error = false;
+    let mut errors: Vec<String> = Vec::new();
 
     while i < lines.len() {
         let line = lines[i];
@@ -189,6 +244,7 @@ fn cmd_embed(args: &[String]) {
 
         // Collect the VBR (verbatim — no per-line prefix to strip), up to `*/`.
         let mut vbr: Vec<String> = Vec::new();
+        let mut unterminated = false;
         if let Some(idx) = first_rest.find("*/") {
             // Whole block on the opener line: `/* vbr … */`.
             let content = first_rest[..idx].trim();
@@ -202,8 +258,8 @@ fn cmd_embed(args: &[String]) {
             }
             loop {
                 if i >= lines.len() {
-                    eprintln!("✘ `/* vbr` without a closing `*/`.");
-                    exit(1);
+                    unterminated = true;
+                    break;
                 }
                 let l = lines[i];
                 out.push(l.to_string()); // keep the VBR/closer line verbatim
@@ -219,6 +275,13 @@ fn cmd_embed(args: &[String]) {
             }
         }
 
+        if unterminated {
+            let msg = "✘ `/* vbr` without a closing `*/`.".to_string();
+            out.push(format!("{}// {}", indent, msg));
+            errors.push(msg);
+            continue;
+        }
+
         // Transpile the fragment and emit the managed region.
         let frag = vbr::compile_fragment(&vbr.join("\n"));
         out.push(format!(
@@ -226,8 +289,8 @@ fn cmd_embed(args: &[String]) {
             indent
         ));
         if frag.has_errors {
-            had_error = true;
             for d in &frag.diagnostics {
+                errors.push(d.clone());
                 for dl in d.lines() {
                     out.push(format!("{}// {}", indent, dl));
                 }
@@ -259,25 +322,11 @@ fn cmd_embed(args: &[String]) {
         }
     }
 
-    let mut result = out.join("\n");
+    let mut result = out.join(nl);
     if text.ends_with('\n') {
-        result.push('\n');
+        result.push_str(nl);
     }
-    if let Err(e) = fs::write(&input, &result) {
-        eprintln!("✘ Could not write {}: {}", input.display(), e);
-        exit(1);
-    }
-
-    eprintln!(
-        "✔ Expanded {} VBR block{} in {}",
-        expanded,
-        if expanded == 1 { "" } else { "s" },
-        input.display()
-    );
-    if had_error {
-        eprintln!("⚠ Some blocks had errors — their diagnostics were written in place.");
-        exit(1);
-    }
+    (result, expanded, errors)
 }
 
 /// `vbr py <file.vbr>` — transpile to Python. A core-language program prints (or

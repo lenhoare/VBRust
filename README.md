@@ -242,6 +242,11 @@ grammar injection. Block comments end at the first `*/`, so embedded VBR can't
 contain a literal `*/` (only realistic inside a string — split it). See
 `examples/rust_embedding/`.
 
+`vbr embed --check <file.rs>` verifies without writing — it exits non-zero if the
+generated region is out of date (VBR edited but not re-expanded) or the VBR has
+errors, so a pre-commit hook or CI can guarantee the committed Rust matches its
+source.
+
 ## Other targets: Python and C
 
 VBR is Rust-first — the language is defined around Rust, and everything above
