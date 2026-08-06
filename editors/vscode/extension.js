@@ -242,9 +242,14 @@ async function embedAndRunRust(document) {
   // `//` error lines embed writes on a fragment error).
   await vscode.commands.executeCommand("workbench.action.files.revert");
   if (embed.failed) {
-    showErrors("vbr embed found problems:", embed.stderr || embed.stdout);
+    const detail = (embed.stderr || embed.stdout || "").trim();
+    showErrors("vbr embed failed:", detail || "(no output from the vbr binary)");
+    const firstLine = detail.split("\n").find((l) => l.trim()) || "";
+    const hint = /unrecognized|unexpected argument|USAGE|SUBCOMMAND/i.test(detail)
+      ? " — your vbr binary looks too old for `embed`; run `cargo build --release`."
+      : "";
     vscode.window.showErrorMessage(
-      "vbr embed reported errors — see the VBR output and the file's generated region."
+      "vbr embed failed: " + (firstLine || "no output") + hint
     );
     return;
   }

@@ -668,13 +668,20 @@ fn emit_tests(
     out.push_str("\n#[cfg(test)]\nmod vbr_tests {\n    #[allow(unused_imports)]\n    use super::*;\n");
     for (test, name) in program.tests.iter().zip(&names) {
         let mut body = test.body.clone();
-        resolver::resolve_body(
+        // Keep the resolver's mutable-lend set: locals lent as `&mut` (e.g. the
+        // receiver of a user `&mut self` method like `acc.Deposit(...)`) must be
+        // `let mut`, and `collect_mutated` alone can't see those — exactly as in
+        // `emit_fn`. Dropping it here made mutating-method calls in a Test/Assert
+        // fail to compile ("cannot borrow as mutable") while identical code in a
+        // normal function was fine.
+        let passed_by_ref = resolver::resolve_body(
             &mut body, &[], fns, methods, consts, modules, interfaces, enums, structs, None, None,
             false, diags,
         );
         elide_for_counter_dims(&mut body);
         let mut mutated = HashSet::new();
         collect_mutated(&body, &mut mutated);
+        mutated.extend(passed_by_ref);
         let empty = HashSet::new();
         out.push_str(&format!("    #[test]\n    fn {}() {{\n", name));
         emit_block(&body, &mutated, &empty, 2, diags, out);

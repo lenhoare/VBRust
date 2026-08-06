@@ -48,6 +48,48 @@ fn receipt_example_tests_pass() {
     assert!(!out.contains('✗'), "no test should fail:\n{out}");
 }
 
+/// Regression: a local mutated through a user `&mut self` method inside a
+/// `Test`/`Assert` must compile. The test-emission path used to discard the
+/// resolver's mutable-lend set (unlike a normal function), so `acc.Deposit(...)`
+/// left `acc` as `let acc` and rustc refused it ("cannot borrow as mutable").
+#[test]
+fn a_mutating_method_on_a_local_compiles_in_a_test() {
+    if !have_cargo() {
+        eprintln!("skipping a_mutating_method_on_a_local_compiles_in_a_test: no cargo");
+        return;
+    }
+    let dir: PathBuf = std::env::temp_dir().join("vbr_harness_mut_method");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    // A struct with a &mut self method, a thin entry, and a spec that calls the
+    // mutating method on a local and checks the effect.
+    fs::write(
+        dir.join("account.vbr"),
+        "Public Type Account\n    Public balance As Long\nEnd Type\n\n\
+         Public Function Account.Deposit(ByVal amount As Long)\n    \
+         Me.balance = Me.balance + amount\nEnd Function\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("main.vbr"),
+        "Function Main()\n    Debug.Print \"ok\"\nEnd Function\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("account.test.vbr"),
+        "Test \"a mutating method on a local compiles\"\n    \
+         Dim acc As Account = Account { balance: 0 }\n    \
+         acc.Deposit(50)\n    Assert acc.balance = 50\nEnd Test\n",
+    )
+    .unwrap();
+
+    let (ok, out) = run_vbr_test(&dir);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(ok, "the mutating-method test should build and pass:\n{out}");
+    assert!(out.contains("1 passed"), "expected `1 passed`:\n{out}");
+    assert!(!out.contains('✗'), "no test should fail:\n{out}");
+}
+
 /// A deliberately-wrong `Assert` is reported as a failure and makes `vbr test`
 /// exit non-zero (so it fails a CI gate). Built in a temp project so nothing in
 /// the repo is left broken.
