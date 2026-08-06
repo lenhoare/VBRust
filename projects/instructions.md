@@ -3,7 +3,7 @@
 You are helping build generated example projects for a new programming language
 called **VBR: Visual Basic Rust**.
 
-The root directory contains the VBR language specification. **Read it first and
+The parent directory home/len/dev/vbrprojects/VBRust contains the VBR language specification. **Read it first and
 follow it strictly.** The most relevant specs are:
 
 - `language_spec.md` / `language_reference.md` — the core language.
@@ -17,13 +17,14 @@ only.** `examples/tests.vbr` is a good, minimal model of the test harness.
 Your output folder is:
 
 ```text
-projects/
+home/len/dev/vbrprojects/VBRust/projects/
 ```
 
 - Do **not** write generated examples into `examples/`.
 - Do **not** modify anything inside `examples/`.
 - Do **not** modify any Rust source files.
 - **Absolutely do not edit files ending in `.rs`.**
+- Do **not** commit anything to git or github.
 
 The purpose of this exercise is to **test the existing VBR transpiler**, not to
 improve or change the transpiler itself.
@@ -45,6 +46,7 @@ projects/
   3_boolean_gates/
   ...
 ```
+The list of projects is in project_list.md choose the next project that hasnt been attempted in a new directory.
 
 A **folder is a VBR project**: every `.vbr` file in it is a *module* named after
 the file (`receipt.vbr` → module `Receipt`). Cross-module calls are **qualified**
@@ -58,10 +60,10 @@ main.vbr             ' the entry point: Function Main()
 expected_output.txt  ' exact stdout of running main.vbr
 ```
 
-You may also create, where useful:
+Most importantly you should also create notes.md to record your experience with the trqanspiler as you go with any bugs you have found or any mistakes in the literature or any obvious features you feel are omitted.
 
 ```text
-data/
+projects/
 notes.md
 ```
 
