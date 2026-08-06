@@ -53,7 +53,7 @@ fn usage() {
          \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)\n\
-         \tvbr embed <file.rs>     expand VBR written in `// vbr:begin … // vbr:end` comment blocks in place\n\
+         \tvbr embed <file.rs>     expand VBR written in `/* vbr … */` block comments in place\n\
          \tvbr py <file.vbr>       transpile to Python (core language; -o <file> to write it)\n\
          \tvbr c <file.vbr>        transpile to C (core language; -o <file> to write it)\n\
          \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
@@ -137,13 +137,16 @@ fn cmd_emit(args: &[String]) {
     }
 }
 
-/// `vbr embed <file.rs>` — VBR embedded in Rust. VBR written inside
-/// `// vbr:begin … // vbr:end` comment blocks is transpiled and the resulting
-/// Rust written into a managed `// vbr:gen … // vbr:gen-end` region right after,
-/// indented to match the marker. Re-running overwrites that region, so it's
-/// idempotent; the `.rs` always compiles (the VBR stays a comment). The Rust the
-/// fragment becomes is spliced in as plain statements — call Rust functions,
-/// leave values in scope, all in one flat function body.
+/// `vbr embed <file.rs>` — VBR embedded in Rust. VBR written inside a `/* vbr …
+/// */` block comment is transpiled and the resulting Rust written into a managed
+/// `// vbr:gen … // vbr:gen-end` region right after, indented to match the `/*
+/// vbr` marker. Re-running overwrites that region, so it's idempotent; the `.rs`
+/// always compiles (the VBR stays a comment). The Rust the fragment becomes is
+/// spliced in as plain statements — call Rust functions, leave values in scope,
+/// all in one flat function body.
+///
+/// Caveat: block comments end at the first `*/`, so embedded VBR can't contain a
+/// literal `*/` (only realistic inside a string — split it, e.g. `"a*" & "/b"`).
 fn cmd_embed(args: &[String]) {
     let input = match args.first() {
         Some(a) => PathBuf::from(a),
@@ -169,30 +172,51 @@ fn cmd_embed(args: &[String]) {
 
     while i < lines.len() {
         let line = lines[i];
-        if !is(line, "// vbr:begin") {
+        // An opener is `/* vbr` (optionally with VBR trailing on the same line).
+        let opener = line.trim_start().strip_prefix("/* vbr").filter(|rest| {
+            rest.is_empty() || rest.starts_with(char::is_whitespace) || rest.starts_with("*/")
+        });
+        let Some(first_rest) = opener else {
             out.push(line.to_string());
             i += 1;
             continue;
-        }
+        };
 
-        // The indent of the marker — the generated Rust is aligned to it.
+        // The indent of the `/* vbr` marker — the generated Rust aligns to it.
         let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-        out.push(line.to_string());
+        out.push(line.to_string()); // keep the opener line verbatim
         i += 1;
 
-        // Collect the VBR (kept verbatim as comments; stripped of `//` to compile).
+        // Collect the VBR (verbatim — no per-line prefix to strip), up to `*/`.
         let mut vbr: Vec<String> = Vec::new();
-        while i < lines.len() && !is(lines[i], "// vbr:end") {
-            out.push(lines[i].to_string());
-            vbr.push(strip_comment_marker(lines[i]));
-            i += 1;
-        }
-        if i < lines.len() {
-            out.push(lines[i].to_string()); // the `// vbr:end`
-            i += 1;
+        if let Some(idx) = first_rest.find("*/") {
+            // Whole block on the opener line: `/* vbr … */`.
+            let content = first_rest[..idx].trim();
+            if !content.is_empty() {
+                vbr.push(content.to_string());
+            }
         } else {
-            eprintln!("✘ `// vbr:begin` without a matching `// vbr:end`.");
-            exit(1);
+            let fr = first_rest.trim();
+            if !fr.is_empty() {
+                vbr.push(fr.to_string());
+            }
+            loop {
+                if i >= lines.len() {
+                    eprintln!("✘ `/* vbr` without a closing `*/`.");
+                    exit(1);
+                }
+                let l = lines[i];
+                out.push(l.to_string()); // keep the VBR/closer line verbatim
+                i += 1;
+                if let Some(idx) = l.find("*/") {
+                    let before = l[..idx].trim();
+                    if !before.is_empty() {
+                        vbr.push(before.to_string());
+                    }
+                    break;
+                }
+                vbr.push(l.to_string());
+            }
         }
 
         // Transpile the fragment and emit the managed region.
@@ -253,16 +277,6 @@ fn cmd_embed(args: &[String]) {
     if had_error {
         eprintln!("⚠ Some blocks had errors — their diagnostics were written in place.");
         exit(1);
-    }
-}
-
-/// Strip a leading `//` (and one optional following space) from a Rust comment
-/// line, leaving the VBR text. Non-comment lines pass through unchanged.
-fn strip_comment_marker(line: &str) -> String {
-    let t = line.trim_start();
-    match t.strip_prefix("//") {
-        Some(rest) => rest.strip_prefix(' ').unwrap_or(rest).to_string(),
-        None => line.to_string(),
     }
 }
 

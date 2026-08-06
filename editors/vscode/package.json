@@ -54,6 +54,11 @@
         "language": "vbr",
         "scopeName": "source.vbr",
         "path": "./syntaxes/vbr.tmLanguage.json"
+      },
+      {
+        "scopeName": "vbr.embedded.injection",
+        "path": "./syntaxes/vbr.injection.json",
+        "injectTo": ["source.rust"]
       }
     ],
     "configuration": {
