@@ -19,49 +19,13 @@
         "title": "VBR: Open Rust Output to the Side",
         "category": "VBR",
         "icon": "$(split-horizontal)"
-      },
-      {
-        "command": "vbr.debug",
-        "title": "VBR: Debug current file",
-        "category": "VBR",
-        "icon": "$(debug-alt)"
-      },
-      {
-        "command": "vbr.revealSourceLine",
-        "title": "VBR: Reveal the VB line for this Rust line",
-        "category": "VBR",
-        "icon": "$(arrow-left)"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "vbr.revealSourceLine",
-        "key": "alt+shift+o",
-        "when": "editorTextFocus && editorLangId == rust && resourcePath =~ /\\.vbrdebug/"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "vbr.debug",
-          "when": "resourceLangId == vbr",
-          "group": "navigation@1"
-        },
-        {
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr",
-          "group": "navigation@2"
-        },
-        {
-          "command": "vbr.revealSourceLine",
-          "when": "resourceLangId == rust && resourcePath =~ /\\.vbrdebug/",
-          "group": "navigation"
-        }
-      ],
-      "editor/context": [
-        {
-          "command": "vbr.revealSourceLine",
-          "when": "resourceLangId == rust && resourcePath =~ /\\.vbrdebug/",
           "group": "navigation"
         }
       ],
@@ -69,14 +33,6 @@
         {
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr"
-        },
-        {
-          "command": "vbr.debug",
-          "when": "resourceLangId == vbr"
-        },
-        {
-          "command": "vbr.revealSourceLine",
-          "when": "resourceLangId == rust"
         }
       ]
     },

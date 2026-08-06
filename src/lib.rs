@@ -93,6 +93,76 @@ pub fn compile_web(source: &str) -> Compiled {
     compile_with(source, &[], &resolver::ProjectInterfaces::new(), true, true)
 }
 
+/// The Rust a VBR *fragment* becomes — a sequence of statements, not a whole
+/// program. Used to embed VBR inside Rust (`vbr embed`, and later a `vbr!{}`
+/// macro): the statements are spliced straight into a Rust function body.
+pub struct Fragment {
+    /// The generated Rust statements (dedented one level, no `fn` wrapper).
+    pub rust: String,
+    /// Every diagnostic, already rendered (`✘ / ⚠ / ℹ`).
+    pub diagnostics: Vec<String>,
+    /// True if compilation failed — `rust` is then empty.
+    pub has_errors: bool,
+}
+
+/// Transpile a VBR fragment (statements) to a Rust statement block. The trick:
+/// wrap it in `Function Main()`, run the normal pipeline, then lift out the body
+/// of the generated `fn main`. So a fragment reuses the whole compiler. A
+/// fragment that would need *top-level* items (imports/helpers) can't be inlined
+/// into a block and is reported as an error.
+pub fn compile_fragment(source: &str) -> Fragment {
+    let wrapped = format!("Function Main()\n{}\nEnd Function\n", source);
+    let compiled = compile(&wrapped);
+    if compiled.has_errors {
+        return Fragment {
+            rust: String::new(),
+            diagnostics: compiled.diagnostics,
+            has_errors: true,
+        };
+    }
+    match extract_fn_main_body(&compiled.rust) {
+        Some(body) => Fragment {
+            rust: body,
+            diagnostics: compiled.diagnostics,
+            has_errors: false,
+        },
+        None => {
+            let mut diagnostics = compiled.diagnostics;
+            diagnostics.push(
+                "✘ This fragment needs top-level items (imports or helper definitions) that \
+                 can't be inlined into a Rust block — keep an embedded fragment to plain \
+                 statements."
+                    .to_string(),
+            );
+            Fragment {
+                rust: String::new(),
+                diagnostics,
+                has_errors: true,
+            }
+        }
+    }
+}
+
+/// Lift the statements out of a generated `fn main() { … }`, dedented one level.
+/// Returns `None` if there is any top-level item before `fn main` (which can't
+/// live inside a Rust block).
+fn extract_fn_main_body(rust: &str) -> Option<String> {
+    let lines: Vec<&str> = rust.lines().collect();
+    let start = lines.iter().position(|l| l.trim() == "fn main() {")?;
+    if lines[..start].iter().any(|l| !l.trim().is_empty()) {
+        return None; // top-level items precede main — not inlineable
+    }
+    let end = lines.iter().rposition(|l| l.trim() == "}")?;
+    if end <= start {
+        return None;
+    }
+    let body: Vec<String> = lines[start + 1..end]
+        .iter()
+        .map(|l| l.strip_prefix("    ").unwrap_or(l).to_string())
+        .collect();
+    Some(body.join("\n"))
+}
+
 /// Harvest one module's public surface — pass 1 of a project compile. Each
 /// file is parsed once for its interface (function signatures, constants);
 /// pass 2 (`compile_module`) then resolves qualified calls against the
