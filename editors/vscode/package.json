@@ -21,6 +21,19 @@
         "title": "VBR: Open Rust Output to the Side",
         "category": "VBR",
         "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "vbr.revealSourceLine",
+        "title": "VBR: Reveal the VB line for this Rust line",
+        "category": "VBR",
+        "icon": "$(arrow-left)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vbr.revealSourceLine",
+        "key": "alt+shift+o",
+        "when": "editorTextFocus && resourceLangId == rust && resourcePath =~ /\\.vbrdebug/"
       }
     ],
     "menus": {
@@ -29,12 +42,28 @@
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr",
           "group": "navigation"
+        },
+        {
+          "command": "vbr.revealSourceLine",
+          "when": "resourceLangId == rust && resourcePath =~ /\\.vbrdebug/",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "vbr.revealSourceLine",
+          "when": "resourceLangId == rust && resourcePath =~ /\\.vbrdebug/",
+          "group": "navigation"
         }
       ],
       "commandPalette": [
         {
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr"
+        },
+        {
+          "command": "vbr.revealSourceLine",
+          "when": "resourceLangId == rust"
         }
       ]
     },

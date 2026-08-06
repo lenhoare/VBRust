@@ -22,6 +22,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("run") => cmd_run(&args[1..]),
+        Some("debugbuild") => cmd_debugbuild(&args[1..]),
         Some("runproject") => cmd_project(&args[1..], true),
         Some("runweb") => cmd_runweb(&args[1..]),
         Some("rungodot") => cmd_rungodot(&args[1..]),
@@ -43,6 +44,7 @@ fn usage() {
     eprintln!(
         "Usage:\n\
          \tvbr run <file.vbr>      compile with rustc and run (single file, no stdlib/crates)\n\
+         \tvbr debugbuild <file>   compile a debuggable binary (symbols) to .vbrdebug/ for VS Code + CodeLLDB\n\
          \tvbr runproject [path]   generate a cargo project in build/ and run it\n\
          \tvbr runweb [path]       build a Page or Screen for WebAssembly and serve it (trunk)\n\
          \tvbr rungodot <file.vbr> build a Node2D program as a Godot GDExtension and open it in Godot 4\n\
@@ -408,6 +410,100 @@ fn cmd_run(args: &[String]) {
             exit(1);
         }
     }
+}
+
+/// `vbr debugbuild <file.vbr>` — compile a *debuggable* binary (with DWARF debug
+/// info) so VS Code + CodeLLDB can step through the generated Rust. Unlike
+/// `run`, it persists the artifacts next to the source in `.vbrdebug/`: the
+/// generated `<stem>.rs` (so the debugger's line info points at readable Rust)
+/// and the `<stem>` binary. It does not run the program — the debugger does.
+/// The binary's path is printed to stdout (the one clean line) for tooling; the
+/// human-readable summary goes to stderr.
+fn cmd_debugbuild(args: &[String]) {
+    let input = match args.first() {
+        Some(a) => PathBuf::from(a),
+        None => {
+            eprintln!("Usage: vbr debugbuild <file.vbr>");
+            exit(2);
+        }
+    };
+    let result = transpile(&input);
+
+    if is_web_rust(&result.rust) {
+        eprintln!("\n✘ This program is a `Page`/web app — debugging the browser build isn't wired up.");
+        exit(1);
+    }
+    if is_godot_rust(&result.rust) {
+        eprintln!("\n✘ This is a Godot GDExtension — debug it from inside Godot, not here.");
+        exit(1);
+    }
+    if needs_project(&result.rust) || !result.dependencies.is_empty() {
+        eprintln!(
+            "\n✘ This program uses the standard library (or a crate via `Use`), so it needs the \
+             project build.\n  Debugging project builds isn't wired up yet — this slice covers \
+             single-file programs."
+        );
+        exit(1);
+    }
+
+    // Persist the artifacts next to the source, in .vbrdebug/ (git-ignored).
+    let dir = input.parent().unwrap_or_else(|| Path::new(".")).join(".vbrdebug");
+    if let Err(e) = fs::create_dir_all(&dir) {
+        eprintln!("✘ Could not create {}: {}", dir.display(), e);
+        exit(1);
+    }
+    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("main");
+    let rs = dir.join(format!("{}.rs", stem));
+    let bin = dir.join(if cfg!(windows) {
+        format!("{}.exe", stem)
+    } else {
+        stem.to_string()
+    });
+    if let Err(e) = fs::write(&rs, &result.rust) {
+        eprintln!("✘ Could not write {}: {}", rs.display(), e);
+        exit(1);
+    }
+
+    eprintln!("→ rustc -g {}", input.display());
+    let compiled = Command::new("rustc")
+        .args(["--edition", "2021", "-C", "debuginfo=2", "--error-format", "json"])
+        .arg(&rs)
+        .arg("-o")
+        .arg(&bin)
+        .output();
+    match compiled {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            let errors = parse_rustc_json(stderr.lines());
+            report_errors(&errors, |_| Some((input.clone(), result.line_map.clone())));
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("✘ Could not run rustc: {}", e);
+            exit(1);
+        }
+    }
+
+    // Sidecar line map (Rust line → VBR line checkpoints) + the source path, so
+    // the editor can step-sync the .vbr and jump back from a Rust line.
+    let map_path = dir.join(format!("{}.linemap.json", stem));
+    let source_abs = fs::canonicalize(&input).unwrap_or_else(|_| input.clone());
+    let sidecar = serde_json::json!({
+        "source": source_abs.to_string_lossy(),
+        "map": result.line_map,
+    });
+    if let Err(e) = fs::write(&map_path, sidecar.to_string()) {
+        eprintln!("⚠ Could not write {}: {}", map_path.display(), e);
+    }
+
+    // Clean line for tooling (VS Code launch config reads this); summary to stderr.
+    println!("{}", bin.display());
+    eprintln!(
+        "✔ Debuggable binary: {}\n  Generated Rust:   {}",
+        bin.display(),
+        rs.display()
+    );
 }
 
 fn cmd_project(args: &[String], run: bool) {

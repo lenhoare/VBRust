@@ -8,3 +8,6 @@ build/
 
 # Generated Godot projects (vbr rungodot)
 *_godot/
+
+# VS Code + CodeLLDB debug artifacts (vbr debugbuild)
+.vbrdebug/

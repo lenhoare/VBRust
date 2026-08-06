@@ -161,6 +161,30 @@ class RustViewProvider {
   }
 }
 
+// ── Rust ↔ VBR line mapping (slice 3: step-sync + jump-back) ────────────────
+
+// The sidecar `vbr debugbuild` writes next to a generated <stem>.rs.
+// { source: "<abs .vbr path>", map: [[rustLine, vbrLine], ...] }
+function loadLineMap(rustFsPath) {
+  const mapPath = rustFsPath.replace(/\.rs$/i, ".linemap.json");
+  try {
+    return JSON.parse(fs.readFileSync(mapPath, "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
+// The VBR line a Rust line came from: the last checkpoint at or before it
+// (mirrors main.rs::vbr_line_for; checkpoints are in ascending Rust order).
+function vbrLineFor(map, rustLine) {
+  let vbr = null;
+  for (const [r, v] of map) {
+    if (r <= rustLine) vbr = v;
+    else break;
+  }
+  return vbr;
+}
+
 function activate(context) {
   // 1. Language client.
   const command = serverCommand(context);
@@ -219,15 +243,110 @@ function activate(context) {
     rustProvider.refresh(rustUri);
   }
 
+  // 3. Step-sync: highlight the .vbr line as you step the generated Rust, plus
+  //    a jump-back command from a Rust line to its VB line.
+  const stepDecoration = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor("editor.stackFrameHighlightBackground"),
+    overviewRulerColor: new vscode.ThemeColor("editor.stackFrameHighlightBackground"),
+    overviewRulerLane: vscode.OverviewRulerLane.Full,
+  });
+
+  function clearStepHighlight() {
+    for (const ed of vscode.window.visibleTextEditors) {
+      ed.setDecorations(stepDecoration, []);
+    }
+  }
+
+  // Show + highlight a .vbr line. Reuses an already-visible editor for that file
+  // (so we don't fight the debugger over columns); otherwise opens it beside.
+  async function highlightVbrLine(sourcePath, vbrLine1) {
+    const uri = vscode.Uri.file(sourcePath);
+    let editor = vscode.window.visibleTextEditors.find(
+      (e) => e.document.uri.fsPath === uri.fsPath
+    );
+    if (!editor) {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      editor = await vscode.window.showTextDocument(doc, {
+        viewColumn: vscode.ViewColumn.Beside,
+        preserveFocus: true,
+        preview: false,
+      });
+    }
+    const line = Math.max(0, vbrLine1 - 1);
+    const range = new vscode.Range(line, 0, line, 0);
+    editor.setDecorations(stepDecoration, [range]);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  }
+
+  // On each stop, find the topmost frame in a generated <stem>.rs (one with a
+  // sibling line map) and light up the VB line it came from.
+  function handleStop(frames) {
+    for (const f of frames || []) {
+      const p = f.source && f.source.path;
+      if (!p || !/\.rs$/i.test(p)) continue;
+      const lm = loadLineMap(p);
+      if (!lm) continue;
+      const vbrLine = vbrLineFor(lm.map, f.line);
+      if (vbrLine != null) highlightVbrLine(lm.source, vbrLine);
+      return;
+    }
+  }
+
+  async function revealSourceLine() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !/\.rs$/i.test(editor.document.uri.fsPath)) {
+      vscode.window.showInformationMessage("Open a generated Rust file (.vbrdebug/…) first.");
+      return;
+    }
+    const lm = loadLineMap(editor.document.uri.fsPath);
+    if (!lm) {
+      vscode.window.showInformationMessage("No line map beside this file — debug the .vbr (F5) to generate one.");
+      return;
+    }
+    const vbrLine = vbrLineFor(lm.map, editor.selection.active.line + 1);
+    if (vbrLine == null) {
+      vscode.window.showInformationMessage("No VB line maps to here.");
+      return;
+    }
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(lm.source));
+    const ed = await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.One,
+      preview: false,
+    });
+    const pos = new vscode.Position(Math.max(0, vbrLine - 1), 0);
+    ed.selection = new vscode.Selection(pos, pos);
+    ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+  }
+
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider("vbr-rust", rustProvider),
     vscode.commands.registerCommand("vbr.showRustOutput", showRustOutput),
+    vscode.commands.registerCommand("vbr.revealSourceLine", revealSourceLine),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId === "vbr") scheduleRefresh(e.document.uri);
     }),
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.languageId === "vbr") rustProvider.refresh(rustUriFor(doc.uri));
-    })
+    }),
+    stepDecoration,
+    vscode.debug.registerDebugAdapterTrackerFactory("lldb", {
+      createDebugAdapterTracker() {
+        return {
+          onDidSendMessage(m) {
+            if (
+              m.type === "response" &&
+              m.command === "stackTrace" &&
+              m.body &&
+              m.body.stackFrames
+            ) {
+              handleStop(m.body.stackFrames);
+            }
+          },
+        };
+      },
+    }),
+    vscode.debug.onDidTerminateDebugSession(clearStepHighlight)
   );
 }
 

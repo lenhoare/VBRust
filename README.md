@@ -185,6 +185,22 @@ binary rather than `cargo run`.)
 A `.vscode/tasks.json` adds build tasks: **Ctrl+Shift+B** runs the current file;
 Terminal → Run Task also offers *Run project*, *Run in Godot*, and *Test*.
 
+**Debugging.** Since VBR is a transpiler, you debug the Rust it produces — with a
+map back to your VB. Install the **CodeLLDB** extension (`vadimcn.vscode-lldb`;
+VS Code offers it as a workspace recommendation), open a single-file `.vbr`, and
+press **F5** ("VBR: Debug current file"). Under the hood `vbr debugbuild` compiles
+a symbol-carrying binary and the generated Rust into `.vbrdebug/` (git-ignored),
+and the debugger drops you into that Rust — set breakpoints, step, inspect
+variables. Because the original VB comments are preserved in the generated Rust,
+it reads much like your source. (This covers single-file programs; project and
+Godot builds are debugged through their own flows.)
+
+As you step the Rust, the **matching line in your `.vbr` lights up** beside it —
+a line map (`.vbrdebug/<name>.linemap.json`) ties the two together, so you can
+watch the VB and the Rust move in lockstep. From any generated Rust line you can
+jump back to the VB it came from with **Alt+Shift+O** (or right-click → *"Reveal
+the VB line for this Rust line"*).
+
 If you change the extension or the grammar, repackage with
 `cd editors/vscode && npx @vscode/vsce package` and reinstall.
 
