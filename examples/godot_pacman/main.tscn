@@ -13,11 +13,64 @@ centered = false
 texture = ExtResource("1")
 
 [node name="Pacman" type="Pacman" parent="."]
+z_index = 2
 texture_filter = 1
 position = Vector2(108, 188)
 texture = ExtResource("2")
 region_enabled = true
 region_rect = Rect2(0, 16, 16, 16)
+
+[node name="Blinky" type="Ghost" parent="."]
+z_index = 2
+texture_filter = 1
+position = Vector2(52, 44)
+texture = ExtResource("2")
+region_enabled = true
+region_rect = Rect2(96, 64, 16, 16)
+homex = 6
+homey = 5
+rowy = 64
+offx = 0
+offy = 0
+
+[node name="Pinky" type="Ghost" parent="."]
+z_index = 2
+texture_filter = 1
+position = Vector2(76, 44)
+texture = ExtResource("2")
+region_enabled = true
+region_rect = Rect2(96, 80, 16, 16)
+homex = 9
+homey = 5
+rowy = 80
+offx = 0
+offy = -4
+
+[node name="Inky" type="Ghost" parent="."]
+z_index = 2
+texture_filter = 1
+position = Vector2(148, 44)
+texture = ExtResource("2")
+region_enabled = true
+region_rect = Rect2(96, 96, 16, 16)
+homex = 18
+homey = 5
+rowy = 96
+offx = 4
+offy = 0
+
+[node name="Clyde" type="Ghost" parent="."]
+z_index = 2
+texture_filter = 1
+position = Vector2(172, 44)
+texture = ExtResource("2")
+region_enabled = true
+region_rect = Rect2(96, 112, 16, 16)
+homex = 21
+homey = 5
+rowy = 112
+offx = 0
+offy = 4
 
 [node name="Shot" type="Node" parent="."]
 script = ExtResource("3")

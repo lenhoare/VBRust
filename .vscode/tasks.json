@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "VBR: Run current file",
+      "type": "shell",
+      "command": "cargo run --quiet -- run ${file}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "clear": true, "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "VBR: Run project (folder of current file)",
+      "type": "shell",
+      "command": "cargo run --quiet -- runproject ${fileDirname}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": { "clear": true, "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "VBR: Run in Godot (current file or folder)",
+      "type": "shell",
+      "command": "cargo run --quiet -- rungodot ${file}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": { "clear": true, "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "VBR: Test current file",
+      "type": "shell",
+      "command": "cargo run --quiet -- test ${file}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "test",
+      "presentation": { "clear": true, "panel": "shared" },
+      "problemMatcher": []
+    }
+  ]
+}

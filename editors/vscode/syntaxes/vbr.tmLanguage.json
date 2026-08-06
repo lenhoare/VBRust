@@ -1,0 +1,195 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "VBR",
+  "scopeName": "source.vbr",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#blocks" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.apostrophe.vbr",
+          "match": "'.*$"
+        },
+        {
+          "name": "comment.line.rem.vbr",
+          "match": "(?i)\\bRem\\b.*$"
+        }
+      ]
+    },
+
+    "blocks": {
+      "patterns": [
+        {
+          "comment": "Inline Rust escape hatch — highlight the body as real Rust.",
+          "name": "meta.embedded.block.rust.vbr",
+          "begin": "(?i)^\\s*(Rust)\\b",
+          "beginCaptures": { "1": { "name": "keyword.control.vbr" } },
+          "end": "(?i)^\\s*(End)\\s+(Rust)\\b",
+          "endCaptures": {
+            "1": { "name": "keyword.control.vbr" },
+            "2": { "name": "keyword.control.vbr" }
+          },
+          "contentName": "meta.embedded.source.rust",
+          "patterns": [{ "include": "source.rust" }]
+        },
+        {
+          "comment": "Python … End Python runs real CPython — embed Python highlighting.",
+          "name": "meta.embedded.block.python.vbr",
+          "begin": "(?i)^\\s*(Python)\\b",
+          "beginCaptures": { "1": { "name": "keyword.control.vbr" } },
+          "end": "(?i)^\\s*(End)\\s+(Python)\\b",
+          "endCaptures": {
+            "1": { "name": "keyword.control.vbr" },
+            "2": { "name": "keyword.control.vbr" }
+          },
+          "contentName": "meta.embedded.source.python",
+          "patterns": [{ "include": "source.python" }]
+        },
+        {
+          "comment": "Text … End Text is a verbatim multi-line string.",
+          "name": "string.unquoted.text-block.vbr",
+          "begin": "(?i)\\b(Text)\\s*$",
+          "beginCaptures": { "1": { "name": "keyword.control.vbr" } },
+          "end": "(?i)^\\s*(End)\\s+(Text)\\b",
+          "endCaptures": {
+            "1": { "name": "keyword.control.vbr" },
+            "2": { "name": "keyword.control.vbr" }
+          }
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.vbr",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "comment": "VBA escapes a quote by doubling it.",
+              "name": "constant.character.escape.vbr",
+              "match": "\"\""
+            }
+          ]
+        },
+        {
+          "comment": "Backtick column reference in DataFrame formulas.",
+          "name": "string.quoted.other.backtick.vbr",
+          "begin": "`",
+          "end": "`"
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.vbr",
+          "match": "(?i)\\b(0x[0-9a-f]+|[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?|[0-9]+([eE][+-]?[0-9]+)?)\\b"
+        }
+      ]
+    },
+
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "Name introduced by Function/Sub.",
+          "match": "(?i)\\b(Function|Sub)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.vbr" },
+            "2": { "name": "entity.name.function.vbr" }
+          }
+        },
+        {
+          "comment": "Name introduced by Type/Enum.",
+          "match": "(?i)\\b(Type|Enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.vbr" },
+            "2": { "name": "entity.name.type.vbr" }
+          }
+        },
+        {
+          "comment": "Storage / declaration keywords.",
+          "name": "storage.type.vbr",
+          "match": "(?i)\\b(Dim|ReDim|Const|Set|Static|Function|Sub|Type|Enum|Property|Export)\\b"
+        },
+        {
+          "name": "storage.modifier.vbr",
+          "match": "(?i)\\b(Public|Private|ByVal|ByRef|Mut|New|Preserve|Optional)\\b"
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "comment": "Control flow.",
+          "name": "keyword.control.vbr",
+          "match": "(?i)\\b(If|Then|ElseIf|Else|End|Select|Case|Match|For|Each|In|To|Step|Next|Do|Loop|While|Until|Exit|Continue|With|Return|On|Await|As|Nothing|GoTo)\\b"
+        },
+        {
+          "comment": "Surface / framework block openers and verbs.",
+          "name": "keyword.control.surface.vbr",
+          "match": "(?i)\\b(Screen|Page|State|View|Events|Signal|Emit|Connect|Spawn|Test|Assert|Log|Every|Node2D|Node3D|Sprite2D|CharacterBody2D|CharacterBody3D|Area2D|Node|Ready|Process|Input|Key)\\b"
+        },
+        {
+          "comment": "The Me/self receiver.",
+          "name": "variable.language.vbr",
+          "match": "(?i)\\b(Me)\\b"
+        }
+      ]
+    },
+
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.vbr",
+          "match": "(?i)\\b(Integer|Long|LongLong|Single|Double|Boolean|Byte|String|Currency|Variant)\\b"
+        },
+        {
+          "comment": "First-class generic wrappers.",
+          "name": "support.type.vbr",
+          "match": "\\b(Vec|Option|Result|Map|HashMap)\\b"
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.vbr",
+          "match": "(?i)\\b(True|False)\\b"
+        },
+        {
+          "comment": "Option/Result constructors from the prelude.",
+          "name": "constant.language.vbr",
+          "match": "\\b(Some|None|Ok|Err)\\b"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.word.vbr",
+          "match": "(?i)\\b(And|Or|Not|Xor|Mod)\\b"
+        },
+        {
+          "name": "keyword.operator.vbr",
+          "match": "&|\\+|-|\\*|/|\\\\|<=|>=|<>|=|<|>|\\^"
+        }
+      ]
+    }
+  }
+}

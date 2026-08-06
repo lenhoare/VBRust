@@ -28,6 +28,13 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "grammars": [
+      {
+        "language": "vbr",
+        "scopeName": "source.vbr",
+        "path": "./syntaxes/vbr.tmLanguage.json"
+      }
+    ],
     "configuration": {
       "title": "VBR",
       "properties": {

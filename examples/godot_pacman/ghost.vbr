@@ -1,0 +1,121 @@
+' A ghost — same grid movement as Pac-Man, but instead of input it chases: at each
+' tile centre it picks the open, non-reversing direction that gets nearest to a
+' target tile (Pac-Man's tile plus a per-ghost offset, so the four don't clump).
+'
+' One class, four personalities: the scene sets the Exports (home tile, sprite-sheet
+' row, and chase offset) per instance. On catching Pac-Man the ghost sends itself
+' home; Pac-Man independently sees the same overlap and loses a life.
+
+Sprite2D "Ghost"
+    Export Speed As Single = 55.0
+    Export homeX As Long = 13
+    Export homeY As Long = 5
+    Export rowY As Long = 64
+    Export offX As Long = 0
+    Export offY As Long = 0
+
+    Dim tileX As Long = 13
+    Dim tileY As Long = 5
+    Dim dx As Long = 0
+    Dim dy As Long = 1
+    Dim px As Single = 108
+    Dim py As Single = 44
+
+    On Ready
+        ' Take the starting square from the exported home tile.
+        tileX = homeX
+        tileY = homeY
+        px = homeX * 8 + 4
+        py = homeY * 8 + 4
+    End Ready
+
+    On Process(delta)
+        ' Where is Pac-Man right now (pixels)?
+        Dim pac As Node2D = Me.GetNode("../Pacman")
+        Dim ppos As Vector2 = pac.GetPosition()
+        Dim pacx As Single = ppos.X
+        Dim pacy As Single = ppos.Y
+
+        ' Caught him? Overlap -> go home.
+        If Abs(px - pacx) + Abs(py - pacy) < 6 Then
+            tileX = homeX
+            tileY = homeY
+            px = homeX * 8 + 4
+            py = homeY * 8 + 4
+            dx = 0
+            dy = 1
+        End If
+
+        Dim gx As Single = tileX * 8 + 4
+        Dim gy As Single = tileY * 8 + 4
+        Dim mv As Single = Speed * delta
+
+        If Abs(gx - px) + Abs(gy - py) <= mv Then
+            px = gx
+            py = gy
+
+            ' Target tile = Pac-Man's tile, nudged by this ghost's offset.
+            Dim ptx As Long = pacx / 8
+            Dim pty As Long = pacy / 8
+            ptx = ptx + offX
+            pty = pty + offY
+
+            ' Pick the best open, non-reversing direction (min squared distance).
+            Dim best As Long = 99999999
+            Dim ndx As Long = dx
+            Dim ndy As Long = dy
+
+            If Not (dx = -1) And Not Maze.IsBlocked(tileX + 1, tileY) Then
+                Dim d1 As Long = (tileX + 1 - ptx) * (tileX + 1 - ptx) + (tileY - pty) * (tileY - pty)
+                If d1 < best Then
+                    best = d1
+                    ndx = 1
+                    ndy = 0
+                End If
+            End If
+            If Not (dx = 1) And Not Maze.IsBlocked(tileX - 1, tileY) Then
+                Dim d2 As Long = (tileX - 1 - ptx) * (tileX - 1 - ptx) + (tileY - pty) * (tileY - pty)
+                If d2 < best Then
+                    best = d2
+                    ndx = -1
+                    ndy = 0
+                End If
+            End If
+            If Not (dy = -1) And Not Maze.IsBlocked(tileX, tileY + 1) Then
+                Dim d3 As Long = (tileX - ptx) * (tileX - ptx) + (tileY + 1 - pty) * (tileY + 1 - pty)
+                If d3 < best Then
+                    best = d3
+                    ndx = 0
+                    ndy = 1
+                End If
+            End If
+            If Not (dy = 1) And Not Maze.IsBlocked(tileX, tileY - 1) Then
+                Dim d4 As Long = (tileX - ptx) * (tileX - ptx) + (tileY - 1 - pty) * (tileY - 1 - pty)
+                If d4 < best Then
+                    best = d4
+                    ndx = 0
+                    ndy = -1
+                End If
+            End If
+
+            dx = ndx
+            dy = ndy
+            If Not Maze.IsBlocked(tileX + dx, tileY + dy) Then
+                tileX = tileX + dx
+                tileY = tileY + dy
+            End If
+        Else
+            If gx > px Then px = px + mv
+            If gx < px Then px = px - mv
+            If gy > py Then py = py + mv
+            If gy < py Then py = py - mv
+        End If
+
+        Me.Position = Vector2(px, py)
+
+        If dx > 0 Then Me.RegionRect = Rect2(0, rowY, 16, 16)
+        If dx < 0 Then Me.RegionRect = Rect2(32, rowY, 16, 16)
+        If dy < 0 Then Me.RegionRect = Rect2(64, rowY, 16, 16)
+        If dy > 0 Then Me.RegionRect = Rect2(96, rowY, 16, 16)
+    End Process
+End Sprite2D

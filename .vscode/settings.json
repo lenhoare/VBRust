@@ -1,0 +1,7 @@
+{
+  "// vbr.serverPath": "Absolute path to the built LSP binary. Powers autocomplete, hover, go-to-def and live error squiggles. Syntax colours work without it.",
+  "vbr.serverPath": "/home/len/dev/VBRust/vbr-lsp/target/release/vbr-lsp",
+  "files.associations": {
+    "*.vbr": "vbr"
+  }
+}

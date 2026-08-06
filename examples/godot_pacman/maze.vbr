@@ -88,3 +88,14 @@ Public Function HasPellet(ByVal col As Long, ByVal ry As Long) As Boolean
     End If
     Return Mid(PelRow(ry), col + 1, 1) = "o"
 End Function
+
+Public Function IsBlocked(ByVal col As Long, ByVal ry As Long) As Boolean
+    If IsWall(col, ry) Then
+        Return True
+    End If
+    ' The ghost house (interior + door) is a no-go once you're out in the maze.
+    If col >= 11 And col <= 16 And ry >= 12 And ry <= 15 Then
+        Return True
+    End If
+    Return False
+End Function
