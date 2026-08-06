@@ -1,6 +1,5 @@
 {
-  "// vbr.serverPath": "Absolute path to the built LSP binary. Powers autocomplete, hover, go-to-def and live error squiggles. Syntax colours work without it.",
-  "vbr.serverPath": "/home/len/dev/VBRust/vbr-lsp/target/release/vbr-lsp",
+  "// vbr.serverPath": "Optional. Leave unset: the extension auto-finds vbr-lsp/target/release/vbr-lsp(.exe) inside this workspace, so the same repo works on Linux and Windows once you've built the LSP. Set an absolute path only to override.",
   "files.associations": {
     "*.vbr": "vbr"
   }

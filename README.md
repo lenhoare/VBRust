@@ -143,6 +143,43 @@ cd playground && trunk serve --open
 `trunk build --release` produces a fully static `dist/` (three files, ~760 KB
 of wasm) that can be hosted anywhere — GitHub Pages included.
 
+## Editing in VS Code
+
+`editors/vscode/` is a VS Code extension that turns `.vbr` files into a real
+editing experience:
+
+- **Syntax colours** — a TextMate grammar (static; works with nothing else set
+  up). Inline `Rust … End Rust` / `Python … End Python` blocks even get their own
+  language's highlighting.
+- **Autocomplete, hover, go-to-definition, live error squiggles** — provided by
+  the `vbr-lsp` language server, which runs the real compiler front-end as you
+  type (so the teaching diagnostics show up in the editor).
+
+**Setup:**
+
+```sh
+# 1. Build the language server (once per machine — needs Rust). On Windows this
+#    produces vbr-lsp\target\release\vbr-lsp.exe; on Linux, .../vbr-lsp.
+cd vbr-lsp && cargo build --release
+
+# 2. Install the packaged extension. The `code` CLI puts it in the right place.
+code --install-extension editors/vscode/vbr-lsp-0.0.1.vsix
+
+# 3. Reload VS Code (Ctrl+Shift+P → "Developer: Reload Window").
+```
+
+Open the **VBRust folder** in VS Code and then any `.vbr` file. Colours are on
+immediately; the smart features light up because the extension auto-finds the
+server at `vbr-lsp/target/release/vbr-lsp(.exe)` inside the open workspace — so
+the same checkout works on Linux and Windows with no per-machine path. (To point
+elsewhere, set `vbr.serverPath`.)
+
+A `.vscode/tasks.json` adds build tasks: **Ctrl+Shift+B** runs the current file;
+Terminal → Run Task also offers *Run project*, *Run in Godot*, and *Test*.
+
+If you change the extension or the grammar, repackage with
+`cd editors/vscode && npx @vscode/vsce package` and reinstall.
+
 ## Other targets: Python and C
 
 VBR is Rust-first — the language is defined around Rust, and everything above

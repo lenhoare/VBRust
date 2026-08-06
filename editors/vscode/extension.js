@@ -5,19 +5,41 @@
 // just the glue VS Code needs.
 
 const path = require("path");
+const fs = require("fs");
 const { workspace } = require("vscode");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 let client;
 
+// The server binary's name, `.exe` on Windows.
+const BIN = process.platform === "win32" ? "vbr-lsp.exe" : "vbr-lsp";
+
+// Look for a built LSP binary inside an open workspace folder — this makes the
+// same repo work on Linux and Windows without a machine-specific path setting.
+// A VBRust checkout has it at <root>/vbr-lsp/target/release/<BIN>.
+function findInWorkspace() {
+  const folders = workspace.workspaceFolders || [];
+  for (const folder of folders) {
+    const root = folder.uri.fsPath;
+    for (const profile of ["release", "debug"]) {
+      const candidate = path.join(root, "vbr-lsp", "target", profile, BIN);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function serverCommand(context) {
-  // Priority: setting → env var → the debug build alongside this repo.
+  // Priority: explicit setting → env var → the build inside the open workspace
+  // → the build alongside the extension (dev/source install).
   const configured = workspace.getConfiguration("vbr").get("serverPath");
   if (configured) return configured;
   if (process.env.VBR_LSP_SERVER) return process.env.VBR_LSP_SERVER;
-  // editors/vscode/ → repo root → vbr-lsp/target/release/vbr-lsp
+  const inWorkspace = findInWorkspace();
+  if (inWorkspace) return inWorkspace;
+  // editors/vscode/ → repo root → vbr-lsp/target/release/<BIN>
   return context.asAbsolutePath(
-    path.join("..", "..", "vbr-lsp", "target", "release", "vbr-lsp")
+    path.join("..", "..", "vbr-lsp", "target", "release", BIN)
   );
 }
 
