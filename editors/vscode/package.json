@@ -10,9 +10,7 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "onLanguage:vbr"
-  ],
+  "activationEvents": [],
   "main": "./extension.js",
   "contributes": {
     "commands": [
@@ -23,6 +21,12 @@
         "icon": "$(split-horizontal)"
       },
       {
+        "command": "vbr.debug",
+        "title": "VBR: Debug current file",
+        "category": "VBR",
+        "icon": "$(debug-alt)"
+      },
+      {
         "command": "vbr.revealSourceLine",
         "title": "VBR: Reveal the VB line for this Rust line",
         "category": "VBR",
@@ -30,6 +34,11 @@
       }
     ],
     "keybindings": [
+      {
+        "command": "vbr.debug",
+        "key": "f5",
+        "when": "resourceLangId == vbr && !inDebugMode"
+      },
       {
         "command": "vbr.revealSourceLine",
         "key": "alt+shift+o",
@@ -39,9 +48,14 @@
     "menus": {
       "editor/title": [
         {
+          "command": "vbr.debug",
+          "when": "resourceLangId == vbr",
+          "group": "navigation@1"
+        },
+        {
           "command": "vbr.showRustOutput",
           "when": "resourceLangId == vbr",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "vbr.revealSourceLine",
@@ -59,6 +73,10 @@
       "commandPalette": [
         {
           "command": "vbr.showRustOutput",
+          "when": "resourceLangId == vbr"
+        },
+        {
+          "command": "vbr.debug",
           "when": "resourceLangId == vbr"
         },
         {

@@ -36,15 +36,6 @@
       "group": "test",
       "presentation": { "clear": true, "panel": "shared" },
       "problemMatcher": []
-    },
-    {
-      "label": "VBR: debug build",
-      "detail": "Compile a debuggable binary (with symbols) for the current file — used as the debugger's preLaunchTask.",
-      "type": "shell",
-      "command": "cargo run --quiet -- debugbuild ${file}",
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "clear": true, "panel": "shared", "reveal": "silent" },
-      "problemMatcher": []
     }
   ]
 }

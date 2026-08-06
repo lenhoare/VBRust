@@ -185,6 +185,56 @@ function vbrLineFor(map, rustLine) {
   return vbr;
 }
 
+// Resolve the .vbr source behind whatever editor is focused — the real file, a
+// generated .vbrdebug/<stem>.rs (via its line map), or the live vbr-rust view.
+// This is what lets Debug work no matter which pane has focus.
+function resolveVbrSource(uri) {
+  if (!uri) return null;
+  if (uri.scheme === "file" && /\.vbr$/i.test(uri.fsPath)) return uri.fsPath;
+  if (uri.scheme === "vbr-rust") {
+    return uri.with({ scheme: "file", path: uri.path.replace(/\.rs$/i, "") }).fsPath;
+  }
+  if (uri.scheme === "file" && /\.rs$/i.test(uri.fsPath) && /\.vbrdebug[\\/]/i.test(uri.fsPath)) {
+    const lm = loadLineMap(uri.fsPath);
+    if (lm && lm.source) return lm.source;
+  }
+  return null;
+}
+
+// Run `vbr debugbuild <src>` and resolve to the binary path it prints (the last
+// non-empty stdout line). Rejects with the transpiler diagnostics on failure.
+function debugBuild(sourcePath) {
+  return new Promise((resolve, reject) => {
+    const root = rootFor(sourcePath);
+    const bin = vbrBinary(root);
+    let cmd, args;
+    if (bin) {
+      cmd = bin;
+      args = ["debugbuild", sourcePath];
+    } else {
+      cmd = process.platform === "win32" ? "cargo.exe" : "cargo";
+      args = [
+        "run", "--quiet",
+        "--manifest-path", path.join(root, "Cargo.toml"),
+        "--", "debugbuild", sourcePath,
+      ];
+    }
+    execFile(cmd, args, { cwd: root, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error((stderr || err.message || "").trim()));
+        return;
+      }
+      const lines = stdout.split(/\r?\n/).filter((l) => l.trim());
+      const last = lines[lines.length - 1];
+      if (!last) {
+        reject(new Error("debugbuild produced no binary path"));
+        return;
+      }
+      resolve(last.trim());
+    });
+  });
+}
+
 function activate(context) {
   // 1. Language client.
   const command = serverCommand(context);
@@ -293,6 +343,53 @@ function activate(context) {
     }
   }
 
+  // Build the current .vbr (whatever pane is focused) and launch CodeLLDB on the
+  // resulting binary — no dependence on ${file} variables, so it's not fooled by
+  // the Rust view or the generated .rs being focused.
+  async function debugCurrent() {
+    const ed = vscode.window.activeTextEditor;
+    const src = ed ? resolveVbrSource(ed.document.uri) : null;
+    if (!src) {
+      vscode.window.showErrorMessage("Open a .vbr file to debug.");
+      return;
+    }
+    let binPath;
+    try {
+      binPath = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: "VBR: building debug binary…" },
+        () => debugBuild(src)
+      );
+    } catch (e) {
+      vscode.window.showErrorMessage("VBR debug build failed — see the message for the first error.");
+      const out = vscode.window.createOutputChannel("VBR Debug Build");
+      out.append(e.message || String(e));
+      out.show(true);
+      return;
+    }
+    // Open the generated Rust beside the VB so breakpoints can be set in it
+    // (native breakpoints bind to the Rust, not the .vbr).
+    const rsPath = binPath.replace(/\.exe$/i, "") + ".rs";
+    try {
+      const rsDoc = await vscode.workspace.openTextDocument(vscode.Uri.file(rsPath));
+      await vscode.window.showTextDocument(rsDoc, {
+        viewColumn: vscode.ViewColumn.Beside,
+        preserveFocus: true,
+        preview: false,
+      });
+    } catch (_) {
+      /* non-fatal — still launch */
+    }
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(src));
+    await vscode.debug.startDebugging(folder, {
+      type: "lldb",
+      request: "launch",
+      name: "VBR: Debug " + path.basename(src),
+      program: binPath,
+      cwd: path.dirname(src),
+      sourceLanguages: ["rust"],
+    });
+  }
+
   async function revealSourceLine() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || !/\.rs$/i.test(editor.document.uri.fsPath)) {
@@ -322,6 +419,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider("vbr-rust", rustProvider),
     vscode.commands.registerCommand("vbr.showRustOutput", showRustOutput),
+    vscode.commands.registerCommand("vbr.debug", debugCurrent),
     vscode.commands.registerCommand("vbr.revealSourceLine", revealSourceLine),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId === "vbr") scheduleRefresh(e.document.uri);
