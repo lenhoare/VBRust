@@ -486,6 +486,8 @@ fn vb_string_constant(name: &str) -> Option<String> {
 fn builtin_vtype(name: &str) -> Option<VType> {
     Some(match name.to_ascii_lowercase().as_str() {
         "len" => VType::Usize,
+        // Asc(s) → the first character's code point, a Long.
+        "asc" => vt(Type::Long),
         // `Trim` is a `.trim()` slice (`&str`); `Left`/`Right`/`Mid` each
         // `.collect::<String>()` a fresh owned String, so they must borrow to
         // feed a `&str` param (they were mis-typed as `&str` before).
@@ -1522,7 +1524,16 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`.
             let qualified = match &(&**recv).kind {
-                ExprKind::Ident(m) if ctx.modules.contains(&snake(m)) => Some(snake(m)),
+                // `Module.func(...)` is a cross-module call — but a *local
+                // variable* of the same name as a module shadows it (VB scoping),
+                // so `bitmap.Push(...)` with a local `bitmap` is a method call, not
+                // a call into module `bitmap`. Only treat it as qualified when no
+                // local binding claims the name.
+                ExprKind::Ident(m)
+                    if ctx.modules.contains(&snake(m)) && ctx.binding(m).is_none() =>
+                {
+                    Some(snake(m))
+                }
                 _ => None,
             };
             if let Some(module) = qualified {
@@ -1586,6 +1597,18 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 && infer(&args[0], ctx) == VType::Str
             {
                 to_owned_string(&mut args[0]);
+            }
+            // `IIf(cond, a, b)`: an `if`/`else` needs both arms the *same* type, so
+            // a mismatch of `&str` and owned `String` between the arms won't unify.
+            // Own the `&str` arm to match its `String` sibling. (Two `&str` arms are
+            // fine as-is — a `String` context owns the whole expression.)
+            if name.eq_ignore_ascii_case("iif") && args.len() == 3 {
+                let (a, b) = (infer(&args[1], ctx), infer(&args[2], ctx));
+                if a == VType::Str && b.is_owned_string() {
+                    to_owned_string(&mut args[1]);
+                } else if b == VType::Str && a.is_owned_string() {
+                    to_owned_string(&mut args[2]);
+                }
             }
             // Maths builtins need a floating-point receiver — cast an integer
             // argument so e.g. `Sqr(n)` becomes `(n as f64).sqrt()`.
@@ -2003,6 +2026,11 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
                         return at;
                     }
                 }
+            }
+            // `IIf(cond, a, b)` is an `if`/`else` yielding one of its arms — its
+            // type is the arms' type, so infer from the true-part.
+            if name.eq_ignore_ascii_case("iif") && args.len() == 3 {
+                return infer(&args[1], ctx);
             }
             builtin_vtype(name).unwrap_or_else(|| {
             // A qualified cross-module call (`crate::life::steplife`) — the

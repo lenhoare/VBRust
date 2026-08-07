@@ -9,6 +9,11 @@ enum Suit {
     Clubs,
     Spades,
 }
+impl std::fmt::Display for Suit {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 fn color(s: &Suit) -> String {
     match s {

@@ -1,0 +1,17 @@
+' Two classic VB builtins: Asc (the inverse of Chr) and IIf (immediate-if).
+' Asc gives a character's code; IIf picks one of two values by a condition
+' (lowered to a lazy Rust `if`/`else`, so — unlike VB — only one arm runs).
+Function Main()
+    Debug.Print Asc("A")                 ' 65
+    Debug.Print Chr(Asc("A") + 1)        ' "B" — next letter
+
+    Dim size As String = IIf(10 > 3, "big", "small")
+    Debug.Print size
+
+    Dim n As Long = IIf(4 Mod 2 = 0, 100, 200)
+    Debug.Print n
+
+    ' Mismatched arms (an owned String and a &str literal) still unify.
+    Dim word As String = "hello"
+    Debug.Print IIf(Asc("z") > 100, word, "?")
+End Function

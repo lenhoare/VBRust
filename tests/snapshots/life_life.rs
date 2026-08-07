@@ -25,6 +25,11 @@ pub enum CellState {
     Dead,
     Alive,
 }
+impl std::fmt::Display for CellState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 impl Rule {
     pub fn describe(&self) -> String {

@@ -531,6 +531,16 @@ pub(crate) fn emit_enum(e: &EnumDef, out: &mut String) {
         }
     }
     out.push_str("}\n");
+    // A `Display` impl so an enum can be `Debug.Print`ed or `&`-concatenated —
+    // VB prints an enum value readily. Delegates to the derived `Debug`, so a
+    // unit variant prints as its name (`Red`) and a data variant shows its
+    // payload (`Circle(2.0)`).
+    out.push_str(&format!(
+        "impl std::fmt::Display for {} {{\n    \
+         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{\n        \
+         write!(f, \"{{:?}}\", self)\n    }}\n}}\n",
+        e.name
+    ));
 }
 
 /// The derive set for an enum, computed from its variant payloads (all primitives
@@ -2332,7 +2342,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 ExprKind::Int(n) => n.to_string(),
                 _ => format!("({}) as usize", render_expr(idx, None)),
             };
-            format!("{}[{}]", render_prec(inner, None, 9, false), i)
+            // `render_recv` parenthesises a leading unary, so a deref'd receiver
+            // (a `For Each` binding over a `Vec<Vec<_>>`) becomes `(*line)[0]`, not
+            // the mis-parsed `*line[0]` (= `*(line[0])`).
+            format!("{}[{}]", render_recv(inner), i)
         }
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).
@@ -2457,7 +2470,23 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         // in VBR both are plain `.to_string()`.
         ("str", 1) | ("cstr", 1) => Some(method0(&args[0], "to_string")),
         // Chr(n) → the one-character string for code point n (Chr(10) = newline).
-        ("chr", 1) => Some(format!("(({} as u8) as char).to_string()", r(0))),
+        // Parenthesise the argument so `Chr(Asc(c) + 1)` (VB's "next letter") isn't
+        // mis-grouped by `as` binding tighter than `+`.
+        ("chr", 1) => Some(format!("((({}) as u8) as char).to_string()", r(0))),
+        // Asc(s) → the code point of the first character (the inverse of Chr).
+        // Lenient like VB's other builtins: an empty string yields 0.
+        ("asc", 1) => Some(format!(
+            "{}.chars().next().map_or(0, |c| c as i64)",
+            render_recv(&args[0])
+        )),
+        // IIf(cond, a, b) → Rust's `if` *expression*. (VB's IIf evaluates both
+        // arms; Rust's is lazy — a strict improvement, and the same value.)
+        ("iif", 3) => Some(format!(
+            "(if {} {{ {} }} else {{ {} }})",
+            render_expr(&args[0], None),
+            render_expr(&args[1], None),
+            render_expr(&args[2], None)
+        )),
         // Sleep ms — VB6's kernel32 `Declare Sub Sleep`, no Declare needed.
         ("sleep", 1) => Some(format!(
             "std::thread::sleep(std::time::Duration::from_millis(({}) as u64))",

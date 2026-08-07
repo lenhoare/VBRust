@@ -8,6 +8,11 @@ enum MathError {
     DivByZero,
     Custom(String),
 }
+impl std::fmt::Display for MathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 fn safediv(a: i32, b: i32) -> Result<i32, MathError> {
     if b == 0 {

@@ -9,6 +9,11 @@ enum Shape {
     Rectangle(f64, f64),
     Empty,
 }
+impl std::fmt::Display for Shape {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 fn area(s: &Shape) -> f64 {
     match s {

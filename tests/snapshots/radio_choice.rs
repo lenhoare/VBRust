@@ -9,6 +9,11 @@ enum Size {
     Medium,
     Large,
 }
+impl std::fmt::Display for Size {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 use iced::widget::{column, radio, text};
 use iced::Element;

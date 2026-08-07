@@ -15,6 +15,11 @@ enum Shape {
     Blob(Vec<Point>),
     Empty,
 }
+impl std::fmt::Display for Shape {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 fn describe(s: &Shape) -> String {
     match s {

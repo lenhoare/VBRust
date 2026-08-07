@@ -26,6 +26,7 @@ const HAPPY: &[&str] = &[
     "single_line_if",
     "multi_dim",
     "string_funcs",
+    "asc_iif",
     "maths",
     "byref",
     "compound_assign",
