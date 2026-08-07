@@ -20,8 +20,9 @@ fn main() {
 }
 
 fn halve(n: i64) -> Option<i64> {
-    if n / 2 * 2 == n {
-        return Some(n / 2);
+    if n % 2 == 0 {
+        return Some(((n as f64) / (2 as f64)) as i64);
+        // `/` floats; the Option<Long> payload narrows back to Long
     }
     None
 }

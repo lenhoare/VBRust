@@ -153,6 +153,19 @@ Debug.Print 17 Mod 5           →     17 % 5        ' 2
 since output is parenthesised where it matters, `a + b Mod c` groups as
 `a + (b Mod c)` either way.
 
+Division follows VB: **`/` is floating-point division**, so `5 / 2` is `2.5`, not
+`2` — the operands are widened to `Double` and the result is a `Double`. There is
+no `\` integer-division operator; for an integer quotient take `Int(a / b)`, or
+just store the result in an integer, where the usual narrowing applies:
+
+```vb
+Dim ratio As Double = 25 / 100       →     (25 as f64) / (100 as f64)   ' 0.25
+Dim n As Long = 7 / 2                 →     ((7.0) / (2.0)) as i64       ' 3 — Rust truncates
+```
+
+(Storing a `Double` in a `Long` truncates toward zero, as `as i64` does — VB6
+rounds instead, but here Rust wins.)
+
 The ampersand `&` concatenates, formatting each side to a string. Comparison uses
 `=  <>  <  >  <=  >=`; note that `=` is equality in an expression and assignment
 as a statement — position decides.
@@ -165,8 +178,9 @@ short-circuiting**, exactly like Rust's `&&`, `||`, `!`, `^`, and they bind
 If age >= 18 And member Then     →     if age >= 18 && member {
 ```
 
-There is no bitwise overload of `And`/`Or`, and no integer-division `\`. For those,
-or any other Rust operator, drop into an inline `Rust` block (§9).
+There is no bitwise overload of `And`/`Or` (for those, or any other Rust operator,
+drop into an inline `Rust` block, §9) and no integer-division `\` (use `Int(a / b)`,
+as above).
 
 Where VB would quietly convert one number to another, VBR inserts an explicit Rust
 `as` cast — the conversion VB hides, made visible. Assign a `Long` to a `Double`

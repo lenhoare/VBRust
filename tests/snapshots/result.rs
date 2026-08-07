@@ -36,7 +36,7 @@ fn divide(numerator: i64, denominator: i64) -> Result<i64, String> {
     if denominator == 0 {
         return Err("cannot divide by zero".to_string());
     }
-    Ok(numerator / denominator)
+    Ok(((numerator as f64) / (denominator as f64)) as i64)
 }
 
 fn doublequotient(a: i64, b: i64) -> Result<i64, String> {

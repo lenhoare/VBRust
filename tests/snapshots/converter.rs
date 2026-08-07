@@ -2,7 +2,7 @@
 // helper that the slider's event calls.
 
 fn tofahrenheit(c: i32) -> i32 {
-    c * 9 / 5 + 32
+    (((c * 9) as f64) / (5 as f64) + 32.0) as i32
 }
 
 use iced::widget::{column, slider, text};

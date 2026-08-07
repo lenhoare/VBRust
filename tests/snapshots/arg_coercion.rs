@@ -4,7 +4,7 @@
 // `&str` param. (A-series coercion cluster.)
 
 pub fn ctof(c: f64) -> f64 {
-    c * 9.0 / 5.0 + 32.0
+    c * 9.0 / (5 as f64) + 32.0
 }
 
 pub fn charat(text: &str, pos: i64) -> String {

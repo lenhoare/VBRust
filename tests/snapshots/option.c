@@ -41,8 +41,9 @@ int main(void) {
 }
 
 Option_longlong halve(long long n) {
-    if ((((n / 2) * 2) == n)) {
+    if (((n % 2) == 0)) {
         return (Option_longlong){ .is_some = true, .value = (n / 2) };
+        // `/` floats; the Option<Long> payload narrows back to Long
     }
     return (Option_longlong){ .is_some = false };
 }

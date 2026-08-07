@@ -28,8 +28,9 @@ def main():
             print('7 is odd, no exact half')
 
 def halve(n: int) -> object:
-    if ((n // 2) * 2) == n:
+    if (n % 2) == 0:
         return Some(n // 2)
+        # `/` floats; the Option<Long> payload narrows back to Long
     return None
 
 

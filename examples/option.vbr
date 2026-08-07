@@ -12,8 +12,8 @@ Function Main()
 End Function
 
 Function Halve(ByVal n As Long) As Option<Long>
-    If n / 2 * 2 = n Then
-        Return Some(n / 2)
+    If n Mod 2 = 0 Then
+        Return Some(n / 2)      ' `/` floats; the Option<Long> payload narrows back to Long
     End If
     Return None
 End Function

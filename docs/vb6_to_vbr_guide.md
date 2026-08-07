@@ -68,8 +68,14 @@ The old trap `Dim a, b As Integer` — where `a` silently became a `Variant` —
 `+ - * / ^ Mod` all work; `^` is exponentiation, `Mod` is remainder. `&`
 concatenates. Comparisons are `= <> < > <= >=`. Logic is words — `And Or Not Xor`
 — and they are **logical and short-circuiting** (Rust's `&& || ! ^`), *not*
-bitwise. There is no `\` integer division. For bitwise ops or anything else Rust
-has, drop into an inline `Rust` block (below).
+bitwise. For bitwise ops or anything else Rust has, drop into an inline `Rust`
+block (below).
+
+**`/` is floating-point division**, as in VB6: `5 / 2` is `2.5`, not `2`. There's
+no `\` integer-division operator — for an integer quotient use `Int(a / b)`, or
+just store the result in a `Long` (it truncates: `Dim n As Long = 7 / 2` gives
+`3`). And for an even/odd test reach for `Mod` (`n Mod 2 = 0`), which stays
+integer.
 
 Where VB silently converted numbers, VBR inserts a visible `as` cast — assign a
 `Long` into a `Double` and you'll see `as f64` appear. That's a teaching moment,

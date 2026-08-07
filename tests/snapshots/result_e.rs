@@ -16,7 +16,7 @@ fn safediv(a: i32, b: i32) -> Result<i32, MathError> {
     if b < 0 {
         return Err(MathError::Custom("negative divisor".to_string()));
     }
-    Ok(a / b)
+    Ok(((a as f64) / (b as f64)) as i32)
 }
 
 fn doublediv(a: i32, b: i32) -> Result<i32, MathError> {

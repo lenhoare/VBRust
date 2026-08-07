@@ -681,7 +681,7 @@ fn emit_tests(
         // normal function was fine.
         let passed_by_ref = resolver::resolve_body(
             &mut body, &[], fns, methods, consts, modules, interfaces, enums, structs, None, None,
-            false, diags,
+            None, false, diags,
         );
         elide_for_counter_dims(&mut body);
         let mut mutated = HashSet::new();
@@ -728,6 +728,19 @@ pub(crate) fn emit_fn(
         Some(DeclType::Plain(t)) => Some(*t),
         _ => None,
     };
+    // The numeric inner type of a `Result<T>`/`Option<T>` return, so a returned
+    // `Ok(a / b)` / `Some(x)` payload coerces to it (e.g. float `/` → `Long`).
+    let ret_inner = match &func.ret {
+        Some(DeclType::Result(ok, _)) => match &**ok {
+            DeclType::Plain(t) => Some(*t),
+            _ => None,
+        },
+        Some(DeclType::Option(inner)) => match &**inner {
+            DeclType::Plain(t) => Some(*t),
+            _ => None,
+        },
+        _ => None,
+    };
     // `Public Function` → `pub fn`, so other modules can call it.
     let vis = if func.public { "pub " } else { "" };
     // Checkpoint the header too, so signature-level rustc errors map back.
@@ -765,6 +778,7 @@ pub(crate) fn emit_fn(
         structs,
         func.receiver.as_deref(),
         tail_expected,
+        ret_inner,
         can_propagate,
         diags,
     );

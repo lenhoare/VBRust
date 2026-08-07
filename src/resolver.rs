@@ -515,6 +515,7 @@ pub fn resolve_body(
     structs: &StructTable,
     receiver: Option<&str>,
     ret_coerce: Option<Type>,
+    ret_inner: Option<Type>,
     can_propagate: bool,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
@@ -560,6 +561,7 @@ pub fn resolve_body(
         methods,
         consts,
         ret_coerce,
+        ret_inner,
         can_propagate,
         diags,
         env: &mut env,
@@ -607,6 +609,7 @@ pub fn resolve_event_body(
         methods,
         consts,
         ret_coerce: None,
+        ret_inner: None,
         can_propagate: false,
         diags,
         env: &mut env,
@@ -687,6 +690,10 @@ struct Ctx<'a> {
     consts: &'a HashMap<String, String>,
     /// The function's plain numeric return type, for coercing `Return` values.
     ret_coerce: Option<Type>,
+    /// The numeric inner type of a `Result<T>`/`Option<T>` return, for coercing
+    /// the payload of a returned `Ok(x)`/`Some(x)` (so `Ok(a / b)` in a
+    /// `Result<Long>` narrows the float quotient to `i64`).
+    ret_inner: Option<Type>,
     /// Whether the enclosing function returns `Result`/`Option` — i.e. whether
     /// `?` is allowed here.
     can_propagate: bool,
@@ -894,7 +901,19 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     Some(Type::Text) if infer(e, ctx) == VType::Str => to_owned_string(e),
                     // Coerce a numeric return value to the declared numeric type.
                     Some(t) => maybe_cast(e, t, ctx),
-                    None => {}
+                    None => {
+                        // `Return Ok(x)` / `Return Some(x)` in a `Result<T>`/
+                        // `Option<T>` function: coerce the payload to the declared
+                        // inner type, so `Ok(a / b)` narrows the float quotient to
+                        // a `Long` just like a plain numeric `Return` would.
+                        if let Some(t) = ctx.ret_inner {
+                            if let ExprKind::Call { name, args } = &mut e.kind {
+                                if matches!(name.as_str(), "Ok" | "Some") && args.len() == 1 {
+                                    maybe_cast(&mut args[0], t, ctx);
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Stmt::Expr(e) => {
@@ -1034,6 +1053,15 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
 
 /// Insert a numeric `as` cast if `value`'s type differs from `target`. Literals
 /// are left alone — the renderer already adapts them to their context.
+/// Widen a numeric operand to `Double` for floating-point `/` — an explicit
+/// `as f64`. Cast (not a `2.0` literal) so the quotient is concretely `f64` even
+/// when both sides are literals: `(7 as f64) / (2 as f64)` can take `.floor()`,
+/// where an ambiguous `7.0 / 2.0` cannot. No teaching note — a lossless widening.
+fn promote_to_double(e: &mut Expr) {
+    let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
+    e.kind = ExprKind::Cast(Box::new(inner), Type::Double);
+}
+
 fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
     // An integer literal assigned into a float slot widens losslessly to a float
     // literal (`0` → `0.0`): the same coercion `Dim x As Single = 0` already
@@ -1238,6 +1266,22 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                             method: "pow".to_string(),
                             args: vec![exp],
                         };
+                    }
+                }
+                return;
+            }
+            // VB6: `/` is *floating-point* division — `5 / 2` is `2.5`, never `2`.
+            // Promote both operands to `Double` so the quotient is a float; a
+            // `Long / Long` that used to do integer division (`25 / 100 → 0`) now
+            // yields `0.25`. Narrowing to an integer stays an explicit cast — `Dim
+            // n As Long = 7 / 2` is `(7.0 / 2.0) as i64` = 3 (Rust truncates, Rust
+            // wins) — and `Int(a / b)` gives an integer quotient. Only a non-`f64`
+            // numeric side is cast; a `Double` operand is already fine.
+            if *op == BinOp::Div {
+                for side in [&mut *lhs, &mut *rhs] {
+                    let t = infer(side, ctx);
+                    if num_ty(&t).is_some() && t.plain() != Some(Type::Double) {
+                        promote_to_double(side);
                     }
                 }
                 return;
