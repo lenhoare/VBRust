@@ -86,11 +86,17 @@ impl<'a> Parser<'a> {
             self.advance();
             Some(name)
         } else {
-            self.diags.error_at(
-                self.span(),
-                self.line(),
-                format!("Expected a name {}, found {:?}.", ctx, self.peek()),
-            );
+            let found = self.peek().clone();
+            let msg = match crate::lexer::keyword_word(&found) {
+                Some(kw) => format!(
+                    "`{kw}` is a VBR keyword, so it can't be used as a name {ctx}. \
+                     Pick another (for example a more descriptive word, or a `_` suffix \
+                     like `{}_`).",
+                    kw.to_ascii_lowercase()
+                ),
+                None => format!("Expected a name {}, found {:?}.", ctx, found),
+            };
+            self.diags.error_at(self.span(), self.line(), msg);
             None
         }
     }

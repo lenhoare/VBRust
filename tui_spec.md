@@ -92,6 +92,12 @@ Terminal input is keyboard-driven. There are three ways an event fires:
 
 `Quit` is a built-in handler that exits: `On Key "q" Quit`.
 
+> **Early-out in an event.** A `Screen` event lowers to a function that returns
+> `std::io::Result<()>`, so a bare `Return` on its own is a type error (rustc:
+> "`return;` in a function whose return type is not `()`"). To leave an event
+> early, structure the logic with `If … Else` so it falls through, or guard the
+> rest — `If Not won Then … End If` — rather than `If won Then Return`.
+
 Event bodies are ordinary VBR — the same resolution pass a function body gets
 (stdlib methods, string/numeric coercions, iterator chains, teaching
 diagnostics), with the screen's state fields in scope — at any statement depth:

@@ -2222,6 +2222,15 @@ fn vbr_line_for(map: &[(usize, usize)], rust_line: usize) -> Option<usize> {
 
 /// A hint for the Rust errors a VB programmer meets first. Deliberately short —
 /// the goal is orientation, not a lecture.
+/// Hints keyed on the message text, for cases rustc's error *code* alone can't
+/// tell apart — e.g. a .NET/Java habit reaching for `.Length` on a `Vec`.
+fn message_hint(message: &str) -> Option<&'static str> {
+    if message.contains("no field `length`") || message.contains("no method named `length`") {
+        return Some("A collection's length in VBR is `.Len()` (or `.Count()`), not `.Length`.");
+    }
+    None
+}
+
 fn teaching_hint(code: &str) -> Option<&'static str> {
     Some(match code {
         "E0308" => {
@@ -2285,6 +2294,9 @@ fn report_errors(errors: &[RustcError], locate: impl Fn(&RustcError) -> Option<(
                     eprintln!("       ({})", label);
                 }
                 if let Some(hint) = e.code.as_deref().and_then(teaching_hint) {
+                    eprintln!("  ℹ {}", hint);
+                }
+                if let Some(hint) = message_hint(&e.message) {
                     eprintln!("  ℹ {}", hint);
                 }
                 eprintln!();

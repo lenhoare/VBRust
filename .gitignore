@@ -5,6 +5,7 @@ __pycache__/
 dist/
 target/
 build/
+*:Zone.Identifier
 
 # Generated Godot projects (vbr rungodot)
 *_godot/

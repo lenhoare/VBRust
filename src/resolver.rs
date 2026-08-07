@@ -987,6 +987,24 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Match { scrutinee, arms, .. } => {
                 resolve_expr(scrutinee, ctx);
+                // An *owned* `String` scrutinee matched against `"…"` (`&str`)
+                // literal patterns won't unify — Rust matches a `String` only
+                // against `String` patterns. Lower it through `.as_str()` so the
+                // natural `Match s { "a" => … }` compiles. Only for an owned
+                // String: a borrowed `&str` (a ByVal param) already matches those
+                // patterns, and `.as_str()` on a `&str` is an unstable method.
+                // And only when a string-literal pattern is actually present, to
+                // avoid rebinding arms needlessly.
+                let is_owned_string = infer(scrutinee, ctx).is_owned_string();
+                let has_str_pattern = arms.iter().any(|a| a.pattern.contains('"'));
+                if is_owned_string && has_str_pattern {
+                    let inner = scrutinee.clone();
+                    scrutinee.kind = ExprKind::MethodCall {
+                        recv: Box::new(inner),
+                        method: "as_str".to_string(),
+                        args: Vec::new(),
+                    };
+                }
                 // Patterns are raw Rust text (bindings live only inside the arm),
                 // so there's nothing to resolve there — just the guard and body.
                 for arm in arms.iter_mut() {

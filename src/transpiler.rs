@@ -635,7 +635,12 @@ pub(crate) fn test_fn_names(tests: &[TestBlock]) -> Vec<String> {
             slug = slug.replace("__", "_");
         }
         let slug = slug.trim_matches('_');
-        let base = if slug.is_empty() { "test".to_string() } else { slug.to_string() };
+        let mut base = if slug.is_empty() { "test".to_string() } else { slug.to_string() };
+        // A Rust identifier can't start with a digit, but a test description often
+        // does ("12 times 12 …"). Prefix so the generated `fn` name stays legal.
+        if base.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            base = format!("t_{}", base);
+        }
         let count = seen.entry(base.clone()).or_insert(0);
         let name = if *count == 0 { base.clone() } else { format!("{}_{}", base, count) };
         *count += 1;
@@ -2604,6 +2609,7 @@ fn escape(s: &str) -> String {
     // escapes VBR source never makes you write.
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
+        .replace('\r', "\\r")
         .replace('\n', "\\n")
         .replace('\t', "\\t")
 }
@@ -2685,12 +2691,15 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
         return "main".to_string();
     }
     let lowered = rust_name(name);
-    if lowered != name {
+    // The case note is about lowercasing — show the plain lowercase form, not a
+    // keyword-escaped `r#…`, which would only confuse.
+    let plain = name.to_lowercase();
+    if plain != name {
         diags.note(
             "name-case",
             format!(
                 "VBR names are their lowercase self in Rust — e.g. `{name}` becomes \
-                 `{lowered}`. (Functions and variables lowercase, constants uppercase; \
+                 `{plain}`. (Functions and variables lowercase, constants uppercase; \
                  shown once.)"
             ),
         );
@@ -2905,5 +2914,38 @@ pub(crate) fn stdlib_types_declared(
 /// already-snake_case names (and Rust method names like `push_str`) pass
 /// through unchanged.
 pub(crate) fn rust_name(name: &str) -> String {
-    name.to_lowercase()
+    escape_rust_keyword(name.to_lowercase())
+}
+
+/// True if `s` (already lowercased) is a Rust keyword — strict, reserved, and
+/// the contextual ones that still can't be plain identifiers.
+fn is_rust_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "as" | "break" | "const" | "continue" | "crate" | "dyn" | "else" | "enum"
+            | "extern" | "false" | "fn" | "for" | "if" | "impl" | "in" | "let"
+            | "loop" | "match" | "mod" | "move" | "mut" | "pub" | "ref" | "return"
+            | "self" | "static" | "struct" | "super" | "trait" | "true" | "type"
+            | "unsafe" | "use" | "where" | "while" | "async" | "await" | "abstract"
+            | "become" | "box" | "do" | "final" | "macro" | "override" | "priv"
+            | "typeof" | "unsized" | "virtual" | "yield" | "try" | "union"
+    )
+}
+
+/// Make a lowercased VBR name safe to emit as a Rust identifier. A VB program can
+/// legitimately name a function/variable/field after what happens to be a Rust
+/// keyword (`Move`, `Type`, `Ref`, …); most take the raw-identifier form
+/// `r#name`, but a few (`crate`, `self`, `super`) can't be raw, so those get a
+/// trailing underscore. Applied centrally so definitions and uses always agree.
+fn escape_rust_keyword(name: String) -> String {
+    match name.as_str() {
+        // `self`/`crate`/`super` are generated internally by codegen (the `self`
+        // receiver that `Me` lowers to, `crate::`/`super::` module paths) and
+        // can't be raw identifiers anyway — leave them untouched. A user can't
+        // reach these names in VBR (the receiver is `Me`), so there's nothing to
+        // rescue, and escaping them would break the generated Rust.
+        "self" | "crate" | "super" | "_" => name,
+        _ if is_rust_keyword(&name) => format!("r#{name}"),
+        _ => name,
+    }
 }

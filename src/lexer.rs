@@ -573,6 +573,52 @@ fn two(tokens: &mut Vec<Token>, tok: Tok, line: usize, span: Span, i: &mut usize
     *i += 2;
 }
 
+/// The VBR spelling of a keyword token, for diagnostics — so the parser can say
+/// "`To` is a keyword" when a reserved word turns up where a name was expected.
+/// Covers the words a VB programmer is likely to reach for as an identifier;
+/// anything else falls back to the generic "expected a name" message.
+pub(crate) fn keyword_word(tok: &Tok) -> Option<&'static str> {
+    Some(match tok {
+        Tok::Function => "Function",
+        Tok::Sub => "Sub",
+        Tok::Return => "Return",
+        Tok::Type => "Type",
+        Tok::Enum => "Enum",
+        Tok::Const => "Const",
+        Tok::Dim => "Dim",
+        Tok::Set => "Set",
+        Tok::As => "As",
+        Tok::If => "If",
+        Tok::Then => "Then",
+        Tok::Else => "Else",
+        Tok::Select => "Select",
+        Tok::Case => "Case",
+        Tok::Match => "Match",
+        Tok::Await => "Await",
+        Tok::For => "For",
+        Tok::Each => "Each",
+        Tok::In => "In",
+        Tok::To => "To",
+        Tok::Step => "Step",
+        Tok::Next => "Next",
+        Tok::New => "New",
+        Tok::Do => "Do",
+        Tok::Loop => "Loop",
+        Tok::While => "While",
+        Tok::Until => "Until",
+        Tok::Exit => "Exit",
+        Tok::Continue => "Continue",
+        Tok::With => "With",
+        Tok::And => "And",
+        Tok::Or => "Or",
+        Tok::Not => "Not",
+        Tok::Xor => "Xor",
+        Tok::Mod => "Mod",
+        Tok::On => "On",
+        _ => return None,
+    })
+}
+
 fn keyword_or_ident(word: &str) -> Tok {
     match word.to_ascii_lowercase().as_str() {
         "function" => Tok::Function,
