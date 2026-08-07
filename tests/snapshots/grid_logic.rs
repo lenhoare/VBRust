@@ -22,7 +22,7 @@ fn digitcount(s: &str) -> i64 {
     let digits: String = "0123456789".to_string();
     let mut total: i64 = 0;
     for i in 1..=s.len() as i32 {
-        let ch: String = s.chars().skip(((i) - 1) as usize).take(1).collect::<String>().to_string();
+        let ch: String = s.chars().skip(((i) - 1) as usize).take(1).collect::<String>();
         if digits.contains(&ch) {
             total = total + 1;
         }

@@ -30,6 +30,7 @@ const HAPPY: &[&str] = &[
     "byref",
     "compound_assign",
     "coercion",
+    "arg_coercion",
     "result",
     "result_e",
     "result_unit",

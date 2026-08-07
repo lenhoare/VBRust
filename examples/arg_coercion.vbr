@@ -1,0 +1,31 @@
+' Call arguments get the same adaptation an assignment does, at every call site:
+' an int literal or a Long variable widens to a `Double` param, a `Double` (`Val`)
+' narrows to a `Long` param, and a String-returning call (`Mid`) borrows to feed a
+' `&str` param. (A-series coercion cluster.)
+Public Function CtoF(ByVal c As Double) As Double
+    Return c * 9 / 5 + 32
+End Function
+
+Public Function CharAt(ByVal text As String, ByVal pos As Long) As String
+    Return Mid(text, pos, 1)
+End Function
+
+Public Function FindIn(ByVal haystack As String, ByVal needle As String) As Long
+    Match InStr(haystack, needle)
+        Some(p) => Return p
+        None => Return -1
+    End Match
+End Function
+
+Function Main()
+    Debug.Print CtoF(100)               ' int literal -> Double param
+
+    Dim k As Long
+    For k = 0 To 20 Step 10
+        Debug.Print CtoF(k)             ' Long counter -> Double param
+    Next
+
+    Dim word As String = "hello"
+    Debug.Print CharAt(word, Val("2"))          ' Val (Double) -> Long param
+    Debug.Print FindIn(word, Mid(word, 3, 1))   ' Mid (String) -> &str param
+End Function

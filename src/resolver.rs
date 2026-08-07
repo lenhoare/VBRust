@@ -486,7 +486,11 @@ fn vb_string_constant(name: &str) -> Option<String> {
 fn builtin_vtype(name: &str) -> Option<VType> {
     Some(match name.to_ascii_lowercase().as_str() {
         "len" => VType::Usize,
-        "left" | "right" | "mid" | "trim" => VType::Str,
+        // `Trim` is a `.trim()` slice (`&str`); `Left`/`Right`/`Mid` each
+        // `.collect::<String>()` a fresh owned String, so they must borrow to
+        // feed a `&str` param (they were mis-typed as `&str` before).
+        "trim" => VType::Str,
+        "left" | "right" | "mid" => vt(Type::Text),
         "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "inputbox" => vt(Type::Text),
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => vt(Type::Double),
         // `Val` is a lenient `Double` (`0.0` on failure), so `Dim n As Long =
@@ -645,20 +649,30 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
                 let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
                 arg.kind = ExprKind::MutRef(Box::new(inner));
             }
-            // ByVal of an unknown-size type borrows immutably (`&arg`).
-            Some(ParamMode::ByVal) => {
-                let needs_ref = match sig.param_types.get(i) {
-                    Some(DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..)) => true,
-                    // A `&str` param: borrow an owned String, but leave an
-                    // existing slice (literal, `&str` param, `Trim(..)`) alone.
-                    Some(DeclType::Plain(Type::Text)) => infer(arg, ctx) != VType::Str,
-                    _ => false,
-                };
-                if needs_ref {
+            // ByVal: borrow an unknown-size type, or adapt a numeric argument.
+            Some(ParamMode::ByVal) => match sig.param_types.get(i) {
+                // Unknown-size types borrow immutably (`&arg`).
+                Some(DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..)) => {
                     let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
                     arg.kind = ExprKind::Ref(Box::new(inner));
                 }
-            }
+                // A `&str` param: borrow an owned String (or a String-producing
+                // call like `Mid`/`Left`), but leave an existing slice (literal,
+                // `&str` param, `Trim(..)`) alone.
+                Some(DeclType::Plain(Type::Text)) => {
+                    if infer(arg, ctx) != VType::Str {
+                        let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                        arg.kind = ExprKind::Ref(Box::new(inner));
+                    }
+                }
+                // A numeric param: adapt the argument exactly as an assignment
+                // would — an int literal into a `Double` becomes `100.0`, a `Long`
+                // variable (or a `Double`-returning call like `Val`) gets an `as`
+                // cast. Done here, at the shared call site, so a qualified
+                // cross-module call is treated identically to a local one.
+                Some(DeclType::Plain(t)) => maybe_cast(arg, *t, ctx),
+                _ => {}
+            },
             _ => {}
         }
     }

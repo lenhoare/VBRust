@@ -2449,8 +2449,10 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
             "std::thread::sleep(std::time::Duration::from_millis(({}) as u64))",
             r(0)
         )),
-        // InStr → .find() (returns Option).
-        ("instr", 2) => Some(format!("{}.find({})", r(0), r(1))),
+        // InStr → .find() (returns Option). Map the byte offset `usize` to `Long`
+        // (`i64`) so a bound position (`Some(p) => Return p`) is a plain VB number,
+        // not a `usize` that trips every downstream `Long` context.
+        ("instr", 2) => Some(format!("{}.find({}).map(|p| p as i64)", r(0), r(1))),
         // `Val` is VB's *lenient* numeric read: a `Double`, `0.0` on non-numeric
         // text, never fails (VB6 semantics — `Val` was the forgiving one). Leading
         // and trailing whitespace is ignored, as in VB. The strict, *fallible*
