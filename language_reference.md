@@ -214,6 +214,31 @@ and a plain variable named `text` (`"said: " & text`) are never mistaken for one
 This is the only place a `\n` ever enters a VBR string — a quoted literal never
 grows one behind your back.
 
+### Wrapping across lines
+
+VBR ends a statement at the newline, the way VB does — but, like Python, **a
+newline inside an open bracket `(` `[` `{` is just whitespace.** So a list
+literal, a call, or a struct literal may span as many lines as it likes, and a
+trailing comma is allowed:
+
+```vb
+Dim art As Vec<String> = [
+    "  /\  ",
+    " /  \ ",
+    "/____\",
+]
+
+Dim p As Point = Point {
+    x: 0,
+    y: 0,
+}
+```
+
+There is no `_` line-continuation character (VB's), and none is needed: open a
+bracket and keep going. (This applies only inside brackets — an ordinary
+statement is still one line, and a `"…"` string is still one line; reach for
+`Text … End Text` when you need multi-line text.)
+
 ---
 
 ## 3. Control Flow

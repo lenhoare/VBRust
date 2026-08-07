@@ -3312,6 +3312,9 @@ impl<'a> Parser<'a> {
                                 if !self.eat(&Tok::Comma) {
                                     break;
                                 }
+                                if matches!(self.peek(), Tok::RParen) {
+                                    break;
+                                }
                             }
                         }
                         self.expect(&Tok::RParen, "to close the method arguments")?;
@@ -3460,6 +3463,10 @@ impl<'a> Parser<'a> {
                             if !self.eat(&Tok::Comma) {
                                 break;
                             }
+                            // Allow a trailing comma before `}`.
+                            if matches!(self.peek(), Tok::RBrace) {
+                                break;
+                            }
                         }
                     }
                     self.expect(&Tok::RBrace, "to close the struct literal")?;
@@ -3473,6 +3480,9 @@ impl<'a> Parser<'a> {
                         loop {
                             args.push(self.parse_expr()?);
                             if !self.eat(&Tok::Comma) {
+                                break;
+                            }
+                            if matches!(self.peek(), Tok::RParen) {
                                 break;
                             }
                         }
@@ -3492,6 +3502,11 @@ impl<'a> Parser<'a> {
                     loop {
                         elems.push(self.parse_expr()?);
                         if !self.eat(&Tok::Comma) {
+                            break;
+                        }
+                        // Allow a trailing comma before `]` (common when the list
+                        // spans lines).
+                        if matches!(self.peek(), Tok::RBracket) {
                             break;
                         }
                     }

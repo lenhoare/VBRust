@@ -166,12 +166,20 @@ pub fn lex(src: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut i = 0usize;
     let mut line = 1usize;
+    // Bracket-continuation depth: inside an open `(`/`[`/`{`, a newline is just
+    // whitespace (Python-style), so a list literal, call, or struct literal can
+    // span lines. Strings, `Text`/`Rust`/`Python` blocks are captured whole, so
+    // their brackets never reach here and can't skew the count.
+    let mut depth = 0i32;
 
     while i < chars.len() {
         let c = chars[i];
         match c {
             '\n' => {
-                tokens.push(Token { tok: Tok::Newline, line, span: sp(i, i + 1) });
+                // Suppress the statement-terminating newline while inside brackets.
+                if depth == 0 {
+                    tokens.push(Token { tok: Tok::Newline, line, span: sp(i, i + 1) });
+                }
                 line += 1;
                 i += 1;
             }
@@ -244,12 +252,12 @@ pub fn lex(src: &str) -> Vec<Token> {
             '&' => push(&mut tokens, Tok::Amp, line, sp(i, i + 1), &mut i),
             '=' if chars.get(i + 1) == Some(&'>') => two(&mut tokens, Tok::FatArrow, line, sp(i, i + 2), &mut i),
             '=' => push(&mut tokens, Tok::Eq, line, sp(i, i + 1), &mut i),
-            '(' => push(&mut tokens, Tok::LParen, line, sp(i, i + 1), &mut i),
-            ')' => push(&mut tokens, Tok::RParen, line, sp(i, i + 1), &mut i),
-            '{' => push(&mut tokens, Tok::LBrace, line, sp(i, i + 1), &mut i),
-            '}' => push(&mut tokens, Tok::RBrace, line, sp(i, i + 1), &mut i),
-            '[' => push(&mut tokens, Tok::LBracket, line, sp(i, i + 1), &mut i),
-            ']' => push(&mut tokens, Tok::RBracket, line, sp(i, i + 1), &mut i),
+            '(' => { depth += 1; push(&mut tokens, Tok::LParen, line, sp(i, i + 1), &mut i) }
+            ')' => { depth = (depth - 1).max(0); push(&mut tokens, Tok::RParen, line, sp(i, i + 1), &mut i) }
+            '{' => { depth += 1; push(&mut tokens, Tok::LBrace, line, sp(i, i + 1), &mut i) }
+            '}' => { depth = (depth - 1).max(0); push(&mut tokens, Tok::RBrace, line, sp(i, i + 1), &mut i) }
+            '[' => { depth += 1; push(&mut tokens, Tok::LBracket, line, sp(i, i + 1), &mut i) }
+            ']' => { depth = (depth - 1).max(0); push(&mut tokens, Tok::RBracket, line, sp(i, i + 1), &mut i) }
             ',' => push(&mut tokens, Tok::Comma, line, sp(i, i + 1), &mut i),
             // `..=` and `..` for Rust range patterns (`1..=10`). Plain `.` stays
             // member access / float point.

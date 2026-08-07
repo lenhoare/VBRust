@@ -39,6 +39,7 @@ const HAPPY: &[&str] = &[
     "firstclass_types",
     "vec",
     "list_literal",
+    "multiline",
     "hashmap",
     "doloop",
     "structs",

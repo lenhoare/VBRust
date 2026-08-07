@@ -1,0 +1,36 @@
+' Inside brackets — `(` `[` `{` — a newline is just whitespace (Python-style), so
+' a list literal, a call, or a struct literal can span lines. A trailing comma is
+' allowed. (A plain "…" string stays one line; use `Text … End Text` for
+' multi-line text.)
+Type Point
+    Public x As Long
+    Public y As Long
+End Type
+
+Function Sum3(ByVal a As Long, ByVal b As Long, ByVal c As Long) As Long
+    Return a + b + c
+End Function
+
+Function Main()
+    Dim art As Vec<String> = [
+        "  /\  ",
+        " /  \ ",
+        "/____\",
+    ]
+    For Each row In art
+        Debug.Print row
+    Next
+
+    Dim total As Long = Sum3(
+        10,
+        20,
+        30,
+    )
+    Debug.Print total
+
+    Dim origin As Point = Point {
+        x: 0,
+        y: 0,
+    }
+    Debug.Print origin.x + origin.y
+End Function

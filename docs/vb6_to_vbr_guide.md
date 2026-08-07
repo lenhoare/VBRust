@@ -81,6 +81,21 @@ Where VB silently converted numbers, VBR inserts a visible `as` cast — assign 
 `Long` into a `Double` and you'll see `as f64` appear. That's a teaching moment,
 not a wart.
 
+**No `_` line continuation** — you won't miss it. A newline ends a statement (as
+in VB), *except* inside an open bracket `(` `[` `{`, where it's just whitespace
+(Python's rule). So a long list, call, or struct literal wraps freely, trailing
+comma and all:
+
+```vb
+Dim art As Vec<String> = [
+    "  /\  ",
+    "/____\",
+]
+```
+
+(An ordinary `"…"` string is still one line — use `Text … End Text` for
+multi-line text.)
+
 ---
 
 ## Strings, `ByVal`, and your first taste of ownership
