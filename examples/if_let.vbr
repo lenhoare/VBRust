@@ -1,0 +1,23 @@
+' `If <expr> Is <pattern> Then …` — VB-flavoured `if let`. Handle just the one
+' case you care about (usually Some/Ok) and skip the rest, without a full Match.
+' `Is` is VB's word (as in VB6's `Is Nothing`); the Rust backend emits a real
+' `if let`, so you see the idiomatic construct.
+Function FindPrice(ByVal item As String) As Option<Long>
+    If item = "apple" Then
+        Return Some(30)
+    End If
+    Return None
+End Function
+
+Function Main()
+    If FindPrice("apple") Is Some(price) Then
+        Debug.Print "apple costs " & price
+    End If
+
+    If FindPrice("pear") Is Some(price) Then
+        Debug.Print "pear costs " & price      ' never runs — pear has no price
+    End If
+
+    ' Single-line form, too.
+    If FindPrice("apple") Is Some(price) Then Debug.Print "again: " & price
+End Function

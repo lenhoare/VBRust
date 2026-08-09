@@ -1515,10 +1515,29 @@ pub(crate) fn emit_stmt(
             emit_block(body, mutated, byref, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
         }
+        // `If <expr> Is <pattern> Then …` → idiomatic `if let` (the first arm is
+        // the pattern; the synthesized `_ => {}` arm is only for other backends).
+        Stmt::Match { scrutinee, arms, if_let: true, .. } => {
+            let arm = &arms[0];
+            let guard = match &arm.guard {
+                Some(g) => format!(" if {}", render_expr(g, None)),
+                None => String::new(),
+            };
+            out.push_str(&format!(
+                "{}if let {}{} = {} {{\n",
+                pad,
+                arm.pattern,
+                guard,
+                render_expr(scrutinee, None)
+            ));
+            emit_block(&arm.body, mutated, byref, indent + 1, diags, out);
+            out.push_str(&format!("{}}}\n", pad));
+        }
         Stmt::Match {
             scrutinee,
             arms,
             line: _,
+            if_let: _,
         } => {
             let arm_pad = "    ".repeat(indent + 1);
             out.push_str(&format!("{}match {} {{\n", pad, render_expr(scrutinee, None)));

@@ -2879,8 +2879,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if(&mut self) -> Option<Stmt> {
+        let line = self.line();
         self.expect(&Tok::If, "")?;
         let cond = self.parse_expr()?;
+        // `If <expr> Is <pattern> Then …` — VB-flavoured `if let`. `Is` is a VB
+        // keyword (VB6's `Is Nothing`); here it means "matches the pattern". Lower
+        // to a `Match` flagged `if_let` (so the Rust backend emits `if let` and the
+        // others emit an ordinary `match`).
+        if matches!(self.peek(), Tok::Ident(n) if n.eq_ignore_ascii_case("is")) {
+            return self.parse_if_let(cond, line);
+        }
         self.expect(&Tok::Then, "after the `If` condition")?;
         // Single-line form: `If cond Then <stmt> [Else <stmt>]` — a statement
         // follows `Then` on the same line, and there is no `End If`.
@@ -2935,6 +2943,48 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `If <expr> Is <pattern> Then …` — VB-flavoured `if let`. The `Is` has been
+    /// peeked (not yet consumed). Lowers to a `Match` flagged `if_let`, with the
+    /// pattern arm plus a trailing `_ => {}` (so non-Rust backends stay valid).
+    fn parse_if_let(&mut self, scrutinee: Expr, line: usize) -> Option<Stmt> {
+        self.advance(); // consume `Is`
+        // Capture the pattern raw (like a Match arm), up to `Then`.
+        let mut parts: Vec<String> = Vec::new();
+        while !matches!(self.peek(), Tok::Then | Tok::Newline | Tok::Eof) {
+            let t = self.advance();
+            parts.push(pattern_tok_src(&t, self.line()));
+        }
+        if parts.is_empty() {
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                "Expected a pattern after `Is` — e.g. `If result Is Some(x) Then`.",
+            );
+            return None;
+        }
+        let pattern = parts.join(" ");
+        self.expect(&Tok::Then, "after the `Is` pattern")?;
+
+        // Single-line (`If x Is Some(v) Then <stmt>`) or a block ending in `End If`.
+        let body = if !matches!(self.peek(), Tok::Newline) {
+            let mut b = vec![self.parse_stmt()?];
+            b.append(&mut self.dim_overflow);
+            b
+        } else {
+            self.expect(&Tok::Newline, "after `Then`")?;
+            let b = self.parse_block()?;
+            self.expect(&Tok::End, "to close the `If`")?;
+            self.expect(&Tok::If, "after `End`")?;
+            b
+        };
+
+        let arms = vec![
+            MatchArm { pattern, guard: None, body },
+            MatchArm { pattern: "_".to_string(), guard: None, body: Vec::new() },
+        ];
+        Some(Stmt::Match { scrutinee, arms, line, if_let: true })
+    }
+
     /// `Match <expr>` … `End Match`. Each arm is `pattern => body`, where the
     /// pattern is raw Rust and the body is one inline statement or an indented
     /// block running until the next arm (a line with `=>`) or `End Match`.
@@ -2972,7 +3022,7 @@ impl<'a> Parser<'a> {
 
         self.expect(&Tok::End, "to close the `Match`")?;
         self.expect(&Tok::Match, "after `End`")?;
-        Some(Stmt::Match { scrutinee, arms, line })
+        Some(Stmt::Match { scrutinee, arms, line, if_let: false })
     }
 
     /// Capture a match-arm pattern as raw Rust text: every token up to the guard

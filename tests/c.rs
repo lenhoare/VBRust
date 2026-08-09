@@ -31,7 +31,7 @@ const C: &[&str] = &[
     // slice 4 (deterministic)
     "vec", "list_literal", "iterators",
     // slice 5 — Option / Result / `?`
-    "option", "result", "result_e", "result_unit",
+    "option", "result", "result_e", "result_unit", "if_let",
 ];
 
 /// Collection examples whose runtime *order* isn't reproducible against Rust

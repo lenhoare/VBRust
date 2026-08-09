@@ -723,6 +723,26 @@ The rule of thumb: `?` when the failure belongs to someone above you; `Match`
 at the level that knows how to recover or report. `On Error` is rejected with a
 nudge toward all of the above.
 
+**Handle just one case** with `If <expr> Is <pattern> Then` — VBR's spelling of
+Rust's `if let`. When you care about *only* the `Some`/`Ok`, a full `Match` (with
+an empty `None`/`Err` arm) is overkill:
+
+```vb
+If cache.Get(key) Is Some(value) Then
+    Debug.Print value
+End If
+```
+→
+```rust
+if let Some(value) = cache.get(key) {
+    println!("{}", value);
+}
+```
+
+`Is` is VB's own word (as in VB6's `If obj Is Nothing`); here it reads "matches
+the pattern", binds what's inside, and runs the block only when it matches. The
+pattern is real Rust, exactly as in a `Match` arm.
+
 ### A worked example: turning text into a number
 
 VB gave you two tools for this, and the difference between them *is* the

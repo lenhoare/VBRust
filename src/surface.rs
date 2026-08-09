@@ -569,13 +569,14 @@ pub(crate) fn await_split(
     // say) borrows as `&str` for the awaited call, like a state field does.
     let locals = local_types(&e.params, &e.body[..idx]);
     match &e.body[idx] {
-        Stmt::Match { scrutinee: Expr { kind: ExprKind::Await(call), .. }, arms, line } => {
+        Stmt::Match { scrutinee: Expr { kind: ExprKind::Await(call), .. }, arms, line, if_let } => {
             let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
             // Continuation runs `match result { <arms> }`, then any trailing code.
             let mut cont = vec![Stmt::Match {
                 scrutinee: ExprKind::Ident("result".to_string()).synth(),
                 arms: arms.clone(),
                 line: *line,
+                if_let: *if_let,
             }];
             cont.extend(e.body[idx + 1..].iter().cloned());
             Some(AwaitSplit {
@@ -1153,7 +1154,7 @@ pub(crate) fn rewrite_stmt(
             else_body: else_body
                 .map(|b| b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect()),
         },
-        Stmt::Match { scrutinee, arms, line } => Stmt::Match {
+        Stmt::Match { scrutinee, arms, line, if_let } => Stmt::Match {
             scrutinee: re(scrutinee),
             arms: arms
                 .into_iter()
@@ -1168,6 +1169,7 @@ pub(crate) fn rewrite_stmt(
                 })
                 .collect(),
             line,
+            if_let,
         },
         Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim {
             name,

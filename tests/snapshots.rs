@@ -23,6 +23,7 @@ const HAPPY: &[&str] = &[
     "types",
     "match",
     "match_guards",
+    "if_let",
     "single_line_if",
     "multi_dim",
     "string_funcs",

@@ -1164,7 +1164,7 @@ fn rewrite_canvas_stmt(
             iter: re(iter),
             body: body.into_iter().map(rec).collect(),
         },
-        Stmt::Match { scrutinee, arms, line } => Stmt::Match {
+        Stmt::Match { scrutinee, arms, line, if_let } => Stmt::Match {
             scrutinee: re(scrutinee),
             arms: arms
                 .into_iter()
@@ -1175,6 +1175,7 @@ fn rewrite_canvas_stmt(
                 })
                 .collect(),
             line,
+            if_let,
         },
         Stmt::DoLoop { cond, body } => Stmt::DoLoop { cond, body: body.into_iter().map(rec).collect() },
         Stmt::Set { name, mutable, value } => Stmt::Set { name, mutable, value: re(value) },

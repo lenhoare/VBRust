@@ -261,6 +261,16 @@ Dim v As Long = Divide(10, 2).Unwrap()
 `?` is only legal where the enclosing function itself returns `Result`/`Option` —
 VBR tells you plainly if you forget.
 
+When you only care about the `Some`/`Ok` case, skip the full `Match` and use
+**`If <expr> Is <pattern> Then`** (VBR's `if let`) — `Is` is VB's own word, and it
+runs the block only when the value matches, binding what's inside:
+
+```vb
+If cache.Get(key) Is Some(value) Then
+    Debug.Print value
+End If
+```
+
 This shows up in conversions too. `Val(" 42x ")` is the forgiving one (a `Double`,
 `0` for junk, never fails). The strict `CDbl` / `CLng` / `CInt` return a `Result` —
 in VB they raised a runtime error; here that error is a value you catch.
@@ -404,6 +414,7 @@ way to actually *learn* Rust, which, when you're ready, is the real destination.
 | VB6 | VBR |
 |-----|-----|
 | `Select Case x` / `Case 1` | `Match x` / `1 => …` (no `Case`; bare name binds) |
+| *(handle one case)* | `If x Is Some(v) Then …` (VBR's `if let`) |
 | `On Error GoTo` | `As Result<T>` + `Match` / `?` / `.Unwrap()` |
 | `ReDim arr(n)` | `Dim v As Vec<T>` … `v.push(x)` |
 | `arr(i)` | `arr[i]` (or `arr.get(i)`) |

@@ -673,6 +673,11 @@ pub enum Stmt {
         scrutinee: Expr,
         arms: Vec<MatchArm>,
         line: usize,
+        /// Set when this came from `If <expr> Is <pattern> Then …` — the Rust
+        /// backend renders it as `if let <pattern> = <expr> { … }` (using the
+        /// first arm); other backends render the ordinary `match` (the arms
+        /// include a trailing `_ => {}`), so it works everywhere.
+        if_let: bool,
     },
     /// A drawing verb inside a `Draw` block / paint function (canvas codegen).
     Draw(DrawCmd),
