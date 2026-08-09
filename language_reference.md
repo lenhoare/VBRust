@@ -741,7 +741,21 @@ if let Some(value) = cache.get(key) {
 
 `Is` is VB's own word (as in VB6's `If obj Is Nothing`); here it reads "matches
 the pattern", binds what's inside, and runs the block only when it matches. The
-pattern is real Rust, exactly as in a `Match` arm.
+pattern is real Rust, exactly as in a `Match` arm. An `Else` handles the
+no-match case, and **`Do While <expr> Is <pattern>`** is `while let` — loop while
+the pattern keeps matching (draining a queue, walking an iterator):
+
+```vb
+Do While queue.Pop() Is Some(item)
+    process(item)
+Loop
+```
+→
+```rust
+loop {
+    if let Some(item) = queue.pop() { process(item); } else { break; }
+}
+```
 
 ### A worked example: turning text into a number
 

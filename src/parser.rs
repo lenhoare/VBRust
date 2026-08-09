@@ -2965,22 +2965,38 @@ impl<'a> Parser<'a> {
         let pattern = parts.join(" ");
         self.expect(&Tok::Then, "after the `Is` pattern")?;
 
-        // Single-line (`If x Is Some(v) Then <stmt>`) or a block ending in `End If`.
-        let body = if !matches!(self.peek(), Tok::Newline) {
+        // Single-line (`If x Is Some(v) Then <stmt> [Else <stmt>]`) or a block
+        // ending in `End If`, with an optional `Else`. The else-body becomes the
+        // `_ => …` arm — which is the Rust `else` block *and* the wildcard arm the
+        // other backends render.
+        let (body, else_body) = if !matches!(self.peek(), Tok::Newline) {
             let mut b = vec![self.parse_stmt()?];
             b.append(&mut self.dim_overflow);
-            b
+            let eb = if self.eat(&Tok::Else) {
+                let mut e = vec![self.parse_stmt()?];
+                e.append(&mut self.dim_overflow);
+                e
+            } else {
+                Vec::new()
+            };
+            (b, eb)
         } else {
             self.expect(&Tok::Newline, "after `Then`")?;
             let b = self.parse_block()?;
+            let eb = if self.eat(&Tok::Else) {
+                self.expect(&Tok::Newline, "after `Else`")?;
+                self.parse_block()?
+            } else {
+                Vec::new()
+            };
             self.expect(&Tok::End, "to close the `If`")?;
             self.expect(&Tok::If, "after `End`")?;
-            b
+            (b, eb)
         };
 
         let arms = vec![
             MatchArm { pattern, guard: None, body },
-            MatchArm { pattern: "_".to_string(), guard: None, body: Vec::new() },
+            MatchArm { pattern: "_".to_string(), guard: None, body: else_body },
         ];
         Some(Stmt::Match { scrutinee, arms, line, if_let: true })
     }
@@ -3135,12 +3151,30 @@ impl<'a> Parser<'a> {
         // ... or on the `Loop` (post-test).
         let post = self.parse_loop_cond()?;
 
-        let cond = match (pre, post) {
-            (Some((true, c)), None) => Some(DoCond::PreWhile(c)),
-            (Some((false, c)), None) => Some(DoCond::PreUntil(c)),
-            (None, Some((true, c))) => Some(DoCond::PostWhile(c)),
-            (None, Some((false, c))) => Some(DoCond::PostUntil(c)),
-            (None, None) => None,
+        match (pre, post) {
+            // `Do While <expr> Is <pattern> … Loop` → `while let`. Desugar to an
+            // infinite loop whose body is an `if let … else break`; the Rust
+            // backend renders `loop { if let P = e { … } else { break } }` and the
+            // others the equivalent `while(1) { match … _ => break }` — all correct.
+            (Some(LoopHead::WhileLet { pattern, scrutinee }), None) => {
+                let arms = vec![
+                    MatchArm { pattern, guard: None, body },
+                    MatchArm { pattern: "_".to_string(), guard: None, body: vec![Stmt::Break] },
+                ];
+                Some(Stmt::DoLoop {
+                    cond: None,
+                    body: vec![Stmt::Match { scrutinee, arms, line, if_let: true }],
+                })
+            }
+            (Some(LoopHead::While(c)), None) => Some(Stmt::DoLoop { cond: Some(DoCond::PreWhile(c)), body }),
+            (Some(LoopHead::Until(c)), None) => Some(Stmt::DoLoop { cond: Some(DoCond::PreUntil(c)), body }),
+            (None, Some(LoopHead::While(c))) => Some(Stmt::DoLoop { cond: Some(DoCond::PostWhile(c)), body }),
+            (None, Some(LoopHead::Until(c))) => Some(Stmt::DoLoop { cond: Some(DoCond::PostUntil(c)), body }),
+            (None, None) => Some(Stmt::DoLoop { cond: None, body }),
+            (None, Some(LoopHead::WhileLet { .. })) => {
+                self.diags.error(line, "`Is` (while-let) works on `Do While`, not `Loop While`.");
+                None
+            }
             (Some(_), Some(_)) => {
                 self.diags.error(
                     line,
@@ -3148,16 +3182,35 @@ impl<'a> Parser<'a> {
                 );
                 None
             }
-        };
-        Some(Stmt::DoLoop { cond, body })
+        }
     }
 
     /// Parse an optional `While c` / `Until c`; returns (is_while, cond).
-    fn parse_loop_cond(&mut self) -> Option<Option<(bool, Expr)>> {
+    fn parse_loop_cond(&mut self) -> Option<Option<LoopHead>> {
         if self.eat(&Tok::While) {
-            Some(Some((true, self.parse_expr()?)))
+            let e = self.parse_expr()?;
+            // `Do While <expr> Is <pattern>` — VB-flavoured `while let`.
+            if matches!(self.peek(), Tok::Ident(n) if n.eq_ignore_ascii_case("is")) {
+                self.advance(); // Is
+                let mut parts: Vec<String> = Vec::new();
+                while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
+                    let t = self.advance();
+                    parts.push(pattern_tok_src(&t, self.line()));
+                }
+                if parts.is_empty() {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "Expected a pattern after `Is` — e.g. `Do While q.Pop() Is Some(x)`.",
+                    );
+                    return None;
+                }
+                Some(Some(LoopHead::WhileLet { pattern: parts.join(" "), scrutinee: e }))
+            } else {
+                Some(Some(LoopHead::While(e)))
+            }
         } else if self.eat(&Tok::Until) {
-            Some(Some((false, self.parse_expr()?)))
+            Some(Some(LoopHead::Until(self.parse_expr()?)))
         } else {
             Some(None)
         }
@@ -3666,6 +3719,14 @@ fn split_py_args(args: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// The head of a `Do`/`Loop` condition: `While c`, `Until c`, or the `while let`
+/// form `While c Is <pattern>` (desugared to a loop + `if let … else break`).
+enum LoopHead {
+    While(Expr),
+    Until(Expr),
+    WhileLet { pattern: String, scrutinee: Expr },
 }
 
 /// Render one token of a match-arm pattern as Rust source. Patterns pass through

@@ -271,6 +271,10 @@ If cache.Get(key) Is Some(value) Then
 End If
 ```
 
+It takes an `Else`, and `Do While <expr> Is <pattern>` is the loop version
+(`while let`) — keep going while the pattern matches, e.g. `Do While q.Pop() Is
+Some(item)`.
+
 This shows up in conversions too. `Val(" 42x ")` is the forgiving one (a `Double`,
 `0` for junk, never fails). The strict `CDbl` / `CLng` / `CInt` return a `Result` —
 in VB they raised a runtime error; here that error is a value you catch.

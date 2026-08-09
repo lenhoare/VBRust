@@ -28,3 +28,25 @@ fn single_line_if_is_works() {
     assert!(!c.has_errors, "{:?}", c.diagnostics);
     assert!(c.rust.contains("if let Some ( v ) ="), "got: {}", c.rust);
 }
+
+#[test]
+fn if_is_with_else() {
+    let c = compile(&with_getter(
+        "    If Get() Is Some(v) Then\n        Debug.Print v\n    Else\n        Debug.Print 0\n    End If",
+    ));
+    assert!(!c.has_errors, "{:?}", c.diagnostics);
+    assert!(c.rust.contains("if let Some ( v ) ="), "got: {}", c.rust);
+    assert!(c.rust.contains("} else {"), "expected an else block: {}", c.rust);
+}
+
+#[test]
+fn do_while_is_lowers_to_while_let() {
+    // `Do While <expr> Is <pattern>` desugars to `loop { if let … else break }`.
+    let c = compile(&with_getter(
+        "    Do While Get() Is Some(v)\n        Debug.Print v\n    Loop",
+    ));
+    assert!(!c.has_errors, "{:?}", c.diagnostics);
+    assert!(c.rust.contains("loop {"), "got: {}", c.rust);
+    assert!(c.rust.contains("if let Some ( v ) ="), "got: {}", c.rust);
+    assert!(c.rust.contains("break;"), "the else arm should break: {}", c.rust);
+}

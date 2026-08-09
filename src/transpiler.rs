@@ -1531,6 +1531,14 @@ pub(crate) fn emit_stmt(
                 render_expr(scrutinee, None)
             ));
             emit_block(&arm.body, mutated, byref, indent + 1, diags, out);
+            // The `_` arm carries the `Else` body, if any.
+            match arms.get(1) {
+                Some(a) if !a.body.is_empty() => {
+                    out.push_str(&format!("{}}} else {{\n", pad));
+                    emit_block(&a.body, mutated, byref, indent + 1, diags, out);
+                }
+                _ => {}
+            }
             out.push_str(&format!("{}}}\n", pad));
         }
         Stmt::Match {
