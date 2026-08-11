@@ -11,8 +11,9 @@ struct Spaced {
 
 impl Default for Spaced {
     fn default() -> Self {
+        let n = 0;
         Spaced {
-            n: 0,
+            n,
         }
     }
 }

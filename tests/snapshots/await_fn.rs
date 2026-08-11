@@ -26,9 +26,11 @@ struct Worker {
 
 impl Default for Worker {
     fn default() -> Self {
+        let input = 5;
+        let status = "idle".to_string();
         Worker {
-            input: 5,
-            status: "idle".to_string(),
+            input,
+            status,
         }
     }
 }

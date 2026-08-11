@@ -20,11 +20,15 @@ struct ListTabs {
 
 impl Default for ListTabs {
     fn default() -> Self {
+        let tab = 1;
+        let fruit = vec!["apple".to_string(), "pear".to_string(), "plum".to_string()];
+        let veg = vec!["kale".to_string(), "leek".to_string(), "bean".to_string()];
+        let picked = "nothing yet".to_string();
         ListTabs {
-            tab: 1,
-            fruit: vec!["apple".to_string(), "pear".to_string(), "plum".to_string()],
-            veg: vec!["kale".to_string(), "leek".to_string(), "bean".to_string()],
-            picked: "nothing yet".to_string(),
+            tab,
+            fruit,
+            veg,
+            picked,
             fruit_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             veg_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             focus_index: 0,

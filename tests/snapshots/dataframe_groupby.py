@@ -5,7 +5,7 @@
 from vbrpy import _vb, col, lit, read_csv, when
 
 def main():
-    df: object = read_csv('people.csv')
+    df: object = read_csv('people.csv', null_values=["", "NA", "N/A", "n/a", "null", "NULL", "NaN"])
     df = df.with_columns(when((col("age") >= lit(18))).then(lit('adult')).otherwise(lit('minor')).alias('band'))
     # Whole-column scalars — one number for the whole frame.
     print(f"mean age: {_vb(df['age'].mean())}")

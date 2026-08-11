@@ -37,10 +37,13 @@ struct Dash {
 
 impl Default for Dash {
     fn default() -> Self {
+        let cpu = 62;
+        let history = history();
+        let sales = sales();
         Dash {
-            cpu: 62,
-            history: history(),
-            sales: sales(),
+            cpu,
+            history,
+            sales,
         }
     }
 }

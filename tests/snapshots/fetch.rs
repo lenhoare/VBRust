@@ -14,9 +14,11 @@ struct Fetcher {
 
 impl Default for Fetcher {
     fn default() -> Self {
+        let url = "https://example.com".to_string();
+        let status = "idle".to_string();
         Fetcher {
-            url: "https://example.com".to_string(),
-            status: "idle".to_string(),
+            url,
+            status,
         }
     }
 }

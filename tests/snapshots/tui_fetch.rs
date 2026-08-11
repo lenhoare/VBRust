@@ -11,9 +11,11 @@ struct Fetcher {
 
 impl Default for Fetcher {
     fn default() -> Self {
+        let url = "https://api.github.com/zen".to_string();
+        let status = "press r to fetch, q to quit".to_string();
         Fetcher {
-            url: "https://api.github.com/zen".to_string(),
-            status: "press r to fetch, q to quit".to_string(),
+            url,
+            status,
         }
     }
 }

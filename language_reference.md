@@ -239,6 +239,28 @@ bracket and keep going. (This applies only inside brackets — an ordinary
 statement is still one line, and a `"…"` string is still one line; reach for
 `Text … End Text` when you need multi-line text.)
 
+### Reserved words
+
+You can't name a function, variable, parameter, or field after a **VBR keyword**
+— the same rule VB6 has. These are reserved:
+
+> `Dim` `ReDim` `Const` `As` `ByVal` `ByRef` `Function` `Sub` `End` `If` `Then`
+> `Else` `ElseIf` `For` `To` `Step` `Next` `Each` `In` `Do` `Loop` `While`
+> `Until` `Match` `Select` `Case` `Return` `Type` `Enum` `Public` `Private`
+> `True` `False` `Nothing` `Is` `And` `Or` `Not` `Xor` `Mod` `New` `Me` `Use`
+
+VBR tells you when you hit one, and suggests a fix:
+
+```
+✘ `Step` is a VBR keyword, so it can't be used as a name for the function.
+  Pick another (for example a more descriptive word, or a `_` suffix like `step_`).
+```
+
+A name that is only a **Rust** keyword — `Move`, `Loop` used as an identifier,
+`Ref`, `Trait` — is *not* reserved in VBR: you may use it freely, and VBR quietly
+escapes it in the generated Rust (`Move` → `r#move`). So the rule is simply: if
+it's a word you'd write a VB statement with, pick a different name.
+
 ---
 
 ## 3. Control Flow
@@ -1008,6 +1030,22 @@ applies down the whole column; a quoted string or a value you've `Dim`'d is a
 *value*. It is the polars expression engine wearing a VB face — `IIf` is your old
 `IIf`, the operators are the operators you know. The full surface is in
 `dataframe_spec.md`.
+
+**Grouping and aggregating.** `GroupBy(keys).Agg(...)` collapses each group to a
+row. The aggregations are `Sum(col)`, `Mean(col)`, `Min(col)`, `Max(col)`,
+`Count(col)` (non-null values in `col`), and a bare `Count()` (rows per group):
+
+```vb
+Dim byBand As DataFrame = df.GroupBy("band").Agg(Sum(sales))   ' one row per band
+Dim freq As DataFrame = df.GroupBy("band").Agg(Count())        ' how many per band
+```
+
+One thing to know: an aggregation **keeps its source column's name** — `Sum(sales)`
+produces a column still called `sales`, much like a `ByRef` argument reuses the
+caller's name. That's usually what you want, but it means you can't group by a
+column *and* aggregate that same column in one step — the two `"band"` columns
+would collide. Aggregate a *different* column, or use a bare `Count()` (its output
+is named `"count"`, so it never clashes with a key).
 
 Each namespace that pulls a real crate (`Json`, `DateTime`, `Regex`, `Http`,
 `DataFrame`) sits behind a Cargo feature, and the project build enables only the

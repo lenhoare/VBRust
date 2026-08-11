@@ -7,8 +7,9 @@ struct Layout {
 
 impl Default for Layout {
     fn default() -> Self {
+        let clicks = 0;
         Layout {
-            clicks: 0,
+            clicks,
         }
     }
 }

@@ -20,9 +20,11 @@ impl Component for Settings {
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {
+        let agreed = false;
+        let volume = 50;
         Settings {
-            agreed: false,
-            volume: 50,
+            agreed,
+            volume,
         }
     }
 

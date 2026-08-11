@@ -271,8 +271,9 @@ fn lower_body(
     );
     // Member rewrite (bare `speed` → `self.speed`), so handle detection and the
     // Godot rewrite see the settled form.
+    let no_subs = HashSet::new();
     let body: Vec<Stmt> =
-        body.into_iter().map(|s| rewrite_stmt(s, "self", fields, enums)).collect();
+        body.into_iter().map(|s| rewrite_stmt(s, "self", fields, enums, &no_subs)).collect();
     // Object handles route their method calls to Godot names: the `On Input`
     // event's `event: Gd<InputEvent>` param (seeded), plus scene-tree handles
     // (`Dim h As T = Me.GetNode(...)` / `Spawn(...)`), which also take `let mut`.

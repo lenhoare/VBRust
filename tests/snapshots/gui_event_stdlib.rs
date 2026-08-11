@@ -12,8 +12,9 @@ struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
+        let label = "press stamp".to_string();
         Clock {
-            label: "press stamp".to_string(),
+            label,
         }
     }
 }

@@ -11,9 +11,11 @@ struct Panel {
 
 impl Default for Panel {
     fn default() -> Self {
+        let enabled = false;
+        let level = 30;
         Panel {
-            enabled: false,
-            level: 30,
+            enabled,
+            level,
         }
     }
 }

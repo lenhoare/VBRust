@@ -24,9 +24,11 @@ impl Component for Fetcher {
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {
+        let url = "https://api.github.com/zen".to_string();
+        let status = "idle".to_string();
         Fetcher {
-            url: "https://api.github.com/zen".to_string(),
-            status: "idle".to_string(),
+            url,
+            status,
         }
     }
 

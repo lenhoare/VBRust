@@ -19,6 +19,12 @@ _POLARS_EXPORTS = {"col", "lit", "when", "read_csv"}
 
 
 def __getattr__(name):
+    if name == "count_rows":
+        # A bare `Count()` aggregation → polars' row count (`pl.len`), under a
+        # name that doesn't shadow Python's builtin `len`.
+        import polars
+
+        return polars.len
     if name in _POLARS_EXPORTS:
         import polars
 

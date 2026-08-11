@@ -93,8 +93,62 @@ they were ordinary variables — `count += 1` — and VBR arranges the redraw. A
 event can take a parameter when the widget carries data (you'll see `On Change`
 below hand a slider's new value to its handler).
 
+**Sharing logic between events — a `Sub` helper.** When two events do the same
+work, put it in a `Sub` *inside the block*. It reads state fields directly, just
+like an event, and events (or other helpers) call it by name:
+
+```vb
+Screen TicTacToe
+    State
+        Dim board As Vec<String> = Ttt.NewBoard()
+        Dim message As String = "X to move"
+    End State
+
+    ' A helper — reachable from every event, no field-threading.
+    Sub TryMove(ByVal cell As Long)
+        If board[cell] <> "" Then Return
+        board[cell] = "X"
+        message = "O to move"
+    End Sub
+
+    On Key "1" Cell1
+    On Key "2" Cell2
+
+    Event Cell1
+        TryMove(0)
+    End Event
+    Event Cell2
+        TryMove(1)
+    End Event
+End Screen
+```
+
+`Sub TryMove` lowers to a method on the state, so `TryMove(0)` from an event is
+just a call to it. This is the answer to "can one event call another?" — not
+directly (events are entry points), but a shared `Sub` gives you the same thing,
+more clearly. (Before, you'd hoist the logic to a module `Sub` and pass every
+field it touched as `ByRef` — the helper needs none of that.)
+
 That is the entire mental model. Everything else is *which widgets exist* and
 *how they're arranged* — and that is where a Window and a Screen part ways.
+
+> **One gotcha: don't use a bare `Return` to bail out of an event.** An event
+> handler isn't an ordinary function — it lowers differently on each surface (a
+> terminal loop, an Iced update, a web callback), so an early `Return` has no one
+> meaning and won't type-check. Instead, let the handler fall through with an
+> `If`/`ElseIf`, guarding the work rather than jumping out of it:
+>
+> ```vb
+> Event TryGuess(text As String)
+>     If won Then
+>         message = "You already won!"   ' don't `Return` here …
+>     ElseIf Val(text) = secret Then
+>         won = True                     ' … just guard the branches
+>     Else
+>         guesses = guesses - 1
+>     End If
+> End Event
+> ```
 
 ---
 

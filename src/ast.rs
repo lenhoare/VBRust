@@ -168,6 +168,9 @@ pub struct Screen {
     /// Timer bindings (`Every 1000 Tick`) — run a handler on an interval.
     pub timers: Vec<Timer>,
     pub events: Vec<GuiEvent>,
+    /// In-block `Sub` helpers — callable methods on the state, sharing logic
+    /// between events without hoisting it to a module `Sub` and threading fields.
+    pub subs: Vec<GuiEvent>,
 }
 
 /// An `Every <ms> <handler>` timer — fires the handler event every `interval_ms`
@@ -254,6 +257,9 @@ pub struct Window {
     pub state: Vec<StateField>,
     pub view: ViewNode,
     pub events: Vec<GuiEvent>,
+    /// In-block `Sub` helpers — callable methods on the state, sharing logic
+    /// between events without hoisting it to a module `Sub` and threading fields.
+    pub subs: Vec<GuiEvent>,
 }
 
 /// One field of a window's `State` block — a `Dim` with an initial value. The

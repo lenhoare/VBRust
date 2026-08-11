@@ -16,11 +16,15 @@ struct Pulse {
 
 impl Default for Pulse {
     fn default() -> Self {
+        let level = 0;
+        let rising = true;
+        let beats = 0;
+        let history = Vec::new();
         Pulse {
-            level: 0,
-            rising: true,
-            beats: 0,
-            history: Vec::new(),
+            level,
+            rising,
+            beats,
+            history,
         }
     }
 }

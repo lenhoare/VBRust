@@ -22,11 +22,15 @@ struct LifeLab {
 
 impl Default for LifeLab {
     fn default() -> Self {
+        let grid = crate::life::newgrid();
+        let rule = crate::life::classicrule();
+        let living = 0;
+        let status = "ready".to_string();
         LifeLab {
-            grid: crate::life::newgrid(),
-            rule: crate::life::classicrule(),
-            living: 0,
-            status: "ready".to_string(),
+            grid,
+            rule,
+            living,
+            status,
         }
     }
 }

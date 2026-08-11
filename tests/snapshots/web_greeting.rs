@@ -21,9 +21,11 @@ impl Component for Greeter {
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {
+        let name = "".to_string();
+        let shout = false;
         Greeter {
-            name: "".to_string(),
-            shout: false,
+            name,
+            shout,
         }
     }
 

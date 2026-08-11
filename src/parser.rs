@@ -659,6 +659,7 @@ impl<'a> Parser<'a> {
         let mut state = Vec::new();
         let mut view = None;
         let mut events = Vec::new();
+        let mut subs = Vec::new();
 
         loop {
             self.skip_newlines();
@@ -715,13 +716,16 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                     events.push(GuiEvent { name: ev_name, params, body });
                 }
+                Tok::Sub => {
+                    subs.push(self.parse_gui_sub()?);
+                }
                 other => {
                     self.diags.error_at(
                         self.span(),
                         self.line(),
                         format!(
                             "Unexpected {:?} inside a {kind} — expected Title, Theme, State, \
-                             View, Event, or `End {kind}`.",
+                             View, Event, Sub, or `End {kind}`.",
                             other
                         ),
                     );
@@ -745,7 +749,36 @@ impl<'a> Parser<'a> {
             state,
             view,
             events,
+            subs,
         })
+    }
+
+    /// A `Sub Name(params) … End Sub` inside a Window/Screen/Page — a helper that
+    /// lowers to a method on the state (direct field access, callable from events
+    /// and other helpers). Same shape as an event, so it reuses `GuiEvent`.
+    fn parse_gui_sub(&mut self) -> Option<GuiEvent> {
+        self.expect(&Tok::Sub, "to start a Sub")?;
+        let name = self.expect_ident("for the Sub name")?;
+        // Full function-style params (`ByVal`/`ByRef`, defaults), not the
+        // by-value-only event payload form — a helper reads like a `Sub`.
+        let mut params = Vec::new();
+        if self.eat(&Tok::LParen) {
+            if !matches!(self.peek(), Tok::RParen) {
+                loop {
+                    params.push(self.parse_param()?);
+                    if !self.eat(&Tok::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect(&Tok::RParen, "to close the parameter list")?;
+        }
+        self.expect(&Tok::Newline, "after the Sub name")?;
+        let body = self.parse_block()?;
+        self.expect(&Tok::End, "to close the Sub")?;
+        self.expect(&Tok::Sub, "after `End`")?;
+        self.eat(&Tok::Newline);
+        Some(GuiEvent { name, params, body })
     }
 
     /// `Screen Name` … `End Screen` — a ratatui terminal app. Same State/View/
@@ -761,6 +794,7 @@ impl<'a> Parser<'a> {
         let mut keys = Vec::new();
         let mut timers = Vec::new();
         let mut events = Vec::new();
+        let mut subs = Vec::new();
 
         loop {
             self.skip_newlines();
@@ -828,13 +862,16 @@ impl<'a> Parser<'a> {
                     self.eat(&Tok::Newline);
                     events.push(GuiEvent { name: ev_name, params, body });
                 }
+                Tok::Sub => {
+                    subs.push(self.parse_gui_sub()?);
+                }
                 other => {
                     self.diags.error_at(
                         self.span(),
                         self.line(),
                         format!(
                             "Unexpected {:?} inside a Screen — expected Title, State, View, \
-                             `On Key`, `Every`, Event, or `End Screen`.",
+                             `On Key`, `Every`, Event, Sub, or `End Screen`.",
                             other
                         ),
                     );
@@ -850,7 +887,7 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        Some(Screen { name, title, state, view, keys, timers, events })
+        Some(Screen { name, title, state, view, keys, timers, events, subs })
     }
 
     /// `Node2D "Player" … End Node2D` — a Godot node class. The opening token is

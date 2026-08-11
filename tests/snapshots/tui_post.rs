@@ -20,11 +20,15 @@ struct Poster {
 
 impl Default for Poster {
     fn default() -> Self {
+        let status = "Press Enter to send".to_string();
+        let reply = "".to_string();
+        let key = "sk-demo-key".to_string();
+        let endpoint = "https://api.example.com/v1/complete".to_string();
         Poster {
-            status: "Press Enter to send".to_string(),
-            reply: "".to_string(),
-            key: "sk-demo-key".to_string(),
-            endpoint: "https://api.example.com/v1/complete".to_string(),
+            status,
+            reply,
+            key,
+            endpoint,
         }
     }
 }

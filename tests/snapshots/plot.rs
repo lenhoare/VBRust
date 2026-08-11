@@ -23,9 +23,11 @@ struct Chart {
 
 impl Default for Chart {
     fn default() -> Self {
+        let bars = makebars(3);
+        let seed = 3;
         Chart {
-            bars: makebars(3),
-            seed: 3,
+            bars,
+            seed,
         }
     }
 }

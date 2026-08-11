@@ -9,7 +9,7 @@ use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::surface::{
     self, analyze_events, coerce_state_strings, event_stdlib_imports, launched, match_scrutinee,
-    render_init, rewrite_expr, rewrite_expr_with, state_maps, AwaitSplit,
+    rewrite_expr, rewrite_expr_with, state_maps, AwaitSplit,
 };
 use crate::transpiler::{collect_stmt_idents, decltype_rust, emit_stmt, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
@@ -149,6 +149,10 @@ fn emit_window(
 ) -> String {
     let mut out = String::new();
     let ty = &w.name; // the state struct is named after the window
+    // A per-window view of the tables carrying this window's `Sub` helpers, so a
+    // call to one inside an event lowers to a method on the state.
+    let t_local = surface::with_subs(t, &w.subs);
+    let t = &t_local;
     let enums = &t.enums;
     let (fields, field_ty) = state_maps(&w.state);
 
@@ -249,28 +253,40 @@ fn emit_window(
             "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
             ty, ty
         ));
-        out.push_str(&format!("        Ok({} {{\n", ty));
     } else {
         out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
+    }
+    // The initialisers as sequential `let`s (so a field can read a sibling),
+    // then the struct built from them. A `TextEditor` field wraps its text in
+    // a `text_editor::Content` instead of the ordinary `render_init`.
+    let names = surface::emit_state_lets(&w.state, &t, 2, diags, &mut out, |f| {
+        if is_textarea(&f.ty) {
+            let text = f
+                .init
+                .as_ref()
+                .map(|e| render_expr(e, None))
+                .unwrap_or_else(|| "\"\"".to_string());
+            Some(format!("iced::widget::text_editor::Content::with_text({})", text))
+        } else {
+            None
+        }
+    });
+    if fallible {
+        out.push_str(&format!("        Ok({} {{\n", ty));
+    } else {
         out.push_str(&format!("        {} {{\n", ty));
     }
-    for f in &w.state {
-        let mut init = if is_textarea(&f.ty) {
-            let text = f.init.as_ref().map(|e| render_expr(e, None)).unwrap_or_else(|| "\"\"".to_string());
-            format!("iced::widget::text_editor::Content::with_text({})", text)
-        } else {
-            render_init(f.init.as_ref(), &f.ty, t, diags)
-        };
-        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t)) {
-            init.push('?');
-        }
-        out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));
+    for name in &names {
+        out.push_str(&format!("            {},\n", name));
     }
     if fallible {
         out.push_str("        })\n    }\n}\n\n");
     } else {
         out.push_str("        }\n    }\n}\n\n");
     }
+
+    // ── in-block `Sub` helpers → methods on the state ──
+    surface::emit_subs(&w.subs, ty, &fields, &field_ty, t, diags, &mut out);
 
     // ── Message enum: one variant per event (payload params = its data), plus a
     //    `<Event>Done(result)` continuation variant for each async event. ──

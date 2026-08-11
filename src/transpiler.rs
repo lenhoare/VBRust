@@ -233,7 +233,7 @@ pub fn transpile_module(
         // The polars expression builders column formulas lower to. A given
         // program may not use all three, so silence the unused-import lint.
         out.push_str("#[allow(unused_imports)]\n");
-        out.push_str("use vbr_stdlib::dataframe::{col, lit, when};\n\n");
+        out.push_str("use vbr_stdlib::dataframe::{col, len, lit, when};\n\n");
     }
 
     // Top-level items, separated by a single blank line: structs, then impl
@@ -481,7 +481,7 @@ pub(crate) fn emit_impl(
     program: &Program,
     fns: &FnTable,
     methods: &resolver::MethodTable,
-    consts: &HashMap<String, String>,
+    consts: &resolver::ConstMap,
     modules: &HashSet<String>,
     interfaces: &resolver::ProjectInterfaces,
     enums: &HashSet<String>,
@@ -668,7 +668,7 @@ fn emit_tests(
     program: &Program,
     fns: &FnTable,
     methods: &resolver::MethodTable,
-    consts: &HashMap<String, String>,
+    consts: &resolver::ConstMap,
     modules: &HashSet<String>,
     interfaces: &resolver::ProjectInterfaces,
     enums: &HashSet<String>,
@@ -709,7 +709,7 @@ pub(crate) fn emit_fn(
     func: &Function,
     fns: &FnTable,
     methods: &resolver::MethodTable,
-    consts: &HashMap<String, String>,
+    consts: &resolver::ConstMap,
     modules: &HashSet<String>,
     interfaces: &resolver::ProjectInterfaces,
     enums: &HashSet<String>,
@@ -806,7 +806,7 @@ pub(crate) fn emit_fn(
     out.push_str(&format!("{}}}\n", pad));
 }
 
-fn render_param(p: &Param) -> String {
+pub(crate) fn render_param(p: &Param) -> String {
     let ty = match (&p.mode, &p.ty) {
         // ByVal String borrows as a read-only &str.
         (ParamMode::ByVal, DeclType::Plain(Type::Text)) => "&str".to_string(),

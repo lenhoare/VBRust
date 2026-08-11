@@ -17,9 +17,11 @@ struct ProcessPanel {
 
 impl ProcessPanel {
     fn init() -> Result<ProcessPanel, String> {
+        let worker = Shell::start("sleep 300")?;
+        let status = "worker started".to_string();
         Ok(ProcessPanel {
-            worker: Shell::start("sleep 300")?,
-            status: "worker started".to_string(),
+            worker,
+            status,
         })
     }
 }

@@ -24,14 +24,19 @@ use std::collections::{HashMap, HashSet};
 /// a multi-file project, the sibling module names and their harvested
 /// interfaces, so a helper function or event can call `Life.StepLife(…)`
 /// with the same argument treatment a plain program gets.
+#[derive(Clone)]
 pub(crate) struct Tables {
     pub enums: HashSet<String>,
     pub fns: resolver::FnTable,
     pub methods: resolver::MethodTable,
-    pub consts: HashMap<String, String>,
+    pub consts: resolver::ConstMap,
     pub structs: resolver::StructTable,
     pub modules: HashSet<String>,
     pub interfaces: resolver::ProjectInterfaces,
+    /// The in-block `Sub` helper names of the Screen/Window currently being
+    /// emitted (snake-cased). A call to one inside an event/helper body is
+    /// rewritten to a method call on the state receiver. Set per screen.
+    pub screen_subs: HashSet<String>,
 }
 
 pub(crate) fn build_tables(
@@ -47,6 +52,7 @@ pub(crate) fn build_tables(
         structs: resolver::build_struct_table(program),
         modules: modules.iter().cloned().collect(),
         interfaces: interfaces.clone(),
+        screen_subs: HashSet::new(),
     };
     // Siblings' Public Types/Enums join the tables under their bare names —
     // state fields, events, and views use a foreign type like a local one
@@ -387,10 +393,62 @@ pub(crate) fn emit_event_stmts(
     crate::transpiler::collect_mutated(&body, &mut mutated);
     let empty: HashSet<String> = HashSet::new();
     for stmt in body {
-        let mut rewritten = rewrite_stmt(stmt, recv, fields, &t.enums);
+        // The rewrite turns state fields into `recv.field` and a call to an
+        // in-block `Sub` helper into `recv.helper(...)` (`t.screen_subs`).
+        let mut rewritten = rewrite_stmt(stmt, recv, fields, &t.enums, &t.screen_subs);
         coerce_state_strings(&mut rewritten, recv, field_ty);
         emit_stmt(&rewritten, &mutated, &empty, indent, diags, out);
     }
+}
+
+/// Build a per-screen view of the tables: `screen_subs` filled with this block's
+/// `Sub` helper names, and each helper registered in the fn table so a call to it
+/// gets the usual argument coercion (borrow a String, widen a number) before it's
+/// rewritten to a method on the state receiver.
+pub(crate) fn with_subs(base: &Tables, subs: &[GuiEvent]) -> Tables {
+    let mut t = base.clone();
+    for s in subs {
+        t.screen_subs.insert(rust_name(&s.name));
+        t.fns.insert(
+            rust_name(&s.name),
+            resolver::FnSig {
+                modes: s.params.iter().map(|p| p.mode).collect(),
+                param_types: s.params.iter().map(|p| p.ty.clone()).collect(),
+                ret: None,
+            },
+        );
+    }
+    t
+}
+
+/// Emit each in-block `Sub` as a method on the state struct — direct `self.field`
+/// access, callable from events and other helpers. `ty` is the state struct name.
+pub(crate) fn emit_subs(
+    subs: &[GuiEvent],
+    ty: &str,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &Tables,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    if subs.is_empty() {
+        return;
+    }
+    out.push_str(&format!("impl {} {{\n", ty));
+    for s in subs {
+        let params: Vec<String> = s.params.iter().map(crate::transpiler::render_param).collect();
+        let sep = if params.is_empty() { "" } else { ", " };
+        out.push_str(&format!(
+            "    fn {}(&mut self{}{}) {{\n",
+            rust_name(&s.name),
+            sep,
+            params.join(", ")
+        ));
+        emit_event_stmts(&s.body, &s.params, "self", fields, field_ty, t, 2, diags, out);
+        out.push_str("    }\n");
+    }
+    out.push_str("}\n\n");
 }
 
 /// The scrutinee of a view `Match`: a bare `String` state field is matched as a
@@ -423,6 +481,7 @@ pub(crate) fn render_init(
     init: Option<&Expr>,
     ty: &DeclType,
     t: &Tables,
+    prior: &HashMap<String, DeclType>,
     diags: &mut Diagnostics,
 ) -> String {
     let init = init.map(|e| {
@@ -433,8 +492,11 @@ pub(crate) fn render_init(
             init: Some(e.clone()),
             line: 0,
         }];
+        // `prior` are the earlier `State` fields, seeded like state so a later
+        // initialiser can read one (`rects = LiveRects(grid, …)`) and it's typed
+        // against it — borrowed as `&grid` for a ByVal collection, not moved.
         resolver::resolve_event_body(
-            &mut body, &[], &HashMap::new(), &t.fns, &t.methods, &t.consts, &t.modules,
+            &mut body, &[], prior, &t.fns, &t.methods, &t.consts, &t.modules,
             &t.interfaces, &t.enums, &t.structs, diags,
         );
         match body.pop() {
@@ -458,6 +520,38 @@ pub(crate) fn render_init(
         // parser requires one); fall back to Default.
         (_, None) => "Default::default()".to_string(),
     }
+}
+
+/// Emit each `State` initialiser as a `let` binding, in declaration order, so a
+/// later field can read an earlier one (the struct that follows is built from the
+/// returned names, by field-init shorthand). A fallible initialiser gets `?`.
+/// `override_init(f)` lets a surface substitute a field's init string (the GUI's
+/// `TextEditor` content) — return `None` for the normal `render_init` path.
+pub(crate) fn emit_state_lets(
+    state: &[StateField],
+    t: &Tables,
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+    mut override_init: impl FnMut(&StateField) -> Option<String>,
+) -> Vec<String> {
+    let pad = "    ".repeat(indent);
+    let mut prior: HashMap<String, DeclType> = HashMap::new();
+    let mut names = Vec::new();
+    for f in state {
+        let mut init = match override_init(f) {
+            Some(s) => s,
+            None => render_init(f.init.as_ref(), &f.ty, t, &prior, diags),
+        };
+        if f.init.as_ref().map_or(false, |e| fallible_init(e, t)) {
+            init.push('?');
+        }
+        let name = rust_name(&f.name);
+        out.push_str(&format!("{}let {} = {};\n", pad, name, init));
+        prior.insert(name.clone(), f.ty.clone());
+        names.push(name);
+    }
+    names
 }
 
 /// Belt-and-braces after the resolver pass: a string literal assigned to a
@@ -1036,14 +1130,27 @@ pub(crate) fn rewrite_expr(e: Expr, fields: &HashSet<String>, enums: &HashSet<St
 }
 
 /// The general form: a bare state-field reference becomes `<recv>.field` — `state`
-/// in a window's view/events, `self` inside a canvas `Draw` block.
+/// in a window's view/events, `self` inside a canvas `Draw` block. (View
+/// expressions never call helper `Sub`s, so this passes no sub set.)
 pub(crate) fn rewrite_expr_with(
     e: Expr,
     recv: &'static str,
     fields: &HashSet<String>,
     enums: &HashSet<String>,
 ) -> Expr {
-    let go = |e: Expr| rewrite_expr_with(e, recv, fields, enums);
+    rewrite_expr_subs(e, recv, fields, enums, &HashSet::new())
+}
+
+/// As `rewrite_expr_with`, but also rewrites a call to an in-block `Sub` helper
+/// (`subs`) into a method call on the receiver — `TryMove(0)` → `recv.trymove(0)`.
+fn rewrite_expr_subs(
+    e: Expr,
+    recv: &'static str,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+    subs: &HashSet<String>,
+) -> Expr {
+    let go = |e: Expr| rewrite_expr_subs(e, recv, fields, enums, subs);
     // Rewrites replace the *kind*; the span survives, so a rewritten
     // `count` → `state.count` still points at the `count` the user wrote.
     let span = e.span;
@@ -1064,6 +1171,12 @@ pub(crate) fn rewrite_expr_with(
             rhs: Box::new(go(*rhs)),
         },
         ExprKind::Not(inner) => ExprKind::Not(Box::new(go(*inner))),
+        // A call to an in-block `Sub` helper → a method call on the receiver.
+        ExprKind::Call { name, args } if subs.contains(&rust_name(&name)) => ExprKind::MethodCall {
+            recv: Box::new(ExprKind::Ident(recv.to_string()).at(span)),
+            method: name,
+            args: args.into_iter().map(go).collect(),
+        },
         ExprKind::Call { name, args } => ExprKind::Call {
             name,
             args: args.into_iter().map(go).collect(),
@@ -1130,8 +1243,9 @@ pub(crate) fn rewrite_stmt(
     recv: &'static str,
     fields: &HashSet<String>,
     enums: &HashSet<String>,
+    subs: &HashSet<String>,
 ) -> Stmt {
-    let re = |e: Expr| rewrite_expr_with(e, recv, fields, enums);
+    let re = |e: Expr| rewrite_expr_subs(e, recv, fields, enums, subs);
     match s {
         Stmt::Assign { target, value, op } => Stmt::Assign {
             target: re(target),
@@ -1147,12 +1261,12 @@ pub(crate) fn rewrite_stmt(
                 .map(|(c, b)| {
                     (
                         re(c),
-                        b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+                        b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect(),
                     )
                 })
                 .collect(),
             else_body: else_body
-                .map(|b| b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect()),
+                .map(|b| b.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect()),
         },
         Stmt::Match { scrutinee, arms, line, if_let } => Stmt::Match {
             scrutinee: re(scrutinee),
@@ -1164,7 +1278,7 @@ pub(crate) fn rewrite_stmt(
                     body: a
                         .body
                         .into_iter()
-                        .map(|s| rewrite_stmt(s, recv, fields, enums))
+                        .map(|s| rewrite_stmt(s, recv, fields, enums, subs))
                         .collect(),
                 })
                 .collect(),
@@ -1183,13 +1297,13 @@ pub(crate) fn rewrite_stmt(
             from: re(from),
             to: re(to),
             step: step.map(&re),
-            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect(),
         },
         Stmt::ForEach { var1, var2, iter, body } => Stmt::ForEach {
             var1,
             var2,
             iter: re(iter),
-            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect(),
         },
         Stmt::DoLoop { cond, body } => Stmt::DoLoop {
             cond: cond.map(|c| match c {
@@ -1198,7 +1312,7 @@ pub(crate) fn rewrite_stmt(
                 DoCond::PostWhile(e) => DoCond::PostWhile(re(e)),
                 DoCond::PostUntil(e) => DoCond::PostUntil(re(e)),
             }),
-            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums)).collect(),
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect(),
         },
         Stmt::Set { name, mutable, value } => Stmt::Set { name, mutable, value: re(value) },
         Stmt::DestructureDim { names, ty, value } => {

@@ -16,8 +16,9 @@ struct Sketch {
 
 impl Default for Sketch {
     fn default() -> Self {
+        let radius = 40;
         Sketch {
-            radius: 40,
+            radius,
         }
     }
 }

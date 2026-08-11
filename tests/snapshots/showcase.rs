@@ -32,14 +32,21 @@ struct Panel {
 
 impl Default for Panel {
     fn default() -> Self {
+        let name = "".to_string();
+        let agree = false;
+        let dark = false;
+        let volume = 50;
+        let size = Size::Medium;
+        let status = "ready".to_string();
+        let notes = iced::widget::text_editor::Content::with_text("Notes…");
         Panel {
-            name: "".to_string(),
-            agree: false,
-            dark: false,
-            volume: 50,
-            size: Size::Medium,
-            status: "ready".to_string(),
-            notes: iced::widget::text_editor::Content::with_text("Notes…"),
+            name,
+            agree,
+            dark,
+            volume,
+            size,
+            status,
+            notes,
         }
     }
 }

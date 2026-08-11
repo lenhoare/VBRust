@@ -11,9 +11,11 @@ struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
+        let agreed = false;
+        let volume = 50;
         Settings {
-            agreed: false,
-            volume: 50,
+            agreed,
+            volume,
         }
     }
 }

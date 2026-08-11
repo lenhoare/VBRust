@@ -19,9 +19,11 @@ struct Menu {
 
 impl Default for Menu {
     fn default() -> Self {
+        let fruits = fruits();
+        let choice = "(none yet)".to_string();
         Menu {
-            fruits: fruits(),
-            choice: "(none yet)".to_string(),
+            fruits,
+            choice,
             fruits_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
         }
     }

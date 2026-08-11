@@ -10,8 +10,9 @@ struct Gauge {
 
 impl Default for Gauge {
     fn default() -> Self {
+        let level = 0;
         Gauge {
-            level: 0,
+            level,
         }
     }
 }

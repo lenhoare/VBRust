@@ -29,10 +29,13 @@ struct Life {
 
 impl Default for Life {
     fn default() -> Self {
+        let grid = seedgrid();
+        let living = countlive(&seedgrid());
+        let ticks = 0;
         Life {
-            grid: seedgrid(),
-            living: countlive(&seedgrid()),
-            ticks: 0,
+            grid,
+            living,
+            ticks,
         }
     }
 }

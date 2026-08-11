@@ -5,8 +5,8 @@
 from vbrpy import _vb, col, read_csv
 
 def main():
-    people: object = read_csv('people.csv')
-    orders: object = read_csv('orders.csv')
+    people: object = read_csv('people.csv', null_values=["", "NA", "N/A", "n/a", "null", "NULL", "NaN"])
+    orders: object = read_csv('orders.csv', null_values=["", "NA", "N/A", "n/a", "null", "NULL", "NaN"])
     # Inner join: only the people who placed orders.
     buyers: object = people.join(orders, on='name', how='inner')
     print(buyers)

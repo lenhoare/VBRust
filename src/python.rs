@@ -611,7 +611,12 @@ impl Emitter {
                 if m == "readcsv" {
                     self.df_builders.insert("read_csv");
                     let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
-                    return format!("read_csv({})", a.join(", "));
+                    // Read common missing-value tokens as nulls, matching the Rust
+                    // stdlib's `read_csv` so both targets produce the same frame.
+                    return format!(
+                        "read_csv({}, null_values=[\"\", \"NA\", \"N/A\", \"n/a\", \"null\", \"NULL\", \"NaN\"])",
+                        a.join(", ")
+                    );
                 }
             } else if STDLIB_SUPPORTED.contains(&ns.as_str()) {
                 self.stdlib_used.insert(ns.clone());
@@ -953,6 +958,12 @@ impl Emitter {
     fn lower_agg(&mut self, e: &Expr) -> String {
         if let ExprKind::Call { name, args } = &e.kind {
             let low = name.to_ascii_lowercase();
+            // `Count()` with no argument = rows per group (polars `len()`, exposed
+            // as `count_rows` to dodge the Python builtin), aliased to "count".
+            if low == "count" && args.is_empty() {
+                self.df_builders.insert("count_rows");
+                return "count_rows().alias(\"count\")".to_string();
+            }
             if matches!(low.as_str(), "sum" | "mean" | "min" | "max" | "count") && args.len() == 1 {
                 let inner = self.lower_formula(&args[0]);
                 return format!("{}.{}()", inner, low);

@@ -10,8 +10,9 @@ struct Counter {
 
 impl Default for Counter {
     fn default() -> Self {
+        let count = 0;
         Counter {
-            count: 0,
+            count,
         }
     }
 }

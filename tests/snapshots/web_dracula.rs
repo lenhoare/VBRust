@@ -21,8 +21,9 @@ impl Component for Counter {
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {
+        let count = 0;
         Counter {
-            count: 0,
+            count,
         }
     }
 

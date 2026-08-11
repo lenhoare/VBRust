@@ -19,10 +19,13 @@ struct Notes {
 
 impl Default for Notes {
     fn default() -> Self {
+        let entry = "".to_string();
+        let notes = seed();
+        let status = "type a note, Enter to add".to_string();
         Notes {
-            entry: "".to_string(),
-            notes: seed(),
-            status: "type a note, Enter to add".to_string(),
+            entry,
+            notes,
+            status,
             notes_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             focus_index: 0,
         }

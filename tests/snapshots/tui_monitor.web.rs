@@ -10,10 +10,13 @@ struct Monitor {
 
 impl Default for Monitor {
     fn default() -> Self {
+        let seconds = 0;
+        let status = "starting…".to_string();
+        let url = "https://api.github.com/zen".to_string();
         Monitor {
-            seconds: 0,
-            status: "starting…".to_string(),
-            url: "https://api.github.com/zen".to_string(),
+            seconds,
+            status,
+            url,
         }
     }
 }

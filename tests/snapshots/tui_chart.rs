@@ -23,8 +23,9 @@ struct Plot {
 
 impl Default for Plot {
     fn default() -> Self {
+        let curve = curve();
         Plot {
-            curve: curve(),
+            curve,
         }
     }
 }

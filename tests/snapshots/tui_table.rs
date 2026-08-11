@@ -25,9 +25,11 @@ struct People {
 
 impl Default for People {
     fn default() -> Self {
+        let people = roster();
+        let status = "(select a row)".to_string();
         People {
-            people: roster(),
-            status: "(select a row)".to_string(),
+            people,
+            status,
             people_state: ratatui::widgets::TableState::default().with_selected(Some(0)),
         }
     }

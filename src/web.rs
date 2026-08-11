@@ -25,7 +25,7 @@
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::surface::{
-    self, analyze_events, collect_event_stdlib, launched, match_scrutinee, render_init,
+    self, analyze_events, collect_event_stdlib, launched, match_scrutinee,
     rewrite_expr_with, state_maps, AsyncBackend, AwaitSplit,
 };
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
@@ -113,6 +113,10 @@ fn emit_main(p: &Window) -> String {
 fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut Diagnostics) -> String {
     let mut out = String::new();
     let ty = &p.name; // the component struct is named after the page
+    // A per-page view of the tables carrying this page's `Sub` helpers, so a
+    // call to one inside an event lowers to a method on the state.
+    let t_local = surface::with_subs(t, &p.subs);
+    let t = &t_local;
     let (fields, field_ty) = state_maps(&p.state);
     let ctx = PageCtx { fields: &fields, field_ty: &field_ty, enums: &t.enums };
 
@@ -191,6 +195,9 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
         out.push_str("}\n\n");
     }
 
+    // ── in-block `Sub` helpers → methods on the state ──
+    surface::emit_subs(&p.subs, ty, &fields, &field_ty, t, diags, &mut out);
+
     // ── The component: create (initial state), update (events), view ──
     out.push_str(&format!("impl Component for {} {{\n", ty));
     if p.events.is_empty() {
@@ -202,13 +209,12 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
 
     // create — the Dim initialisers.
     out.push_str("    fn create(_ctx: &Context<Self>) -> Self {\n");
+    // The initialisers as sequential `let`s (so a field can read a sibling),
+    // then the struct built from them by field-init shorthand.
+    let names = surface::emit_state_lets(&p.state, t, 2, diags, &mut out, |_| None);
     out.push_str(&format!("        {} {{\n", ty));
-    for f in &p.state {
-        out.push_str(&format!(
-            "            {}: {},\n",
-            rust_name(&f.name),
-            render_init(f.init.as_ref(), &f.ty, t, diags)
-        ));
+    for name in &names {
+        out.push_str(&format!("            {},\n", name));
     }
     out.push_str("        }\n");
     out.push_str("    }\n\n");

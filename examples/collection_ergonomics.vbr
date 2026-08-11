@@ -1,0 +1,36 @@
+' Small ownership/coercion smoothings so Rust's rules don't leak into VB code:
+'  • a HashMap key that's a *variable* borrows just like a literal does — for
+'    both a `String` local and a ByVal `String` param (already a slice)
+'  • returning an element out of a Vec clones it (you can't move out of an index)
+'  • a Long constant assigned into a Double (or multiplied by a float) widens
+Public Const K As Long = 32
+
+Function Knows(ByVal scores As HashMap<String, Long>, ByVal who As String) As Boolean
+    ' `who` is a ByVal String param (already a `&str`) — no double borrow needed.
+    Return scores.contains_key(who)
+End Function
+
+Function FirstName(ByVal names As Vec<String>) As String
+    ' Indexing a Vec can't *move* the String out — VBR clones it for you.
+    Return names[0]
+End Function
+
+Function Main()
+    Dim scores As HashMap<String, Long>
+    scores.insert("Ada", 95)
+
+    ' A `String` *local* key borrows for `contains_key`/`get`, like a literal.
+    Dim who As String = "Ada"
+    If scores.contains_key(who) Then
+        Debug.Print who & " scored " & scores.get(who).Unwrap()
+    End If
+    Debug.Print "known via param: " & Knows(scores, who)
+
+    Dim names As Vec<String> = ["Ada", "Grace"]
+    Debug.Print "first is " & FirstName(names)
+
+    ' A Long const widens into a Double, and mixes with floats.
+    Dim weight As Double = K
+    Dim adjusted As Double = weight + K * 0.5
+    Debug.Print "weight " & weight & ", adjusted " & adjusted
+End Function

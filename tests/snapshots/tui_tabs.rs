@@ -9,9 +9,11 @@ struct Tabs {
 
 impl Default for Tabs {
     fn default() -> Self {
+        let tab = 1;
+        let busy = false;
         Tabs {
-            tab: 1,
-            busy: false,
+            tab,
+            busy,
         }
     }
 }

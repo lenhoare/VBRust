@@ -10,8 +10,9 @@ struct Greeter {
 
 impl Default for Greeter {
     fn default() -> Self {
+        let name = "".to_string();
         Greeter {
-            name: "".to_string(),
+            name,
         }
     }
 }

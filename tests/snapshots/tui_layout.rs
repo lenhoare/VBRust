@@ -8,8 +8,9 @@ struct Dashboard {
 
 impl Default for Dashboard {
     fn default() -> Self {
+        let tab = 1;
         Dashboard {
-            tab: 1,
+            tab,
         }
     }
 }

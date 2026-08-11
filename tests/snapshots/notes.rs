@@ -11,9 +11,11 @@ struct Notes {
 
 impl Default for Notes {
     fn default() -> Self {
+        let notes = iced::widget::text_editor::Content::with_text("Type your notes here…");
+        let status = "ready".to_string();
         Notes {
-            notes: iced::widget::text_editor::Content::with_text("Type your notes here…"),
-            status: "ready".to_string(),
+            notes,
+            status,
         }
     }
 }

@@ -15,9 +15,11 @@ struct Converter {
 
 impl Default for Converter {
     fn default() -> Self {
+        let celsius = 20;
+        let fahrenheit = 68;
         Converter {
-            celsius: 20,
-            fahrenheit: 68,
+            celsius,
+            fahrenheit,
         }
     }
 }

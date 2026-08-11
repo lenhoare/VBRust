@@ -33,9 +33,11 @@ struct MultiChart {
 
 impl Default for MultiChart {
     fn default() -> Self {
+        let linear = linear();
+        let quad = quadratic();
         MultiChart {
-            linear: linear(),
-            quad: quadratic(),
+            linear,
+            quad,
         }
     }
 }

@@ -237,12 +237,17 @@ pub fn build_struct_table(program: &Program) -> StructTable {
         .collect()
 }
 
-/// Module-constant original name → its SCREAMING_SNAKE_CASE Rust name.
-pub fn build_const_map(program: &Program) -> HashMap<String, String> {
+/// Module-constant original name → (its SCREAMING_SNAKE_CASE Rust name, its
+/// declared numeric/scalar type). The type lets `infer` treat a constant like a
+/// typed variable, so `Dim d As Double = K` (K a `Long` const) casts and
+/// `K * 1.5` widens — the same coercions a `Long` *variable* already gets.
+pub type ConstMap = HashMap<String, (String, Type)>;
+
+pub fn build_const_map(program: &Program) -> ConstMap {
     program
         .constants
         .iter()
-        .map(|c| (c.name.clone(), to_screaming(&c.name)))
+        .map(|c| (c.name.clone(), (to_screaming(&c.name), c.ty)))
         .collect()
 }
 
@@ -510,7 +515,7 @@ pub fn resolve_body(
     params: &[Param],
     fns: &FnTable,
     methods: &MethodTable,
-    consts: &HashMap<String, String>,
+    consts: &ConstMap,
     modules: &HashSet<String>,
     interfaces: &ProjectInterfaces,
     enums: &HashSet<String>,
@@ -590,7 +595,7 @@ pub fn resolve_event_body(
     state: &HashMap<String, DeclType>,
     fns: &FnTable,
     methods: &MethodTable,
-    consts: &HashMap<String, String>,
+    consts: &ConstMap,
     modules: &HashSet<String>,
     interfaces: &ProjectInterfaces,
     enums: &HashSet<String>,
@@ -689,7 +694,7 @@ struct Ctx<'a> {
     deref: HashSet<String>,
     fns: &'a FnTable,
     methods: &'a MethodTable,
-    consts: &'a HashMap<String, String>,
+    consts: &'a ConstMap,
     /// The function's plain numeric return type, for coercing `Return` values.
     ret_coerce: Option<Type>,
     /// The numeric inner type of a `Result<T>`/`Option<T>` return, for coercing
@@ -773,6 +778,15 @@ impl Ctx<'_> {
             Some(
                 DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) | DeclType::Map(..)
             )
+        )
+    }
+
+    /// A `HashMap` variable — its `get`/`contains_key`/`remove` methods take
+    /// the key by reference (`&K`), so a key *variable* argument needs a borrow.
+    fn is_map(&self, name: &str) -> bool {
+        matches!(
+            self.binding(name).and_then(|b| b.ty.as_ref()),
+            Some(DeclType::Map(..))
         )
     }
 
@@ -917,6 +931,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         }
                     }
                 }
+                clone_if_moved_index(e, ctx);
             }
             Stmt::Expr(e) => {
                 resolve_expr(e, ctx);
@@ -1151,7 +1166,7 @@ fn record_hover(span: crate::span::Span, name: &str, ctx: &mut Ctx) {
             ),
         },
         None if ctx.consts.contains_key(name) => {
-            format!("{} — a constant · Rust: `{}`", name, ctx.consts[name])
+            format!("{} — a constant · Rust: `{}`", name, ctx.consts[name].0)
         }
         None => return,
     };
@@ -1250,7 +1265,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         }
         // A reference to a module constant → its SCREAMING_SNAKE name, verbatim.
         ExprKind::Ident(name) if ctx.consts.contains_key(name) => {
-            e.kind = ExprKind::ConstRef(ctx.consts[name].clone());
+            e.kind = ExprKind::ConstRef(ctx.consts[name].0.clone());
         }
         ExprKind::Ident(_) | ExprKind::ConstRef(_) => {}
         ExprKind::Binary { op, lhs, rhs } => {
@@ -1451,6 +1466,31 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     {
                         let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
                         arg.kind = ExprKind::Ref(Box::new(inner));
+                    }
+                }
+            }
+            // `map.get(k)` / `contains_key(k)` / `remove(k)` take the key by
+            // reference (`&K`). A key *literal* is already the right shape
+            // (`"Alice"` is a `&str`; an int literal borrows to `&5`), but a key
+            // *variable* — a `String` or a scalar local — arrives by value and
+            // needs the `&`. A string literal already patterns as `&str`, and an
+            // already-borrowed arg is left alone.
+            if matches!(snake(method).as_str(), "get" | "get_mut" | "contains_key" | "remove") {
+                if let ExprKind::Ident(r) = &(&**recv).kind {
+                    if ctx.is_map(r) {
+                        for arg in args.iter_mut() {
+                            // Already a reference (`&str` literal, a ByVal String
+                            // param which is `&str`, an explicit `&`) → nothing to
+                            // add. An owned String or a scalar key arrives by value
+                            // and needs the `&`.
+                            let already_ref = matches!(&arg.kind, ExprKind::Ref(_) | ExprKind::Str(_))
+                                || infer(arg, ctx) == VType::Str;
+                            if !already_ref {
+                                let inner =
+                                    std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                                arg.kind = ExprKind::Ref(Box::new(inner));
+                            }
+                        }
                     }
                 }
             }
@@ -1989,9 +2029,18 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
             Some(VType::Str) => VType::Decl(DeclType::Vec(Box::new(DeclType::Plain(Type::Text)))),
             _ => VType::Unknown,
         },
-        // Struct/tuple literals, const refs, closures: not tracked yet.
+        // A module constant infers to its declared scalar type (looked up by the
+        // SCREAMING Rust name it now holds), so it coerces/widens like a typed
+        // variable. An enum-variant `ConstRef` (`Color::Red`) matches no const and
+        // stays Unknown, as before.
+        ExprKind::ConstRef(rust_name) => ctx
+            .consts
+            .values()
+            .find(|(n, _)| n == rust_name)
+            .map(|(_, t)| vt(*t))
+            .unwrap_or(VType::Unknown),
+        // Struct/tuple literals, closures: not tracked yet.
         ExprKind::StructLit { .. }
-        | ExprKind::ConstRef(_)
         | ExprKind::Closure { .. }
         | ExprKind::Tuple(_)
         | ExprKind::InlineRust(_)
@@ -2223,6 +2272,13 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
 /// polars aggregation method; a bare formula passes through `lower_formula`.
 fn lower_agg(e: &mut Expr, ctx: &Ctx) {
     if let ExprKind::Call { name, args } = &mut e.kind {
+        // `Count()` with no argument = rows per group (polars `len()`), aliased to
+        // "count" so it never collides with a group-key column of the same name.
+        if name.eq_ignore_ascii_case("count") && args.is_empty() {
+            let len = call_expr("len", vec![]);
+            *e = mcall(len, "alias", vec![ExprKind::Str("count".to_string()).synth()]);
+            return;
+        }
         let agg = ["sum", "mean", "min", "max", "count"]
             .iter()
             .find(|a| name.eq_ignore_ascii_case(a))
@@ -2244,6 +2300,31 @@ fn call_expr(name: &str, args: Vec<Expr>) -> Expr {
 fn mcall(recv: Expr, method: &str, args: Vec<Expr>) -> Expr {
     let span = recv.span;
     ExprKind::MethodCall { recv: Box::new(recv), method: method.to_string(), args }.at(span)
+}
+
+/// `Return coll[i]` can't *move* a non-Copy element out of an index (Rust:
+/// "cannot move out of index of `Vec<String>`") — clone it. A numeric/bool
+/// element is `Copy` and moves out fine, so those are left alone. Applies to a
+/// `Vec`/array element that is a String, a struct, or a nested collection.
+fn clone_if_moved_index(e: &mut Expr, ctx: &Ctx) {
+    if !matches!(e.kind, ExprKind::Index(..)) {
+        return;
+    }
+    let non_copy = matches!(
+        infer(e, ctx),
+        VType::Decl(
+            DeclType::Plain(Type::Text)
+                | DeclType::Named(_)
+                | DeclType::Vec(_)
+                | DeclType::Map(..)
+                | DeclType::Array(..)
+                | DeclType::Array2D(..)
+        )
+    );
+    if non_copy {
+        let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
+        *e = mcall(inner, "clone", vec![]);
+    }
 }
 fn lit_of(v: Expr) -> Expr {
     let span = v.span;

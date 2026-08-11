@@ -29,10 +29,13 @@ struct Panels {
 
 impl Default for Panels {
     fn default() -> Self {
+        let left = leftitems();
+        let right = rightitems();
+        let log = "(nothing picked yet)".to_string();
         Panels {
-            left: leftitems(),
-            right: rightitems(),
-            log: "(nothing picked yet)".to_string(),
+            left,
+            right,
+            log,
             left_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             right_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             focus_index: 0,

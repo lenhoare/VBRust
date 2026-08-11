@@ -5,7 +5,7 @@
 use vbr_stdlib::{DataFrame};
 
 #[allow(unused_imports)]
-use vbr_stdlib::dataframe::{col, lit, when};
+use vbr_stdlib::dataframe::{col, len, lit, when};
 
 fn main() {
     let people: DataFrame = DataFrame::read_csv("people.csv");

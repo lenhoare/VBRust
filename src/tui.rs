@@ -19,7 +19,7 @@
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::surface::{
-    self, analyze_events, launched, match_scrutinee, render_init,
+    self, analyze_events, launched, match_scrutinee,
     rewrite_expr, state_maps, AwaitSplit,
 };
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
@@ -146,6 +146,10 @@ fn emit_screen(
 ) -> String {
     let mut out = String::new();
     let ty = &sc.name;
+    // A per-screen view of the tables carrying this screen's `Sub` helpers, so a
+    // call to one inside an event lowers to a method on the state.
+    let t_local = surface::with_subs(t, &sc.subs);
+    let t = &t_local;
     let enums = &t.enums;
     let (fields, field_ty) = state_maps(&sc.state);
 
@@ -209,17 +213,19 @@ fn emit_screen(
             "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
             ty, ty
         ));
-        out.push_str(&format!("        Ok({} {{\n", ty));
     } else {
         out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
+    }
+    // The initialisers as sequential `let`s (so a field can read a sibling),
+    // then the struct built from them by field-init shorthand.
+    let names = surface::emit_state_lets(&sc.state, &t, 2, diags, &mut out, |_| None);
+    if fallible {
+        out.push_str(&format!("        Ok({} {{\n", ty));
+    } else {
         out.push_str(&format!("        {} {{\n", ty));
     }
-    for f in &sc.state {
-        let mut init = render_init(f.init.as_ref(), &f.ty, t, diags);
-        if f.init.as_ref().map_or(false, |e| surface::fallible_init(e, &t)) {
-            init.push('?');
-        }
-        out.push_str(&format!("            {}: {},\n", rust_name(&f.name), init));
+    for name in &names {
+        out.push_str(&format!("            {},\n", name));
     }
     for fo in &focusables {
         if let Some(st) = fo.state_ty() {
@@ -237,6 +243,9 @@ fn emit_screen(
     } else {
         out.push_str("        }\n    }\n}\n\n");
     }
+
+    // ── in-block `Sub` helpers → methods on the state ──
+    surface::emit_subs(&sc.subs, ty, &fields, &field_ty, t, diags, &mut out);
 
     // ── view ──
     // `state` is `_state` when nothing reads it. A list/table makes the view
@@ -888,6 +897,10 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
 /// the keymap (a handler event's body, or `Quit` → break), repeat.
 fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> String {
     let ty = &sc.name;
+    // Same per-screen `Sub` awareness as `emit_screen`, so a helper called from a
+    // key/timer event body lowers to a method on the state.
+    let t_local = surface::with_subs(t, &sc.subs);
+    let t = &t_local;
     let (fields, field_ty) = state_maps(&sc.state);
     let events: HashMap<String, &GuiEvent> =
         sc.events.iter().map(|e| (e.name.to_ascii_lowercase(), e)).collect();

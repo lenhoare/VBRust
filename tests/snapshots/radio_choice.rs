@@ -24,8 +24,9 @@ struct Chooser {
 
 impl Default for Chooser {
     fn default() -> Self {
+        let choice = Size::Small;
         Chooser {
-            choice: Size::Small,
+            choice,
         }
     }
 }

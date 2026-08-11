@@ -5,7 +5,7 @@
 from vbrpy import _vb, col, lit, read_csv, when
 
 def main():
-    df: object = read_csv('people.csv')
+    df: object = read_csv('people.csv', null_values=["", "NA", "N/A", "n/a", "null", "NULL", "NaN"])
     rows, cols = df.shape
     print(f"loaded {_vb(rows)} rows, {_vb(cols)} columns")
     # Column formulas: arithmetic across whole columns, and an IIf band.

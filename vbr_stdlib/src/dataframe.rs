@@ -10,8 +10,9 @@
 
 use polars::prelude::*;
 
-// The expression builders VBR's generated code calls directly.
-pub use polars::prelude::{col, lit, when};
+// The expression builders VBR's generated code calls directly. `len` is the
+// per-group row count behind a bare `Count()` aggregation.
+pub use polars::prelude::{col, len, lit, when};
 
 /// A table of columns. A thin newtype over polars' `DataFrame` that hides
 /// `PolarsResult` and builder boilerplate behind clean, VBR-friendly methods.
@@ -19,10 +20,21 @@ pub use polars::prelude::{col, lit, when};
 pub struct DataFrame(polars::prelude::DataFrame);
 
 impl DataFrame {
-    /// Read a CSV file (with a header row) into a frame.
+    /// Read a CSV file (with a header row) into a frame. Common "missing value"
+    /// tokens (`N/A`, `NA`, `null`, an empty field, …) are read as nulls rather
+    /// than aborting the read or forcing a numeric column to text — the same
+    /// default set pandas/polars use. (Extracting a column that still holds nulls
+    /// is refused by `column()`, so filter or fill them first.)
     pub fn read_csv(path: &str) -> DataFrame {
+        let nulls = NullValues::AllColumns(
+            ["", "NA", "N/A", "n/a", "null", "NULL", "NaN"]
+                .iter()
+                .map(|s| (*s).into())
+                .collect(),
+        );
         let df = CsvReadOptions::default()
             .with_has_header(true)
+            .with_parse_options(CsvParseOptions::default().with_null_values(Some(nulls)))
             .try_into_reader_with_file_path(Some(path.into()))
             .expect("could not open the CSV file")
             .finish()
@@ -264,6 +276,14 @@ impl FromColumn for f64 {
 
 impl FromColumn for i64 {
     fn from_column(c: &Column) -> Vec<i64> {
+        // An aggregation like `Count(...)` yields a `u32`; widen any integer
+        // column to `Int64` so it fits a `Vec<Long>`. A non-integer column (a
+        // Double, a String) still errors below, so this never silently truncates.
+        let c = if c.dtype().is_integer() {
+            c.cast(&DataType::Int64).expect("could not widen column to Long")
+        } else {
+            c.clone()
+        };
         c.i64().expect("column is not a Long").into_no_null_iter().collect()
     }
 }
@@ -364,5 +384,39 @@ mod tests {
             .group_by(&["band"])
             .agg(&[(col("v") * lit(2)).sum().alias("v2")]);
         assert_eq!(g.column::<i64>("v2"), vec![18, 12]);
+    }
+
+    #[test]
+    fn read_csv_treats_na_tokens_as_null() {
+        // A CSV with `N/A` in a numeric column reads without aborting; the token
+        // becomes a null (not a parse error, not a string column). (Q37)
+        let dir = std::env::temp_dir();
+        let path = dir.join("vbr_na_test.csv");
+        std::fs::write(&path, "name,score\nAda,90\nGrace,N/A\nLinus,75\n").unwrap();
+        let df = DataFrame::read_csv(path.to_str().unwrap());
+        assert_eq!(df.shape(), (3, 2));
+        // `score` stayed numeric (Int64), with one null where `N/A` was.
+        let score = &df.0.column("score").unwrap();
+        assert!(score.dtype().is_integer(), "score should be numeric, got {:?}", score.dtype());
+        assert_eq!(score.null_count(), 1);
+    }
+
+    #[test]
+    fn count_aggregation_extracts_as_long() {
+        // polars `count()` yields a u32 column; extracting it as a `Vec<Long>`
+        // widens rather than erroring "expected Int64, got u32". (Q38)
+        let d = sample();
+        let g = d.group_by(&["band"]).agg(&[col("v").count().alias("n")]);
+        assert_eq!(g.column::<i64>("n"), vec![3, 2]);
+    }
+
+    #[test]
+    fn bare_count_is_rows_per_group() {
+        // A bare `Count()` lowers to `len()` — rows per group, named "count",
+        // never colliding with a group-key column. (Q39 workaround)
+        let d = sample();
+        let g = d.group_by(&["band"]).agg(&[len().alias("count")]);
+        assert_eq!(g.column::<String>("band"), vec!["a", "b"]);
+        assert_eq!(g.column::<i64>("count"), vec![3, 2]);
     }
 }

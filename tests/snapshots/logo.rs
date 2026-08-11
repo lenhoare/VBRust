@@ -10,8 +10,9 @@ struct Gallery {
 
 impl Default for Gallery {
     fn default() -> Self {
+        let caption = "Ferris the crab".to_string();
         Gallery {
-            caption: "Ferris the crab".to_string(),
+            caption,
         }
     }
 }
