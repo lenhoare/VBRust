@@ -1,0 +1,15 @@
+[package]
+name = "tide-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reusable TUI code editor widget for ratatui — document, view, decorations."
+readme = "../README.md"
+
+[dependencies]
+ratatui = { workspace = true }
+ropey = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+crossterm = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "tide"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Turbo Pascal–inspired TUI IDE for VBR, built on tide-editor."
+
+[[bin]]
+name = "tide"
+path = "src/main.rs"
+
+[dependencies]
+tide-editor = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+vbr = { workspace = true }

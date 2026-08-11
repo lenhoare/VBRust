@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["editor", "app"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+ropey = "1.6"
+unicode-width = "0.2"
+tide-editor = { path = "editor" }
+vbr = { path = ".." }
