@@ -24,7 +24,10 @@ use tide_editor::{
     is_ctrl, Document, EditorView, Key, KeyEvent, KeyMods, KeywordHighlighter,
 };
 
-use files::{default_untitled, display_name, open_path, resolve_save_path, save_document};
+use files::{
+    default_untitled, detect_project, display_name, list_units, open_path, project_entry,
+    project_title, resolve_save_path, save_document, unit_label,
+};
 use ui::{
     editor_inner_rect, editor_text_area, hit_editor, hit_watch, Dialog, EditCmd, FileCmd, Focus,
     HelpCmd, MenuCmd, MenuHit, MenuId, RunCmd, UiState,
@@ -118,15 +121,34 @@ fn vbr_highlighter() -> KeywordHighlighter {
 }
 
 fn main() -> io::Result<()> {
+    let mut ui = UiState::default();
+    let mut view = EditorView::new();
     let mut doc = match env::args().nth(1) {
-        Some(p) => open_path(&p).unwrap_or_else(|e| {
-            eprintln!("{e}");
-            default_untitled()
-        }),
+        Some(p) => {
+            let path = PathBuf::from(&p);
+            if path.is_dir() {
+                match open_project_into(&path, &mut ui) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        default_untitled()
+                    }
+                }
+            } else {
+                match open_path(&path) {
+                    Ok(d) => {
+                        attach_project_for_doc(&d, &mut ui);
+                        d
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        default_untitled()
+                    }
+                }
+            }
+        }
         None => default_untitled(),
     };
-    let mut view = EditorView::new();
-    let mut ui = UiState::default();
     let highlighter = vbr_highlighter();
 
     let mut terminal = ratatui::init();
@@ -369,6 +391,14 @@ fn event_loop(
                     });
                     continue;
                 }
+                if is_ctrl(&ev, 'p') {
+                    open_project_dialog(ui);
+                    continue;
+                }
+                if is_ctrl(&ev, 'u') {
+                    open_units_dialog(doc, ui);
+                    continue;
+                }
                 if is_ctrl(&ev, 'n') {
                     if doc.is_dirty() {
                         ui.message = " Save the file first (Ctrl+S), then New.".into();
@@ -377,6 +407,7 @@ fn event_loop(
                         *view = EditorView::new();
                         ui.clear_diagnostics();
                         ui.find.clear_matches();
+                        ui.clear_project();
                         ui.message = " New file.".into();
                     }
                     continue;
@@ -602,15 +633,37 @@ fn handle_dialog(
             KeyCode::Esc => ui.dialog = None,
             KeyCode::Enter => {
                 ui.dialog = None;
-                match open_path(input.trim()) {
-                    Ok(d) => {
-                        *doc = d;
-                        *view = EditorView::new();
-                        ui.clear_diagnostics();
-                        ui.find.clear_matches();
-                        ui.message = format!(" Opened {}.", display_name(doc));
+                let path = PathBuf::from(input.trim());
+                if path.is_dir() {
+                    match open_project_into(&path, ui) {
+                        Ok(d) => {
+                            *doc = d;
+                            *view = EditorView::new();
+                            ui.clear_diagnostics();
+                            ui.find.clear_matches();
+                            ui.message = format!(
+                                " Project {} ({} units).",
+                                ui.project_dir
+                                    .as_ref()
+                                    .map(|p| project_title(p))
+                                    .unwrap_or_default(),
+                                ui.units.len()
+                            );
+                        }
+                        Err(e) => ui.message = e,
                     }
-                    Err(e) => ui.message = e,
+                } else {
+                    match open_path(&path) {
+                        Ok(d) => {
+                            attach_project_for_doc(&d, ui);
+                            *doc = d;
+                            *view = EditorView::new();
+                            ui.clear_diagnostics();
+                            ui.find.clear_matches();
+                            ui.message = format!(" Opened {}.", display_name(doc));
+                        }
+                        Err(e) => ui.message = e,
+                    }
                 }
             }
             KeyCode::Backspace => {
@@ -623,13 +676,75 @@ fn handle_dialog(
             }
             _ => {}
         },
+        Dialog::OpenProject { mut input } => match key.code {
+            KeyCode::Esc => ui.dialog = None,
+            KeyCode::Enter => {
+                ui.dialog = None;
+                let path = PathBuf::from(input.trim());
+                match open_project_into(&path, ui) {
+                    Ok(d) => {
+                        *doc = d;
+                        *view = EditorView::new();
+                        ui.clear_diagnostics();
+                        ui.find.clear_matches();
+                        ui.message = format!(
+                            " Project {} — {} unit(s). Ctrl+U to switch.",
+                            ui.project_dir
+                                .as_ref()
+                                .map(|p| project_title(p))
+                                .unwrap_or_default(),
+                            ui.units.len()
+                        );
+                    }
+                    Err(e) => ui.message = e,
+                }
+            }
+            KeyCode::Backspace => {
+                input.pop();
+                ui.dialog = Some(Dialog::OpenProject { input });
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                input.push(c);
+                ui.dialog = Some(Dialog::OpenProject { input });
+            }
+            _ => {}
+        },
+        Dialog::Units { mut selected } => match key.code {
+            KeyCode::Esc => ui.dialog = None,
+            KeyCode::Up => {
+                if !ui.units.is_empty() {
+                    selected = if selected == 0 {
+                        ui.units.len() - 1
+                    } else {
+                        selected - 1
+                    };
+                    ui.dialog = Some(Dialog::Units { selected });
+                }
+            }
+            KeyCode::Down => {
+                if !ui.units.is_empty() {
+                    selected = (selected + 1) % ui.units.len();
+                    ui.dialog = Some(Dialog::Units { selected });
+                }
+            }
+            KeyCode::Enter => {
+                ui.dialog = None;
+                if let Some(path) = ui.units.get(selected).cloned() {
+                    switch_unit(doc, view, ui, &path);
+                }
+            }
+            _ => {}
+        },
         Dialog::SaveAs { mut input } => match key.code {
             KeyCode::Esc => ui.dialog = None,
             KeyCode::Enter => {
                 ui.dialog = None;
                 let path = resolve_save_path(&input);
                 match save_document(doc, Some(&path)) {
-                    Ok(()) => ui.message = format!(" Saved {}.", display_name(doc)),
+                    Ok(()) => {
+                        attach_project_for_doc(doc, ui);
+                        ui.message = format!(" Saved {}.", display_name(doc));
+                    }
                     Err(e) => ui.message = e,
                 }
             }
@@ -665,6 +780,7 @@ fn dispatch(
                 *view = EditorView::new();
                 ui.clear_diagnostics();
                 ui.find.clear_matches();
+                ui.clear_project();
                 ui.message = " New file.".into();
             }
         }
@@ -673,6 +789,8 @@ fn dispatch(
                 input: String::new(),
             });
         }
+        MenuCmd::File(FileCmd::OpenProject) => open_project_dialog(ui),
+        MenuCmd::File(FileCmd::Units) => open_units_dialog(doc, ui),
         MenuCmd::File(FileCmd::Save) => do_save(doc, ui, false),
         MenuCmd::File(FileCmd::SaveAs) => {
             let initial = doc
@@ -716,6 +834,96 @@ fn dispatch(
         MenuCmd::Help(HelpCmd::About) => ui.dialog = Some(Dialog::About),
     }
     Ok(false)
+}
+
+fn open_project_dialog(ui: &mut UiState) {
+    let initial = ui
+        .project_dir
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    ui.dialog = Some(Dialog::OpenProject { input: initial });
+}
+
+fn open_units_dialog(doc: &Document, ui: &mut UiState) {
+    if !ui.has_project() {
+        // Try to detect from the current file
+        if let Some(path) = doc.path() {
+            attach_project_for_path(path, ui);
+        }
+    }
+    if !ui.has_project() {
+        ui.message = " No project — open a project folder (Ctrl+P) or a unit in one.".into();
+        return;
+    }
+    let selected = ui.current_unit_index(doc).unwrap_or(0);
+    ui.dialog = Some(Dialog::Units { selected });
+}
+
+fn open_project_into(dir: &PathBuf, ui: &mut UiState) -> Result<Document, String> {
+    let dir = if dir.as_os_str().is_empty() {
+        return Err("Enter a project folder path.".into());
+    } else {
+        dir
+    };
+    if !dir.is_dir() {
+        return Err(format!("Not a folder: {}", dir.display()));
+    }
+    let units = list_units(dir)?;
+    if units.is_empty() {
+        return Err(format!("No .vbr files in {}", dir.display()));
+    }
+    let entry = project_entry(&units)
+        .ok_or_else(|| "No entry unit.".to_string())?
+        .to_path_buf();
+    let doc = open_path(&entry)?;
+    ui.set_project(dir.clone(), units);
+    Ok(doc)
+}
+
+fn attach_project_for_doc(doc: &Document, ui: &mut UiState) {
+    if let Some(path) = doc.path() {
+        attach_project_for_path(path, ui);
+    } else {
+        ui.clear_project();
+    }
+}
+
+fn attach_project_for_path(path: &std::path::Path, ui: &mut UiState) {
+    if let Some(dir) = detect_project(path) {
+        match list_units(&dir) {
+            Ok(units) if !units.is_empty() => ui.set_project(dir, units),
+            _ => ui.clear_project(),
+        }
+    } else {
+        ui.clear_project();
+    }
+}
+
+fn switch_unit(
+    doc: &mut Document,
+    view: &mut EditorView,
+    ui: &mut UiState,
+    path: &std::path::Path,
+) {
+    if doc.path() == Some(path) {
+        ui.message = format!(" Already editing {}.", unit_label(path));
+        return;
+    }
+    if doc.is_dirty() {
+        ui.message = " Save the unit first (Ctrl+S), then switch (Ctrl+U).".into();
+        return;
+    }
+    match open_path(path) {
+        Ok(d) => {
+            *doc = d;
+            *view = EditorView::new();
+            ui.clear_diagnostics();
+            ui.find.clear_matches();
+            ui.message = format!(" Unit {}.", display_name(doc));
+        }
+        Err(e) => ui.message = e,
+    }
 }
 
 fn open_find(ui: &mut UiState) {
@@ -769,7 +977,10 @@ fn do_save(doc: &mut Document, ui: &mut UiState, force_as: bool) {
         return;
     }
     match save_document(doc, None) {
-        Ok(()) => ui.message = format!(" Saved {}.", display_name(doc)),
+        Ok(()) => {
+            attach_project_for_doc(doc, ui);
+            ui.message = format!(" Saved {}.", display_name(doc));
+        }
         Err(e) => ui.message = e,
     }
 }

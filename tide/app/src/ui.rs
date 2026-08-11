@@ -22,6 +22,8 @@ pub enum MenuId {
 pub enum FileCmd {
     New,
     Open,
+    OpenProject,
+    Units,
     Save,
     SaveAs,
     Quit,
@@ -76,11 +78,13 @@ impl MenuBar {
     pub fn items(id: MenuId) -> &'static [(&'static str, MenuCmd)] {
         match id {
             MenuId::File => &[
-                ("New        Ctrl+N", MenuCmd::File(FileCmd::New)),
-                ("Open...    Ctrl+O", MenuCmd::File(FileCmd::Open)),
-                ("Save       Ctrl+S", MenuCmd::File(FileCmd::Save)),
+                ("New           Ctrl+N", MenuCmd::File(FileCmd::New)),
+                ("Open file...  Ctrl+O", MenuCmd::File(FileCmd::Open)),
+                ("Open project... Ctrl+P", MenuCmd::File(FileCmd::OpenProject)),
+                ("Units...      Ctrl+U", MenuCmd::File(FileCmd::Units)),
+                ("Save          Ctrl+S", MenuCmd::File(FileCmd::Save)),
                 ("Save as...", MenuCmd::File(FileCmd::SaveAs)),
-                ("Quit       Ctrl+Q", MenuCmd::File(FileCmd::Quit)),
+                ("Quit          Ctrl+Q", MenuCmd::File(FileCmd::Quit)),
             ],
             MenuId::Edit => &[
                 ("Undo       Ctrl+Z", MenuCmd::Edit(EditCmd::Undo)),
@@ -158,6 +162,8 @@ impl MenuBar {
 #[derive(Debug, Clone)]
 pub enum Dialog {
     Open { input: String },
+    OpenProject { input: String },
+    Units { selected: usize },
     SaveAs { input: String },
     ConfirmQuit,
     Help,
@@ -189,6 +195,10 @@ pub struct UiState {
     pub watch_selected: usize,
     pub focus: Focus,
     pub find: crate::find::FindState,
+    /// Project folder when editing a multifile / main.vbr project.
+    pub project_dir: Option<std::path::PathBuf>,
+    /// `.vbr` units in the project (main first).
+    pub units: Vec<std::path::PathBuf>,
 }
 
 impl Default for UiState {
@@ -196,11 +206,13 @@ impl Default for UiState {
         Self {
             menu: MenuBar::default(),
             dialog: None,
-            message: " F1 Help  F10 Menu  F9 Run  Ctrl+F Find ".into(),
+            message: " F1 Help  F10 Menu  Ctrl+P Project  Ctrl+U Units ".into(),
             diagnostics: Vec::new(),
             watch_selected: 0,
             focus: Focus::Editor,
             find: crate::find::FindState::default(),
+            project_dir: None,
+            units: Vec::new(),
         }
     }
 }
@@ -240,6 +252,25 @@ impl UiState {
 
     pub fn selected_diag(&self) -> Option<&crate::compile::TideDiag> {
         self.diagnostics.get(self.watch_selected)
+    }
+
+    pub fn clear_project(&mut self) {
+        self.project_dir = None;
+        self.units.clear();
+    }
+
+    pub fn set_project(&mut self, dir: std::path::PathBuf, units: Vec<std::path::PathBuf>) {
+        self.project_dir = Some(dir);
+        self.units = units;
+    }
+
+    pub fn has_project(&self) -> bool {
+        self.project_dir.is_some() && !self.units.is_empty()
+    }
+
+    pub fn current_unit_index(&self, doc: &Document) -> Option<usize> {
+        let path = doc.path()?;
+        self.units.iter().position(|u| u == path)
     }
 }
 
@@ -296,7 +327,12 @@ pub fn draw(
     draw_status(f, chunks[status_i], doc, view, ui);
 
     if let Some(d) = &ui.dialog {
-        draw_dialog(f, area, d);
+        match d {
+            Dialog::Units { selected } => {
+                draw_units_dialog(f, area, &ui.units, *selected);
+            }
+            _ => draw_dialog(f, area, d),
+        }
     }
 
     if let Some(id) = ui.menu.open {
@@ -552,10 +588,19 @@ fn draw_status(f: &mut Frame, area: Rect, doc: &Document, view: &EditorView, ui:
         .iter()
         .filter(|d| d.level == crate::compile::DiagLevel::Error)
         .count();
+    let proj = ui
+        .project_dir
+        .as_ref()
+        .map(|d| format!("[{}] ", files::project_title(d)))
+        .unwrap_or_default();
+    let unit = ui
+        .current_unit_index(doc)
+        .map(|i| format!("{}/{} ", i + 1, ui.units.len()))
+        .unwrap_or_default();
     let left = if err_n > 0 {
-        format!(" {name}{dirty}  {err_n} error(s) ")
+        format!(" {proj}{unit}{name}{dirty}  {err_n} error(s) ")
     } else {
-        format!(" {name}{dirty} ")
+        format!(" {proj}{unit}{name}{dirty} ")
     };
     let focus = match ui.focus {
         Focus::Editor => "EDIT",
@@ -573,11 +618,29 @@ fn draw_status(f: &mut Frame, area: Rect, doc: &Document, view: &EditorView, ui:
 }
 
 fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
+    // Units dialog is list-shaped — draw separately.
+    if let Dialog::Units { selected } = dialog {
+        // Caller must pass units via a side channel — we only have Dialog here.
+        // Drawn from draw() with ui.units — see draw_units_dialog.
+        let _ = (area, selected);
+    }
+
     let (title, body) = match dialog {
         Dialog::Open { input } => (
             " Open file ",
             format!("File name\n\n [{input}_]\n\nEnter=OK  Esc=Cancel"),
         ),
+        Dialog::OpenProject { input } => (
+            " Open project ",
+            format!(
+                "Project folder (with main.vbr or several .vbr files)\n\n\
+                 [{input}_]\n\nEnter=OK  Esc=Cancel"
+            ),
+        ),
+        Dialog::Units { .. } => {
+            // Handled in draw_units_dialog from draw().
+            return;
+        }
         Dialog::SaveAs { input } => (
             " Save as ",
             format!("File name\n\n [{input}_]\n\nEnter=OK  Esc=Cancel"),
@@ -590,9 +653,10 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
             " Keys ",
             "F10  Menus          F1   This help\n\
              F9   Run            Alt+F9 Compile\n\
+             Ctrl+P Open project Ctrl+U Units list\n\
              Ctrl+F Find         F3 / Shift+F3 next/prev\n\
              Ctrl+H Replace      Ctrl+A = Replace all (in dlg)\n\
-             Ctrl+O Open         Ctrl+N New\n\
+             Ctrl+O Open file    Ctrl+N New\n\
              Ctrl+Q Quit         Ctrl+Z/Y Undo/Redo\n\
              Tab  Editor/Watch   Enter jump to error\n\
              Mouse: menus + drag to select text"
@@ -646,7 +710,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
 
     let height = match dialog {
         Dialog::Help | Dialog::Replace { .. } => 12u16,
-        Dialog::Find { .. } => 11u16,
+        Dialog::Find { .. } | Dialog::OpenProject { .. } => 11u16,
         _ => 10u16,
     };
     let width = 56u16.min(area.width.saturating_sub(4));
@@ -670,6 +734,64 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
     f.render_widget(
         Paragraph::new(body).style(TpTheme::dialog().add_modifier(Modifier::BOLD)),
         inner,
+    );
+}
+
+pub fn draw_units_dialog(f: &mut Frame, area: Rect, units: &[std::path::PathBuf], selected: usize) {
+    let height = ((units.len() as u16) + 4).clamp(6, area.height.saturating_sub(4));
+    let width = 40u16.min(area.width.saturating_sub(4));
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    let rect = Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Units ")
+        .border_style(Style::default().fg(TpTheme::DIALOG_FG))
+        .style(TpTheme::dialog());
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    if units.is_empty() {
+        f.render_widget(
+            Paragraph::new(" No .vbr units.\n Open a project first (Ctrl+P).")
+                .style(TpTheme::dialog()),
+            inner,
+        );
+        return;
+    }
+
+    let visible = inner.height.saturating_sub(1) as usize;
+    let start = selected.saturating_sub(visible.saturating_sub(1));
+    for (row, idx) in (start..units.len()).take(visible).enumerate() {
+        let label = files::unit_label(&units[idx]);
+        let style = if idx == selected {
+            TpTheme::menu_selected()
+        } else {
+            TpTheme::dialog()
+        };
+        let row_area = Rect {
+            x: inner.x,
+            y: inner.y + row as u16,
+            width: inner.width,
+            height: 1,
+        };
+        f.render_widget(Paragraph::new(format!(" {label}")).style(style), row_area);
+    }
+    let hint = Rect {
+        x: inner.x,
+        y: inner.bottom().saturating_sub(1),
+        width: inner.width,
+        height: 1,
+    };
+    f.render_widget(
+        Paragraph::new(" ↑↓  Enter=Open  Esc=Cancel").style(TpTheme::dialog()),
+        hint,
     );
 }
 

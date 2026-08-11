@@ -22,7 +22,8 @@ Design north star is classic **Turbo Pascal**, not a remake of the desktop
 ```bash
 cd tide
 cargo run -p tide                 # empty buffer
-cargo run -p tide -- path/to.vbr  # open a file
+cargo run -p tide -- ../examples/life_screen   # open a project folder
+cargo run -p tide -- path/to.vbr               # open a file (auto-detects project)
 cargo run -p tide-editor --example minimal -- path/to.txt
 ```
 
@@ -36,6 +37,8 @@ cargo run -p tide-editor --example minimal -- path/to.txt
 | `Alt+F9` | Compile only — fill the Watch window |
 | `Tab` | Toggle focus Editor ↔ Watch |
 | `Enter` (in Watch) | Jump to the selected diagnostic |
+| `Ctrl+P` | Open project folder |
+| `Ctrl+U` | Units list (switch `.vbr` files) |
 | `Ctrl+F` | Find |
 | `F3` / `Shift+F3` | Find next / previous |
 | `Ctrl+H` | Replace (Enter = replace+next, Ctrl+A = all) |
