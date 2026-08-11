@@ -199,6 +199,8 @@ pub struct UiState {
     pub project_dir: Option<std::path::PathBuf>,
     /// `.vbr` units in the project (main first).
     pub units: Vec<std::path::PathBuf>,
+    /// Tab path-completion cycle for Open / Open Project / Save As.
+    pub path_tab: Option<crate::files::PathTabState>,
 }
 
 impl Default for UiState {
@@ -213,6 +215,7 @@ impl Default for UiState {
             find: crate::find::FindState::default(),
             project_dir: None,
             units: Vec::new(),
+            path_tab: None,
         }
     }
 }
@@ -628,13 +631,17 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
     let (title, body) = match dialog {
         Dialog::Open { input } => (
             " Open file ",
-            format!("File name\n\n [{input}_]\n\nEnter=OK  Esc=Cancel"),
+            format!(
+                "File or folder\n\n [{input}_]\n\n\
+                 Tab=complete  Enter=open file / enter folder  Esc=Cancel"
+            ),
         ),
         Dialog::OpenProject { input } => (
             " Open project ",
             format!(
                 "Project folder (with main.vbr or several .vbr files)\n\n\
-                 [{input}_]\n\nEnter=OK  Esc=Cancel"
+                 [{input}_]\n\n\
+                 Tab=complete  Enter=open project / enter folder  Esc=Cancel"
             ),
         ),
         Dialog::Units { .. } => {
@@ -643,7 +650,10 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
         }
         Dialog::SaveAs { input } => (
             " Save as ",
-            format!("File name\n\n [{input}_]\n\nEnter=OK  Esc=Cancel"),
+            format!(
+                "File name\n\n [{input}_]\n\n\
+                 Tab=complete  Enter=save / enter folder  Esc=Cancel"
+            ),
         ),
         Dialog::ConfirmQuit => (
             " Quit ",
@@ -658,7 +668,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
              Ctrl+H Replace      Ctrl+A = Replace all (in dlg)\n\
              Ctrl+O Open file    Ctrl+N New\n\
              Ctrl+Q Quit         Ctrl+Z/Y Undo/Redo\n\
-             Tab  Editor/Watch   Enter jump to error\n\
+             Tab  path complete (in Open/Save) / Editor↔Watch\n\
              Mouse: menus + drag to select text"
                 .into(),
         ),

@@ -25,8 +25,8 @@ use tide_editor::{
 };
 
 use files::{
-    default_untitled, detect_project, display_name, list_units, open_path, project_entry,
-    project_title, resolve_save_path, save_document, unit_label,
+    default_untitled, detect_project, display_name, list_units, open_path, path_enter_dir,
+    path_tab_complete, project_entry, project_title, resolve_save_path, save_document, unit_label,
 };
 use ui::{
     editor_inner_rect, editor_text_area, hit_editor, hit_watch, Dialog, EditCmd, FileCmd, Focus,
@@ -630,29 +630,19 @@ fn handle_dialog(
             _ => {}
         },
         Dialog::Open { mut input } => match key.code {
-            KeyCode::Esc => ui.dialog = None,
-            KeyCode::Enter => {
+            KeyCode::Esc => {
+                ui.path_tab = None;
                 ui.dialog = None;
+            }
+            KeyCode::Enter => {
+                ui.path_tab = None;
                 let path = PathBuf::from(input.trim());
-                if path.is_dir() {
-                    match open_project_into(&path, ui) {
-                        Ok(d) => {
-                            *doc = d;
-                            *view = EditorView::new();
-                            ui.clear_diagnostics();
-                            ui.find.clear_matches();
-                            ui.message = format!(
-                                " Project {} ({} units).",
-                                ui.project_dir
-                                    .as_ref()
-                                    .map(|p| project_title(p))
-                                    .unwrap_or_default(),
-                                ui.units.len()
-                            );
-                        }
-                        Err(e) => ui.message = e,
-                    }
+                if let Some(dir) = path_enter_dir(&input) {
+                    // Browse into the folder; keep the dialog open.
+                    ui.message = format!(" In {}  (Tab lists, Enter opens a file)", dir);
+                    ui.dialog = Some(Dialog::Open { input: dir });
                 } else {
+                    ui.dialog = None;
                     match open_path(&path) {
                         Ok(d) => {
                             attach_project_for_doc(&d, ui);
@@ -666,44 +656,81 @@ fn handle_dialog(
                     }
                 }
             }
+            KeyCode::Tab | KeyCode::BackTab => {
+                let reverse = matches!(key.code, KeyCode::BackTab)
+                    || key.modifiers.contains(KeyModifiers::SHIFT);
+                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, false);
+                input = next;
+                if !msg.is_empty() {
+                    ui.message = msg;
+                }
+                ui.dialog = Some(Dialog::Open { input });
+            }
             KeyCode::Backspace => {
+                ui.path_tab = None;
                 input.pop();
                 ui.dialog = Some(Dialog::Open { input });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                ui.path_tab = None;
                 input.push(c);
                 ui.dialog = Some(Dialog::Open { input });
             }
             _ => {}
         },
         Dialog::OpenProject { mut input } => match key.code {
-            KeyCode::Esc => ui.dialog = None,
-            KeyCode::Enter => {
+            KeyCode::Esc => {
+                ui.path_tab = None;
                 ui.dialog = None;
+            }
+            KeyCode::Enter => {
+                ui.path_tab = None;
                 let path = PathBuf::from(input.trim());
-                match open_project_into(&path, ui) {
-                    Ok(d) => {
-                        *doc = d;
-                        *view = EditorView::new();
-                        ui.clear_diagnostics();
-                        ui.find.clear_matches();
-                        ui.message = format!(
-                            " Project {} — {} unit(s). Ctrl+U to switch.",
-                            ui.project_dir
-                                .as_ref()
-                                .map(|p| project_title(p))
-                                .unwrap_or_default(),
-                            ui.units.len()
-                        );
+                // Browse into folders that aren't (yet) a project; open when they are.
+                if files::is_project_dir(&path) {
+                    ui.dialog = None;
+                    match open_project_into(&path, ui) {
+                        Ok(d) => {
+                            *doc = d;
+                            *view = EditorView::new();
+                            ui.clear_diagnostics();
+                            ui.find.clear_matches();
+                            ui.message = format!(
+                                " Project {} — {} unit(s). Ctrl+U to switch.",
+                                ui.project_dir
+                                    .as_ref()
+                                    .map(|p| project_title(p))
+                                    .unwrap_or_default(),
+                                ui.units.len()
+                            );
+                        }
+                        Err(e) => ui.message = e,
                     }
-                    Err(e) => ui.message = e,
+                } else if let Some(dir) = path_enter_dir(&input) {
+                    ui.message = format!(" In {}  (Enter opens a project folder)", dir);
+                    ui.dialog = Some(Dialog::OpenProject { input: dir });
+                } else {
+                    ui.dialog = None;
+                    ui.message = format!(" Not a project folder: {}", path.display());
                 }
             }
+            KeyCode::Tab | KeyCode::BackTab => {
+                let reverse = matches!(key.code, KeyCode::BackTab)
+                    || key.modifiers.contains(KeyModifiers::SHIFT);
+                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, true);
+                input = next;
+                if !msg.is_empty() {
+                    ui.message = msg;
+                }
+                ui.dialog = Some(Dialog::OpenProject { input });
+            }
             KeyCode::Backspace => {
+                ui.path_tab = None;
                 input.pop();
                 ui.dialog = Some(Dialog::OpenProject { input });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                ui.path_tab = None;
                 input.push(c);
                 ui.dialog = Some(Dialog::OpenProject { input });
             }
@@ -736,23 +763,44 @@ fn handle_dialog(
             _ => {}
         },
         Dialog::SaveAs { mut input } => match key.code {
-            KeyCode::Esc => ui.dialog = None,
-            KeyCode::Enter => {
+            KeyCode::Esc => {
+                ui.path_tab = None;
                 ui.dialog = None;
-                let path = resolve_save_path(&input);
-                match save_document(doc, Some(&path)) {
-                    Ok(()) => {
-                        attach_project_for_doc(doc, ui);
-                        ui.message = format!(" Saved {}.", display_name(doc));
+            }
+            KeyCode::Enter => {
+                ui.path_tab = None;
+                if let Some(dir) = path_enter_dir(&input) {
+                    ui.message = format!(" In {}  (type a name, Enter saves)", dir);
+                    ui.dialog = Some(Dialog::SaveAs { input: dir });
+                } else {
+                    ui.dialog = None;
+                    let path = resolve_save_path(&input);
+                    match save_document(doc, Some(&path)) {
+                        Ok(()) => {
+                            attach_project_for_doc(doc, ui);
+                            ui.message = format!(" Saved {}.", display_name(doc));
+                        }
+                        Err(e) => ui.message = e,
                     }
-                    Err(e) => ui.message = e,
                 }
             }
+            KeyCode::Tab | KeyCode::BackTab => {
+                let reverse = matches!(key.code, KeyCode::BackTab)
+                    || key.modifiers.contains(KeyModifiers::SHIFT);
+                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, false);
+                input = next;
+                if !msg.is_empty() {
+                    ui.message = msg;
+                }
+                ui.dialog = Some(Dialog::SaveAs { input });
+            }
             KeyCode::Backspace => {
+                ui.path_tab = None;
                 input.pop();
                 ui.dialog = Some(Dialog::SaveAs { input });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                ui.path_tab = None;
                 input.push(c);
                 ui.dialog = Some(Dialog::SaveAs { input });
             }

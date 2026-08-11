@@ -35,15 +35,15 @@ cargo run -p tide-editor --example minimal -- path/to.txt
 | `F1` | Help |
 | `F9` / `Ctrl+R` | Compile then run via `vbr` (blocked if front-end errors) |
 | `Alt+F9` | Compile only — fill the Watch window |
-| `Tab` | Toggle focus Editor ↔ Watch |
+| `Tab` | Toggle focus Editor ↔ Watch (path complete in Open/Save dialogs) |
 | `Enter` (in Watch) | Jump to the selected diagnostic |
-| `Ctrl+P` | Open project folder |
+| `Ctrl+P` | Open project folder (Tab completes dirs) |
 | `Ctrl+U` | Units list (switch `.vbr` files) |
 | `Ctrl+F` | Find |
 | `F3` / `Shift+F3` | Find next / previous |
 | `Ctrl+H` | Replace (Enter = replace+next, Ctrl+A = all) |
 | `Ctrl+S` | Save |
-| `Ctrl+O` | Open |
+| `Ctrl+O` | Open (Tab completes paths) |
 | `Ctrl+N` | New |
 | `Ctrl+Q` | Quit |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
