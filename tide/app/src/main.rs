@@ -29,8 +29,9 @@ use files::{
     path_tab_complete, project_entry, project_title, resolve_save_path, save_document, unit_label,
 };
 use ui::{
-    editor_inner_rect, editor_text_area, hit_editor, hit_watch, Dialog, EditCmd, FileCmd, Focus,
-    HelpCmd, MenuCmd, MenuHit, MenuId, RunCmd, UiState,
+    editor_text_area, hit_editor, hit_rust, hit_watch, rust_inner_rect, rust_text_area,
+    vbr_inner_rect, Dialog, EditCmd, FileCmd, Focus, HelpCmd, MenuCmd, MenuHit, MenuId, RunCmd,
+    UiState,
 };
 
 type TideTerminal = Terminal<CrosstermBackend<Stdout>>;
@@ -120,9 +121,22 @@ fn vbr_highlighter() -> KeywordHighlighter {
     .with_line_comment("'")
 }
 
+fn rust_highlighter() -> KeywordHighlighter {
+    KeywordHighlighter::new([
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+        "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+        "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true",
+        "type", "unsafe", "use", "where", "while", "i32", "i64", "u32", "u64", "usize", "bool",
+        "String", "str", "Vec", "Option", "Result", "Some", "None", "Ok", "Err", "Box",
+    ])
+    .with_line_comment("//")
+}
+
 fn main() -> io::Result<()> {
     let mut ui = UiState::default();
     let mut view = EditorView::new();
+    let mut rust_view = EditorView::new();
+    let mut rust_doc = Document::from_str("// F4 — generated Rust (Turbo Debugger style)\n");
     let mut doc = match env::args().nth(1) {
         Some(p) => {
             let path = PathBuf::from(&p);
@@ -150,10 +164,20 @@ fn main() -> io::Result<()> {
         None => default_untitled(),
     };
     let highlighter = vbr_highlighter();
+    let rust_hl = rust_highlighter();
 
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture, EnableBracketedPaste)?;
-    let result = event_loop(&mut terminal, &mut doc, &mut view, &mut ui, &highlighter);
+    let result = event_loop(
+        &mut terminal,
+        &mut doc,
+        &mut view,
+        &mut rust_doc,
+        &mut rust_view,
+        &mut ui,
+        &highlighter,
+        &rust_hl,
+    );
     let _ = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste);
     ratatui::restore();
     result
@@ -163,20 +187,43 @@ fn event_loop(
     terminal: &mut TideTerminal,
     doc: &mut Document,
     view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
     ui: &mut UiState,
     highlighter: &KeywordHighlighter,
+    rust_hl: &KeywordHighlighter,
 ) -> io::Result<()> {
     loop {
         let mut frame_area = Rect::default();
         let watch_vis = ui.watch_visible();
+        let rust_vis = ui.show_rust;
         let mut decos = compile::decorations_for(&ui.diagnostics);
         decos.extend(find::match_decorations(doc, &ui.find));
+
+        // Linked scroll / highlight (driver = focused pane).
+        let rust_decos = sync_panes(doc, view, rust_doc, rust_view, ui);
+
         terminal.draw(|f| {
             frame_area = f.area();
-            let (h, w) = editor_text_area(f.area(), watch_vis);
+            let (h, w) = editor_text_area(f.area(), watch_vis, rust_vis);
             let gw = view.gutter_width(doc) as usize;
             view.ensure_visible(doc, h, w.saturating_sub(gw).max(1));
-            ui::draw(f, doc, view, highlighter, ui, &decos);
+            if let Some((rh, rw)) = rust_text_area(f.area(), watch_vis, rust_vis) {
+                let rgw = rust_view.gutter_width(rust_doc) as usize;
+                rust_view.ensure_visible(rust_doc, rh, rw.saturating_sub(rgw).max(1));
+            }
+            ui::draw(
+                f,
+                doc,
+                view,
+                highlighter,
+                rust_doc,
+                rust_view,
+                rust_hl,
+                &rust_decos,
+                ui,
+                &decos,
+            );
         })?;
 
         if !event::poll(Duration::from_millis(50))? {
@@ -185,9 +232,10 @@ fn event_loop(
 
         match event::read()? {
             Event::Paste(text) => {
-                if ui.dialog.is_none() && ui.menu.open.is_none() {
+                if ui.dialog.is_none() && ui.menu.open.is_none() && ui.focus != Focus::Rust {
                     ui.focus = Focus::Editor;
                     view.insert_text(doc, &text);
+                    mark_rust_stale(ui);
                 }
             }
             Event::Mouse(mouse) => {
@@ -196,8 +244,10 @@ fn event_loop(
                 }
 
                 let menu_hit = ui::hit_test_menu(frame_area, &ui.menu, mouse.column, mouse.row);
-                let in_editor = hit_editor(frame_area, watch_vis, mouse.column, mouse.row);
-                let editor_area = editor_inner_rect(frame_area, watch_vis);
+                let in_editor = hit_editor(frame_area, watch_vis, rust_vis, mouse.column, mouse.row);
+                let in_rust = hit_rust(frame_area, watch_vis, rust_vis, mouse.column, mouse.row);
+                let editor_area = vbr_inner_rect(frame_area, watch_vis, rust_vis);
+                let rust_area = rust_inner_rect(frame_area, watch_vis, rust_vis);
                 let watch_row = hit_watch(frame_area, watch_vis, mouse.column, mouse.row);
 
                 match mouse.kind {
@@ -205,6 +255,7 @@ fn event_loop(
                         match menu_hit {
                             MenuHit::Top(id) => {
                                 view.mouse_up();
+                                rust_view.mouse_up();
                                 if ui.menu.open == Some(id) {
                                     ui.menu.close();
                                 } else {
@@ -213,21 +264,25 @@ fn event_loop(
                             }
                             MenuHit::Item(cmd) => {
                                 view.mouse_up();
+                                rust_view.mouse_up();
                                 ui.menu.close();
-                                if dispatch(terminal, cmd, doc, view, ui)? {
+                                if dispatch(terminal, cmd, doc, view, rust_doc, rust_view, ui)? {
                                     return Ok(());
                                 }
                             }
                             MenuHit::Dismiss => {
                                 view.mouse_up();
+                                rust_view.mouse_up();
                                 ui.menu.close();
                             }
                             MenuHit::None if ui.menu.open.is_some() => {
                                 view.mouse_up();
+                                rust_view.mouse_up();
                                 ui.menu.close();
                             }
                             MenuHit::None if watch_row.is_some() => {
                                 view.mouse_up();
+                                rust_view.mouse_up();
                                 let row = watch_row.unwrap();
                                 if row < ui.diagnostics.len() {
                                     ui.watch_selected = row;
@@ -235,7 +290,15 @@ fn event_loop(
                                     jump_to_selected(doc, view, ui);
                                 }
                             }
+                            MenuHit::None if in_rust => {
+                                view.mouse_up();
+                                ui.focus = Focus::Rust;
+                                if let Some(area) = rust_area {
+                                    rust_view.mouse_down(rust_doc, area, mouse.column, mouse.row);
+                                }
+                            }
                             MenuHit::None if in_editor => {
+                                rust_view.mouse_up();
                                 ui.focus = Focus::Editor;
                                 view.mouse_down(doc, editor_area, mouse.column, mouse.row);
                             }
@@ -254,18 +317,35 @@ fn event_loop(
                                     }
                                 }
                             }
+                        } else if rust_view.is_mouse_selecting() {
+                            if let Some(area) = rust_area {
+                                rust_view.mouse_drag(rust_doc, area, mouse.column, mouse.row);
+                            }
                         } else if view.is_mouse_selecting() || in_editor {
                             view.mouse_drag(doc, editor_area, mouse.column, mouse.row);
                         }
                     }
                     MouseEventKind::Up(MouseButton::Left) => {
                         view.mouse_up();
+                        rust_view.mouse_up();
                     }
-                    MouseEventKind::ScrollUp if in_editor && ui.menu.open.is_none() => {
-                        view.scroll_by(doc, -3);
+                    MouseEventKind::ScrollUp if ui.menu.open.is_none() => {
+                        if in_rust {
+                            ui.focus = Focus::Rust;
+                            rust_view.scroll_by(rust_doc, -3);
+                        } else if in_editor {
+                            ui.focus = Focus::Editor;
+                            view.scroll_by(doc, -3);
+                        }
                     }
-                    MouseEventKind::ScrollDown if in_editor && ui.menu.open.is_none() => {
-                        view.scroll_by(doc, 3);
+                    MouseEventKind::ScrollDown if ui.menu.open.is_none() => {
+                        if in_rust {
+                            ui.focus = Focus::Rust;
+                            rust_view.scroll_by(rust_doc, 3);
+                        } else if in_editor {
+                            ui.focus = Focus::Editor;
+                            view.scroll_by(doc, 3);
+                        }
                     }
                     _ => {}
                 }
@@ -276,25 +356,25 @@ fn event_loop(
                 }
 
                 if ui.dialog.is_some() {
-                    if handle_dialog(terminal, key, doc, view, ui)? {
+                    if handle_dialog(terminal, key, doc, view, rust_doc, rust_view, ui)? {
                         return Ok(());
                     }
                     continue;
                 }
 
                 if ui.menu.open.is_some() {
-                    if handle_menu(terminal, key, doc, view, ui)? {
+                    if handle_menu(terminal, key, doc, view, rust_doc, rust_view, ui)? {
                         return Ok(());
                     }
                     continue;
                 }
 
-                // Tab toggles Editor ↔ Watch when the watch pane is open
-                if matches!(key.code, KeyCode::Tab) && ui.watch_visible() {
-                    ui.focus = match ui.focus {
-                        Focus::Editor => Focus::Watch,
-                        Focus::Watch => Focus::Editor,
-                    };
+                // Tab cycles Editor → Rust → Watch (skipping hidden panes)
+                if matches!(key.code, KeyCode::Tab)
+                    && (ui.show_rust || ui.watch_visible())
+                    && !key.modifiers.contains(KeyModifiers::SHIFT)
+                {
+                    ui.cycle_focus();
                     continue;
                 }
 
@@ -349,6 +429,10 @@ fn event_loop(
                         }
                         continue;
                     }
+                    KeyCode::F(4) => {
+                        toggle_rust_pane(doc, view, rust_doc, rust_view, ui);
+                        continue;
+                    }
                     KeyCode::F(10) => {
                         ui.menu.activate(MenuId::File);
                         continue;
@@ -358,11 +442,11 @@ fn event_loop(
                         continue;
                     }
                     KeyCode::F(9) if key.modifiers.contains(KeyModifiers::ALT) => {
-                        do_compile(doc, view, ui);
+                        do_compile(doc, view, rust_doc, rust_view, ui);
                         continue;
                     }
                     KeyCode::F(9) => {
-                        try_run(terminal, doc, view, ui)?;
+                        try_run(terminal, doc, view, rust_doc, rust_view, ui)?;
                         continue;
                     }
                     _ => {}
@@ -408,6 +492,7 @@ fn event_loop(
                         ui.clear_diagnostics();
                         ui.find.clear_matches();
                         ui.clear_project();
+                        clear_rust_pane(rust_doc, rust_view, ui);
                         ui.message = " New file.".into();
                     }
                     continue;
@@ -421,16 +506,29 @@ fn event_loop(
                     continue;
                 }
                 if is_ctrl(&ev, 'r') {
-                    try_run(terminal, doc, view, ui)?;
+                    try_run(terminal, doc, view, rust_doc, rust_view, ui)?;
+                    continue;
+                }
+
+                if ui.focus == Focus::Rust && ui.show_rust {
+                    let copying = (ev.mods.ctrl
+                        && matches!(ev.key, Key::Char('c') | Key::Char('C')))
+                        || matches!(ev.key, Key::Char('\u{3}'));
+                    rust_view.handle_key_readonly(rust_doc, &ev);
+                    if copying {
+                        ui.message = " Copied from Rust.".into();
+                    }
                     continue;
                 }
 
                 let copying = (ev.mods.ctrl
                     && matches!(ev.key, Key::Char('c') | Key::Char('C')))
                     || matches!(ev.key, Key::Char('\u{3}'));
-                view.handle_key(doc, &ev);
+                let changed = view.handle_key(doc, &ev);
                 if copying {
                     ui.message = " Copied.".into();
+                } else if changed {
+                    mark_rust_stale(ui);
                 }
             }
             _ => {}
@@ -443,6 +541,8 @@ fn handle_menu(
     key: crossterm::event::KeyEvent,
     doc: &mut Document,
     view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
     ui: &mut UiState,
 ) -> io::Result<bool> {
     match key.code {
@@ -456,7 +556,7 @@ fn handle_menu(
         KeyCode::Enter => {
             if let Some(cmd) = ui.menu.current_cmd() {
                 ui.menu.close();
-                return dispatch(terminal, cmd, doc, view, ui);
+                return dispatch(terminal, cmd, doc, view, rust_doc, rust_view, ui);
             }
         }
         KeyCode::Char(c) => {
@@ -484,6 +584,8 @@ fn handle_dialog(
     key: crossterm::event::KeyEvent,
     doc: &mut Document,
     view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
     ui: &mut UiState,
 ) -> io::Result<bool> {
     let Some(dialog) = ui.dialog.clone() else {
@@ -650,6 +752,7 @@ fn handle_dialog(
                             *view = EditorView::new();
                             ui.clear_diagnostics();
                             ui.find.clear_matches();
+                            clear_rust_pane(rust_doc, rust_view, ui);
                             ui.message = format!(" Opened {}.", display_name(doc));
                         }
                         Err(e) => ui.message = e,
@@ -695,6 +798,7 @@ fn handle_dialog(
                             *view = EditorView::new();
                             ui.clear_diagnostics();
                             ui.find.clear_matches();
+                            clear_rust_pane(rust_doc, rust_view, ui);
                             ui.message = format!(
                                 " Project {} — {} unit(s). Ctrl+U to switch.",
                                 ui.project_dir
@@ -757,7 +861,7 @@ fn handle_dialog(
             KeyCode::Enter => {
                 ui.dialog = None;
                 if let Some(path) = ui.units.get(selected).cloned() {
-                    switch_unit(doc, view, ui, &path);
+                    switch_unit(doc, view, rust_doc, rust_view, ui, &path);
                 }
             }
             _ => {}
@@ -817,6 +921,8 @@ fn dispatch(
     cmd: MenuCmd,
     doc: &mut Document,
     view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
     ui: &mut UiState,
 ) -> io::Result<bool> {
     match cmd {
@@ -829,6 +935,7 @@ fn dispatch(
                 ui.clear_diagnostics();
                 ui.find.clear_matches();
                 ui.clear_project();
+                clear_rust_pane(rust_doc, rust_view, ui);
                 ui.message = " New file.".into();
             }
         }
@@ -873,10 +980,13 @@ fn dispatch(
         MenuCmd::Edit(EditCmd::Find) => open_find(ui),
         MenuCmd::Edit(EditCmd::Replace) => open_replace(ui),
         MenuCmd::Run(RunCmd::Compile) => {
-            do_compile(doc, view, ui);
+            do_compile(doc, view, rust_doc, rust_view, ui);
         }
         MenuCmd::Run(RunCmd::Run) => {
-            try_run(terminal, doc, view, ui)?;
+            try_run(terminal, doc, view, rust_doc, rust_view, ui)?;
+        }
+        MenuCmd::Run(RunCmd::ToggleRust) => {
+            toggle_rust_pane(doc, view, rust_doc, rust_view, ui);
         }
         MenuCmd::Help(HelpCmd::Keys) => ui.dialog = Some(Dialog::Help),
         MenuCmd::Help(HelpCmd::About) => ui.dialog = Some(Dialog::About),
@@ -951,6 +1061,8 @@ fn attach_project_for_path(path: &std::path::Path, ui: &mut UiState) {
 fn switch_unit(
     doc: &mut Document,
     view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
     ui: &mut UiState,
     path: &std::path::Path,
 ) {
@@ -968,6 +1080,7 @@ fn switch_unit(
             *view = EditorView::new();
             ui.clear_diagnostics();
             ui.find.clear_matches();
+            clear_rust_pane(rust_doc, rust_view, ui);
             ui.message = format!(" Unit {}.", display_name(doc));
         }
         Err(e) => ui.message = e,
@@ -1033,8 +1146,15 @@ fn do_save(doc: &mut Document, ui: &mut UiState, force_as: bool) {
     }
 }
 
-fn do_compile(doc: &mut Document, view: &mut EditorView, ui: &mut UiState) {
+fn do_compile(
+    doc: &mut Document,
+    view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
+    ui: &mut UiState,
+) {
     let outcome = compile::compile_buffer(&doc.text());
+    apply_rust_from_compile(rust_doc, rust_view, ui, &outcome);
     ui.set_diagnostics(outcome.diagnostics);
     if outcome.has_errors {
         let n = ui
@@ -1067,10 +1187,13 @@ fn try_run(
     terminal: &mut TideTerminal,
     doc: &mut Document,
     view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
     ui: &mut UiState,
 ) -> io::Result<()> {
     // TP loop: compile first; don't Run if the front-end already failed.
     let outcome = compile::compile_buffer(&doc.text());
+    apply_rust_from_compile(rust_doc, rust_view, ui, &outcome);
     ui.set_diagnostics(outcome.diagnostics.clone());
     if outcome.has_errors {
         let n = outcome
@@ -1103,6 +1226,147 @@ fn try_run(
     ui.clear_diagnostics();
     ui.message = format!(" {msg}");
     Ok(())
+}
+
+
+fn mark_rust_stale(ui: &mut UiState) {
+    if ui.show_rust || !ui.line_map.is_empty() {
+        ui.rust_stale = true;
+    }
+}
+
+fn clear_rust_pane(rust_doc: &mut Document, rust_view: &mut EditorView, ui: &mut UiState) {
+    *rust_doc = Document::from_str("// F4 — generated Rust (Turbo Debugger style)\n");
+    *rust_view = EditorView::new();
+    ui.line_map.clear();
+    ui.rust_stale = false;
+    if ui.focus == Focus::Rust {
+        ui.focus = Focus::Editor;
+    }
+}
+
+fn apply_rust_from_compile(
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
+    ui: &mut UiState,
+    outcome: &compile::CompileOutcome,
+) {
+    let scroll = rust_view.scroll_row;
+    let text = if outcome.rust.trim().is_empty() {
+        "// (no Rust emitted — front-end error or unsupported emitter)\n".into()
+    } else {
+        outcome.rust.clone()
+    };
+    *rust_doc = Document::from_str(&text);
+    *rust_view = EditorView::new();
+    rust_view.scroll_row = scroll;
+    rust_view.clamp_scroll(rust_doc);
+    ui.line_map = outcome.line_map.clone();
+    ui.rust_stale = false;
+}
+
+fn toggle_rust_pane(
+    doc: &mut Document,
+    view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
+    ui: &mut UiState,
+) {
+    ui.show_rust = !ui.show_rust;
+    if ui.show_rust {
+        let had_errors = outcome_has_errors_from_ui(ui);
+        if ui.rust_stale || ui.line_map.is_empty() || rust_doc.text().starts_with("// F4") {
+            do_compile(doc, view, rust_doc, rust_view, ui);
+        }
+        // Opening the pane shouldn't yank focus unless compile produced errors.
+        if !outcome_has_errors_from_ui(ui) {
+            ui.focus = Focus::Editor;
+        } else if !had_errors {
+            // newly discovered errors → Watch is fine (set_diagnostics already did)
+        }
+        let map_note = if ui.line_map.is_empty() {
+            " (no line map — proportional scroll)"
+        } else {
+            ""
+        };
+        ui.message = format!(
+            " Rust pane on{map_note} — Tab focus, Ctrl+C copy, F4 hide."
+        );
+    } else {
+        if ui.focus == Focus::Rust {
+            ui.focus = Focus::Editor;
+        }
+        ui.message = " Rust pane off.".into();
+    }
+}
+
+fn outcome_has_errors_from_ui(ui: &UiState) -> bool {
+    ui.diagnostics
+        .iter()
+        .any(|d| d.level == compile::DiagLevel::Error)
+}
+
+fn sync_panes(
+    doc: &Document,
+    view: &mut EditorView,
+    rust_doc: &Document,
+    rust_view: &mut EditorView,
+    ui: &UiState,
+) -> Vec<tide_editor::Decoration> {
+    if !ui.show_rust {
+        return Vec::new();
+    }
+
+    let rust_lines = rust_doc.len_lines().max(1);
+    let style = theme::TpTheme::rust_mapped();
+
+    match ui.focus {
+        Focus::Rust => {
+            let (rline, _) = rust_view.cursor_position(rust_doc);
+            if let Some(v1) = compile::vbr_line_for_rust(&ui.line_map, rline + 1) {
+                let v0 = v1.saturating_sub(1);
+                let (cl, cc) = view.cursor_position(doc);
+                if cl != v0 {
+                    view.goto(doc, v0, cc.min(doc.line_len(v0)));
+                }
+            } else if ui.line_map.is_empty() {
+                // Proportional: rust → vbr
+                let ratio = rline as f64 / rust_lines as f64;
+                let v0 = ((ratio * doc.len_lines().max(1) as f64) as usize)
+                    .min(doc.len_lines().saturating_sub(1));
+                let (cl, cc) = view.cursor_position(doc);
+                if cl != v0 {
+                    view.goto(doc, v0, cc.min(doc.line_len(v0)));
+                }
+            }
+            if let Some((s, e)) =
+                compile::rust_span_for_vbr(&ui.line_map, view.cursor_position(doc).0 + 1, rust_lines)
+            {
+                compile::rust_map_decorations(s, e, style)
+            } else {
+                compile::rust_map_decorations(rline, rline, style)
+            }
+        }
+        Focus::Editor | Focus::Watch => {
+            let (vline, _) = view.cursor_position(doc);
+            if let Some((s, e)) = compile::rust_span_for_vbr(&ui.line_map, vline + 1, rust_lines) {
+                let (rl, rc) = rust_view.cursor_position(rust_doc);
+                if rl < s || rl > e {
+                    rust_view.goto(rust_doc, s, 0);
+                } else {
+                    let _ = rc;
+                }
+                compile::rust_map_decorations(s, e, style)
+            } else if ui.line_map.is_empty() {
+                let ratio = vline as f64 / doc.len_lines().max(1) as f64;
+                let r0 = ((ratio * rust_lines as f64) as usize).min(rust_lines.saturating_sub(1));
+                rust_view.goto(rust_doc, r0, 0);
+                compile::rust_map_decorations(r0, r0, style)
+            } else {
+                Vec::new()
+            }
+        }
+    }
 }
 
 fn map_key(key: crossterm::event::KeyEvent) -> Option<KeyEvent> {

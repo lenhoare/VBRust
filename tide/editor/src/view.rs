@@ -302,6 +302,82 @@ impl EditorView {
         }
     }
 
+    /// Navigate / select / copy only — no inserts, deletes, cut, paste, or undo.
+    pub fn handle_key_readonly(&mut self, doc: &Document, ev: &KeyEvent) -> bool {
+        let ctrlish = (ev.mods.ctrl && !ev.mods.alt)
+            || matches!(ev.key, Key::Char('\u{3}'));
+
+        if ctrlish {
+            match ev.key {
+                Key::Char('a') | Key::Char('A') if ev.mods.ctrl => {
+                    self.selection.anchor = 0;
+                    self.selection.head = doc.len_chars();
+                    self.cursor = doc.len_chars();
+                    return true;
+                }
+                Key::Char('c') | Key::Char('C') | Key::Char('\u{3}') => {
+                    let text = if self.has_selection() {
+                        self.selected_text(doc)
+                    } else {
+                        let (line, _) = self.cursor_position(doc);
+                        let mut line_text = doc.line(line);
+                        if line + 1 < doc.len_lines() {
+                            line_text.push('\n');
+                        }
+                        line_text
+                    };
+                    crate::clipboard::copy_to_clipboard(&mut self.clipboard, &text);
+                    return false;
+                }
+                _ => return false,
+            }
+        }
+
+        match (&ev.key, ev.mods) {
+            (Key::Left, m) => {
+                self.move_left(doc, m.shift);
+                true
+            }
+            (Key::Right, m) => {
+                self.move_right(doc, m.shift);
+                true
+            }
+            (Key::Up, m) => {
+                self.move_up(doc, m.shift);
+                true
+            }
+            (Key::Down, m) => {
+                self.move_down(doc, m.shift);
+                true
+            }
+            (Key::Home, m) => {
+                let (line, _) = self.cursor_position(doc);
+                let pos = doc.line_to_char(line);
+                self.set_cursor(doc, pos, m.shift);
+                true
+            }
+            (Key::End, m) => {
+                let (line, _) = self.cursor_position(doc);
+                let pos = doc.position_to_char(line, doc.line_len(line));
+                self.set_cursor(doc, pos, m.shift);
+                true
+            }
+            (Key::PageUp, m) => {
+                for _ in 0..20 {
+                    self.move_up(doc, m.shift);
+                }
+                true
+            }
+            (Key::PageDown, m) => {
+                for _ in 0..20 {
+                    self.move_down(doc, m.shift);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn delete_selection(&mut self, doc: &mut Document) {
         if !self.has_selection() {
             return;

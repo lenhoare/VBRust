@@ -13,6 +13,11 @@ impl TpTheme {
     pub const MENU_SEL_FG: Color = Color::Black;
     pub const EDITOR_FG: Color = Color::Yellow;
     pub const EDITOR_BG: Color = Color::Blue;
+    /// Turbo Debugger–ish generated-code strip.
+    pub const RUST_FG: Color = Color::Black;
+    pub const RUST_BG: Color = Color::Cyan;
+    pub const RUST_HL_FG: Color = Color::Black;
+    pub const RUST_HL_BG: Color = Color::Yellow;
     pub const STATUS_FG: Color = Color::Black;
     pub const STATUS_BG: Color = Color::Cyan;
     pub const FRAME: Color = Color::White;
@@ -36,6 +41,17 @@ impl TpTheme {
 
     pub fn editor() -> Style {
         Style::default().bg(Self::EDITOR_BG).fg(Self::EDITOR_FG)
+    }
+
+    pub fn rust_pane() -> Style {
+        Style::default().bg(Self::RUST_BG).fg(Self::RUST_FG)
+    }
+
+    pub fn rust_mapped() -> Style {
+        Style::default()
+            .bg(Self::RUST_HL_BG)
+            .fg(Self::RUST_HL_FG)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn status() -> Style {

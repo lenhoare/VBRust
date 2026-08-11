@@ -35,7 +35,8 @@ cargo run -p tide-editor --example minimal -- path/to.txt
 | `F1` | Help |
 | `F9` / `Ctrl+R` | Compile then run via `vbr` (blocked if front-end errors) |
 | `Alt+F9` | Compile only — fill the Watch window |
-| `Tab` | Toggle focus Editor ↔ Watch (path complete in Open/Save dialogs) |
+| `F4` | Toggle generated Rust pane (TD-style, read-only + copy) |
+| `Tab` | Cycle focus Editor ↔ Rust ↔ Watch |
 | `Enter` (in Watch) | Jump to the selected diagnostic |
 | `Ctrl+P` | Open project folder (Tab completes dirs) |
 | `Ctrl+U` | Units list (switch `.vbr` files) |
@@ -54,8 +55,8 @@ cargo run -p tide-editor --example minimal -- path/to.txt
 
 Not blocking day-to-day use — park these until the TP core feels finished:
 
-- Dual **VBR ↔ generated Rust** pane
 - Visual **Form / Screen designer**
+- Packaging / getting-started for distributing `tide`
 
 ## Layout
 

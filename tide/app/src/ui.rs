@@ -44,6 +44,7 @@ pub enum EditCmd {
 pub enum RunCmd {
     Compile,
     Run,
+    ToggleRust,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +99,7 @@ impl MenuBar {
             MenuId::Run => &[
                 ("Compile    Alt+F9", MenuCmd::Run(RunCmd::Compile)),
                 ("Run        F9", MenuCmd::Run(RunCmd::Run)),
+                ("Rust pane  F4", MenuCmd::Run(RunCmd::ToggleRust)),
             ],
             MenuId::Help => &[
                 ("Keys       F1", MenuCmd::Help(HelpCmd::Keys)),
@@ -184,6 +186,7 @@ pub enum Dialog {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Editor,
+    Rust,
     Watch,
 }
 
@@ -201,6 +204,12 @@ pub struct UiState {
     pub units: Vec<std::path::PathBuf>,
     /// Tab path-completion cycle for Open / Open Project / Save As.
     pub path_tab: Option<crate::files::PathTabState>,
+    /// Turbo Debugger–style generated Rust strip (bottom).
+    pub show_rust: bool,
+    /// True when the VBR buffer changed since the last Rust refresh.
+    pub rust_stale: bool,
+    /// `(rust_line, vbr_line)` 1-based map from the last compile.
+    pub line_map: Vec<(usize, usize)>,
 }
 
 impl Default for UiState {
@@ -216,6 +225,9 @@ impl Default for UiState {
             project_dir: None,
             units: Vec::new(),
             path_tab: None,
+            show_rust: false,
+            rust_stale: false,
+            line_map: Vec::new(),
         }
     }
 }
@@ -226,7 +238,7 @@ impl UiState {
         self.watch_selected = 0;
         if !self.diagnostics.is_empty() {
             self.focus = Focus::Watch;
-        } else {
+        } else if self.focus == Focus::Watch {
             self.focus = Focus::Editor;
         }
     }
@@ -234,11 +246,24 @@ impl UiState {
     pub fn clear_diagnostics(&mut self) {
         self.diagnostics.clear();
         self.watch_selected = 0;
-        self.focus = Focus::Editor;
+        if self.focus == Focus::Watch {
+            self.focus = Focus::Editor;
+        }
     }
 
     pub fn watch_visible(&self) -> bool {
         !self.diagnostics.is_empty()
+    }
+
+    pub fn cycle_focus(&mut self) {
+        self.focus = match self.focus {
+            Focus::Editor if self.show_rust => Focus::Rust,
+            Focus::Editor if self.watch_visible() => Focus::Watch,
+            Focus::Editor => Focus::Editor,
+            Focus::Rust if self.watch_visible() => Focus::Watch,
+            Focus::Rust => Focus::Editor,
+            Focus::Watch => Focus::Editor,
+        };
     }
 
     pub fn move_watch(&mut self, delta: isize) {
@@ -282,6 +307,10 @@ pub fn draw(
     doc: &Document,
     view: &EditorView,
     highlighter: &dyn Highlighter,
+    rust_doc: &Document,
+    rust_view: &EditorView,
+    rust_highlighter: &dyn Highlighter,
+    rust_decorations: &[tide_editor::Decoration],
     ui: &UiState,
     decorations: &[tide_editor::Decoration],
 ) {
@@ -309,16 +338,34 @@ pub fn draw(
     };
 
     draw_menu(f, chunks[0], &ui.menu);
-    let editor_focused = ui.focus == Focus::Editor && ui.menu.open.is_none() && ui.dialog.is_none();
+
+    let panes = split_editor_panes(chunks[1], ui.show_rust);
+    let vbr_focus = ui.focus == Focus::Editor && ui.menu.open.is_none() && ui.dialog.is_none();
     draw_editor(
         f,
-        chunks[1],
+        panes.vbr,
         doc,
         view,
         highlighter,
         decorations,
-        editor_focused,
+        vbr_focus,
+        false,
+        ui.rust_stale && ui.show_rust,
     );
+    if let Some(rust_area) = panes.rust {
+        let rust_focus = ui.focus == Focus::Rust && ui.menu.open.is_none() && ui.dialog.is_none();
+        draw_editor(
+            f,
+            rust_area,
+            rust_doc,
+            rust_view,
+            rust_highlighter,
+            rust_decorations,
+            rust_focus,
+            true,
+            ui.rust_stale,
+        );
+    }
 
     let (msg_i, status_i) = if watch_h > 0 {
         draw_watch(f, chunks[2], ui);
@@ -501,20 +548,48 @@ fn draw_editor(
     highlighter: &dyn Highlighter,
     decorations: &[tide_editor::Decoration],
     show_cursor: bool,
+    is_rust: bool,
+    stale: bool,
 ) {
-    let title = format!(" {} ", files::display_name(doc));
+    let (title, pane_style, border) = if is_rust {
+        let stale_mark = if stale { " stale" } else { "" };
+        let focus_hint = if show_cursor {
+            "  Ctrl+C copy"
+        } else {
+            ""
+        };
+        (
+            format!(" Rust{stale_mark}{focus_hint} "),
+            TpTheme::rust_pane(),
+            if show_cursor {
+                Style::default().fg(ratatui::style::Color::Yellow)
+            } else {
+                TpTheme::frame()
+            },
+        )
+    } else {
+        (
+            format!(" {} ", files::display_name(doc)),
+            TpTheme::editor(),
+            if show_cursor {
+                Style::default().fg(ratatui::style::Color::Yellow)
+            } else {
+                TpTheme::frame()
+            },
+        )
+    };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(TpTheme::frame())
+        .border_style(border)
         .title(title)
-        .style(TpTheme::editor());
+        .style(pane_style);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let widget = EditorWidget::new(doc, view)
         .highlighter(highlighter)
         .decorations(decorations)
-        .style(TpTheme::editor())
+        .style(pane_style)
         .show_cursor(show_cursor);
     f.render_widget(widget, inner);
 }
@@ -522,7 +597,7 @@ fn draw_editor(
 fn draw_watch(f: &mut Frame, area: Rect, ui: &UiState) {
     let focused = ui.focus == Focus::Watch;
     let title = if focused {
-        " Watch  (↑↓ select  Enter jump  Tab editor) "
+        " Watch  (↑↓ select  Enter jump  Tab cycle) "
     } else {
         " Watch  (Tab to focus) "
     };
@@ -607,6 +682,7 @@ fn draw_status(f: &mut Frame, area: Rect, doc: &Document, view: &EditorView, ui:
     };
     let focus = match ui.focus {
         Focus::Editor => "EDIT",
+        Focus::Rust => "RUST",
         Focus::Watch => "WATCH",
     };
     let right = format!(" {focus}  Ln {}, Col {} ", line + 1, col + 1);
@@ -663,12 +739,13 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
             " Keys ",
             "F10  Menus          F1   This help\n\
              F9   Run            Alt+F9 Compile\n\
+             F4   Rust pane      (TD-style, read-only + copy)\n\
              Ctrl+P Open project Ctrl+U Units list\n\
              Ctrl+F Find         F3 / Shift+F3 next/prev\n\
              Ctrl+H Replace      Ctrl+A = Replace all (in dlg)\n\
              Ctrl+O Open file    Ctrl+N New\n\
              Ctrl+Q Quit         Ctrl+Z/Y Undo/Redo\n\
-             Tab  path complete (in Open/Save) / Editor↔Watch\n\
+             Tab  cycle panes    Enter jump to error\n\
              Mouse: menus + drag to select text"
                 .into(),
         ),
@@ -806,13 +883,36 @@ pub fn draw_units_dialog(f: &mut Frame, area: Rect, units: &[std::path::PathBuf]
 }
 
 /// Viewport size for scrolling (inside editor border).
-pub fn editor_text_area(frame_area: Rect, watch_visible: bool) -> (usize, usize) {
-    let inner = editor_inner_rect(frame_area, watch_visible);
+pub fn editor_text_area(frame_area: Rect, watch_visible: bool, rust_visible: bool) -> (usize, usize) {
+    let inner = vbr_inner_rect(frame_area, watch_visible, rust_visible);
     (inner.height.max(1) as usize, inner.width.max(1) as usize)
 }
 
-/// Screen rect of the editor content (inside the double border).
-pub fn editor_inner_rect(frame: Rect, watch_visible: bool) -> Rect {
+pub fn rust_text_area(frame_area: Rect, watch_visible: bool, rust_visible: bool) -> Option<(usize, usize)> {
+    let inner = rust_inner_rect(frame_area, watch_visible, rust_visible)?;
+    Some((inner.height.max(1) as usize, inner.width.max(1) as usize))
+}
+
+struct EditorPanes {
+    vbr: Rect,
+    rust: Option<Rect>,
+}
+
+fn split_editor_panes(area: Rect, rust_visible: bool) -> EditorPanes {
+    if !rust_visible {
+        return EditorPanes {
+            vbr: area,
+            rust: None,
+        };
+    }
+    let parts = Layout::vertical([Constraint::Percentage(58), Constraint::Percentage(42)]).split(area);
+    EditorPanes {
+        vbr: parts[0],
+        rust: Some(parts[1]),
+    }
+}
+
+fn main_editor_chunk(frame: Rect, watch_visible: bool) -> Rect {
     let watch_h = if watch_visible { 7u16 } else { 0 };
     let chunks = if watch_h > 0 {
         Layout::vertical([
@@ -832,13 +932,36 @@ pub fn editor_inner_rect(frame: Rect, watch_visible: bool) -> Rect {
         ])
         .split(frame)
     };
-    let area = chunks[1];
+    chunks[1]
+}
+
+fn inset_border(area: Rect) -> Rect {
     Rect {
         x: area.x.saturating_add(1),
         y: area.y.saturating_add(1),
         width: area.width.saturating_sub(2),
         height: area.height.saturating_sub(2),
     }
+}
+
+/// Screen rect of the VBR editor content (inside its border).
+pub fn vbr_inner_rect(frame: Rect, watch_visible: bool, rust_visible: bool) -> Rect {
+    let chunk = main_editor_chunk(frame, watch_visible);
+    let panes = split_editor_panes(chunk, rust_visible);
+    inset_border(panes.vbr)
+}
+
+/// Screen rect of the Rust pane content, if shown.
+pub fn rust_inner_rect(frame: Rect, watch_visible: bool, rust_visible: bool) -> Option<Rect> {
+    let chunk = main_editor_chunk(frame, watch_visible);
+    let panes = split_editor_panes(chunk, rust_visible);
+    Some(inset_border(panes.rust?))
+}
+
+/// Back-compat alias — VBR pane only (no Rust strip).
+#[allow(dead_code)]
+pub fn editor_inner_rect(frame: Rect, watch_visible: bool) -> Rect {
+    vbr_inner_rect(frame, watch_visible, false)
 }
 
 /// Watch window inner rect (for mouse hits), or None if hidden.
@@ -855,16 +978,18 @@ pub fn watch_inner_rect(frame: Rect, watch_visible: bool) -> Option<Rect> {
     ])
     .split(frame);
     let area = chunks[2];
-    Some(Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    })
+    Some(inset_border(area))
 }
 
-pub fn hit_editor(frame: Rect, watch_visible: bool, column: u16, row: u16) -> bool {
-    let r = editor_inner_rect(frame, watch_visible);
+pub fn hit_editor(frame: Rect, watch_visible: bool, rust_visible: bool, column: u16, row: u16) -> bool {
+    let r = vbr_inner_rect(frame, watch_visible, rust_visible);
+    column >= r.x && column < r.x + r.width && row >= r.y && row < r.y + r.height
+}
+
+pub fn hit_rust(frame: Rect, watch_visible: bool, rust_visible: bool, column: u16, row: u16) -> bool {
+    let Some(r) = rust_inner_rect(frame, watch_visible, rust_visible) else {
+        return false;
+    };
     column >= r.x && column < r.x + r.width && row >= r.y && row < r.y + r.height
 }
 
