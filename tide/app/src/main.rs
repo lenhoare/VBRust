@@ -2,6 +2,7 @@
 
 mod compile;
 mod files;
+mod find;
 mod run;
 mod theme;
 mod ui;
@@ -146,7 +147,8 @@ fn event_loop(
     loop {
         let mut frame_area = Rect::default();
         let watch_vis = ui.watch_visible();
-        let decos = compile::decorations_for(&ui.diagnostics);
+        let mut decos = compile::decorations_for(&ui.diagnostics);
+        decos.extend(find::match_decorations(doc, &ui.find));
         terminal.draw(|f| {
             frame_area = f.area();
             let (h, w) = editor_text_area(f.area(), watch_vis);
@@ -161,7 +163,8 @@ fn event_loop(
 
         match event::read()? {
             Event::Paste(text) => {
-                if ui.dialog.is_none() && ui.menu.open.is_none() && ui.focus == Focus::Editor {
+                if ui.dialog.is_none() && ui.menu.open.is_none() {
+                    ui.focus = Focus::Editor;
                     view.insert_text(doc, &text);
                 }
             }
@@ -237,11 +240,10 @@ fn event_loop(
                         view.mouse_up();
                     }
                     MouseEventKind::ScrollUp if in_editor && ui.menu.open.is_none() => {
-                        view.scroll_row = view.scroll_row.saturating_sub(3);
+                        view.scroll_by(doc, -3);
                     }
                     MouseEventKind::ScrollDown if in_editor && ui.menu.open.is_none() => {
-                        let max = doc.len_lines().saturating_sub(1);
-                        view.scroll_row = (view.scroll_row + 3).min(max);
+                        view.scroll_by(doc, 3);
                     }
                     _ => {}
                 }
@@ -301,6 +303,30 @@ fn event_loop(
                 }
 
                 match key.code {
+                    KeyCode::F(3) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                        if ui.find.has_query() {
+                            if find::find_prev(doc, view, &mut ui.find) {
+                                ui.message = find_status(&ui.find);
+                            } else {
+                                ui.message = " No match.".into();
+                            }
+                        } else {
+                            open_find(ui);
+                        }
+                        continue;
+                    }
+                    KeyCode::F(3) => {
+                        if ui.find.has_query() {
+                            if find::find_next(doc, view, &mut ui.find) {
+                                ui.message = find_status(&ui.find);
+                            } else {
+                                ui.message = " No match.".into();
+                            }
+                        } else {
+                            open_find(ui);
+                        }
+                        continue;
+                    }
                     KeyCode::F(10) => {
                         ui.menu.activate(MenuId::File);
                         continue;
@@ -350,8 +376,17 @@ fn event_loop(
                         *doc = default_untitled();
                         *view = EditorView::new();
                         ui.clear_diagnostics();
+                        ui.find.clear_matches();
                         ui.message = " New file.".into();
                     }
+                    continue;
+                }
+                if is_ctrl(&ev, 'f') {
+                    open_find(ui);
+                    continue;
+                }
+                if is_ctrl(&ev, 'h') {
+                    open_replace(ui);
                     continue;
                 }
                 if is_ctrl(&ev, 'r') {
@@ -437,6 +472,132 @@ fn handle_dialog(
                 ui.dialog = None;
             }
         }
+        Dialog::Find {
+            mut input,
+            mut case_sensitive,
+        } => match key.code {
+            KeyCode::Esc => ui.dialog = None,
+            KeyCode::Enter => {
+                ui.find.query = input.trim().to_string();
+                ui.find.case_sensitive = case_sensitive;
+                ui.dialog = None;
+                if ui.find.query.is_empty() {
+                    ui.find.clear_matches();
+                    ui.message = " Find cancelled.".into();
+                } else if find::find_next(doc, view, &mut ui.find) {
+                    ui.message = find_status(&ui.find);
+                } else {
+                    ui.message = format!(" '{}' not found.", ui.find.query);
+                }
+            }
+            KeyCode::Backspace => {
+                input.pop();
+                ui.dialog = Some(Dialog::Find {
+                    input,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Char('c') | KeyCode::Char('C')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                case_sensitive = !case_sensitive;
+                ui.dialog = Some(Dialog::Find {
+                    input,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                input.push(c);
+                ui.dialog = Some(Dialog::Find {
+                    input,
+                    case_sensitive,
+                });
+            }
+            _ => {}
+        },
+        Dialog::Replace {
+            mut find,
+            mut replace,
+            mut field,
+            mut case_sensitive,
+        } => match key.code {
+            KeyCode::Esc => ui.dialog = None,
+            KeyCode::Tab => {
+                field = 1 - field;
+                ui.dialog = Some(Dialog::Replace {
+                    find,
+                    replace,
+                    field,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Enter => {
+                // Keep the dialog open — closing it made the next Enter type a newline.
+                ui.find.query = find.trim().to_string();
+                ui.find.replace = replace.clone();
+                ui.find.case_sensitive = case_sensitive;
+                apply_replace_one(doc, view, ui);
+                ui.dialog = Some(Dialog::Replace {
+                    find,
+                    replace,
+                    field,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Char('a') | KeyCode::Char('A')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                ui.find.query = find.trim().to_string();
+                ui.find.replace = replace.clone();
+                ui.find.case_sensitive = case_sensitive;
+                let n = find::replace_all(doc, view, &mut ui.find);
+                ui.message = format!(" Replaced {n} occurrence(s).");
+                ui.dialog = Some(Dialog::Replace {
+                    find,
+                    replace,
+                    field,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Char('c') | KeyCode::Char('C')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                case_sensitive = !case_sensitive;
+                ui.dialog = Some(Dialog::Replace {
+                    find,
+                    replace,
+                    field,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Backspace => {
+                if field == 0 {
+                    find.pop();
+                } else {
+                    replace.pop();
+                }
+                ui.dialog = Some(Dialog::Replace {
+                    find,
+                    replace,
+                    field,
+                    case_sensitive,
+                });
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if field == 0 {
+                    find.push(c);
+                } else {
+                    replace.push(c);
+                }
+                ui.dialog = Some(Dialog::Replace {
+                    find,
+                    replace,
+                    field,
+                    case_sensitive,
+                });
+            }
+            _ => {}
+        },
         Dialog::Open { mut input } => match key.code {
             KeyCode::Esc => ui.dialog = None,
             KeyCode::Enter => {
@@ -446,6 +607,7 @@ fn handle_dialog(
                         *doc = d;
                         *view = EditorView::new();
                         ui.clear_diagnostics();
+                        ui.find.clear_matches();
                         ui.message = format!(" Opened {}.", display_name(doc));
                     }
                     Err(e) => ui.message = e,
@@ -502,6 +664,7 @@ fn dispatch(
                 *doc = default_untitled();
                 *view = EditorView::new();
                 ui.clear_diagnostics();
+                ui.find.clear_matches();
                 ui.message = " New file.".into();
             }
         }
@@ -541,6 +704,8 @@ fn dispatch(
         MenuCmd::Edit(EditCmd::Paste) => {
             view.handle_key(doc, &KeyEvent::new(Key::Char('v'), KeyMods::ctrl()));
         }
+        MenuCmd::Edit(EditCmd::Find) => open_find(ui),
+        MenuCmd::Edit(EditCmd::Replace) => open_replace(ui),
         MenuCmd::Run(RunCmd::Compile) => {
             do_compile(doc, view, ui);
         }
@@ -551,6 +716,47 @@ fn dispatch(
         MenuCmd::Help(HelpCmd::About) => ui.dialog = Some(Dialog::About),
     }
     Ok(false)
+}
+
+fn open_find(ui: &mut UiState) {
+    ui.dialog = Some(Dialog::Find {
+        input: ui.find.query.clone(),
+        case_sensitive: ui.find.case_sensitive,
+    });
+}
+
+fn open_replace(ui: &mut UiState) {
+    ui.dialog = Some(Dialog::Replace {
+        find: ui.find.query.clone(),
+        replace: ui.find.replace.clone(),
+        field: 0,
+        case_sensitive: ui.find.case_sensitive,
+    });
+}
+
+fn find_status(find: &find::FindState) -> String {
+    if find.matches.is_empty() || find.current == usize::MAX {
+        " No match.".into()
+    } else {
+        format!(
+            " Match {} of {}.",
+            find.current + 1,
+            find.matches.len()
+        )
+    }
+}
+
+fn apply_replace_one(doc: &mut Document, view: &mut EditorView, ui: &mut UiState) {
+    use find::ReplaceResult::*;
+    match find::replace_one(doc, view, &mut ui.find) {
+        EmptyQuery => ui.message = " Nothing to find.".into(),
+        NotFound => ui.message = format!(" '{}' not found.", ui.find.query),
+        Found => ui.message = format!(" Found. Enter again to replace. {}", find_status(&ui.find)),
+        ReplacedAndFound => {
+            ui.message = format!(" Replaced. {}", find_status(&ui.find));
+        }
+        ReplacedLast => ui.message = " Replaced last match.".into(),
+    }
 }
 
 fn do_save(doc: &mut Document, ui: &mut UiState, force_as: bool) {

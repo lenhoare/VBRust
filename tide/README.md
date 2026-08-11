@@ -36,6 +36,9 @@ cargo run -p tide-editor --example minimal -- path/to.txt
 | `Alt+F9` | Compile only — fill the Watch window |
 | `Tab` | Toggle focus Editor ↔ Watch |
 | `Enter` (in Watch) | Jump to the selected diagnostic |
+| `Ctrl+F` | Find |
+| `F3` / `Shift+F3` | Find next / previous |
+| `Ctrl+H` | Replace (Enter = replace+next, Ctrl+A = all) |
 | `Ctrl+S` | Save |
 | `Ctrl+O` | Open |
 | `Ctrl+N` | New |

@@ -39,6 +39,10 @@ pub struct EditorView {
     clipboard: String,
     /// True while the left mouse button is dragging a selection.
     mouse_selecting: bool,
+    /// Last viewport size from [`Self::ensure_visible`] — used to clamp scroll
+    /// after moves / wheel without the host passing dimensions every time.
+    viewport_rows: usize,
+    viewport_cols: usize,
 }
 
 impl Default for EditorView {
@@ -58,6 +62,8 @@ impl EditorView {
             preferred_col: 0,
             clipboard: String::new(),
             mouse_selecting: false,
+            viewport_rows: 0,
+            viewport_cols: 0,
         }
     }
 
@@ -82,24 +88,54 @@ impl EditorView {
     }
 
     /// Ensure cursor is visible within a viewport of `rows` × `cols` text cells
-    /// (excluding gutter).
+    /// (excluding gutter). Always clamps `scroll_row` so we never overscroll
+    /// past the last page (that was corrupting gutters / blocking ↑ at EOF).
     pub fn ensure_visible(&mut self, doc: &Document, rows: usize, cols: usize) {
+        self.viewport_rows = rows;
+        self.viewport_cols = cols;
         if rows == 0 {
             return;
         }
         let (line, col) = self.cursor_position(doc);
         if line < self.scroll_row {
             self.scroll_row = line;
-        } else if line >= self.scroll_row + rows {
+        } else if line >= self.scroll_row.saturating_add(rows) {
             self.scroll_row = line + 1 - rows;
         }
         if cols > 0 {
             if col < self.scroll_col {
                 self.scroll_col = col;
-            } else if col >= self.scroll_col + cols {
+            } else if col >= self.scroll_col.saturating_add(cols) {
                 self.scroll_col = col + 1 - cols;
             }
         }
+        self.clamp_scroll(doc);
+    }
+
+    /// Maximum `scroll_row` for a viewport height of `rows` text lines.
+    pub fn max_scroll_row(doc: &Document, rows: usize) -> usize {
+        let lines = doc.len_lines().max(1);
+        lines.saturating_sub(rows.max(1))
+    }
+
+    pub fn clamp_scroll(&mut self, doc: &Document) {
+        let rows = self.viewport_rows.max(1);
+        let max = Self::max_scroll_row(doc, rows);
+        if self.scroll_row > max {
+            self.scroll_row = max;
+        }
+    }
+
+    /// Scroll the viewport without moving the caret (mouse wheel).
+    pub fn scroll_by(&mut self, doc: &Document, delta: isize) {
+        let rows = if self.viewport_rows == 0 {
+            20
+        } else {
+            self.viewport_rows
+        };
+        let max = Self::max_scroll_row(doc, rows) as isize;
+        let next = (self.scroll_row as isize + delta).clamp(0, max);
+        self.scroll_row = next as usize;
     }
 
     pub fn gutter_width(&self, doc: &Document) -> u16 {
@@ -109,6 +145,12 @@ impl EditorView {
         let n = doc.len_lines().max(1);
         let digits = ((n as f64).log10().floor() as usize) + 1;
         (digits + 1) as u16 // space after number
+    }
+
+    fn sync_viewport_after_move(&mut self, doc: &Document) {
+        if self.viewport_rows > 0 {
+            self.ensure_visible(doc, self.viewport_rows, self.viewport_cols.max(1));
+        }
     }
 
     /// Handle a key. Returns `true` if the document or view changed.
@@ -280,6 +322,8 @@ impl EditorView {
         }
         let (_, col) = doc.char_to_position(pos);
         self.preferred_col = col;
+        // Keep the caret on-screen after jumps (paste, Enter, find, …).
+        self.sync_viewport_after_move(doc);
     }
 
     fn move_left(&mut self, doc: &Document, extend: bool) {
@@ -304,7 +348,6 @@ impl EditorView {
         }
         let col = self.preferred_col;
         let pos = doc.position_to_char(line - 1, col);
-        // Preserve preferred_col across vertical moves
         let preferred = self.preferred_col;
         self.set_cursor(doc, pos, extend);
         self.preferred_col = preferred;
@@ -417,7 +460,19 @@ impl EditorView {
         true
     }
 
-    /// Left-button release.
+    /// Select `[start, end)` and place the caret at `end`.
+    pub fn select_range(&mut self, doc: &Document, start: usize, end: usize) {
+        let start = start.min(doc.len_chars());
+        let end = end.min(doc.len_chars());
+        self.selection.anchor = start;
+        self.selection.head = end;
+        self.cursor = end;
+        let (_, col) = doc.char_to_position(end);
+        self.preferred_col = col;
+        self.mouse_selecting = false;
+        self.sync_viewport_after_move(doc);
+    }
+
     pub fn mouse_up(&mut self) {
         self.mouse_selecting = false;
     }

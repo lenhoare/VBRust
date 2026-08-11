@@ -2,7 +2,7 @@
 Function Main()
     Dim count As Long = 3
     Dim total As Long = 0
-
+      
     For i = 1 To count
         total = total + i
     Next i
@@ -19,4 +19,5 @@ Function Main()
     Else
         Debug.Print "small"
     End If
+
 End Function

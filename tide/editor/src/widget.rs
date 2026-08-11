@@ -79,19 +79,20 @@ impl Widget for EditorWidget<'_> {
         let text_cols = area.width.saturating_sub(gutter) as usize;
         let text_rows = area.height as usize;
 
-        // Caller should have scrolled; we still clamp for safety.
-        let scroll_row = self.view.scroll_row;
+        // Caller should have scrolled; clamp again so a stale overscroll never paints
+        // past EOF (corrupt gutters / blank pages).
+        let line_count = self.doc.len_lines().max(1);
+        let max_scroll = line_count.saturating_sub(text_rows);
+        let scroll_row = self.view.scroll_row.min(max_scroll);
         let scroll_col = self.view.scroll_col;
         let (sel_a, sel_b) = self.view.selection.range();
         let (cur_line, cur_col) = self.view.cursor_position(self.doc);
 
-        let line_count = self.doc.len_lines().max(1);
-
         for row in 0..text_rows {
             let line_idx = scroll_row + row;
             let y = area.y + row as u16;
-            if line_idx >= line_count && !(line_idx == 0 && self.doc.is_empty()) {
-                // Past EOF — still paint gutter blank
+            if line_idx >= line_count {
+                // Past EOF — blank gutter only
                 if gutter > 0 {
                     paint_gutter(buf, area.x, y, gutter, None, self.style);
                 }
@@ -99,20 +100,11 @@ impl Widget for EditorWidget<'_> {
             }
 
             if gutter > 0 {
-                let num = if line_idx < line_count {
-                    Some(line_idx + 1)
-                } else {
-                    None
-                };
-                paint_gutter(buf, area.x, y, gutter, num, self.style);
+                paint_gutter(buf, area.x, y, gutter, Some(line_idx + 1), self.style);
             }
 
-            let line = if line_idx < line_count {
-                self.doc.line(line_idx)
-            } else {
-                String::new()
-            };
-            let line_start = self.doc.line_to_char(line_idx.min(line_count.saturating_sub(1)));
+            let line = self.doc.line(line_idx);
+            let line_start = self.doc.line_to_char(line_idx);
             let highlights = self.highlighter.highlight(&line);
 
             // Build per-char styles
@@ -160,7 +152,11 @@ impl Widget for EditorWidget<'_> {
                 if col - scroll_col >= text_cols {
                     break;
                 }
-                let ch = chars[col];
+                let ch = match chars[col] {
+                    '\t' => ' ',
+                    c if c.is_control() => '·', // never emit \r etc. into the terminal
+                    c => c,
+                };
                 let width = UnicodeWidthChar::width(ch).unwrap_or(1).max(1) as u16;
                 if x + width > area.right() {
                     break;
@@ -172,6 +168,15 @@ impl Widget for EditorWidget<'_> {
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     cell.set_char(ch);
                     cell.set_style(style);
+                }
+                // Clear the trailing half of wide glyphs so they don't smear.
+                if width > 1 {
+                    for dx in 1..width {
+                        if let Some(cell) = buf.cell_mut((x + dx, y)) {
+                            cell.set_char(' ');
+                            cell.set_style(style);
+                        }
+                    }
                 }
                 x += width;
                 col += 1;
@@ -202,11 +207,26 @@ impl Widget for EditorWidget<'_> {
 
 fn paint_gutter(buf: &mut Buffer, x: u16, y: u16, width: u16, num: Option<usize>, base: Style) {
     let gutter_style = base.fg(Color::Gray);
+    let w = width as usize;
+    if w == 0 {
+        return;
+    }
+    // Exact `width` cells — never spill into the text area (format's width is a
+    // *minimum*, so a too-narrow gutter must truncate, not overflow).
     let label = match num {
-        Some(n) => format!("{n:>width$}", width = (width as usize).saturating_sub(1)),
-        None => " ".repeat(width as usize),
+        Some(n) => {
+            let digits = w.saturating_sub(1).max(1);
+            let raw = n.to_string();
+            let body = if raw.len() > digits {
+                raw[raw.len() - digits..].to_string()
+            } else {
+                format!("{raw:>digits$}")
+            };
+            format!("{body} ")
+        }
+        None => " ".repeat(w),
     };
-    for (i, ch) in label.chars().take(width as usize).enumerate() {
+    for (i, ch) in label.chars().take(w).enumerate() {
         if let Some(cell) = buf.cell_mut((x + i as u16, y)) {
             cell.set_char(ch);
             cell.set_style(gutter_style);

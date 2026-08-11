@@ -42,7 +42,7 @@ impl Document {
 
     pub fn from_str(text: &str) -> Self {
         let mut doc = Self::new();
-        doc.rope = Rope::from_str(normalize_newlines(text));
+        doc.rope = Rope::from_str(&normalize_line_endings(text));
         doc
     }
 
@@ -155,27 +155,39 @@ impl Document {
             return (0, 0);
         }
         let char_idx = char_idx.min(self.len_chars());
-        // At end-of-document past last char: sit after last char on last line.
+        // At end-of-document: sit after last char on last line (may be the
+        // empty line ropey adds after a trailing `\n`).
         if char_idx == self.len_chars() {
             let line = self.len_lines().saturating_sub(1);
             return (line, self.line_len(line));
         }
         let line = self.rope.char_to_line(char_idx);
         let start = self.rope.line_to_char(line);
-        (line, char_idx - start)
+        let col = char_idx - start;
+        // If the index points at the line's trailing `\n`, report the column
+        // as end-of-content (same visual cell as "past last character").
+        let content_len = self.line_len(line);
+        (line, col.min(content_len))
     }
 
     pub fn insert(&mut self, char_idx: usize, text: &str) {
         if text.is_empty() {
             return;
         }
+        // Normalize line endings on the way in — a paste of `\r\n` (Windows) or
+        // bare `\r` otherwise becomes one ropey "line" and painting `\r` into the
+        // terminal resets the cursor mid-row (gutters/text look corrupted).
+        let text = normalize_line_endings(text);
+        if text.is_empty() {
+            return;
+        }
         let char_idx = char_idx.min(self.len_chars());
         let start_byte = self.rope.char_to_byte(char_idx);
-        self.rope.insert(char_idx, text);
+        self.rope.insert(char_idx, &text);
         self.push_edit(Edit {
             start: start_byte,
             removed: String::new(),
-            inserted: text.to_string(),
+            inserted: text,
         });
     }
 
@@ -243,9 +255,23 @@ impl Document {
     }
 }
 
-fn normalize_newlines(text: &str) -> &str {
-    // Rope stores as-is; callers may normalize. Keep content unchanged for fidelity.
-    text
+fn normalize_line_endings(text: &str) -> String {
+    if !text.as_bytes().contains(&b'\r') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            out.push('\n');
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -269,5 +295,98 @@ mod tests {
         assert_eq!(doc.line(1), "cd");
         assert_eq!(doc.position_to_char(1, 1), 4);
         assert_eq!(doc.char_to_position(4), (1, 1));
+    }
+
+    #[test]
+    fn eof_after_trailing_newline() {
+        let doc = Document::from_str("a\nb\n");
+        assert_eq!(doc.len_lines(), 3);
+        assert_eq!(doc.char_to_position(doc.len_chars()), (2, 0));
+        assert_eq!(doc.char_to_position(1), (0, 1));
+    }
+
+    #[test]
+    fn crlf_paste_becomes_real_lines() {
+        use crate::input::{Key, KeyEvent, KeyMods};
+        use crate::view::EditorView;
+
+        let mut doc = Document::from_str("keep\n");
+        let mut view = EditorView::new();
+        view.ensure_visible(&doc, 10, 80);
+        view.goto(&doc, 1, 0);
+        let block = (0..30)
+            .map(|i| format!("line{i}\r\n"))
+            .collect::<String>();
+        view.insert_text(&mut doc, &block);
+        assert!(
+            doc.len_lines() > 20,
+            "CRLF paste must split into many lines, got {}",
+            doc.len_lines()
+        );
+        assert!(!doc.text().contains('\r'));
+
+        let (line_before, _) = view.cursor_position(&doc);
+        view.handle_key(&mut doc, &KeyEvent::new(Key::Up, KeyMods::none()));
+        let (line_after, _) = view.cursor_position(&doc);
+        assert_eq!(
+            line_after,
+            line_before - 1,
+            "↑ must leave the last line after a CRLF paste"
+        );
+    }
+
+    #[test]
+    fn scroll_clamps_at_last_page() {
+        use crate::input::{Key, KeyEvent, KeyMods};
+        use crate::view::EditorView;
+
+        let mut text = String::new();
+        for i in 0..40 {
+            text.push_str(&format!("line{i}\n"));
+        }
+        let mut doc = Document::from_str(&text);
+        let mut view = EditorView::new();
+        view.ensure_visible(&doc, 10, 80);
+        assert_eq!(EditorView::max_scroll_row(&doc, 10), doc.len_lines() - 10);
+
+        view.goto(&doc, doc.len_lines() - 1, 0);
+        view.ensure_visible(&doc, 10, 80);
+        assert!(view.scroll_row <= EditorView::max_scroll_row(&doc, 10));
+        assert_eq!(
+            view.scroll_row,
+            EditorView::max_scroll_row(&doc, 10),
+            "cursor on last line should pin scroll to last page"
+        );
+
+        view.scroll_by(&doc, 100);
+        assert_eq!(view.scroll_row, EditorView::max_scroll_row(&doc, 10));
+
+        let before = view.cursor_position(&doc).0;
+        view.handle_key(
+            &mut doc,
+            &KeyEvent::new(Key::Up, KeyMods::none()),
+        );
+        let after = view.cursor_position(&doc).0;
+        assert_eq!(after, before - 1);
+        assert!(view.scroll_row <= after || after >= view.scroll_row);
+    }
+
+    #[test]
+    fn paste_scrolls_caret_into_view() {
+        use crate::view::EditorView;
+
+        let mut doc = Document::from_str("start\n");
+        let mut view = EditorView::new();
+        view.ensure_visible(&doc, 5, 80);
+        let block = (0..20).map(|i| format!("p{i}\n")).collect::<String>();
+        assert!(view.insert_text(&mut doc, &block));
+        let (line, _) = view.cursor_position(&doc);
+        assert!(
+            line >= view.scroll_row && line < view.scroll_row + 5,
+            "caret line {line} should be visible in scroll {}..{}",
+            view.scroll_row,
+            view.scroll_row + 5
+        );
+        assert!(view.scroll_row <= EditorView::max_scroll_row(&doc, 5));
     }
 }

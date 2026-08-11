@@ -34,6 +34,8 @@ pub enum EditCmd {
     Cut,
     Copy,
     Paste,
+    Find,
+    Replace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +88,8 @@ impl MenuBar {
                 ("Cut        Ctrl+X", MenuCmd::Edit(EditCmd::Cut)),
                 ("Copy       Ctrl+C", MenuCmd::Edit(EditCmd::Copy)),
                 ("Paste      Ctrl+V", MenuCmd::Edit(EditCmd::Paste)),
+                ("Find...    Ctrl+F", MenuCmd::Edit(EditCmd::Find)),
+                ("Replace... Ctrl+H", MenuCmd::Edit(EditCmd::Replace)),
             ],
             MenuId::Run => &[
                 ("Compile    Alt+F9", MenuCmd::Run(RunCmd::Compile)),
@@ -158,6 +162,17 @@ pub enum Dialog {
     ConfirmQuit,
     Help,
     About,
+    Find {
+        input: String,
+        case_sensitive: bool,
+    },
+    Replace {
+        find: String,
+        replace: String,
+        /// 0 = find field, 1 = replace field
+        field: u8,
+        case_sensitive: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +188,7 @@ pub struct UiState {
     pub diagnostics: Vec<crate::compile::TideDiag>,
     pub watch_selected: usize,
     pub focus: Focus,
+    pub find: crate::find::FindState,
 }
 
 impl Default for UiState {
@@ -180,10 +196,11 @@ impl Default for UiState {
         Self {
             menu: MenuBar::default(),
             dialog: None,
-            message: " F1 Help  F10 Menu  F9 Run  Alt+F9 Compile ".into(),
+            message: " F1 Help  F10 Menu  F9 Run  Ctrl+F Find ".into(),
             diagnostics: Vec::new(),
             watch_selected: 0,
             focus: Focus::Editor,
+            find: crate::find::FindState::default(),
         }
     }
 }
@@ -573,9 +590,10 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
             " Keys ",
             "F10  Menus          F1   This help\n\
              F9   Run            Alt+F9 Compile\n\
+             Ctrl+F Find         F3 / Shift+F3 next/prev\n\
+             Ctrl+H Replace      Ctrl+A = Replace all (in dlg)\n\
              Ctrl+O Open         Ctrl+N New\n\
              Ctrl+Q Quit         Ctrl+Z/Y Undo/Redo\n\
-             Ctrl+C/X/V Copy/Cut/Paste\n\
              Tab  Editor/Watch   Enter jump to error\n\
              Mouse: menus + drag to select text"
                 .into(),
@@ -588,10 +606,51 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
              Esc to close"
                 .into(),
         ),
+        Dialog::Find {
+            input,
+            case_sensitive,
+        } => {
+            let cs = if *case_sensitive { "ON " } else { "off" };
+            (
+                " Find ",
+                format!(
+                    "Text to find\n\n [{input}_]\n\n\
+                     Case sensitive: {cs}  (Ctrl+C toggles)\n\
+                     Enter=Find  Esc=Cancel"
+                ),
+            )
+        }
+        Dialog::Replace {
+            find,
+            replace,
+            field,
+            case_sensitive,
+        } => {
+            let cs = if *case_sensitive { "ON " } else { "off" };
+            let (fmark, rmark) = if *field == 0 {
+                ("►", " ")
+            } else {
+                (" ", "►")
+            };
+            (
+                " Replace ",
+                format!(
+                    "{fmark} Find    [{find}_]\n\
+                     {rmark} Replace [{replace}_]\n\n\
+                     Case sensitive: {cs}  (Ctrl+C toggles)\n\
+                     Tab=field  Enter=Replace/Find next  Ctrl+A=All  Esc=Close"
+                ),
+            )
+        }
     };
 
-    let width = 50u16.min(area.width.saturating_sub(4));
-    let height = 10u16.min(area.height.saturating_sub(4));
+    let height = match dialog {
+        Dialog::Help | Dialog::Replace { .. } => 12u16,
+        Dialog::Find { .. } => 11u16,
+        _ => 10u16,
+    };
+    let width = 56u16.min(area.width.saturating_sub(4));
+    let height = height.min(area.height.saturating_sub(4));
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     let rect = Rect {
