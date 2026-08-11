@@ -1,0 +1,14 @@
+' 50 — Ninety-Nine Bottles, entry point.
+' Prints a shortened version: stanzas 5 down to 0, with a blank line between.
+Function Main()
+    Dim n As Long = 5
+    For n = 5 To 0 Step -1
+        Dim lines As Vec<String> = Bottles.Stanza(n)
+        For Each line In lines
+            Debug.Print line
+        Next
+        If n > 0 Then
+            Debug.Print ""
+        End If
+    Next
+End Function

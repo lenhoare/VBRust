@@ -1,0 +1,26 @@
+' 50 — Ninety-Nine Bottles logic module.
+' Builds the lyric for one stanza of the song. Returns a Vec<String> of the
+' three lines. Kept deterministic: a fixed number of bottles, so the expected
+' output is exact.
+Public Function Stanza(ByVal n As Long) As Vec<String>
+    Dim lines As Vec<String>
+    If n = 0 Then
+        lines.Push("No more bottles of milk on the wall, no more bottles of milk.")
+        lines.Push("Go to the store and buy some more, 99 bottles of milk on the wall.")
+    ElseIf n = 1 Then
+        lines.Push("1 bottle of milk on the wall, 1 bottle of milk.")
+        lines.Push("Take it down and pass it around, no more bottles of milk on the wall.")
+    Else
+        lines.Push(CStr(n) & " bottles of milk on the wall, " & CStr(n) & " bottles of milk.")
+        lines.Push("Take one down and pass it around, " & CStr(n - 1) & Plural(n - 1) & " of milk on the wall.")
+    End If
+    Return lines
+End Function
+
+' " bottle" vs " bottles" helper.
+Public Function Plural(ByVal n As Long) As String
+    If n = 1 Then
+        Return " bottle"
+    End If
+    Return " bottles"
+End Function

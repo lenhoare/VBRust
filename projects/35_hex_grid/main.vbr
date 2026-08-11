@@ -1,0 +1,8 @@
+' 35 — Hex Grid, entry point.
+Function Main()
+    Debug.Print "Hex grid (3 x 2):"
+    Dim rows As Vec<String> = HexGrid.HexGrid(3, 2)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Function

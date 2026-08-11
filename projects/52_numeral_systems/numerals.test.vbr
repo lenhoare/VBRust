@@ -1,0 +1,32 @@
+' 52 — Numeral Systems Counters, test file.
+Test "binary of small numbers"
+    Assert Numerals.ToBinary(0) = "0"
+    Assert Numerals.ToBinary(1) = "1"
+    Assert Numerals.ToBinary(2) = "10"
+    Assert Numerals.ToBinary(5) = "101"
+    Assert Numerals.ToBinary(10) = "1010"
+End Test
+
+Test "binary of bigger numbers"
+    Assert Numerals.ToBinary(255) = "11111111"
+    Assert Numerals.ToBinary(1024) = "10000000000"
+End Test
+
+Test "hex of small numbers"
+    Assert Numerals.ToHex(0) = "0"
+    Assert Numerals.ToHex(10) = "A"
+    Assert Numerals.ToHex(15) = "F"
+    Assert Numerals.ToHex(16) = "10"
+    Assert Numerals.ToHex(255) = "FF"
+    Assert Numerals.ToHex(48879) = "BEEF"
+End Test
+
+Test "table row is padded"
+    Assert Numerals.Row(5) = "     5      5          101"
+    Assert Numerals.Row(255) = "   255     FF     11111111"
+End Test
+
+Test "pad helper"
+    Assert Numerals.Pad("7", 3) = "  7"
+    Assert Numerals.Pad("ABC", 3) = "ABC"
+End Test

@@ -1,0 +1,47 @@
+' 40 — Leetspeak logic module.
+' Converts plain English to 1337-speak using a fixed letter->leet mapping.
+' This version is deterministic: one fixed replacement per letter, chosen to
+' match the classic leetspeak substitutions. (The book's version picks a
+' random variant per occurrence; we keep one canonical mapping so tests and
+' expected output are exact.)
+Public Function Leet(ByVal message As String) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To message.Len()
+        Dim ch As String = Mid(message, i, 1)
+        out = out & ReplaceChar(ch)
+    Next
+    Return out
+End Function
+
+' One-character mapping, preserving case of the original letter where the
+' substitution is letter-like; digits/symbols are often case-insensitive so
+' we just use the classic form. Unknown characters pass through unchanged.
+' (If/ElseIf rather than Match: a Match scrutinee String doesn't coerce to
+' &str literal patterns, but String = "literal" comparisons are fine.)
+Public Function ReplaceChar(ByVal ch As String) As String
+    Dim lower As String = LCase(ch)
+    If lower = "a" Then
+        Return "4"
+    ElseIf lower = "b" Then
+        Return "8"
+    ElseIf lower = "e" Then
+        Return "3"
+    ElseIf lower = "g" Then
+        Return "9"
+    ElseIf lower = "i" Then
+        Return "1"
+    ElseIf lower = "l" Then
+        Return "1"
+    ElseIf lower = "o" Then
+        Return "0"
+    ElseIf lower = "s" Then
+        Return "5"
+    ElseIf lower = "t" Then
+        Return "7"
+    ElseIf lower = "z" Then
+        Return "2"
+    Else
+        Return ch
+    End If
+End Function

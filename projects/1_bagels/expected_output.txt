@@ -1,0 +1,16 @@
+I am thinking of a three-digit number. Try to guess what it is.
+Here are some clues:
+When I say:    That means:
+  Pico         One digit is correct but in the wrong position.
+  Fermi        One digit is correct and in the right position.
+  Bagels       No digit is correct.
+
+Guess #1: 111
+Fermi
+Guess #2: 212
+Pico Pico
+Guess #3: 321
+Fermi Pico Pico
+Guess #4: 123
+Fermi Fermi Fermi
+You got it!

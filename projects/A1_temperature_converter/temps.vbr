@@ -1,0 +1,45 @@
+' A1 — temperature conversions — the logic under test.
+' Scales: Celsius (C), Fahrenheit (F), Kelvin (K).
+'
+' Every function is Public so both main.vbr and temps.test.vbr can call it,
+' qualified as Temps.<Name>. The formulas are pure arithmetic on Double, so
+' they are deterministic and easy to pin with tests.
+'
+' Absolute zero in Celsius — a Public Const, readable from other modules as
+' Temps.AbsoluteZeroC (constants are uppercased on the Rust side).
+Public Const AbsoluteZeroC As Double = -273.15
+
+' Celsius -> Fahrenheit: F = C * 9 / 5 + 32
+Public Function CtoF(ByVal c As Double) As Double
+    Return c * 9 / 5 + 32
+End Function
+
+' Fahrenheit -> Celsius: C = (F - 32) * 5 / 9
+Public Function FtoC(ByVal f As Double) As Double
+    Return (f - 32) * 5 / 9
+End Function
+
+' Celsius -> Kelvin: K = C + 273.15
+Public Function CtoK(ByVal c As Double) As Double
+    Return c + 273.15
+End Function
+
+' Kelvin -> Celsius: C = K - 273.15
+Public Function KtoC(ByVal k As Double) As Double
+    Return k - 273.15
+End Function
+
+' A word for how a Celsius temperature feels. Exercises If / ElseIf / Else.
+Public Function Describe(ByVal c As Double) As String
+    If c < -40 Then
+        Return "bitter"
+    ElseIf c < 0 Then
+        Return "cold"
+    ElseIf c < 20 Then
+        Return "mild"
+    ElseIf c < 30 Then
+        Return "warm"
+    Else
+        Return "hot"
+    End If
+End Function

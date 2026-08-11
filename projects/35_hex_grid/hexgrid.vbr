@@ -1,0 +1,57 @@
+' 35 — Hex Grid logic module.
+' Builds a repeating hexagonal grid pattern (chicken-wire look) as text
+' rows. Each hexagon is 6 rows tall; even hex-row-groups start at column 0,
+' odd groups offset by half a hexagon (3 columns), interlocking like
+' brickwork. Pure loops and string concatenation — no string builtins, so
+' this transpiles cleanly to all three targets (Rust, Python, C).
+Public Function HexGrid(ByVal hexesAcross As Long, ByVal hexesDown As Long) As Vec<String>
+    Dim rows As Vec<String>
+    Dim group As Long = 0
+    For group = 0 To hexesDown - 1
+        Dim phase As Long = 0
+        For phase = 0 To 5
+            rows.Push(GroupRow(group, phase, hexesAcross))
+        Next
+    Next
+    Return rows
+End Function
+
+' One output row: `cols` hexagons at their offset positions.
+Public Function GroupRow(ByVal group As Long, ByVal phase As Long, ByVal cols As Long) As String
+    Dim offset As Long = 0
+    If group Mod 2 = 1 Then
+        offset = 3
+    End If
+    Dim line As String = Spaces(offset)
+    Dim c As Long = 0
+    For c = 0 To cols - 1
+        line = line & HexRow(phase)
+    Next
+    Return line
+End Function
+
+' One hexagon row for the given phase (0..5).
+Public Function HexRow(ByVal phase As Long) As String
+    If phase = 0 Then
+        Return "  /\  "
+    ElseIf phase = 1 Then
+        Return " /  \ "
+    ElseIf phase = 2 Then
+        Return "/    \"
+    ElseIf phase = 3 Then
+        Return "\    /"
+    ElseIf phase = 4 Then
+        Return " \  / "
+    Else
+        Return "  \/  "
+    End If
+End Function
+
+Public Function Spaces(ByVal n As Long) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To n
+        out = out & " "
+    Next
+    Return out
+End Function

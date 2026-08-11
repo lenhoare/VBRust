@@ -1,0 +1,38 @@
+' Bagels test file: tests the GetClue function in bagels.vbr.
+' Each test calls the Public function directly (qualified as Bagels.GetClue).
+
+Test "three Fermi returns sorted string"
+    Assert Bagels.GetClue("123", "123") = "Fermi Fermi Fermi"
+End Test
+
+Test "one Fermi and two Pico"
+    Assert Bagels.GetClue("123", "132") = "Fermi Pico Pico"
+End Test
+
+Test "two Pico"
+    Assert Bagels.GetClue("123", "312") = "Pico Pico Pico"
+End Test
+
+Test "three Pico (different order)"
+    Assert Bagels.GetClue("123", "231") = "Pico Pico Pico"
+End Test
+
+Test "no correct digits"
+    Assert Bagels.GetClue("123", "456") = "Bagels"
+End Test
+
+Test "leading zeros allowed"
+    Assert Bagels.GetClue("012", "012") = "Fermi Fermi Fermi"
+End Test
+
+Test "mixed with leading zero"
+    Assert Bagels.GetClue("012", "102") = "Fermi Pico Pico"
+    ' Explanation:
+    ' secret 0 1 2
+    ' guess  1 0 2
+    ' Exact matches: position 2: '2' vs '2' -> Fermi
+    ' Remaining: secret [0,1,null], guess [1,0,null]
+    ' Pico: secret '0' matches guess '0' at position1 -> Pico
+    ' Pico: secret '1' matches guess '1' at position0 -> Pico
+    ' So we have one Fermi and two Pico -> sorted: Fermi Pico Pico
+End Test

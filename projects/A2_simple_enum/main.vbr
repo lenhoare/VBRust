@@ -1,0 +1,15 @@
+' A2 — simple enum demo, entry point.
+' Thin by design: it only arranges and prints; the enum logic lives in traffic.vbr.
+Function Main()
+    Debug.Print "Traffic light durations (seconds):"
+    Dim lights As Vec<TrafficLight> = [TrafficLight.Red, TrafficLight.Yellow, TrafficLight.Green]
+    For Each light In lights
+        Debug.Print "  " & Traffic.Name(light) & ": " & Traffic.DurationSec(light) & "s"
+    Next
+
+    Debug.Print ""
+    Debug.Print "Spot checks:"
+    Debug.Print "  Red   = " & Traffic.DurationSec(TrafficLight.Red) & "s"
+    Debug.Print "  Yellow = " & Traffic.DurationSec(TrafficLight.Yellow) & "s"
+    Debug.Print "  Green = " & Traffic.DurationSec(TrafficLight.Green) & "s"
+End Function

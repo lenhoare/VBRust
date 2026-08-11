@@ -1,0 +1,14 @@
+' 64 — Seven-Segment Display, entry point.
+Function Main()
+    Debug.Print "Digits 0-9:"
+    Dim rows As Vec<String> = Segments.DigitsToText("0123456789")
+    For Each row In rows
+        Debug.Print row
+    Next
+    Debug.Print ""
+    Debug.Print "Negative number:"
+    Dim rows2 As Vec<String> = Segments.DigitsToText("-125")
+    For Each row In rows2
+        Debug.Print row
+    Next
+End Function

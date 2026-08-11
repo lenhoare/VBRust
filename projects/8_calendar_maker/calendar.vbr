@@ -1,0 +1,89 @@
+' 8 — Calendar Maker logic module.
+' Builds a printable monthly calendar as rows of text, Monday-first (ISO
+' weeks). Pure logic, unit-testable without the DateTime stdlib except
+' WeekdayOfFirst, which uses DateTime.Parse + Format (deterministic — no
+' Now).
+Public Function IsLeap(ByVal year As Long) As Boolean
+    If year Mod 400 = 0 Then
+        Return True
+    End If
+    If year Mod 100 = 0 Then
+        Return False
+    End If
+    Return year Mod 4 = 0
+End Function
+
+' Days in a month (1..12), leap-aware.
+Public Function DaysInMonth(ByVal year As Long, ByVal month As Long) As Long
+    If month = 2 Then
+        If IsLeap(year) Then
+            Return 29
+        End If
+        Return 28
+    End If
+    If month = 4 Or month = 6 Or month = 9 Or month = 11 Then
+        Return 30
+    End If
+    Return 31
+End Function
+
+' The ISO weekday of the 1st of the month: 1=Mon .. 7=Sun. Uses the
+' DateTime stdlib: parse the first day and read %u. Deterministic.
+Public Function WeekdayOfFirst(ByVal year As Long, ByVal month As Long) As Long
+    Dim first As DateTime = DateTime.Parse(Pad2(month) & "/01/" & CStr(year) & " 00:00:00", "%m/%d/%Y %H:%M:%S").Unwrap()
+    Return Val(first.Format("%u"))
+End Function
+
+' The number of leading blank cells before day 1 (Monday-first).
+Public Function LeadBlanks(ByVal year As Long, ByVal month As Long) As Long
+    Return WeekdayOfFirst(year, month) - 1
+End Function
+
+' Build the calendar for a month as text rows (header + week rows).
+' Each day cell is 3 chars ("  1".." 31"), weeks split after 7 cells.
+Public Function BuildCalendar(ByVal year As Long, ByVal month As Long) As Vec<String>
+    Dim rows As Vec<String>
+    rows.Push("Mo Tu We Th Fr Sa Su")
+    Dim lead As Long = LeadBlanks(year, month)
+    Dim days As Long = DaysInMonth(year, month)
+    Dim cells As Vec<String>
+    Dim i As Long = 0
+    For i = 1 To lead
+        cells.Push("   ")
+    Next
+    For i = 1 To days
+        cells.Push(Pad3(i))
+    Next
+    ' Split into weeks of 7.
+    Dim line As String = ""
+    Dim c As Long = 0
+    For c = 0 To cells.Len() - 1
+        line = line & cells[c]
+        If (c + 1) Mod 7 = 0 Then
+            rows.Push(line)
+            line = ""
+        End If
+    Next
+    If line <> "" Then
+        rows.Push(line)
+    End If
+    Return rows
+End Function
+
+' Right-justify a day number into 3 chars.
+Public Function Pad3(ByVal n As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < 3
+        s = " " & s
+    Loop
+    Return s
+End Function
+
+' Zero-pad a number to 2 chars (for the date string).
+Public Function Pad2(ByVal n As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < 2
+        s = "0" & s
+    Loop
+    Return s
+End Function

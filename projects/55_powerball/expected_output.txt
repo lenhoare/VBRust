@@ -1,0 +1,16 @@
+Powerball analysis (1000 tickets)
+
+Powerball frequency (top 5):
+  pb  6 appeared 53 times
+  pb 18 appeared 51 times
+  pb 10 appeared 48 times
+  pb 25 appeared 48 times
+  pb  2 appeared 46 times
+
+Most common first ball: 54
+
+Win simulation (draw 7 13 22 31 45 pb 17):
+  spent    $2000
+  won      $150
+  net      $-1850
+  winning tickets: 36 of 1000

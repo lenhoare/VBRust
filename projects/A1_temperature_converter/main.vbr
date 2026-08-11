@@ -1,0 +1,24 @@
+' A1 — temperature conversions, entry point.
+' Thin by design: it only arranges numbers and prints; the conversion logic
+' lives in temps.vbr so temps.test.vbr can pin it down (main.vbr is not
+' reachable from a test file).
+'
+' Note: qualified cross-module calls don't yet adapt integer literals to
+' Double parameters, and For-loop counters (i32) don't either — so the float
+' literals here are written explicitly (100.0, not 100) and the loop counter
+' is widened through an explicit Double before being passed.
+Function Main()
+    Debug.Print "Celsius -> Fahrenheit:"
+    For c = -20 To 40 Step 10
+        Dim d As Double = c
+        Debug.Print "  " & c & "C  ->  " & Temps.CtoF(d) & "F"
+    Next
+
+    Debug.Print ""
+    Debug.Print "Spot checks:"
+    Debug.Print "  boiling water  " & Temps.CtoF(100.0) & "F / " & Temps.CtoK(100.0) & "K"
+    Debug.Print "  freezing water " & Temps.FtoC(32.0) & "C / " & Temps.KtoC(273.15) & "C"
+    Debug.Print "  absolute zero  " & Round(Temps.CtoF(Temps.AbsoluteZeroC)) & "F"
+    Debug.Print "  25C feels " & Temps.Describe(25.0)
+    Debug.Print "  -30C feels " & Temps.Describe(-30.0)
+End Function

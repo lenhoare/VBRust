@@ -1,0 +1,30 @@
+' Bagels game entry point (deterministic version for verification).
+' To play interactively, replace the fixed guesses with InputBox calls and
+' use Randomize to seed the secret (or let the user input it).
+Function Main()
+    Dim secret As String = "123"
+    Debug.Print "I am thinking of a three-digit number. Try to guess what it is."
+    Debug.Print "Here are some clues:"
+    Debug.Print "When I say:    That means:"
+    Debug.Print "  Pico         One digit is correct but in the wrong position."
+    Debug.Print "  Fermi        One digit is correct and in the right position."
+    Debug.Print "  Bagels       No digit is correct."
+    Debug.Print ""
+    Dim guesses As Vec<String> = ["111", "212", "321", "123"]
+    Dim numGuesses As Long = 0
+    Dim solved As Boolean = False
+    For Each guess In guesses
+        numGuesses = numGuesses + 1
+        Debug.Print "Guess #" & CStr(numGuesses) & ": " & guess
+        Dim clue As String = Bagels.GetClue(secret, guess)
+        Debug.Print clue
+        If guess = secret Then
+            Debug.Print "You got it!"
+            solved = True
+            Exit For
+        End If
+    Next
+    If Not solved Then
+        Debug.Print "You ran out of guesses. The answer was " & secret & "."
+    End If
+End Function

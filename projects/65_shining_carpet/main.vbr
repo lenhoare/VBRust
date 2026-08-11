@@ -1,0 +1,8 @@
+' 65 — Shining Carpet, entry point.
+Function Main()
+    Debug.Print "Shining Carpet (3 cols x 2 rows of hexagons):"
+    Dim rows As Vec<String> = Carpet.Carpet(3, 2)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Function

@@ -1,0 +1,26 @@
+Premier League ELO (23/24 - 25/26)
+Matches: 760
+
+  1. Liverpool                1684
+  2. Arsenal                  1680
+  3. Manchester City          1676
+  4. Chelsea                  1625
+  5. Aston Villa              1613
+  6. Newcastle United         1590
+  7. Brighton & Hove Albion   1577
+  8. Crystal Palace           1574
+  9. Everton                  1546
+ 10. Nottingham Forest        1544
+ 11. Brentford                1539
+ 12. AFC Bournemouth          1530
+ 13. Fulham                   1514
+ 14. Wolverhampton Wanderers  1475
+ 15. Manchester United        1460
+ 16. West Ham United          1458
+ 17. Tottenham Hotspur        1408
+ 18. Leicester City           1363
+ 19. Burnley                  1361
+ 20. Luton Town               1351
+ 21. Ipswich Town             1342
+ 22. Southampton              1297
+ 23. Sheffield United         1293

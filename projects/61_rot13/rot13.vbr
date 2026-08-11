@@ -1,0 +1,42 @@
+' 61 — ROT13 logic module.
+' Rotates letters by exactly 13 positions — its own inverse, so the same
+' function encrypts and decrypts. Preserves case; numbers and punctuation
+' pass through unchanged.
+Public Function Rot13(ByVal message As String) As String
+    Dim upper As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    Dim lower As String = "abcdefghijklmnopqrstuvwxyz"
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To message.Len()
+        Dim ch As String = Mid(message, i, 1)
+        Dim pos As Long = FindIn(upper, ch)
+        If pos > 0 Then
+            out = out & Mid(upper, Rotate13(pos), 1)
+        Else
+            pos = FindIn(lower, ch)
+            If pos > 0 Then
+                out = out & Mid(lower, Rotate13(pos), 1)
+            Else
+                out = out & ch
+            End If
+        End If
+    Next
+    Return out
+End Function
+
+' Rotate a 1-based alphabet position by 13, wrapping.
+Public Function Rotate13(ByVal pos As Long) As Long
+    Return ((pos - 1 + 13) Mod 26) + 1
+End Function
+
+' 1-based position of `ch` in `alphabet`, or 0 if not found.
+Public Function FindIn(ByVal alphabet As String, ByVal ch As String) As Long
+    Dim i As Long = 1
+    Do While i <= alphabet.Len()
+        If Mid(alphabet, i, 1) = ch Then
+            Return i
+        End If
+        i = i + 1
+    Loop
+    Return 0
+End Function

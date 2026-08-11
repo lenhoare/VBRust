@@ -1,0 +1,44 @@
+' 5 — Bouncing DVD Logo, entry point: a Screen (ratatui TUI) that animates
+' the classic DVD screensaver — a logo bounces diagonally off the walls of a
+' fixed field, driven by an Every timer. The motion math lives in bdvd.vbr
+' and is unit-tested; this file only renders it.
+'
+' Screen features exercised: Every timer animation, state, Text.
+Screen DvdSaver
+    Title "Bouncing DVD Logo"
+
+    State
+        Dim logo As Logo = Bdvd.Spawn()
+        Dim w As Long = 40
+        Dim h As Long = 12
+        Dim cornerHits As Long = 0
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "DVD"
+            Text ""
+            Text "Position: " & logo.X & "," & logo.Y
+            Text "Corner hits: " & cornerHits
+            Text ""
+            Text "q = quit"
+        End Column
+    End View
+
+    On Key "q" Quit
+
+    ' Animate every 150 ms.
+    Every 150 Tick
+
+    Event Tick
+        If Bdvd.AtWall(logo, w, h) Then
+            cornerHits = cornerHits + 1
+        End If
+        logo = Bdvd.Advance(logo, w, h)
+    End Event
+End Screen
+
+Function Main()
+    DvdSaver.Run
+End Function

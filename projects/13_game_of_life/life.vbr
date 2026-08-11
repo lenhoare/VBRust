@@ -1,0 +1,125 @@
+' 13 — Conway's Game of Life logic module.
+' Pure cellular-automaton rules — fully unit-testable without the GUI.
+' The Window in main.vbr renders the grid and calls these.
+'
+' The grid is a flat Vec<Long> of W*H cells (1 = alive, 0 = dead), row
+' major. Classic rules: a live cell with 2 or 3 live neighbours survives;
+' a dead cell with exactly 3 live neighbours becomes alive; everything
+' else dies or stays dead. Edge cells see fewer neighbours (no wrap).
+Public Const CELL As Long = 20
+
+' A fresh all-dead grid.
+Public Function NewGrid(ByVal cols As Long, ByVal rows As Long) As Vec<Long>
+    Dim g As Vec<Long>
+    Dim i As Long = 0
+    For i = 1 To cols * rows
+        g.Push(0)
+    Next
+    Return g
+End Function
+
+' The cell at (x, y): 1 or 0. Out of bounds reads 0 (the world is finite).
+Public Function CellAt(ByVal grid As Vec<Long>, ByVal x As Long, ByVal y As Long, ByVal cols As Long, ByVal rows As Long) As Long
+    If x < 0 Or x >= cols Or y < 0 Or y >= rows Then
+        Return 0
+    End If
+    Return grid[y * cols + x]
+End Function
+
+' Set a cell (used to seed patterns). Mutates the caller's grid in place.
+Public Sub SetCell(ByRef grid As Vec<Long>, ByVal x As Long, ByVal y As Long, ByVal cols As Long, ByVal v As Long)
+    grid[y * cols + x] = v
+End Sub
+
+' The number of live neighbours of (x, y) — the 8 surrounding cells.
+Public Function CountNeighbours(ByVal grid As Vec<Long>, ByVal x As Long, ByVal y As Long, ByVal cols As Long, ByVal rows As Long) As Long
+    Dim n As Long = 0
+    Dim dx As Long = -1
+    For dx = -1 To 1
+        Dim dy As Long = -1
+        For dy = -1 To 1
+            If dx <> 0 Or dy <> 0 Then
+                n = n + CellAt(grid, x + dx, y + dy, cols, rows)
+            End If
+        Next
+    Next
+    Return n
+End Function
+
+' One generation: a brand-new grid built from the rules.
+Public Function NextGen(ByVal grid As Vec<Long>, ByVal cols As Long, ByVal rows As Long) As Vec<Long>
+    Dim out As Vec<Long>
+    Dim y As Long = 0
+    For y = 0 To rows - 1
+        Dim x As Long = 0
+        For x = 0 To cols - 1
+            Dim alive As Long = CellAt(grid, x, y, cols, rows)
+            Dim n As Long = CountNeighbours(grid, x, y, cols, rows)
+            If alive = 1 Then
+                If n = 2 Or n = 3 Then
+                    out.Push(1)
+                Else
+                    out.Push(0)
+                End If
+            Else
+                If n = 3 Then
+                    out.Push(1)
+                Else
+                    out.Push(0)
+                End If
+            End If
+        Next
+    Next
+    Return out
+End Function
+
+' Total live cells (for a status line).
+Public Function CountLive(ByVal grid As Vec<Long>) As Long
+    Dim total As Long = 0
+    For Each cell In grid
+        total = total + cell
+    Next
+    Return total
+End Function
+
+' A classic blinker oscillator, horizontal, centred on a W x H grid.
+Public Function BlinkerSeed(ByVal cols As Long, ByVal rows As Long) As Vec<Long>
+    Dim g As Vec<Long> = NewGrid(cols, rows)
+    Dim cx As Long = cols / 2
+    Dim cy As Long = rows / 2
+    SetCell(g, cx - 1, cy, cols, 1)
+    SetCell(g, cx, cy, cols, 1)
+    SetCell(g, cx + 1, cy, cols, 1)
+    Return g
+End Function
+
+' A glider, heading down-right from near the top-left.
+Public Function GliderSeed(ByVal cols As Long, ByVal rows As Long) As Vec<Long>
+    Dim g As Vec<Long> = NewGrid(cols, rows)
+    SetCell(g, 1, 0, cols, 1)
+    SetCell(g, 2, 1, cols, 1)
+    SetCell(g, 0, 2, cols, 1)
+    SetCell(g, 1, 2, cols, 1)
+    SetCell(g, 2, 2, cols, 1)
+    Return g
+End Function
+
+' One live cell's grid position, for the renderer.
+Public Type CellRect
+    Public X As Long
+    Public Y As Long
+End Type
+
+' The live cells as (x, y) rects — computed in an event and stored in
+' state, so the Canvas Draw block only renders (canvas bodies don't run
+' the resolver, so all the grid maths happens here instead).
+Public Function LiveRects(ByVal grid As Vec<Long>, ByVal cols As Long) As Vec<CellRect>
+    Dim out As Vec<CellRect>
+    Dim i As Long = 0
+    For i = 0 To grid.Len() - 1
+        If grid[i] = 1 Then
+            out.Push(CellRect { x: i Mod cols, y: i / cols })
+        End If
+    Next
+    Return out
+End Function

@@ -1,0 +1,13 @@
+' 42 — Magic Fortune Ball logic module.
+' Pure logic for the Magic 8-Ball toy: a list of answers, chosen
+' deterministically by the number of shakes so the demo and tests agree.
+' The Window in main.vbr shows the question and the answer.
+Public Function Answer(ByVal shake As Long) As String
+    Dim answers As Vec<String> = ["Yes, definitely.", "Ask again later.", "My reply is no.", "Without a doubt.", "Cannot predict now.", "You may rely on it.", "Outlook not so good.", "Signs point to yes."]
+    Return answers[shake Mod answers.Len()].Clone()
+End Function
+
+' The spooky intro line before the answer appears.
+Public Function Intro(ByVal shake As Long) As String
+    Return "Shake #" & (shake + 1) & ":"
+End Function

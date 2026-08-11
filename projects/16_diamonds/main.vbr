@@ -1,0 +1,14 @@
+' 16 — Diamonds, entry point.
+Function Main()
+    Debug.Print "Outline diamond (size 4):"
+    PrintRows(Diamonds.Outline(4))
+    Debug.Print ""
+    Debug.Print "Filled diamond (size 3):"
+    PrintRows(Diamonds.Filled(3))
+End Function
+
+Sub PrintRows(ByVal rows As Vec<String>)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Sub

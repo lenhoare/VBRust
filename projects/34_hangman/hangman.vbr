@@ -1,0 +1,87 @@
+' 34 — Hangman logic module.
+' Pure game rules — testable without any UI. The Window in main.vbr
+' renders the word and wires the 26 letter buttons.
+'
+' The secret word is a fixed list, chosen deterministically by round so the
+' demo and tests agree. Wrong guesses cost lives (default 6).
+Public Function PickWord(ByVal round As Long) As String
+    Dim words As Vec<String> = ["PYTHON", "JAVA", "RUST", "PASCAL", "BASIC", "COBOL", "LISP", "ADA"]
+    Return words[round Mod words.Len()].Clone()
+End Function
+
+' The display of a partially-guessed word: letters revealed, others "_".
+Public Function Mask(ByVal word As String, ByVal guessed As String) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To word.Len()
+        Dim ch As String = Mid(word, i, 1)
+        If Contains(guessed, ch) Then
+            out = out & ch
+        Else
+            out = out & "_"
+        End If
+    Next
+    Return out
+End Function
+
+' Has the whole word been guessed?
+Public Function IsSolved(ByVal word As String, ByVal guessed As String) As Boolean
+    Dim i As Long = 0
+    For i = 1 To word.Len()
+        Dim ch As String = Mid(word, i, 1)
+        If Not Contains(guessed, ch) Then
+            Return False
+        End If
+    Next
+    Return True
+End Function
+
+' Wrong guesses so far.
+Public Function WrongCount(ByVal word As String, ByVal guessed As String) As Long
+    Dim count As Long = 0
+    Dim i As Long = 0
+    For i = 1 To guessed.Len()
+        Dim ch As String = Mid(guessed, i, 1)
+        If Not Contains(word, ch) Then
+            count = count + 1
+        End If
+    Next
+    Return count
+End Function
+
+' Does `text` contain the single character `ch`? (Mid-scan, as elsewhere.)
+Public Function Contains(ByVal text As String, ByVal ch As String) As Boolean
+    Dim i As Long = 1
+    Do While i <= text.Len()
+        If Mid(text, i, 1) = ch Then
+            Return True
+        End If
+        i = i + 1
+    Loop
+    Return False
+End Function
+
+' Play one guess, updating the caller's state fields (the shared-Sub
+' pattern; Window events can't call other events). Returns nothing.
+' `masked` is the display derivation and is refreshed here too, since the
+' view can't call module functions (Quirk 26).
+Public Sub Guess(ByRef word As String, ByRef guessed As String, ByRef masked As String, ByRef phase As Long, ByRef message As String, ByVal letter As String)
+    If phase <> 0 Then
+        Return
+    End If
+    If Contains(guessed, letter) Then
+        message = "Already guessed " & letter & "."
+        Return
+    End If
+    guessed = guessed & letter
+    masked = Mask(word, guessed)
+    If IsSolved(word, guessed) Then
+        phase = 1
+        message = "You solved it! The word was " & word & "."
+    ElseIf WrongCount(word, guessed) >= 6 Then
+        phase = 2
+        message = "Hanged! The word was " & word & "."
+    Else
+        message = "Wrong guesses: " & WrongCount(word, guessed) & " / 6"
+    End If
+End Sub

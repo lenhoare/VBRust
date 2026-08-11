@@ -1,0 +1,65 @@
+' 35 — Hex Grid, single-file variant for the C target.
+' `vbr c` transpiles ONE file (no multi-module project mode — same gap as
+' vbr py, see notes.md Quirk 48), so this inlines the logic that
+' hexgrid.vbr holds in the multi-module project. Pure loops and string
+' concatenation — no string builtins, so it compiles cleanly with cc.
+'
+' The ground-truth discipline: the C output must match `vbr runproject`
+' byte-for-byte for this deterministic program.
+Function Main()
+    Debug.Print "Hex grid (3 x 2):"
+    Dim rows As Vec<String> = HexGrid(3, 2)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Function
+
+Function HexGrid(ByVal hexesAcross As Long, ByVal hexesDown As Long) As Vec<String>
+    Dim rows As Vec<String>
+    Dim group As Long = 0
+    For group = 0 To hexesDown - 1
+        Dim phase As Long = 0
+        For phase = 0 To 5
+            rows.Push(GroupRow(group, phase, hexesAcross))
+        Next
+    Next
+    Return rows
+End Function
+
+Function GroupRow(ByVal group As Long, ByVal phase As Long, ByVal cols As Long) As String
+    Dim offset As Long = 0
+    If group Mod 2 = 1 Then
+        offset = 3
+    End If
+    Dim line As String = Spaces(offset)
+    Dim c As Long = 0
+    For c = 0 To cols - 1
+        line = line & HexRow(phase)
+    Next
+    Return line
+End Function
+
+Function HexRow(ByVal phase As Long) As String
+    If phase = 0 Then
+        Return "  /\  "
+    ElseIf phase = 1 Then
+        Return " /  \ "
+    ElseIf phase = 2 Then
+        Return "/    \"
+    ElseIf phase = 3 Then
+        Return "\    /"
+    ElseIf phase = 4 Then
+        Return " \  / "
+    Else
+        Return "  \/  "
+    End If
+End Function
+
+Function Spaces(ByVal n As Long) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To n
+        out = out & " "
+    Next
+    Return out
+End Function

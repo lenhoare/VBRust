@@ -1,0 +1,42 @@
+' 53 — Periodic Table, entry point: a terminal app that reads a CSV of
+' element data with the FileSystem stdlib and prints a table plus lookups.
+'
+' This is the project that exercises the *Python target* (vbr py): the same
+' source transpiles to Python and its output is checked byte-for-byte
+' against the Rust build (ground-truth discipline from targets_spec.md).
+' The stdlib program emits a project folder with the vbrpy package — no
+' pip installs needed (FileSystem is pure Python batteries).
+'
+' FileSystem features exercised: FileSystem.ReadLines (Result), Match on
+' the Result.
+Function Main()
+    Dim lines As Vec<String> = FileSystem.ReadLines("/home/len/dev/vbrprojects/VBRust/projects/53_periodic_table/periodictable.csv").Unwrap()
+
+    ' Parse all rows, skipping the header.
+    Dim elements As Vec<Element>
+    Dim i As Long = 1
+    For i = 1 To lines.Len() - 1
+        elements.Push(Periodic.ParseRow(lines[i].Clone()))
+    Next
+
+    Debug.Print "Periodic table (" & elements.Len() & " elements)"
+    Debug.Print "No. Sym Name        Mass     State"
+    Dim j As Long = 0
+    For j = 0 To elements.Len() - 1
+        Debug.Print Periodic.FormatRow(elements[j])
+    Next
+
+    Debug.Print ""
+    Debug.Print "By state: " & Periodic.CountState(elements, "gas") & " gas, " & Periodic.CountState(elements, "solid") & " solid, " & Periodic.CountState(elements, "liquid") & " liquid"
+
+    Dim found As Boolean = False
+    Dim gold As Element = Periodic.FindBySymbol(elements, "Au", found)
+    If found Then
+        Debug.Print "Au is " & gold.Name & " (" & gold.Mass & ")"
+    End If
+
+    Dim fe As Element = Periodic.FindByNumber(elements, 26, found)
+    If found Then
+        Debug.Print "26 is " & fe.Symbol & ", " & fe.Name
+    End If
+End Function

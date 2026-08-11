@@ -1,0 +1,63 @@
+' 59 — Rock Paper Scissors logic module.
+' Pure game rules — testable without the terminal. The Screen in main.vbr
+' wires keys r/p/s and renders the result.
+'
+' Moves are "R", "P", "S". The computer's move is deterministic for the
+' TUI (seeded), so tests and demo agree.
+Public Function ComputerMove(ByVal seed As Long) As String
+    Dim m As Long = seed Mod 3
+    If m = 0 Then
+        Return "R"
+    ElseIf m = 1 Then
+        Return "P"
+    Else
+        Return "S"
+    End If
+End Function
+
+' Who wins? Returns "player", "computer", or "tie".
+Public Function Result(ByVal player As String, ByVal computer As String) As String
+    If player = computer Then
+        Return "tie"
+    End If
+    If player = "R" And computer = "S" Then
+        Return "player"
+    End If
+    If player = "P" And computer = "R" Then
+        Return "player"
+    End If
+    If player = "S" And computer = "P" Then
+        Return "player"
+    End If
+    Return "computer"
+End Function
+
+' The full name of a move for display.
+Public Function MoveName(ByVal m As String) As String
+    If m = "R" Then
+        Return "Rock"
+    ElseIf m = "P" Then
+        Return "Paper"
+    Else
+        Return "Scissors"
+    End If
+End Function
+
+' Play one round, updating the caller's state fields (the Tic-Tac-Toe
+' pattern — events can't call other events, so the shared logic lives here
+' and is called qualified with state ByRef).
+Public Sub Play(ByRef round As Long, ByRef playerScore As Long, ByRef computerScore As Long, ByRef ties As Long, ByRef message As String, ByVal choice As String)
+    Dim comp As String = ComputerMove(round)
+    Dim outcome As String = Result(choice, comp)
+    round = round + 1
+    If outcome = "player" Then
+        playerScore = playerScore + 1
+        message = "You played " & MoveName(choice) & ", computer played " & MoveName(comp) & " — you win!"
+    ElseIf outcome = "computer" Then
+        computerScore = computerScore + 1
+        message = "You played " & MoveName(choice) & ", computer played " & MoveName(comp) & " — computer wins."
+    Else
+        ties = ties + 1
+        message = "You both played " & MoveName(choice) & " — tie."
+    End If
+End Sub

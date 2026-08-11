@@ -1,0 +1,27 @@
+' 49 — Multiplication Table, test file.
+Test "single row 0 times table"
+    Assert Multable.BuildRows(0) = ["   0"]
+End Test
+
+Test "small grid 2x2 rows"
+    Dim rows As Vec<String> = Multable.BuildRows(2)
+    Assert rows[0] = "   0    0    0"
+    Assert rows[1] = "   0    1    2"
+    Assert rows[2] = "   0    2    4"
+End Test
+
+Test "cell padding is right-justified to 4"
+    Assert Multable.Pad4(0) = "   0"
+    Assert Multable.Pad4(7) = "   7"
+    Assert Multable.Pad4(144) = " 144"
+    Assert Multable.Pad4(1000) = "1000"
+End Test
+
+Test "row twelve ends with 144"
+    Dim rows As Vec<String> = Multable.BuildRows(12)
+    Assert rows[12] = "   0   12   24   36   48   60   72   84   96  108  120  132  144"
+End Test
+
+Test "row count is size plus one"
+    Assert Multable.BuildRows(5).Len() = 6
+End Test

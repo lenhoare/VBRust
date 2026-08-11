@@ -1,0 +1,42 @@
+' 64 — Seven-Segment Display, test file.
+Test "single digit zero"
+    Dim rows As Vec<String> = Segments.DigitsToText("0")
+    Assert rows[0] = " _ "
+    Assert rows[1] = "| |"
+    Assert rows[2] = "|_|"
+End Test
+
+Test "single digit one"
+    Dim rows As Vec<String> = Segments.DigitsToText("1")
+    Assert rows[0] = "   "
+    Assert rows[1] = "  |"
+    Assert rows[2] = "  |"
+End Test
+
+Test "two digits joined with a space"
+    Dim rows As Vec<String> = Segments.DigitsToText("42")
+    Assert rows[0] = "     _ "
+    Assert rows[1] = "|_|  _|"
+    Assert rows[2] = "  | |_ "
+End Test
+
+Test "all digits have correct tops"
+    Dim rows As Vec<String> = Segments.DigitsToText("0123456789")
+    Assert rows[0] = " _       _   _       _   _   _   _   _ "
+    Assert rows[1] = "| |   |  _|  _| |_| |_  |_    | |_| |_|"
+    Assert rows[2] = "|_|   | |_   _|   |  _| |_|   | |_|  _|"
+End Test
+
+Test "dash renders as a minus sign"
+    Dim rows As Vec<String> = Segments.DigitsToText("-")
+    Assert rows[0] = "   "
+    Assert rows[1] = " _ "
+    Assert rows[2] = "   "
+End Test
+
+Test "segment for digit eight"
+    Dim seg As Segment = Segments.SegmentForDigit(8)
+    Assert seg.top = " _ "
+    Assert seg.mid = "|_|"
+    Assert seg.bottom = "|_|"
+End Test

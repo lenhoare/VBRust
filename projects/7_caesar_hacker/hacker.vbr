@@ -1,0 +1,91 @@
+' 7 — Caesar Hacker logic module.
+' Brute-force cryptanalysis of a Caesar-encrypted message: tries all 26
+' possible keys and returns each candidate plaintext. The correct key is the
+' one that produces readable English — here we show all candidates and let
+' the reader (or an English-scoring helper) pick.
+'
+' NB: each project folder is self-contained, so the Caesar module from the
+' separate 6_caesar_cipher project is NOT visible here — a local Shift is
+' provided instead.
+Public Function TryAllKeys(ByVal secret As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim k As Long = 0
+    For k = 0 To 25
+        out.Push(CStr(k) & ": " & Shift(secret, k))
+    Next
+    Return out
+End Function
+
+' A tiny English detector: counts the words from a small common-word list
+' that appear in the candidate. Returns a score — higher is more likely
+' English. Good enough to pick out the correct key deterministically.
+Public Function EnglishScore(ByVal text As String) As Long
+    Dim common As Vec<String> = ["the", "and", "you", "that", "was", "for", "are", "with", "his", "they"]
+    Dim score As Long = 0
+    Dim lower As String = LCase(text)
+    For Each word In common
+        If Contains(lower, word) Then
+            score = score + 1
+        End If
+    Next
+    Return score
+End Function
+
+' Does `text` contain the substring `needle`? (InStr returns an Option, so a
+' plain Mid-scan is simpler here. NB: `sub` is a reserved word.)
+Public Function Contains(ByVal text As String, ByVal needle As String) As Boolean
+    Dim i As Long = 1
+    Do While i <= text.Len() - needle.Len() + 1
+        If Mid(text, i, needle.Len()) = needle Then
+            Return True
+        End If
+        i = i + 1
+    Loop
+    Return False
+End Function
+
+' The candidate plaintext whose EnglishScore is highest.
+Public Function BestGuess(ByVal secret As String) As String
+    Dim bestKey As Long = 0
+    Dim bestScore As Long = -1
+    Dim k As Long = 0
+    For k = 0 To 25
+        Dim s As Long = EnglishScore(Shift(secret, k))
+        If s > bestScore Then
+            bestScore = s
+            bestKey = k
+        End If
+    Next
+    Return "key " & CStr(bestKey) & ": " & Shift(secret, bestKey)
+End Function
+
+' Decrypt: shift letters backwards by `key` (letters only; the message here
+' is all caps). Same table-based approach as the Caesar project.
+Public Function Shift(ByVal message As String, ByVal key As Long) As String
+    Dim upper As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To message.Len()
+        Dim ch As String = Mid(message, i, 1)
+        Dim idx As Long = FindIn(upper, ch)
+        If idx = 0 Then
+            out = out & ch
+        Else
+            Dim newIdx As Long = ((idx - 1 - key) Mod 26 + 26) Mod 26 + 1
+            out = out & Mid(upper, newIdx, 1)
+        End If
+    Next
+    Return out
+End Function
+
+' 1-based position of `ch` in `alphabet`, or 0 if not found.
+Public Function FindIn(ByVal alphabet As String, ByVal ch As String) As Long
+    Dim i As Long = 1
+    Do While i <= alphabet.Len()
+        If Mid(alphabet, i, 1) = ch Then
+            Return i
+        End If
+        i = i + 1
+    Loop
+    Return 0
+End Function

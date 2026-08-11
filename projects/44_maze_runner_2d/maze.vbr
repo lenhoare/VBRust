@@ -1,0 +1,95 @@
+' 44 — Maze Runner 2D logic module.
+' Pure grid logic for the maze game — fully testable without Godot. The
+' Node2D in main.vbr reads input and calls these.
+'
+' The maze is a grid of characters:
+'   #  wall
+'   .  floor
+'   X  the exit
+' The player starts at the first floor tile and moves one tile per step
+' with WASD; walls block movement; reaching the exit wins.
+Public Function MazeRows() As Vec<String>
+    Dim rows As Vec<String>
+    rows.Push("############")
+    rows.Push("#..#......#")
+    rows.Push("#..#.####.#")
+    rows.Push("#....#..#.#")
+    rows.Push("#.##.#..#.#")
+    rows.Push("#....#....#")
+    rows.Push("#.######..#")
+    rows.Push("#....#....#")
+    rows.Push("#.##.#.##.#")
+    rows.Push("#...#....X#")
+    rows.Push("#...####..#")
+    rows.Push("############")
+    Return rows
+End Function
+
+' Tile width in pixels (used by the renderer; kept here with the grid).
+Public Const TILE As Long = 24
+
+' Is the tile a wall (out of bounds counts as wall)?
+Public Function IsWall(ByVal x As Long, ByVal y As Long) As Boolean
+    Dim rows As Vec<String> = MazeRows()
+    If y < 0 Or y >= rows.Len() Then
+        Return True
+    End If
+    Dim row As String = rows[y].Clone()
+    If x < 0 Or x >= row.Len() Then
+        Return True
+    End If
+    Return Mid(row, x + 1, 1) = "#"
+End Function
+
+' Is the tile the exit?
+Public Function IsExit(ByVal x As Long, ByVal y As Long) As Boolean
+    Dim rows As Vec<String> = MazeRows()
+    If y < 0 Or y >= rows.Len() Then
+        Return False
+    End If
+    Dim row As String = rows[y].Clone()
+    If x < 0 Or x >= row.Len() Then
+        Return False
+    End If
+    Return Mid(row, x + 1, 1) = "X"
+End Function
+
+' The player's starting tile: the first floor tile scanning row-major.
+Public Function StartX() As Long
+    Return 1
+End Function
+
+Public Function StartY() As Long
+    Return 1
+End Function
+
+' Try to move by (dx, dy). Returns the new (x, y); blocked moves keep the
+' current position. (Returns a 2-element Vec<Long> — no tuple structs.)
+Public Function TryMove(ByVal x As Long, ByVal y As Long, ByVal dx As Long, ByVal dy As Long) As Vec<Long>
+    Dim out As Vec<Long>
+    Dim nx As Long = x + dx
+    Dim ny As Long = y + dy
+    If IsWall(nx, ny) Then
+        out.Push(x)
+        out.Push(y)
+    Else
+        out.Push(nx)
+        out.Push(ny)
+    End If
+    Return out
+End Function
+
+' Has the player won (standing on the exit)?
+Public Function Won(ByVal x As Long, ByVal y As Long) As Boolean
+    Return IsExit(x, y)
+End Function
+
+' The maze width in tiles (for the renderer).
+Public Function MazeWidth() As Long
+    Return MazeRows()[0].Len()
+End Function
+
+' The maze height in tiles.
+Public Function MazeHeight() As Long
+    Return MazeRows().Len()
+End Function

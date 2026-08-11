@@ -1,0 +1,51 @@
+' 57 — Progress Bar, entry point: a Screen (ratatui TUI) that simulates a
+' download with a progress gauge. The pure logic lives in progress.vbr and
+' is testable without the terminal.
+'
+' Screen widgets used: Gauge (progress bar), Text, and an Every timer that
+' advances the download. q quits.
+' NOTE: the Gauge reads a state field, not a cross-module call — view
+' expressions don't run the resolver, so the percent is computed in Tick.
+Screen Download
+    Title "Progress Bar"
+
+    State
+        Dim done As Long = 0
+        Dim total As Long = 45
+        Dim tick As Long = 0
+        Dim percent As Long = 0
+        Dim status As String = "0 MB / 45 MB"
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "Downloading..."
+            Gauge 0..=100, percent
+            Text status
+            Text ""
+            Text "q = quit"
+        End Column
+    End View
+
+    On Key "q" Quit
+
+    ' Advance the simulated download every 200 ms.
+    Every 200 Tick
+
+    Event Tick
+        If Not Progress.IsComplete(done, total) Then
+            done = done + Progress.NextChunk(tick)
+            If done > total Then
+                done = total
+            End If
+            status = Progress.StatusText(done, total)
+            percent = Progress.Progress(done, total)
+        End If
+        tick = tick + 1
+    End Event
+End Screen
+
+Function Main()
+    Download.Run
+End Function

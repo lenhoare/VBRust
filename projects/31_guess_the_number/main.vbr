@@ -1,0 +1,78 @@
+' 31 — Guess the Number, entry point: a Screen (ratatui TUI) with an Input
+' widget. Type a guess, press Enter to submit; the hint line updates and the
+' game restarts when the number is found. n = new game, q = quit.
+'
+' Screen features exercised: Input (focus + typing), On Submit, Text.
+' NOTE: the view can't call cross-module functions (Guess.Remaining), so the
+' remaining count is mirrored into a state field. Events can't use a bare
+' Return (they lower to Result<()>), so early-exits are If/ElseIf chains.
+Screen GuessGame
+    Title "Guess the Number"
+
+    State
+        Dim secret As Long = Guess.SecretFor(7)
+        Dim used As Long = 0
+        Dim allowed As Long = 10
+        Dim remaining As Long = 10
+        Dim message As String = "I'm thinking of a number 1..100."
+        Dim entry As String = ""
+        Dim won As Boolean = False
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "Guess the Number"
+            Text message
+            Text "Guesses left: " & remaining
+            Input entry
+                On Submit TryGuess
+            End Input
+            Text ""
+            Text "n = new game, q = quit"
+        End Column
+    End View
+
+    On Key "n" NewGame
+    On Key "q" Quit
+
+    Event TryGuess(text As String)
+        If won Then
+            message = "Already won — press n for a new game."
+        ElseIf text = "" Then
+            message = "Type a number first."
+        Else
+            Dim g As Long = Val(text)
+            If g < 1 Or g > 100 Then
+                message = "Enter a number between 1 and 100."
+            Else
+                used = used + 1
+                remaining = Guess.Remaining(used, allowed)
+                Dim h As String = Guess.Hint(secret, g)
+                If h = "correct" Then
+                    won = True
+                    message = "You got it in " & used & " guesses!"
+                ElseIf remaining = 0 Then
+                    message = "Out of guesses. It was " & secret & "."
+                    won = True
+                Else
+                    message = h & " — " & remaining & " guesses left."
+                End If
+            End If
+        End If
+        entry = ""
+    End Event
+
+    Event NewGame
+        secret = Guess.SecretFor(used + 11)
+        used = 0
+        remaining = allowed
+        won = False
+        message = "I'm thinking of a number 1..100."
+        entry = ""
+    End Event
+End Screen
+
+Function Main()
+    GuessGame.Run
+End Function

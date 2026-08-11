@@ -1,0 +1,51 @@
+' 48 — Monty Hall logic module.
+' Pure game simulation — testable without any UI. The Window in main.vbr
+' renders three doors and wires the buttons.
+'
+' The classic paradox: one door hides a car, two hide goats. The player
+' picks a door; the host opens a goat door; the player may stay or switch.
+' Switching wins 2/3 of the time.
+Public Const Goat As Long = 0
+Public Const Car As Long = 1
+
+' Where the car is, deterministically from a seed (0..2).
+Public Function CarDoor(ByVal seed As Long) As Long
+    Return seed Mod 3
+End Function
+
+' The host opens one goat door: not the car door, not the player's pick.
+Public Function HostOpens(ByVal carDoor As Long, ByVal pick As Long) As Long
+    Dim d As Long = 0
+    For d = 0 To 2
+        If d <> carDoor And d <> pick Then
+            Return d
+        End If
+    Next
+    Return 0
+End Function
+
+' Did the player win? `switch` True means they switched to the remaining
+' unopened door (the other door).
+Public Function PlayerWins(ByVal carDoor As Long, ByVal pick As Long, ByVal hostDoor As Long, ByVal switched As Boolean) As Boolean
+    If switched Then
+        Dim other As Long = 0
+        Dim d As Long = 0
+        For d = 0 To 2
+            If d <> pick And d <> hostDoor Then
+                other = d
+            End If
+        Next
+        Return other = carDoor
+    End If
+    Return pick = carDoor
+End Function
+
+' Set up a round: pick a door, host opens a goat door. Updates the caller's
+' state (the Window events call this qualified, like the TUI Sub pattern).
+Public Sub PickDoor(ByRef round As Long, ByRef car As Long, ByRef pick As Long, ByRef host As Long, ByRef phase As Long, ByRef message As String, ByVal door As Long)
+    car = CarDoor(round)
+    pick = door
+    host = HostOpens(car, pick)
+    phase = 1
+    message = "You picked door " & (pick + 1) & "."
+End Sub

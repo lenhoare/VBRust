@@ -1,0 +1,26 @@
+' 12 — Collatz Sequence, entry point.
+' Prints the Collatz sequence for a few starting values.
+Function Main()
+    Debug.Print "Collatz sequence for 12:"
+    Debug.Print FormatSeq(Collatz.Collatz(12))
+    Debug.Print ""
+    Debug.Print "Collatz sequence for 19:"
+    Debug.Print FormatSeq(Collatz.Collatz(19))
+    Debug.Print ""
+    Debug.Print "Collatz sequence for 27 (famous long one):"
+    Debug.Print FormatSeq(Collatz.Collatz(27))
+End Function
+
+Function FormatSeq(ByVal seq As Vec<Long>) As String
+    Dim out As String = ""
+    Dim first As Boolean = True
+    For Each n In seq
+        If first Then
+            out = CStr(n)
+            first = False
+        Else
+            out = out & " -> " & CStr(n)
+        End If
+    Next
+    Return out
+End Function

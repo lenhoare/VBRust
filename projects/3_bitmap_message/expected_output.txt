@@ -1,0 +1,6 @@
+Bitmap message (VBR):
+     VBRVB     
+  RVB     RVB  
+RVB         RVB
+RVB         RVB
+  RVB     RVB  

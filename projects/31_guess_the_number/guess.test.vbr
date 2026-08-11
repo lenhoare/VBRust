@@ -1,0 +1,26 @@
+' 31 — Guess the Number, test file.
+Test "hint says too high"
+    Assert Guess.Hint(50, 60) = "too high"
+    Assert Guess.Hint(50, 51) = "too high"
+End Test
+
+Test "hint says too low"
+    Assert Guess.Hint(50, 40) = "too low"
+    Assert Guess.Hint(50, 1) = "too low"
+End Test
+
+Test "hint says correct on the number"
+    Assert Guess.Hint(50, 50) = "correct"
+End Test
+
+Test "secret is deterministic and in range"
+    Assert Guess.SecretFor(1) >= 1
+    Assert Guess.SecretFor(1) <= 100
+    Assert Guess.SecretFor(1) = Guess.SecretFor(1)
+End Test
+
+Test "remaining guesses"
+    Assert Guess.Remaining(0, 10) = 10
+    Assert Guess.Remaining(3, 10) = 7
+    Assert Guess.Remaining(10, 10) = 0
+End Test

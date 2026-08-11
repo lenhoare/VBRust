@@ -1,0 +1,15 @@
+Celsius -> Fahrenheit:
+  -20C  ->  -4F
+  -10C  ->  14F
+  0C  ->  32F
+  10C  ->  50F
+  20C  ->  68F
+  30C  ->  86F
+  40C  ->  104F
+
+Spot checks:
+  boiling water  212F / 373.15K
+  freezing water 0C / 0C
+  absolute zero  -460F
+  25C feels warm
+  -30C feels cold

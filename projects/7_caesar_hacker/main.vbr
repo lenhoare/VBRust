@@ -1,0 +1,14 @@
+' 7 — Caesar Hacker, entry point.
+Function Main()
+    Dim secret As String = "QEB NRFZH YOLTK CLU GRJMP LSBO QEB IXWV ALD"
+    Debug.Print "Encrypted: " & secret
+    Debug.Print ""
+    Debug.Print "Brute-forcing all 26 keys; best guess:"
+    Debug.Print Hacker.BestGuess(secret)
+    Debug.Print ""
+    Debug.Print "All candidates:"
+    Dim all As Vec<String> = Hacker.TryAllKeys(secret)
+    For Each c In all
+        Debug.Print c
+    Next
+End Function

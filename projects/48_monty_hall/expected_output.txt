@@ -1,0 +1,3 @@
+A Window (Iced GUI) produces no program stdout — the generated `fn main`
+calls `iced::run("Monty Hall", update, view)` and the user's `Function
+Main()` body is replaced entirely. There is nothing to diff.

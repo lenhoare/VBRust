@@ -1,0 +1,105 @@
+' A6 — Poker TUI: Texas Hold'em win-probability calculator.
+' Pick your two hole cards and the number of players; then reveal the
+' board in stages (flop 3 -> turn 1 -> river 1). After each stage the app
+' shows your probability of having the winning hand (Monte Carlo over a
+' fixed-seed LCG, so results are reproducible).
+'
+' Screen features exercised: Input widgets (typed card text + player
+' count), keymap (f/t/r to reveal the board, q quit), state as Vec<Card>,
+' pre-rendered status lines. Events can't call other events (Quirk 29),
+' so the shared logic lives in poker.vbr as Public Subs called qualified.
+Screen PokerTable
+    Title "Poker Equity"
+
+    State
+        Dim hole1 As String = ""
+        Dim hole2 As String = ""
+        Dim players As String = "2"
+        Dim board As Vec<Card>
+        Dim myCards As Vec<Card>
+        Dim stage As Long = 0          ' 0=preflop 1=flop 2=turn 3=river
+        Dim status As String = "Enter your two cards (e.g. Ah Kd) and players."
+        Dim equity As String = ""
+        Dim boardText As String = "-"
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "Texas Hold'em — win probability"
+            Text status
+            Text "Board: " & boardText
+            Text "Equity: " & equity
+            Text ""
+            Text "Your cards:"
+            Input hole1
+                On Submit SetHole1
+            End Input
+            Input hole2
+                On Submit SetHole2
+            End Input
+            Text "Players:"
+            Input players
+                On Submit SetPlayers
+            End Input
+            Text ""
+            Text "f = flop   t = turn   r = river   q = quit"
+        End Column
+    End View
+
+    On Key "f" DealFlop
+    On Key "t" DealTurn
+    On Key "r" DealRiver
+    On Key "q" Quit
+
+    Event SetHole1(text As String)
+        hole1 = text
+        Poker.TrySetup(hole1, hole2, myCards, board, stage, boardText, equity, status)
+    End Event
+
+    Event SetHole2(text As String)
+        hole2 = text
+        Poker.TrySetup(hole1, hole2, myCards, board, stage, boardText, equity, status)
+    End Event
+
+    Event SetPlayers(text As String)
+        players = text
+        Poker.TrySetup(hole1, hole2, myCards, board, stage, boardText, equity, status)
+    End Event
+
+    Event DealFlop
+        If myCards.Len() <> 2 Then
+            status = "Enter your cards first."
+        ElseIf stage >= 1 Then
+            status = "Flop already dealt."
+        Else
+            board = Poker.DealBoard(myCards, 3)
+            stage = 1
+            Poker.ShowEquity(board, boardText, status, equity, myCards, stage, players)
+        End If
+    End Event
+
+    Event DealTurn
+        If stage <> 1 Then
+            status = "Deal the flop first (f)."
+        Else
+            board = Poker.DealBoard(myCards, 4)
+            stage = 2
+            Poker.ShowEquity(board, boardText, status, equity, myCards, stage, players)
+        End If
+    End Event
+
+    Event DealRiver
+        If stage <> 2 Then
+            status = "Deal the turn first (t)."
+        Else
+            board = Poker.DealBoard(myCards, 5)
+            stage = 3
+            Poker.ShowEquity(board, boardText, status, equity, myCards, stage, players)
+        End If
+    End Event
+End Screen
+
+Function Main()
+    PokerTable.Run
+End Function

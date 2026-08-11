@@ -1,0 +1,761 @@
+timestamp,home_team_name,away_team_name,home_team_goal_count,away_team_goal_count
+1691780400,Burnley,Manchester City,0,3
+1691841600,Arsenal,Nottingham Forest,2,1
+1691848800,AFC Bournemouth,West Ham United,1,1
+1691848800,Brighton & Hove Albion,Luton Town,4,1
+1691848800,Everton,Fulham,0,1
+1691848800,Sheffield United,Crystal Palace,0,1
+1691857800,Newcastle United,Aston Villa,5,1
+1691931600,Brentford,Tottenham Hotspur,2,2
+1691940600,Chelsea,Liverpool,1,1
+1692039600,Manchester United,Wolverhampton Wanderers,1,0
+1692384300,Nottingham Forest,Sheffield United,2,1
+1692453600,Fulham,Brentford,0,3
+1692453600,Liverpool,AFC Bournemouth,3,1
+1692453600,Wolverhampton Wanderers,Brighton & Hove Albion,1,4
+1692462600,Tottenham Hotspur,Manchester United,2,0
+1692471600,Manchester City,Newcastle United,1,0
+1692536400,Aston Villa,Everton,4,0
+1692545400,West Ham United,Chelsea,3,1
+1692644400,Crystal Palace,Arsenal,0,1
+1692990000,Chelsea,Luton Town,3,0
+1693049400,AFC Bournemouth,Tottenham Hotspur,0,2
+1693058400,Arsenal,Fulham,2,2
+1693058400,Brentford,Crystal Palace,1,1
+1693058400,Everton,Wolverhampton Wanderers,0,1
+1693058400,Manchester United,Nottingham Forest,3,2
+1693067400,Brighton & Hove Albion,West Ham United,1,3
+1693141200,Burnley,Aston Villa,1,3
+1693141200,Sheffield United,Manchester City,1,2
+1693150200,Newcastle United,Liverpool,1,2
+1693594800,Luton Town,West Ham United,1,2
+1693654200,Sheffield United,Everton,2,2
+1693663200,Brentford,AFC Bournemouth,2,2
+1693663200,Burnley,Tottenham Hotspur,2,5
+1693663200,Chelsea,Nottingham Forest,0,1
+1693663200,Manchester City,Fulham,5,1
+1693672200,Brighton & Hove Albion,Newcastle United,3,1
+1693746000,Crystal Palace,Wolverhampton Wanderers,3,2
+1693746000,Liverpool,Aston Villa,3,0
+1693755000,Arsenal,Manchester United,3,1
+1694863800,Wolverhampton Wanderers,Liverpool,1,3
+1694872800,Aston Villa,Crystal Palace,3,1
+1694872800,Fulham,Luton Town,1,0
+1694872800,Manchester United,Brighton & Hove Albion,1,3
+1694872800,Tottenham Hotspur,Sheffield United,2,1
+1694872800,West Ham United,Manchester City,1,3
+1694881800,Newcastle United,Brentford,1,0
+1694955600,AFC Bournemouth,Chelsea,0,0
+1694964600,Everton,Arsenal,0,1
+1695062700,Nottingham Forest,Burnley,1,1
+1695477600,Crystal Palace,Fulham,0,0
+1695477600,Luton Town,Wolverhampton Wanderers,1,1
+1695477600,Manchester City,Nottingham Forest,2,0
+1695486600,Brentford,Everton,1,3
+1695495600,Burnley,Manchester United,0,1
+1695560400,Arsenal,Tottenham Hotspur,2,2
+1695560400,Brighton & Hove Albion,AFC Bournemouth,3,1
+1695560400,Chelsea,Aston Villa,0,1
+1695560400,Liverpool,West Ham United,3,1
+1695569400,Sheffield United,Newcastle United,0,8
+1696073400,Aston Villa,Brighton & Hove Albion,6,1
+1696082400,AFC Bournemouth,Arsenal,0,4
+1696082400,Everton,Luton Town,1,2
+1696082400,Manchester United,Crystal Palace,0,1
+1696082400,Newcastle United,Burnley,2,0
+1696082400,West Ham United,Sheffield United,2,0
+1696082400,Wolverhampton Wanderers,Manchester City,2,1
+1696091400,Tottenham Hotspur,Liverpool,2,1
+1696165200,Nottingham Forest,Brentford,1,1
+1696273200,Fulham,Chelsea,0,2
+1696357800,Luton Town,Burnley,1,2
+1696678200,Luton Town,Tottenham Hotspur,0,1
+1696687200,Burnley,Chelsea,1,4
+1696687200,Everton,AFC Bournemouth,3,0
+1696687200,Fulham,Sheffield United,3,1
+1696687200,Manchester United,Brentford,2,1
+1696696200,Crystal Palace,Nottingham Forest,0,0
+1696770000,Brighton & Hove Albion,Liverpool,2,2
+1696770000,West Ham United,Newcastle United,2,2
+1696770000,Wolverhampton Wanderers,Aston Villa,1,1
+1696779000,Arsenal,Manchester City,1,0
+1697887800,Liverpool,Everton,2,0
+1697896800,AFC Bournemouth,Wolverhampton Wanderers,1,2
+1697896800,Brentford,Burnley,3,0
+1697896800,Manchester City,Brighton & Hove Albion,2,1
+1697896800,Newcastle United,Crystal Palace,4,0
+1697896800,Nottingham Forest,Luton Town,2,2
+1697905800,Chelsea,Arsenal,2,2
+1697914800,Sheffield United,Manchester United,1,2
+1697988600,Aston Villa,West Ham United,4,1
+1698087600,Tottenham Hotspur,Fulham,2,0
+1698433200,Crystal Palace,Tottenham Hotspur,1,2
+1698492600,Chelsea,Brentford,0,2
+1698501600,AFC Bournemouth,Burnley,2,1
+1698501600,Arsenal,Sheffield United,5,0
+1698510600,Wolverhampton Wanderers,Newcastle United,2,2
+1698584400,West Ham United,Everton,0,1
+1698588000,Aston Villa,Luton Town,3,1
+1698588000,Brighton & Hove Albion,Fulham,1,1
+1698588000,Liverpool,Nottingham Forest,3,0
+1698593400,Manchester United,Manchester City,0,3
+1699101000,Fulham,Manchester United,0,1
+1699110000,Brentford,West Ham United,3,2
+1699110000,Burnley,Crystal Palace,0,2
+1699110000,Everton,Brighton & Hove Albion,1,1
+1699110000,Manchester City,AFC Bournemouth,6,1
+1699110000,Sheffield United,Wolverhampton Wanderers,2,1
+1699119000,Newcastle United,Arsenal,1,0
+1699192800,Nottingham Forest,Aston Villa,2,0
+1699201800,Luton Town,Liverpool,1,1
+1699300800,Tottenham Hotspur,Chelsea,1,4
+1699705800,Wolverhampton Wanderers,Tottenham Hotspur,2,1
+1699714800,Arsenal,Burnley,3,1
+1699714800,Crystal Palace,Everton,2,3
+1699714800,Manchester United,Luton Town,1,0
+1699723800,AFC Bournemouth,Newcastle United,2,0
+1699797600,Aston Villa,Fulham,3,1
+1699797600,Brighton & Hove Albion,Sheffield United,1,1
+1699797600,Liverpool,Brentford,3,0
+1699797600,West Ham United,Nottingham Forest,3,2
+1699806600,Chelsea,Manchester City,4,4
+1700915400,Manchester City,Liverpool,1,1
+1700924400,Burnley,West Ham United,1,2
+1700924400,Luton Town,Crystal Palace,2,1
+1700924400,Newcastle United,Chelsea,4,1
+1700924400,Nottingham Forest,Brighton & Hove Albion,2,3
+1700924400,Sheffield United,AFC Bournemouth,1,3
+1700933400,Brentford,Arsenal,0,1
+1701007200,Tottenham Hotspur,Aston Villa,1,2
+1701016200,Everton,Manchester United,0,3
+1701115200,Fulham,Wolverhampton Wanderers,3,2
+1701529200,Arsenal,Wolverhampton Wanderers,2,1
+1701529200,Brentford,Luton Town,3,1
+1701529200,Burnley,Sheffield United,5,0
+1701538200,Nottingham Forest,Everton,0,1
+1701547200,Newcastle United,Manchester United,1,0
+1701612000,AFC Bournemouth,Aston Villa,2,2
+1701612000,Chelsea,Brighton & Hove Albion,3,2
+1701612000,Liverpool,Fulham,4,3
+1701612000,West Ham United,Crystal Palace,1,1
+1701621000,Manchester City,Tottenham Hotspur,3,3
+1701804600,Wolverhampton Wanderers,Burnley,1,0
+1701807300,Luton Town,Arsenal,3,4
+1701891000,Brighton & Hove Albion,Brentford,2,1
+1701891000,Fulham,Nottingham Forest,5,0
+1701891000,Sheffield United,Liverpool,0,2
+1701891000,Crystal Palace,AFC Bournemouth,0,2
+1701893700,Aston Villa,Manchester City,1,0
+1701893700,Manchester United,Chelsea,2,1
+1701977400,Everton,Newcastle United,3,0
+1701980100,Tottenham Hotspur,West Ham United,1,2
+1702125000,Crystal Palace,Liverpool,1,2
+1702134000,Brighton & Hove Albion,Burnley,1,1
+1702134000,Manchester United,AFC Bournemouth,0,3
+1702134000,Sheffield United,Brentford,1,0
+1702134000,Wolverhampton Wanderers,Nottingham Forest,1,1
+1702143000,Aston Villa,Arsenal,1,0
+1702216800,Everton,Chelsea,2,0
+1702216800,Fulham,West Ham United,5,0
+1702216800,Luton Town,Manchester City,1,2
+1702225800,Tottenham Hotspur,Newcastle United,4,1
+1702670400,Nottingham Forest,Tottenham Hotspur,0,2
+1702738800,Chelsea,Sheffield United,2,0
+1702738800,Manchester City,Crystal Palace,2,2
+1702738800,Newcastle United,Fulham,3,0
+1702747800,Burnley,Everton,0,2
+1702821600,Arsenal,Brighton & Hove Albion,2,0
+1702821600,Brentford,Aston Villa,1,2
+1702821600,West Ham United,Wolverhampton Wanderers,3,0
+1702830600,Liverpool,Manchester United,0,0
+1703188800,Crystal Palace,Brighton & Hove Albion,1,1
+1703275200,Aston Villa,Sheffield United,1,1
+1703334600,West Ham United,Manchester United,2,0
+1703343600,Fulham,Burnley,0,2
+1703343600,Luton Town,Newcastle United,1,0
+1703343600,Nottingham Forest,AFC Bournemouth,2,3
+1703343600,Tottenham Hotspur,Everton,2,1
+1703352600,Liverpool,Arsenal,1,1
+1703422800,Wolverhampton Wanderers,Chelsea,2,1
+1703593800,Newcastle United,Nottingham Forest,1,3
+1703602800,AFC Bournemouth,Fulham,3,0
+1703602800,Sheffield United,Luton Town,2,3
+1703611800,Burnley,Liverpool,0,2
+1703620800,Manchester United,Aston Villa,3,2
+1703705400,Brentford,Wolverhampton Wanderers,1,4
+1703705400,Chelsea,Crystal Palace,2,1
+1703708100,Everton,Manchester City,1,3
+1703791800,Brighton & Hove Albion,Tottenham Hotspur,4,2
+1703794500,Arsenal,West Ham United,0,2
+1703939400,Luton Town,Chelsea,2,3
+1703948400,Aston Villa,Burnley,3,2
+1703948400,Crystal Palace,Brentford,3,1
+1703948400,Manchester City,Sheffield United,2,0
+1703948400,Wolverhampton Wanderers,Everton,3,0
+1703957400,Nottingham Forest,Manchester United,2,1
+1704031200,Fulham,Arsenal,2,1
+1704031200,Tottenham Hotspur,AFC Bournemouth,3,1
+1704139200,Liverpool,Newcastle United,4,2
+1704223800,West Ham United,Brighton & Hove Albion,0,0
+1705088700,Burnley,Luton Town,1,1
+1705149000,Chelsea,Fulham,1,0
+1705167000,Newcastle United,Manchester City,2,3
+1705240800,Everton,Aston Villa,0,0
+1705249800,Manchester United,Tottenham Hotspur,2,2
+1705753800,Arsenal,Crystal Palace,5,0
+1705771800,Brentford,Nottingham Forest,3,2
+1705845600,Sheffield United,West Ham United,2,2
+1705854600,AFC Bournemouth,Liverpool,0,4
+1705952700,Brighton & Hove Albion,Wolverhampton Wanderers,0,0
+1706643000,Nottingham Forest,Arsenal,1,2
+1706643900,Fulham,Everton,0,0
+1706643900,Luton Town,Brighton & Hove Albion,4,0
+1706644800,Crystal Palace,Sheffield United,3,2
+1706645700,Aston Villa,Newcastle United,1,3
+1706729400,Tottenham Hotspur,Brentford,3,2
+1706729400,Manchester City,Burnley,3,1
+1706732100,Liverpool,Chelsea,4,1
+1706815800,West Ham United,AFC Bournemouth,1,1
+1706818500,Wolverhampton Wanderers,Manchester United,3,4
+1706963400,Everton,Tottenham Hotspur,2,2
+1706972400,Brighton & Hove Albion,Crystal Palace,4,1
+1706972400,Burnley,Fulham,2,2
+1706972400,Newcastle United,Luton Town,4,4
+1706981400,Sheffield United,Aston Villa,0,5
+1707055200,AFC Bournemouth,Nottingham Forest,1,1
+1707055200,Chelsea,Wolverhampton Wanderers,2,4
+1707055200,Manchester United,West Ham United,3,0
+1707064200,Arsenal,Liverpool,3,1
+1707163200,Brentford,Manchester City,1,3
+1707568200,Manchester City,Everton,2,0
+1707577200,Fulham,AFC Bournemouth,3,1
+1707577200,Liverpool,Burnley,3,1
+1707577200,Luton Town,Sheffield United,1,3
+1707577200,Tottenham Hotspur,Brighton & Hove Albion,2,1
+1707577200,Wolverhampton Wanderers,Brentford,0,2
+1707586200,Nottingham Forest,Newcastle United,2,3
+1707660000,West Ham United,Arsenal,0,6
+1707669000,Aston Villa,Manchester United,1,2
+1707768000,Crystal Palace,Chelsea,1,3
+1708173000,Brentford,Liverpool,1,4
+1708182000,Burnley,Arsenal,0,5
+1708182000,Fulham,Aston Villa,1,2
+1708182000,Newcastle United,AFC Bournemouth,2,2
+1708182000,Nottingham Forest,West Ham United,2,0
+1708182000,Tottenham Hotspur,Wolverhampton Wanderers,1,2
+1708191000,Manchester City,Chelsea,1,1
+1708264800,Sheffield United,Brighton & Hove Albion,0,5
+1708273800,Luton Town,Manchester United,1,2
+1708372800,Everton,Crystal Palace,1,1
+1708457400,Manchester City,Brentford,1,0
+1708543800,Liverpool,Luton Town,4,1
+1708786800,Aston Villa,Nottingham Forest,4,2
+1708786800,Brighton & Hove Albion,Everton,1,1
+1708786800,Crystal Palace,Burnley,3,0
+1708786800,Manchester United,Fulham,1,2
+1708795800,AFC Bournemouth,Manchester City,0,1
+1708804800,Arsenal,Newcastle United,4,1
+1708867800,Wolverhampton Wanderers,Sheffield United,1,0
+1708977600,West Ham United,Brentford,4,2
+1709391600,Brentford,Chelsea,2,2
+1709391600,Everton,West Ham United,1,3
+1709391600,Fulham,Brighton & Hove Albion,3,0
+1709391600,Newcastle United,Wolverhampton Wanderers,3,0
+1709391600,Nottingham Forest,Liverpool,0,1
+1709391600,Tottenham Hotspur,Crystal Palace,3,1
+1709400600,Luton Town,Aston Villa,2,3
+1709470800,Burnley,AFC Bournemouth,0,2
+1709479800,Manchester City,Manchester United,3,1
+1709582400,Sheffield United,Arsenal,0,6
+1709987400,Manchester United,Everton,2,0
+1709996400,AFC Bournemouth,Sheffield United,2,2
+1709996400,Crystal Palace,Luton Town,1,1
+1709996400,Wolverhampton Wanderers,Fulham,2,1
+1710005400,Arsenal,Brentford,2,1
+1710075600,Aston Villa,Tottenham Hotspur,0,4
+1710079200,Brighton & Hove Albion,Nottingham Forest,1,0
+1710079200,West Ham United,Burnley,2,2
+1710085500,Liverpool,Manchester City,1,1
+1710187200,Chelsea,Newcastle United,3,2
+1710358200,AFC Bournemouth,Luton Town,4,3
+1710601200,Burnley,Brentford,2,1
+1710601200,Luton Town,Nottingham Forest,1,1
+1710610200,Fulham,Tottenham Hotspur,3,0
+1710684000,West Ham United,Aston Villa,1,1
+1711801800,Newcastle United,West Ham United,4,3
+1711810800,AFC Bournemouth,Everton,2,1
+1711810800,Chelsea,Burnley,2,2
+1711810800,Nottingham Forest,Crystal Palace,1,1
+1711810800,Sheffield United,Fulham,3,3
+1711810800,Tottenham Hotspur,Luton Town,2,1
+1711819800,Aston Villa,Wolverhampton Wanderers,2,0
+1711828800,Brentford,Manchester United,1,1
+1711890000,Liverpool,Brighton & Hove Albion,2,1
+1711899000,Manchester City,Arsenal,0,0
+1712082600,Nottingham Forest,Fulham,3,1
+1712082600,Newcastle United,Everton,1,1
+1712083500,AFC Bournemouth,Crystal Palace,1,0
+1712083500,Burnley,Wolverhampton Wanderers,1,1
+1712085300,West Ham United,Tottenham Hotspur,1,1
+1712169000,Arsenal,Luton Town,2,0
+1712169000,Brentford,Brighton & Hove Albion,0,0
+1712171700,Manchester City,Aston Villa,4,1
+1712255400,Liverpool,Sheffield United,3,1
+1712258100,Chelsea,Manchester United,4,3
+1712403000,Crystal Palace,Manchester City,2,4
+1712412000,Aston Villa,Brentford,3,3
+1712412000,Everton,Burnley,1,0
+1712412000,Fulham,Newcastle United,0,1
+1712412000,Luton Town,AFC Bournemouth,2,1
+1712412000,Wolverhampton Wanderers,West Ham United,1,2
+1712421000,Brighton & Hove Albion,Arsenal,0,3
+1712500200,Manchester United,Liverpool,2,2
+1712507400,Sheffield United,Chelsea,2,2
+1712509200,Tottenham Hotspur,Nottingham Forest,3,1
+1713007800,Newcastle United,Tottenham Hotspur,4,0
+1713016800,Brentford,Sheffield United,2,0
+1713016800,Burnley,Brighton & Hove Albion,1,1
+1713016800,Manchester City,Luton Town,5,1
+1713016800,Nottingham Forest,Wolverhampton Wanderers,2,2
+1713025800,AFC Bournemouth,Manchester United,2,2
+1713099600,Liverpool,Crystal Palace,0,1
+1713099600,West Ham United,Fulham,0,2
+1713108600,Arsenal,Aston Villa,0,2
+1713207600,Chelsea,Everton,6,0
+1713621600,Luton Town,Brentford,1,5
+1713621600,Sheffield United,Burnley,1,4
+1713637800,Wolverhampton Wanderers,Arsenal,0,2
+1713702600,Everton,Nottingham Forest,2,0
+1713708000,Aston Villa,AFC Bournemouth,3,1
+1713708000,Crystal Palace,West Ham United,5,2
+1713713400,Fulham,Liverpool,1,3
+1713898800,Arsenal,Chelsea,5,0
+1713984300,Wolverhampton Wanderers,AFC Bournemouth,0,1
+1713985200,Crystal Palace,Newcastle United,2,0
+1713985200,Everton,Liverpool,2,0
+1713985200,Manchester United,Sheffield United,4,2
+1714071600,Brighton & Hove Albion,Manchester City,0,4
+1714217400,West Ham United,Liverpool,2,2
+1714226400,Fulham,Crystal Palace,1,1
+1714226400,Manchester United,Burnley,1,1
+1714226400,Newcastle United,Sheffield United,5,1
+1714226400,Wolverhampton Wanderers,Luton Town,2,1
+1714235400,Everton,Brentford,1,0
+1714244400,Aston Villa,Chelsea,2,2
+1714309200,AFC Bournemouth,Brighton & Hove Albion,3,0
+1714309200,Tottenham Hotspur,Arsenal,2,3
+1714318200,Nottingham Forest,Manchester City,0,2
+1714674600,Chelsea,Tottenham Hotspur,2,0
+1714762800,Luton Town,Everton,1,1
+1714822200,Arsenal,AFC Bournemouth,3,0
+1714831200,Brentford,Fulham,0,0
+1714831200,Burnley,Newcastle United,1,4
+1714831200,Sheffield United,Nottingham Forest,1,3
+1714840200,Manchester City,Wolverhampton Wanderers,5,1
+1714914000,Brighton & Hove Albion,Aston Villa,1,0
+1714914000,Chelsea,West Ham United,5,0
+1714923000,Liverpool,Tottenham Hotspur,4,2
+1715022000,Crystal Palace,Manchester United,4,0
+1715427000,Fulham,Manchester City,0,4
+1715436000,AFC Bournemouth,Brentford,1,2
+1715436000,Everton,Sheffield United,1,0
+1715436000,Newcastle United,Brighton & Hove Albion,1,1
+1715436000,Tottenham Hotspur,Burnley,2,1
+1715436000,West Ham United,Luton Town,3,1
+1715436000,Wolverhampton Wanderers,Crystal Palace,1,3
+1715445000,Nottingham Forest,Chelsea,2,3
+1715527800,Manchester United,Arsenal,0,1
+1715626800,Aston Villa,Liverpool,3,3
+1715713200,Tottenham Hotspur,Manchester City,0,2
+1715798700,Brighton & Hove Albion,Chelsea,1,2
+1715799600,Manchester United,Newcastle United,3,2
+1716130800,Arsenal,Everton,2,1
+1716130800,Brentford,Newcastle United,2,4
+1716130800,Brighton & Hove Albion,Manchester United,0,2
+1716130800,Burnley,Nottingham Forest,1,2
+1716130800,Chelsea,AFC Bournemouth,2,1
+1716130800,Crystal Palace,Aston Villa,5,0
+1716130800,Liverpool,Wolverhampton Wanderers,2,0
+1716130800,Luton Town,Fulham,2,4
+1716130800,Manchester City,West Ham United,3,1
+1716130800,Sheffield United,Tottenham Hotspur,0,3
+1723834800,Manchester United,Fulham,1,0
+1723894200,Ipswich Town,Liverpool,0,2
+1723903200,Arsenal,Wolverhampton Wanderers,2,0
+1723903200,Everton,Brighton & Hove Albion,0,3
+1723903200,Newcastle United,Southampton,1,0
+1723903200,Nottingham Forest,AFC Bournemouth,1,1
+1723912200,West Ham United,Aston Villa,1,2
+1723986000,Brentford,Crystal Palace,2,1
+1723995000,Chelsea,Manchester City,0,2
+1724094000,Leicester City,Tottenham Hotspur,1,1
+1724499000,Brighton & Hove Albion,Manchester United,2,1
+1724508000,Crystal Palace,West Ham United,0,2
+1724508000,Fulham,Leicester City,2,1
+1724508000,Manchester City,Ipswich Town,4,1
+1724508000,Southampton,Nottingham Forest,0,1
+1724508000,Tottenham Hotspur,Everton,4,0
+1724517000,Aston Villa,Arsenal,0,2
+1724590800,AFC Bournemouth,Newcastle United,1,1
+1724590800,Wolverhampton Wanderers,Chelsea,2,6
+1724599800,Liverpool,Brentford,2,0
+1725103800,Arsenal,Brighton & Hove Albion,1,1
+1725112800,Brentford,Southampton,3,1
+1725112800,Everton,AFC Bournemouth,2,3
+1725112800,Ipswich Town,Fulham,1,1
+1725112800,Leicester City,Aston Villa,1,2
+1725112800,Nottingham Forest,Wolverhampton Wanderers,1,1
+1725121800,West Ham United,Manchester City,1,3
+1725193800,Chelsea,Crystal Palace,1,1
+1725193800,Newcastle United,Tottenham Hotspur,2,1
+1725202800,Manchester United,Liverpool,0,3
+1726313400,Southampton,Manchester United,0,3
+1726322400,Brighton & Hove Albion,Ipswich Town,0,0
+1726322400,Crystal Palace,Leicester City,2,2
+1726322400,Fulham,West Ham United,1,1
+1726322400,Liverpool,Nottingham Forest,0,1
+1726322400,Manchester City,Brentford,2,1
+1726331400,Aston Villa,Everton,3,2
+1726340400,AFC Bournemouth,Chelsea,0,1
+1726405200,Tottenham Hotspur,Arsenal,0,1
+1726414200,Wolverhampton Wanderers,Newcastle United,1,2
+1726918200,West Ham United,Chelsea,0,3
+1726927200,Aston Villa,Wolverhampton Wanderers,3,1
+1726927200,Fulham,Newcastle United,3,1
+1726927200,Leicester City,Everton,1,1
+1726927200,Liverpool,AFC Bournemouth,3,0
+1726927200,Southampton,Ipswich Town,1,1
+1726927200,Tottenham Hotspur,Brentford,3,1
+1726936200,Crystal Palace,Manchester United,0,0
+1727010000,Brighton & Hove Albion,Nottingham Forest,2,2
+1727019000,Manchester City,Arsenal,2,2
+1727523000,Newcastle United,Manchester City,1,1
+1727532000,Arsenal,Leicester City,4,2
+1727532000,Brentford,West Ham United,1,1
+1727532000,Chelsea,Brighton & Hove Albion,4,2
+1727532000,Everton,Crystal Palace,2,1
+1727532000,Nottingham Forest,Fulham,0,1
+1727541000,Wolverhampton Wanderers,Liverpool,1,2
+1727614800,Ipswich Town,Aston Villa,2,2
+1727623800,Manchester United,Tottenham Hotspur,0,3
+1727722800,AFC Bournemouth,Southampton,3,1
+1728127800,Crystal Palace,Liverpool,0,1
+1728136800,Arsenal,Southampton,3,1
+1728136800,Brentford,Wolverhampton Wanderers,5,3
+1728136800,Leicester City,AFC Bournemouth,1,0
+1728136800,Manchester City,Fulham,3,2
+1728136800,West Ham United,Ipswich Town,4,1
+1728145800,Everton,Newcastle United,0,0
+1728219600,Aston Villa,Manchester United,0,0
+1728219600,Chelsea,Nottingham Forest,1,1
+1728228600,Brighton & Hove Albion,Tottenham Hotspur,3,2
+1729337400,Tottenham Hotspur,West Ham United,4,1
+1729346400,Fulham,Aston Villa,1,3
+1729346400,Manchester United,Brentford,2,1
+1729346400,Newcastle United,Brighton & Hove Albion,0,1
+1729346400,Southampton,Leicester City,2,3
+1729347300,Ipswich Town,Everton,0,2
+1729355400,AFC Bournemouth,Arsenal,2,0
+1729429200,Wolverhampton Wanderers,Manchester City,1,2
+1729438200,Liverpool,Chelsea,2,1
+1729537200,Nottingham Forest,Crystal Palace,1,0
+1729882800,Leicester City,Nottingham Forest,1,3
+1729951200,Aston Villa,AFC Bournemouth,1,1
+1729951200,Brentford,Ipswich Town,4,3
+1729951200,Brighton & Hove Albion,Wolverhampton Wanderers,2,2
+1729951200,Manchester City,Southampton,1,0
+1729960200,Everton,Fulham,1,1
+1730037600,Chelsea,Newcastle United,2,1
+1730037600,Crystal Palace,Tottenham Hotspur,1,0
+1730037600,West Ham United,Manchester United,2,1
+1730046600,Arsenal,Liverpool,2,2
+1730550600,Newcastle United,Arsenal,1,0
+1730559600,AFC Bournemouth,Manchester City,2,1
+1730559600,Ipswich Town,Leicester City,1,1
+1730559600,Liverpool,Brighton & Hove Albion,2,1
+1730559600,Nottingham Forest,West Ham United,3,0
+1730559600,Southampton,Everton,1,0
+1730568600,Wolverhampton Wanderers,Crystal Palace,2,2
+1730642400,Tottenham Hotspur,Aston Villa,4,1
+1730651400,Manchester United,Chelsea,1,1
+1730750400,Fulham,Brentford,2,1
+1731164400,Brentford,AFC Bournemouth,3,2
+1731164400,Crystal Palace,Fulham,0,2
+1731164400,West Ham United,Everton,0,0
+1731164400,Wolverhampton Wanderers,Southampton,2,0
+1731173400,Brighton & Hove Albion,Manchester City,2,1
+1731182400,Liverpool,Aston Villa,2,0
+1731247200,Manchester United,Leicester City,3,0
+1731247200,Nottingham Forest,Newcastle United,1,3
+1731247200,Tottenham Hotspur,Ipswich Town,1,2
+1731256200,Chelsea,Arsenal,1,1
+1732365000,Leicester City,Chelsea,1,2
+1732374000,AFC Bournemouth,Brighton & Hove Albion,1,2
+1732374000,Arsenal,Nottingham Forest,3,0
+1732374000,Aston Villa,Crystal Palace,2,2
+1732374000,Everton,Brentford,0,0
+1732374000,Fulham,Wolverhampton Wanderers,1,4
+1732383000,Manchester City,Tottenham Hotspur,0,4
+1732456800,Southampton,Liverpool,2,3
+1732465800,Ipswich Town,Manchester United,1,1
+1732564800,Newcastle United,West Ham United,0,2
+1732910400,Brighton & Hove Albion,Southampton,1,1
+1732978800,Brentford,Leicester City,4,1
+1732978800,Crystal Palace,Newcastle United,1,1
+1732978800,Nottingham Forest,Ipswich Town,1,0
+1732978800,Wolverhampton Wanderers,AFC Bournemouth,2,4
+1732987800,West Ham United,Arsenal,2,5
+1733059800,Chelsea,Aston Villa,3,0
+1733059800,Manchester United,Everton,4,0
+1733059800,Tottenham Hotspur,Fulham,1,1
+1733068800,Liverpool,Manchester City,2,0
+1733254200,Ipswich Town,Crystal Palace,0,1
+1733256900,Leicester City,West Ham United,3,1
+1733340600,Everton,Wolverhampton Wanderers,4,0
+1733340600,Manchester City,Nottingham Forest,3,0
+1733340600,Newcastle United,Liverpool,3,3
+1733340600,Southampton,Chelsea,1,5
+1733343300,Arsenal,Manchester United,2,0
+1733343300,Aston Villa,Brentford,3,1
+1733427000,Fulham,Brighton & Hove Albion,3,1
+1733429700,AFC Bournemouth,Tottenham Hotspur,1,0
+1733583600,Aston Villa,Southampton,1,0
+1733583600,Brentford,Newcastle United,4,2
+1733583600,Crystal Palace,Manchester City,2,2
+1733592600,Manchester United,Nottingham Forest,2,3
+1733666400,Fulham,Arsenal,1,1
+1733666400,Ipswich Town,AFC Bournemouth,1,2
+1733666400,Leicester City,Brighton & Hove Albion,2,2
+1733675400,Tottenham Hotspur,Chelsea,3,4
+1733774400,West Ham United,Wolverhampton Wanderers,2,1
+1734188400,Arsenal,Everton,0,0
+1734188400,Liverpool,Fulham,2,2
+1734188400,Newcastle United,Leicester City,4,0
+1734188400,Wolverhampton Wanderers,Ipswich Town,1,2
+1734197400,Nottingham Forest,Aston Villa,2,1
+1734271200,Brighton & Hove Albion,Crystal Palace,1,3
+1734280200,Manchester City,Manchester United,1,2
+1734289200,Chelsea,Brentford,2,1
+1734289200,Southampton,Tottenham Hotspur,0,5
+1734379200,AFC Bournemouth,West Ham United,1,1
+1734784200,Aston Villa,Manchester City,2,1
+1734793200,Brentford,Nottingham Forest,0,2
+1734793200,Ipswich Town,Newcastle United,0,4
+1734793200,West Ham United,Brighton & Hove Albion,1,1
+1734802200,Crystal Palace,Arsenal,1,5
+1734876000,Everton,Chelsea,0,0
+1734876000,Fulham,Southampton,0,0
+1734876000,Leicester City,Wolverhampton Wanderers,0,3
+1734876000,Manchester United,AFC Bournemouth,0,3
+1734885000,Tottenham Hotspur,Liverpool,3,6
+1735216200,Manchester City,Everton,1,1
+1735225200,AFC Bournemouth,Crystal Palace,0,0
+1735225200,Chelsea,Fulham,1,2
+1735225200,Newcastle United,Aston Villa,3,0
+1735225200,Nottingham Forest,Tottenham Hotspur,1,0
+1735225200,Southampton,West Ham United,0,1
+1735234200,Wolverhampton Wanderers,Manchester United,2,0
+1735243200,Liverpool,Leicester City,3,1
+1735327800,Brighton & Hove Albion,Brentford,0,0
+1735330500,Arsenal,Ipswich Town,1,0
+1735482600,Leicester City,Manchester City,0,2
+1735484400,Crystal Palace,Southampton,2,1
+1735484400,Everton,Nottingham Forest,0,2
+1735484400,Fulham,AFC Bournemouth,2,2
+1735484400,Tottenham Hotspur,Wolverhampton Wanderers,2,2
+1735492500,West Ham United,Liverpool,0,5
+1735587900,Aston Villa,Brighton & Hove Albion,2,2
+1735587900,Ipswich Town,Chelsea,2,0
+1735588800,Manchester United,Newcastle United,0,2
+1735752600,Brentford,Arsenal,1,3
+1735993800,Tottenham Hotspur,Newcastle United,1,2
+1736002800,AFC Bournemouth,Everton,1,0
+1736002800,Aston Villa,Leicester City,2,1
+1736002800,Crystal Palace,Chelsea,1,1
+1736002800,Manchester City,West Ham United,4,1
+1736002800,Southampton,Brentford,0,5
+1736011800,Brighton & Hove Albion,Arsenal,1,1
+1736085600,Fulham,Ipswich Town,2,2
+1736094600,Liverpool,Manchester United,2,2
+1736193600,Wolverhampton Wanderers,Nottingham Forest,0,3
+1736883000,Brentford,Manchester City,2,2
+1736883000,West Ham United,Fulham,3,2
+1736883000,Chelsea,AFC Bournemouth,2,2
+1736884800,Nottingham Forest,Liverpool,1,1
+1736969400,Everton,Aston Villa,0,1
+1736969400,Leicester City,Crystal Palace,0,2
+1736969400,Newcastle United,Wolverhampton Wanderers,3,0
+1736971200,Arsenal,Tottenham Hotspur,2,1
+1737055800,Ipswich Town,Brighton & Hove Albion,0,2
+1737057600,Manchester United,Southampton,3,1
+1737203400,Newcastle United,AFC Bournemouth,1,4
+1737212400,Brentford,Liverpool,0,2
+1737212400,Leicester City,Fulham,0,2
+1737212400,West Ham United,Crystal Palace,0,2
+1737221400,Arsenal,Aston Villa,2,2
+1737295200,Everton,Tottenham Hotspur,3,2
+1737295200,Manchester United,Brighton & Hove Albion,1,3
+1737295200,Nottingham Forest,Southampton,3,2
+1737304200,Ipswich Town,Manchester City,0,6
+1737403200,Chelsea,Wolverhampton Wanderers,3,1
+1737817200,AFC Bournemouth,Nottingham Forest,5,0
+1737817200,Brighton & Hove Albion,Everton,0,1
+1737817200,Liverpool,Ipswich Town,4,1
+1737817200,Southampton,Newcastle United,1,3
+1737817200,Wolverhampton Wanderers,Arsenal,0,1
+1737826200,Manchester City,Chelsea,3,1
+1737900000,Crystal Palace,Brentford,1,2
+1737900000,Tottenham Hotspur,Leicester City,1,2
+1737909000,Aston Villa,West Ham United,1,1
+1737918000,Fulham,Manchester United,0,1
+1738413000,Nottingham Forest,Brighton & Hove Albion,7,0
+1738422000,Everton,Leicester City,4,0
+1738422000,Newcastle United,Fulham,1,2
+1738422000,AFC Bournemouth,Liverpool,0,2
+1738422000,Ipswich Town,Southampton,1,2
+1738431000,Wolverhampton Wanderers,Aston Villa,2,0
+1738504800,Brentford,Tottenham Hotspur,0,2
+1738504800,Manchester United,Crystal Palace,0,2
+1738513800,Arsenal,Manchester City,5,1
+1738612800,Chelsea,West Ham United,2,1
+1739388600,Everton,Liverpool,2,2
+1739563200,Brighton & Hove Albion,Chelsea,3,0
+1739622600,Leicester City,Arsenal,0,2
+1739631600,Aston Villa,Ipswich Town,1,1
+1739631600,Fulham,Nottingham Forest,2,1
+1739631600,Manchester City,Newcastle United,4,0
+1739631600,Southampton,AFC Bournemouth,1,3
+1739631600,West Ham United,Brentford,0,1
+1739640600,Crystal Palace,Everton,1,2
+1739714400,Liverpool,Wolverhampton Wanderers,2,1
+1739723400,Tottenham Hotspur,Manchester United,1,0
+1739993400,Aston Villa,Liverpool,2,2
+1740168000,Leicester City,Brentford,0,4
+1740227400,Everton,Manchester United,2,2
+1740236400,AFC Bournemouth,Wolverhampton Wanderers,0,1
+1740236400,Arsenal,West Ham United,0,1
+1740236400,Fulham,Crystal Palace,0,2
+1740236400,Ipswich Town,Tottenham Hotspur,1,4
+1740236400,Southampton,Brighton & Hove Albion,0,4
+1740245400,Aston Villa,Chelsea,2,1
+1740319200,Newcastle United,Nottingham Forest,4,3
+1740328200,Manchester City,Liverpool,0,2
+1740511800,Brighton & Hove Albion,AFC Bournemouth,2,1
+1740511800,Wolverhampton Wanderers,Fulham,1,2
+1740511800,Crystal Palace,Aston Villa,4,1
+1740514500,Chelsea,Southampton,4,0
+1740598200,Brentford,Everton,1,1
+1740598200,Nottingham Forest,Arsenal,0,0
+1740598200,Tottenham Hotspur,Manchester City,0,1
+1740598200,Manchester United,Ipswich Town,3,2
+1740600900,Liverpool,Newcastle United,2,0
+1740686400,West Ham United,Leicester City,2,0
+1741437000,Nottingham Forest,Manchester City,1,0
+1741446000,Brighton & Hove Albion,Fulham,2,1
+1741446000,Crystal Palace,Ipswich Town,1,0
+1741446000,Liverpool,Southampton,3,1
+1741455000,Brentford,Aston Villa,0,1
+1741464000,Wolverhampton Wanderers,Everton,1,1
+1741528800,Chelsea,Leicester City,1,0
+1741528800,Tottenham Hotspur,AFC Bournemouth,2,2
+1741537800,Manchester United,Arsenal,1,1
+1741636800,West Ham United,Newcastle United,0,1
+1742050800,Everton,West Ham United,1,1
+1742050800,Ipswich Town,Nottingham Forest,2,4
+1742050800,Manchester City,Brighton & Hove Albion,2,2
+1742050800,Southampton,Wolverhampton Wanderers,1,2
+1742059800,AFC Bournemouth,Brentford,1,2
+1742131800,Arsenal,Chelsea,1,0
+1742131800,Fulham,Tottenham Hotspur,2,0
+1742151600,Leicester City,Manchester United,0,3
+1743533100,Arsenal,Fulham,2,1
+1743533100,Wolverhampton Wanderers,West Ham United,1,0
+1743534000,Nottingham Forest,Manchester United,1,0
+1743619500,AFC Bournemouth,Ipswich Town,1,2
+1743619500,Brighton & Hove Albion,Aston Villa,0,3
+1743619500,Manchester City,Leicester City,2,0
+1743619500,Newcastle United,Brentford,2,1
+1743619500,Southampton,Crystal Palace,1,1
+1743620400,Liverpool,Everton,1,0
+1743706800,Chelsea,Tottenham Hotspur,1,0
+1743852600,Everton,Arsenal,1,1
+1743861600,Crystal Palace,Brighton & Hove Albion,2,1
+1743861600,Ipswich Town,Wolverhampton Wanderers,1,2
+1743861600,West Ham United,AFC Bournemouth,2,2
+1743870600,Aston Villa,Nottingham Forest,2,1
+1743944400,Brentford,Chelsea,0,0
+1743944400,Fulham,Liverpool,3,2
+1743944400,Tottenham Hotspur,Southampton,3,1
+1743953400,Manchester United,Manchester City,0,0
+1744052400,Leicester City,Newcastle United,0,3
+1744457400,Manchester City,Crystal Palace,5,2
+1744466400,Brighton & Hove Albion,Leicester City,2,2
+1744466400,Nottingham Forest,Everton,0,1
+1744466400,Southampton,Aston Villa,0,3
+1744475400,Arsenal,Brentford,1,1
+1744549200,Chelsea,Ipswich Town,2,2
+1744549200,Liverpool,West Ham United,2,1
+1744549200,Wolverhampton Wanderers,Tottenham Hotspur,4,2
+1744558200,Newcastle United,Manchester United,4,1
+1744657200,AFC Bournemouth,Fulham,1,0
+1744828200,Newcastle United,Crystal Palace,5,0
+1745071200,Brentford,Brighton & Hove Albion,4,2
+1745071200,Crystal Palace,AFC Bournemouth,0,0
+1745071200,Everton,Manchester City,0,2
+1745071200,West Ham United,Southampton,1,1
+1745080200,Aston Villa,Newcastle United,4,1
+1745154000,Fulham,Chelsea,1,2
+1745154000,Ipswich Town,Arsenal,0,4
+1745154000,Manchester United,Wolverhampton Wanderers,0,1
+1745163000,Leicester City,Liverpool,0,1
+1745262000,Tottenham Hotspur,Nottingham Forest,1,2
+1745348400,Manchester City,Aston Villa,2,1
+1745434800,Arsenal,Crystal Palace,2,2
+1745667000,Chelsea,Everton,1,0
+1745676000,Brighton & Hove Albion,West Ham United,3,2
+1745676000,Newcastle United,Ipswich Town,3,0
+1745676000,Southampton,Fulham,1,2
+1745676000,Wolverhampton Wanderers,Leicester City,3,0
+1745758800,AFC Bournemouth,Manchester United,1,1
+1745767800,Liverpool,Tottenham Hotspur,5,1
+1746124200,Nottingham Forest,Brentford,0,2
+1746212400,Manchester City,Wolverhampton Wanderers,1,0
+1746271800,Aston Villa,Fulham,1,0
+1746280800,Everton,Ipswich Town,2,2
+1746280800,Leicester City,Southampton,2,0
+1746289800,Arsenal,AFC Bournemouth,1,2
+1746363600,Brentford,Manchester United,4,3
+1746363600,Brighton & Hove Albion,Newcastle United,1,1
+1746363600,West Ham United,Tottenham Hotspur,1,1
+1746372600,Chelsea,Liverpool,3,1
+1746471600,Crystal Palace,Nottingham Forest,1,1
+1746885600,Fulham,Everton,1,3
+1746885600,Ipswich Town,Brentford,0,1
+1746885600,Southampton,Manchester City,0,0
+1746885600,Wolverhampton Wanderers,Brighton & Hove Albion,0,2
+1746894600,AFC Bournemouth,Aston Villa,0,1
+1746961200,Newcastle United,Chelsea,2,0
+1746969300,Manchester United,West Ham United,0,2
+1746969300,Nottingham Forest,Leicester City,2,2
+1746969300,Tottenham Hotspur,Crystal Palace,0,2
+1746977400,Liverpool,Arsenal,2,2
+1747420200,Aston Villa,Tottenham Hotspur,2,0
+1747422900,Chelsea,Manchester United,1,0
+1747566000,Everton,Southampton,2,0
+1747574100,West Ham United,Nottingham Forest,1,2
+1747576800,Brentford,Fulham,2,3
+1747576800,Leicester City,Ipswich Town,2,0
+1747582200,Arsenal,Newcastle United,1,0
+1747681200,Brighton & Hove Albion,Liverpool,3,2
+1747767600,Crystal Palace,Wolverhampton Wanderers,4,2
+1747767600,Manchester City,AFC Bournemouth,3,1
+1748185200,AFC Bournemouth,Leicester City,2,0
+1748185200,Fulham,Manchester City,0,2
+1748185200,Ipswich Town,West Ham United,1,3
+1748185200,Liverpool,Crystal Palace,1,1
+1748185200,Manchester United,Aston Villa,2,0
+1748185200,Newcastle United,Everton,0,1
+1748185200,Nottingham Forest,Chelsea,0,1
+1748185200,Southampton,Arsenal,1,2
+1748185200,Tottenham Hotspur,Brighton & Hove Albion,1,4
+1748185200,Wolverhampton Wanderers,Brentford,1,1

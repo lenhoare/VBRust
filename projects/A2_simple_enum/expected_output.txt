@@ -1,0 +1,9 @@
+Traffic light durations (seconds):
+  Red: 30s
+  Yellow: 5s
+  Green: 45s
+
+Spot checks:
+  Red   = 30s
+  Yellow = 5s
+  Green = 45s

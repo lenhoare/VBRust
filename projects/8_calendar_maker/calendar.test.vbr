@@ -1,0 +1,39 @@
+' 8 — Calendar Maker, test file.
+Test "leap years"
+    Assert Calendar.IsLeap(2024)
+    Assert Calendar.IsLeap(2000)
+    Assert Not Calendar.IsLeap(2023)
+    Assert Not Calendar.IsLeap(1900)
+End Test
+
+Test "days in month"
+    Assert Calendar.DaysInMonth(2024, 2) = 29
+    Assert Calendar.DaysInMonth(2023, 2) = 28
+    Assert Calendar.DaysInMonth(2024, 4) = 30
+    Assert Calendar.DaysInMonth(2024, 1) = 31
+End Test
+
+Test "weekday of first of month"
+    Assert Calendar.WeekdayOfFirst(2024, 7) = 1    ' July 2024 starts Monday
+    Assert Calendar.WeekdayOfFirst(2024, 1) = 1    ' Jan 2024 starts Monday
+    Assert Calendar.WeekdayOfFirst(2023, 1) = 7    ' Jan 2023 starts Sunday
+End Test
+
+Test "lead blanks"
+    Assert Calendar.LeadBlanks(2024, 7) = 0
+    Assert Calendar.LeadBlanks(2023, 1) = 6
+End Test
+
+Test "calendar rows for a monday start"
+    Dim rows As Vec<String> = Calendar.BuildCalendar(2024, 7)
+    Assert rows[0] = "Mo Tu We Th Fr Sa Su"
+    Assert rows[1] = "  1  2  3  4  5  6  7"
+    Assert rows[5] = " 29 30 31"
+End Test
+
+Test "calendar with leading blanks"
+    Dim rows As Vec<String> = Calendar.BuildCalendar(2023, 1)
+    Assert rows[0] = "Mo Tu We Th Fr Sa Su"
+    Assert rows[1] = "                    1"
+    Assert rows[2] = "  2  3  4  5  6  7  8"
+End Test

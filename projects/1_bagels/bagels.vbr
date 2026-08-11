@@ -1,0 +1,71 @@
+' Bagels logic module: pure function to compute the clue given a secret and a guess.
+' The secret and guess are strings of three digits.
+' Returns:
+'   "Fermi" for each correct digit in the correct place.
+'   "Pico" for each correct digit in the wrong place.
+'   "Bagels" if there are no correct digits.
+' Multiple Fermi/Pico are sorted alphabetically (all Fermi first, then Pico)
+' and joined with spaces — e.g. secret "123", guess "321" -> "Fermi Pico Pico".
+'
+' Implementation note: we read digits with Mid (VB6-style, 1-based) and track
+' which positions are already matched with Vec<Boolean> flags, so a matched
+' digit can't be double-counted as both Fermi and Pico. This keeps the logic
+' pure VBR — no char arrays needed.
+
+Public Function GetClue(ByVal secret As String, ByVal guess As String) As String
+    Dim fermiCount As Long = 0
+    Dim picoCount As Long = 0
+    Dim secretUsed As Vec<Boolean> = [False, False, False]
+    Dim guessUsed As Vec<Boolean> = [False, False, False]
+
+    ' First pass: count Fermis (correct digit, correct place).
+    Dim i As Long = 0
+    For i = 0 To 2
+        If Mid(secret, i + 1, 1) = Mid(guess, i + 1, 1) Then
+            fermiCount = fermiCount + 1
+            secretUsed[i] = True
+            guessUsed[i] = True
+        End If
+    Next
+
+    ' Second pass: count Picos (correct digit, wrong place) for remaining digits.
+    For i = 0 To 2
+        If Not secretUsed[i] Then
+            Dim j As Long = 0
+            For j = 0 To 2
+                If Not guessUsed[j] And Mid(secret, i + 1, 1) = Mid(guess, j + 1, 1) Then
+                    picoCount = picoCount + 1
+                    secretUsed[i] = True
+                    guessUsed[j] = True
+                    Exit For
+                End If
+            Next
+        End If
+    Next
+
+    ' Build the result string.
+    If fermiCount = 0 And picoCount = 0 Then
+        Return "Bagels"
+    End If
+
+    Dim result As Vec<String>
+    Dim k As Long = 0
+    For k = 1 To fermiCount
+        result.Push("Fermi")
+    Next
+    For k = 1 To picoCount
+        result.Push("Pico")
+    Next
+
+    ' Join with spaces. (For Each borrows, so clone each part.)
+    Dim clue As String = ""
+    For Each part In result
+        If clue = "" Then
+            clue = part.Clone()
+        Else
+            clue = clue & " " & part
+        End If
+    Next
+
+    Return clue
+End Function

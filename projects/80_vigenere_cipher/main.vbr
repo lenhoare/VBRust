@@ -1,0 +1,10 @@
+' 80 — Vigenère Cipher, entry point.
+Function Main()
+    Dim keyword As String = "LEMON"
+    Dim message As String = "ATTACKATDAWN"
+    Debug.Print "Keyword:  " & keyword
+    Debug.Print "Message:  " & message
+    Dim secret As String = Vigenere.Encrypt(message, keyword)
+    Debug.Print "Encrypted: " & secret
+    Debug.Print "Decrypted: " & Vigenere.Decrypt(secret, keyword)
+End Function

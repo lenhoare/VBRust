@@ -1,0 +1,60 @@
+' 80 — Vigenère Cipher logic module.
+' Polyalphabetic substitution: each letter is shifted by a per-position key
+' derived from a keyword, repeating. Key letter A = shift 0, B = 1, ... Z = 25.
+' Encrypt shifts forward; Decrypt shifts backward. Non-letters pass through
+' unchanged and do NOT advance the key position.
+Public Function Encrypt(ByVal message As String, ByVal keyword As String) As String
+    Return Vigenere(message, keyword, True)
+End Function
+
+Public Function Decrypt(ByVal message As String, ByVal keyword As String) As String
+    Return Vigenere(message, keyword, False)
+End Function
+
+Public Function Vigenere(ByVal message As String, ByVal keyword As String, ByVal encrypt As Boolean) As String
+    Dim upper As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    Dim out As String = ""
+    Dim keyPos As Long = 0
+    Dim i As Long = 0
+    For i = 1 To message.Len()
+        Dim ch As String = Mid(message, i, 1)
+        Dim idx As Long = FindIn(upper, UCase(ch))
+        If idx = 0 Then
+            out = out & ch
+        Else
+            ' keyPos advances only on letters, wrapping around the keyword.
+            ' (Assign Mid to a local first: a ByVal String param auto-borrows
+            ' a variable, but not a call expression.)
+            ' FindIn is 1-based; the shift must be 0-based, hence k - 1.
+            Dim keyChar As String = Mid(keyword, (keyPos Mod keyword.Len()) + 1, 1)
+            Dim k As Long = FindIn(upper, keyChar) - 1
+            Dim newIdx As Long = 0
+            If encrypt Then
+                newIdx = ((idx - 1 + k) Mod 26) + 1
+            Else
+                newIdx = ((idx - 1 - k) Mod 26 + 26) Mod 26 + 1
+            End If
+            Dim repl As String = Mid(upper, newIdx, 1)
+            ' Preserve the original case.
+            If ch = LCase(ch) Then
+                out = out & LCase(repl)
+            Else
+                out = out & repl
+            End If
+            keyPos = keyPos + 1
+        End If
+    Next
+    Return out
+End Function
+
+' 1-based position of `ch` in `alphabet`, or 0 if not found.
+Public Function FindIn(ByVal alphabet As String, ByVal ch As String) As Long
+    Dim i As Long = 1
+    Do While i <= alphabet.Len()
+        If Mid(alphabet, i, 1) = ch Then
+            Return i
+        End If
+        i = i + 1
+    Loop
+    Return 0
+End Function

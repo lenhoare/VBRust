@@ -1,0 +1,50 @@
+' 59 — Rock Paper Scissors, test file.
+Test "computer move is deterministic"
+    Assert Rps.ComputerMove(0) = "R"
+    Assert Rps.ComputerMove(1) = "P"
+    Assert Rps.ComputerMove(2) = "S"
+    Assert Rps.ComputerMove(3) = "R"
+End Test
+
+Test "rock beats scissors"
+    Assert Rps.Result("R", "S") = "player"
+    Assert Rps.Result("S", "R") = "computer"
+End Test
+
+Test "paper beats rock"
+    Assert Rps.Result("P", "R") = "player"
+    Assert Rps.Result("R", "P") = "computer"
+End Test
+
+Test "scissors beats paper"
+    Assert Rps.Result("S", "P") = "player"
+    Assert Rps.Result("P", "S") = "computer"
+End Test
+
+Test "ties"
+    Assert Rps.Result("R", "R") = "tie"
+    Assert Rps.Result("P", "P") = "tie"
+    Assert Rps.Result("S", "S") = "tie"
+End Test
+
+Test "move names"
+    Assert Rps.MoveName("R") = "Rock"
+    Assert Rps.MoveName("P") = "Paper"
+    Assert Rps.MoveName("S") = "Scissors"
+End Test
+
+Test "play updates scores and message"
+    Dim round As Long = 0
+    Dim ps As Long = 0
+    Dim cs As Long = 0
+    Dim ties As Long = 0
+    Dim msg As String = ""
+    Rps.Play(round, ps, cs, ties, msg, "R")   ' round 0 -> computer R -> tie
+    Assert ties = 1
+    Rps.Play(round, ps, cs, ties, msg, "S")   ' round 1 -> computer P -> player wins
+    Assert ps = 1
+    Assert msg = "You played Scissors, computer played Paper — you win!"
+    Rps.Play(round, ps, cs, ties, msg, "P")   ' round 2 -> computer S -> computer wins
+    Assert cs = 1
+    Assert round = 3
+End Test

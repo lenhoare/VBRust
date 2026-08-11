@@ -1,0 +1,81 @@
+' 76 — Tic-Tac-Toe, test file.
+Test "new board is empty"
+    Dim b As Vec<String> = Ttt.NewBoard()
+    Assert b.Len() = 9
+    Assert Ttt.CanPlace(b, 0)
+    Assert Ttt.Winner(b) = ""
+End Test
+
+Test "can place on empty cells only"
+    Dim b As Vec<String> = Ttt.NewBoard()
+    Assert Ttt.CanPlace(b, 4)
+    Assert Not Ttt.CanPlace(b, 9)
+    Assert Not Ttt.CanPlace(b, -1)
+End Test
+
+Test "place fills the cell"
+    Dim b As Vec<String> = Ttt.NewBoard()
+    Dim b2 As Vec<String> = Ttt.Place(b, 4, "X")
+    Assert b2[4] = "X"
+    Assert Not Ttt.CanPlace(b2, 4)
+    Assert b[4] = ""    ' original unchanged
+End Test
+
+Test "row of three wins"
+    Dim b As Vec<String> = ["X", "X", "X", "", "", "", "", "", ""]
+    Assert Ttt.Winner(b) = "X"
+End Test
+
+Test "diagonal of three wins"
+    Dim b As Vec<String> = ["O", "", "", "", "O", "", "", "", "O"]
+    Assert Ttt.Winner(b) = "O"
+End Test
+
+Test "line wins helper"
+    Assert Ttt.LineWins(["X", "X", "X", "", "", "", "", "", ""], 0, 1, 2)
+    Assert Not Ttt.LineWins(["X", "O", "X", "", "", "", "", "", ""], 0, 1, 2)
+    Assert Not Ttt.LineWins(["", "", "", "", "", "", "", "", ""], 0, 1, 2)
+End Test
+
+Test "no winner on mixed board"
+    Dim b As Vec<String> = ["X", "O", "X", "X", "O", "O", "", "X", ""]
+    Assert Ttt.Winner(b) = ""
+End Test
+
+Test "full board is full"
+    Dim b As Vec<String> = ["X", "O", "X", "O", "X", "X", "O", "X", "O"]
+    Assert Ttt.IsFull(b)
+End Test
+
+Test "next mark alternates"
+    Assert Ttt.NextMark(0) = "X"
+    Assert Ttt.NextMark(1) = "O"
+    Assert Ttt.NextMark(8) = "X"
+End Test
+
+Test "try move places and reports"
+    Dim b As Vec<String> = Ttt.NewBoard()
+    Dim moves As Long = 0
+    Dim over As Boolean = False
+    Dim msg As String = ""
+    Ttt.TryMove(b, moves, over, msg, 0)
+    Assert b[0] = "X"
+    Assert moves = 1
+    Assert Not over
+    Ttt.TryMove(b, moves, over, msg, 0)
+    Assert msg = "Cell taken — try another."
+End Test
+
+Test "try move detects a win"
+    Dim b As Vec<String> = Ttt.NewBoard()
+    Dim moves As Long = 0
+    Dim over As Boolean = False
+    Dim msg As String = ""
+    Ttt.TryMove(b, moves, over, msg, 0)   ' X at 0
+    Ttt.TryMove(b, moves, over, msg, 3)   ' O at 3
+    Ttt.TryMove(b, moves, over, msg, 1)   ' X at 1
+    Ttt.TryMove(b, moves, over, msg, 4)   ' O at 4
+    Ttt.TryMove(b, moves, over, msg, 2)   ' X at 2 -> X wins
+    Assert over
+    Assert msg = "X wins!"
+End Test

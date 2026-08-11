@@ -1,0 +1,229 @@
+' Poker — test file: hand evaluation, category ordering, 7-card best-hand
+' selection, and deterministic Monte-Carlo equity.
+Function C(ByVal text As String) As Card
+    Return Poker.ParseCard(text)
+End Function
+
+Test "parse and name cards"
+    Dim a As Card = Poker.ParseCard("Ah")
+    Assert a.Rank = 14
+    Assert a.Suit = 2
+    Assert Poker.CardName(a) = "Ah"
+    Assert Poker.CardName(Poker.ParseCard("Td")) = "Td"
+    Assert Poker.CardName(Poker.ParseCard("2c")) = "2c"
+    Assert Poker.CardName(Poker.ParseCard("9s")) = "9s"
+End Test
+
+Test "invalid card parse"
+    Dim bad As Card = Poker.ParseCard("Xx")
+    Assert bad.Rank = 0
+    Assert Poker.CardName(bad) = "??"
+End Test
+
+Test "high card score"
+    Dim five As Vec<Card>
+    five.Push(C("2c"))
+    five.Push(C("5d"))
+    five.Push(C("9h"))
+    five.Push(C("Js"))
+    five.Push(C("Kc"))
+    Assert Poker.Score5(five) = Poker.Pack(0, 13, 11, 9, 5, 2)
+End Test
+
+Test "pair beats high card"
+    Dim pair As Vec<Card>
+    pair.Push(C("2c"))
+    pair.Push(C("2d"))
+    pair.Push(C("9h"))
+    pair.Push(C("Js"))
+    pair.Push(C("Kc"))
+    Dim high As Vec<Card>
+    high.Push(C("2c"))
+    high.Push(C("5d"))
+    high.Push(C("9h"))
+    high.Push(C("Js"))
+    high.Push(C("Kc"))
+    Assert Poker.Score5(pair) > Poker.Score5(high)
+    Assert Poker.Score5(pair) = Poker.Pack(1, 2, 13, 11, 9, 0)
+End Test
+
+Test "two pair beats pair"
+    Dim tp As Vec<Card>
+    tp.Push(C("2c"))
+    tp.Push(C("2d"))
+    tp.Push(C("9h"))
+    tp.Push(C("9s"))
+    tp.Push(C("Kc"))
+    Dim p As Vec<Card>
+    p.Push(C("2c"))
+    p.Push(C("2d"))
+    p.Push(C("9h"))
+    p.Push(C("Js"))
+    p.Push(C("Kc"))
+    Assert Poker.Score5(tp) > Poker.Score5(p)
+    ' High pair 9, low pair 2, kicker K.
+    Assert Poker.Score5(tp) = Poker.Pack(2, 9, 2, 13, 0, 0)
+End Test
+
+Test "trips beat two pair"
+    Dim trips As Vec<Card>
+    trips.Push(C("2c"))
+    trips.Push(C("2d"))
+    trips.Push(C("2h"))
+    trips.Push(C("Js"))
+    trips.Push(C("Kc"))
+    Dim tp As Vec<Card>
+    tp.Push(C("2c"))
+    tp.Push(C("2d"))
+    tp.Push(C("9h"))
+    tp.Push(C("9s"))
+    tp.Push(C("Kc"))
+    Assert Poker.Score5(trips) > Poker.Score5(tp)
+End Test
+
+Test "straight beats trips"
+    Dim st As Vec<Card>
+    st.Push(C("3c"))
+    st.Push(C("4d"))
+    st.Push(C("5h"))
+    st.Push(C("6s"))
+    st.Push(C("7c"))
+    Dim trips As Vec<Card>
+    trips.Push(C("2c"))
+    trips.Push(C("2d"))
+    trips.Push(C("2h"))
+    trips.Push(C("Js"))
+    trips.Push(C("Kc"))
+    Assert Poker.Score5(st) > Poker.Score5(trips)
+    Assert Poker.Score5(st) = Poker.Pack(4, 7, 0, 0, 0, 0)
+End Test
+
+Test "wheel straight is five high"
+    Dim wheel As Vec<Card>
+    wheel.Push(C("Ac"))
+    wheel.Push(C("2d"))
+    wheel.Push(C("3h"))
+    wheel.Push(C("4s"))
+    wheel.Push(C("5c"))
+    Assert Poker.Score5(wheel) = Poker.Pack(4, 5, 0, 0, 0, 0)
+    ' A 6-high straight beats the wheel.
+    Dim st6 As Vec<Card>
+    st6.Push(C("2c"))
+    st6.Push(C("3d"))
+    st6.Push(C("4h"))
+    st6.Push(C("5s"))
+    st6.Push(C("6c"))
+    Assert Poker.Score5(st6) > Poker.Score5(wheel)
+End Test
+
+Test "flush beats straight"
+    Dim fl As Vec<Card>
+    fl.Push(C("2c"))
+    fl.Push(C("5c"))
+    fl.Push(C("9c"))
+    fl.Push(C("Jc"))
+    fl.Push(C("Kc"))
+    Dim st As Vec<Card>
+    st.Push(C("3c"))
+    st.Push(C("4d"))
+    st.Push(C("5h"))
+    st.Push(C("6s"))
+    st.Push(C("7c"))
+    Assert Poker.Score5(fl) > Poker.Score5(st)
+    Assert Poker.Score5(fl) = Poker.Pack(5, 13, 11, 9, 5, 2)
+End Test
+
+Test "full house beats flush"
+    Dim fh As Vec<Card>
+    fh.Push(C("2c"))
+    fh.Push(C("2d"))
+    fh.Push(C("2h"))
+    fh.Push(C("Ks"))
+    fh.Push(C("Kc"))
+    Dim fl As Vec<Card>
+    fl.Push(C("2c"))
+    fl.Push(C("5c"))
+    fl.Push(C("9c"))
+    fl.Push(C("Jc"))
+    fl.Push(C("Kc"))
+    Assert Poker.Score5(fh) > Poker.Score5(fl)
+    Assert Poker.Score5(fh) = Poker.Pack(6, 2, 13, 0, 0, 0)
+End Test
+
+Test "quads beat full house"
+    Dim quads As Vec<Card>
+    quads.Push(C("2c"))
+    quads.Push(C("2d"))
+    quads.Push(C("2h"))
+    quads.Push(C("2s"))
+    quads.Push(C("Kc"))
+    Dim fh As Vec<Card>
+    fh.Push(C("2c"))
+    fh.Push(C("2d"))
+    fh.Push(C("2h"))
+    fh.Push(C("Ks"))
+    fh.Push(C("Kc"))
+    Assert Poker.Score5(quads) > Poker.Score5(fh)
+    Assert Poker.Score5(quads) = Poker.Pack(7, 2, 13, 0, 0, 0)
+End Test
+
+Test "straight flush beats quads"
+    Dim sf As Vec<Card>
+    sf.Push(C("3c"))
+    sf.Push(C("4c"))
+    sf.Push(C("5c"))
+    sf.Push(C("6c"))
+    sf.Push(C("7c"))
+    Dim quads As Vec<Card>
+    quads.Push(C("2c"))
+    quads.Push(C("2d"))
+    quads.Push(C("2h"))
+    quads.Push(C("2s"))
+    quads.Push(C("Kc"))
+    Assert Poker.Score5(sf) > Poker.Score5(quads)
+    Assert Poker.Score5(sf) = Poker.Pack(8, 7, 0, 0, 0, 0)
+End Test
+
+Test "seven cards pick the best five"
+    ' 2c 2d (pair) + 4c 6c 9c Jc Kc (flush) — the flush must win.
+    Dim seven As Vec<Card>
+    seven.Push(C("2c"))
+    seven.Push(C("2d"))
+    seven.Push(C("4c"))
+    seven.Push(C("6c"))
+    seven.Push(C("9c"))
+    seven.Push(C("Jc"))
+    seven.Push(C("Kc"))
+    Assert Poker.BestScore(seven) = Poker.Pack(5, 13, 11, 9, 6, 4)
+End Test
+
+Test "equity is deterministic and sensible"
+    ' Pocket aces vs 1 opponent, no board: preflop favourite, > 0.5.
+    Dim aces As Vec<Card>
+    aces.Push(C("Ah"))
+    aces.Push(C("Ad"))
+    Dim empty As Vec<Card>
+    Dim p1 As Double = Poker.WinProbability(aces, empty, 1, 200)
+    Assert p1 > 0.5
+    Assert p1 < 0.95
+    ' More opponents reduces equity.
+    Dim p3 As Double = Poker.WinProbability(aces, empty, 3, 200)
+    Assert p3 < p1
+    ' Same call twice is identical (fixed seed).
+    Assert Poker.WinProbability(aces, empty, 1, 200) = p1
+End Test
+
+Test "equity rises when the board helps"
+    ' Aces with an ace on the flop (set) beats preflop equity.
+    Dim aces As Vec<Card>
+    aces.Push(C("Ah"))
+    aces.Push(C("Ad"))
+    Dim board As Vec<Card>
+    board.Push(C("Ac"))
+    board.Push(C("2h"))
+    board.Push(C("7d"))
+    Dim empty As Vec<Card>
+    Dim pre As Double = Poker.WinProbability(aces, empty, 1, 200)
+    Dim post As Double = Poker.WinProbability(aces, board, 1, 200)
+    Assert post > pre
+End Test

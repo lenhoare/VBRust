@@ -1,0 +1,66 @@
+' A4 — Football ELO, test file. Exercises the pure engine with synthetic
+' matches (no DataFrame needed — main.vbr owns the IO).
+
+Test "expected score of equal ratings is a half"
+    Assert Elo.ExpectedScore(1500, 1500) = 0.5
+End Test
+
+Test "expected score favours the higher rated team"
+    Assert Elo.ExpectedScore(1600, 1400) > 0.5
+    Assert Elo.ExpectedScore(1400, 1600) < 0.5
+End Test
+
+Test "home score from goals"
+    Assert Elo.HomeScore(2, 1) = 1.0
+    Assert Elo.HomeScore(1, 2) = 0.0
+    Assert Elo.HomeScore(1, 1) = 0.5
+End Test
+
+Test "winner gains rating, loser loses"
+    Dim r1 As Long = Elo.NewRating(1500, 0.5, 1.0)
+    Dim r2 As Long = Elo.NewRating(1500, 0.5, 0.0)
+    Assert r1 > 1500
+    Assert r2 < 1500
+    Assert r1 - 1500 = 16
+    Assert 1500 - r2 = 16
+End Test
+
+Test "rank season processes matches in order"
+    Dim homes As Vec<String> = ["Arsenal", "Chelsea"]
+    Dim aways As Vec<String> = ["Chelsea", "Arsenal"]
+    Dim hg As Vec<Long> = [2, 0]
+    Dim ag As Vec<Long> = [0, 1]
+    Dim ranking As Vec<Rating> = Elo.RankSeason(homes, aways, hg, ag)
+    ' Arsenal won the first, lost the second; both teams moved twice.
+    Assert ranking.Len() = 2
+    Dim i As Long = 0
+    For i = 0 To ranking.Len() - 1
+        Assert ranking[i].Points > 1400
+        Assert ranking[i].Points < 1600
+    Next
+End Test
+
+Test "ranking sorts by rating descending"
+    Dim a As Rating = Rating { team: "A", points: 1500 }
+    Dim b As Rating = Rating { team: "B", points: 1600 }
+    Dim c As Rating = Rating { team: "C", points: 1400 }
+    Dim rs As Vec<Rating>
+    rs.Push(a)
+    rs.Push(b)
+    rs.Push(c)
+    Elo.SortDesc(rs)
+    Assert rs[0].Team = "B"
+    Assert rs[1].Team = "A"
+    Assert rs[2].Team = "C"
+End Test
+
+Test "ties break alphabetically"
+    Dim a As Rating = Rating { team: "Zeta", points: 1500 }
+    Dim b As Rating = Rating { team: "Alpha", points: 1500 }
+    Dim rs As Vec<Rating>
+    rs.Push(a)
+    rs.Push(b)
+    Elo.SortDesc(rs)
+    Assert rs[0].Team = "Alpha"
+    Assert rs[1].Team = "Zeta"
+End Test

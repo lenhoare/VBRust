@@ -1,0 +1,8 @@
+' 49 — Multiplication Table, entry point.
+' Prints the classic 0..12 multiplication grid.
+Function Main()
+    Dim rows As Vec<String> = Multable.BuildRows(12)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Function

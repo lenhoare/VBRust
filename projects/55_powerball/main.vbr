@@ -1,0 +1,104 @@
+' 55 — Powerball, entry point.
+' Reads a generated ticket pool with a DataFrame and:
+'   1. Uses GroupBy/Agg to analyse the ticket numbers (powerball
+'      frequency, most common first ball) — first use of these verbs.
+'   2. Runs the win-checking simulation in pure VBR (lotto.vbr) against a
+'      fixed draw and prints the prize tally.
+'
+' DataFrame features exercised: ReadCsv, GroupBy().Agg(Count(...)),
+' Column extraction into Vec<Long>.
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/tickets.csv")
+
+    Dim white1 As Vec<Long> = df.Column("w1")
+    Dim white2 As Vec<Long> = df.Column("w2")
+    Dim white3 As Vec<Long> = df.Column("w3")
+    Dim white4 As Vec<Long> = df.Column("w4")
+    Dim white5 As Vec<Long> = df.Column("w5")
+    Dim powerball As Vec<Long> = df.Column("pb")
+
+    Debug.Print "Powerball analysis (" & white1.Len() & " tickets)"
+    Debug.Print ""
+
+    ' --- GroupBy/Agg: how often does each powerball number appear? ---
+    ' (The extracted Vecs are named white1..powerball so the bare names w1,
+    ' pb inside Agg stay *columns* — a Dim'd name would become a value.)
+    ' Count() outputs a u32 count column that Column() can't extract as
+    ' Vec<Long> (Quirk 38), so the grouped frame is round-tripped through
+    ' WriteCsv/ReadCsv, which reinfers the counts as i64.
+    Dim byPb As DataFrame = df.GroupBy("pb").Agg(Count(w1))
+    byPb.WriteCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/pb_freq.csv")
+    Dim pbFreq As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/pb_freq.csv")
+    Dim pbVals As Vec<Long> = pbFreq.Column("pb")
+    Dim pbCounts As Vec<Long> = pbFreq.Column("w1")
+    Debug.Print "Powerball frequency (top 5):"
+    Dim pbTop As Vec<Long> = Lotto.TopByCount(pbVals, pbCounts, 5)
+    Dim i As Long = 0
+    For i = 0 To pbTop.Len() - 1
+        Dim idx As Long = Lotto.FindIdx(pbVals, pbTop[i])
+        Debug.Print "  pb " & Pad(pbTop[i], 2) & " appeared " & pbCounts[idx] & " times"
+    Next
+
+    ' --- GroupBy/Agg: most common first ball ---
+    ' (Group by w1 but count w2: grouping AND aggregating the same column
+    ' collides on the output name — Quirk 39.)
+    Dim byW1 As DataFrame = df.GroupBy("w1").Agg(Count(w2))
+    byW1.WriteCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/w1_freq.csv")
+    Dim w1Freq As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/w1_freq.csv")
+    Dim w1Vals As Vec<Long> = w1Freq.Column("w1")
+    Dim w1Counts As Vec<Long> = w1Freq.Column("w1")
+    Debug.Print ""
+    Debug.Print "Most common first ball: " & Lotto.TopByCount(w1Vals, w1Counts, 1)[0]
+
+    ' --- The win simulation (pure VBR) ---
+    Dim drawW As Vec<Long> = [7, 13, 22, 31, 45]
+    Dim drawPb As Long = 17
+    Dim spend As Long = white1.Len() * 2
+    Dim winnings As Long = 0
+    Dim winners As Long = 0
+    Dim i2 As Long = 0
+    For i2 = 0 To white1.Len() - 1
+        Dim ticket As Vec<Long>
+        ticket.Push(white1[i2])
+        ticket.Push(white2[i2])
+        ticket.Push(white3[i2])
+        ticket.Push(white4[i2])
+        ticket.Push(white5[i2])
+        Dim m As Long = Lotto.Matches(ticket, drawW)
+        Dim hit As Boolean = powerball[i2] = drawPb
+        Dim prize As Long = Lotto.Prize(m, hit)
+        winnings = winnings + prize
+        If prize > 0 Then
+            winners = winners + 1
+        End If
+    Next
+
+    Debug.Print ""
+    Debug.Print "Win simulation (draw " & JoinW(drawW) & " pb " & drawPb & "):"
+    Debug.Print "  spent    $" & spend
+    Debug.Print "  won      $" & winnings
+    Debug.Print "  net      $" & (winnings - spend)
+    Debug.Print "  winning tickets: " & winners & " of " & white1.Len()
+End Function
+
+' "7 13 22 31 45"
+Public Function JoinW(ByVal xs As Vec<Long>) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 0 To xs.Len() - 1
+        If i > 0 Then
+            out = out & " "
+        End If
+        out = out & CStr(xs[i])
+    Next
+    Return out
+End Function
+
+' Right-justify a number into `width` chars.
+Public Function Pad(ByVal n As Long, ByVal width As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < width
+        s = " " & s
+    Loop
+    Return s
+End Function

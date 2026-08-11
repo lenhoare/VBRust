@@ -1,0 +1,27 @@
+' 3 — Bitmap Message, test file.
+Test "spaces stay spaces"
+    Dim bmp As Vec<String> = ["   x   "]
+    Assert Bitmap.Display("A", bmp)[0] = "   A   "
+End Test
+
+Test "message repeats across non-space cells"
+    Dim bmp As Vec<String> = ["xxxx"]
+    Assert Bitmap.Display("AB", bmp)[0] = "ABAB"
+End Test
+
+Test "message shorter than cells wraps"
+    Dim bmp As Vec<String> = ["xxxxx"]
+    Assert Bitmap.Display("ABC", bmp)[0] = "ABCAB"
+End Test
+
+Test "multiline bitmap"
+    Dim bmp As Vec<String> = ["x x", " x "]
+    Dim rows As Vec<String> = Bitmap.Display("12", bmp)
+    Assert rows[0] = "1 2"
+    Assert rows[1] = " 1 "
+End Test
+
+Test "empty message yields empty cells"
+    Dim bmp As Vec<String> = ["xx"]
+    Assert Bitmap.Display("", bmp)[0] = ""
+End Test

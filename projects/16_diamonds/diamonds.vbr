@@ -1,0 +1,56 @@
+' 16 — Diamonds logic module.
+' Draws ASCII-art diamonds of a given size using loops.
+' Each diamond is returned as a Vec<String> of rows.
+' A diamond of size n has 2n rows (n top + n bottom).
+Public Function Outline(ByVal size As Long) As Vec<String>
+    Dim rows As Vec<String>
+    Dim i As Long = 0
+    For i = 1 To size
+        rows.Push(OutlineRow(size, i))
+    Next
+    For i = size - 1 To 1 Step -1
+        rows.Push(OutlineRow(size, i))
+    Next
+    Return rows
+End Function
+
+' One row of an outline diamond: `size - i` leading spaces, then '/',
+' then 2*(i-1) inner spaces, then '\'.
+Public Function OutlineRow(ByVal size As Long, ByVal i As Long) As String
+    Dim out As String = Spaces(size - i)
+    out = out & "/"
+    out = out & Spaces(2 * (i - 1))
+    out = out & "\"
+    Return out
+End Function
+
+Public Function Filled(ByVal size As Long) As Vec<String>
+    Dim rows As Vec<String>
+    Dim i As Long = 0
+    For i = 1 To size
+        rows.Push(FilledRow(size, i))
+    Next
+    For i = size - 1 To 1 Step -1
+        rows.Push(FilledRow(size, i))
+    Next
+    Return rows
+End Function
+
+' One row of a filled diamond: `size - i` leading spaces, then 2*i-1 stars.
+Public Function FilledRow(ByVal size As Long, ByVal i As Long) As String
+    Dim out As String = Spaces(size - i)
+    Dim k As Long = 0
+    For k = 1 To 2 * i - 1
+        out = out & "*"
+    Next
+    Return out
+End Function
+
+Public Function Spaces(ByVal n As Long) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To n
+        out = out & " "
+    Next
+    Return out
+End Function

@@ -1,0 +1,44 @@
+' 49 — Multiplication Table logic module.
+' Builds a (size+1) x (size+1) grid (0..size) of products, each cell
+' right-justified to 4 chars. Returns one String per row, cells joined with a
+' single space — main.vbr prints the rows. (Returning a Vec of rows keeps the
+' module free of newline constants and makes each row assertable in tests.)
+
+' Build all rows. Row r is the products r*0 .. r*size.
+Public Function BuildRows(ByVal size As Long) As Vec<String>
+    Dim rows As Vec<String>
+    Dim r As Long = 0
+    For r = 0 To size
+        Dim cells As Vec<String>
+        Dim c As Long = 0
+        For c = 0 To size
+            cells.Push(Pad4(r * c))
+        Next
+        rows.Push(JoinCells(cells))
+    Next
+    Return rows
+End Function
+
+' Right-justify a number into a 4-char field.
+Public Function Pad4(ByVal n As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < 4
+        s = " " & s
+    Loop
+    Return s
+End Function
+
+' Join cells with a single space.
+Public Function JoinCells(ByVal cells As Vec<String>) As String
+    Dim out As String = ""
+    Dim first As Boolean = True
+    For Each cell In cells
+        If first Then
+            out = cell.Clone()
+            first = False
+        Else
+            out = out & " " & cell
+        End If
+    Next
+    Return out
+End Function

@@ -1,0 +1,54 @@
+' 6 — Caesar Cipher logic module.
+' Shifts each letter of the message by `key` positions in the alphabet,
+' wrapping at Z. Only A-Z / a-z are shifted; everything else passes through
+' unchanged. A positive key encrypts; Decrypt shifts by (26 - key).
+'
+' Implementation note: VBR has no Asc() builtin, so instead of working with
+' character codes we look each letter up in an alphabet string (InStr),
+' shift the 1-based position, and read the shifted letter back with Mid —
+' pure VBR, no inline Rust.
+
+Public Function Encrypt(ByVal message As String, ByVal key As Long) As String
+    Return Shift(message, key)
+End Function
+
+Public Function Decrypt(ByVal message As String, ByVal key As Long) As String
+    Return Shift(message, 26 - key)
+End Function
+
+' Core: shift letters. key is taken mod 26 so any integer works.
+Public Function Shift(ByVal message As String, ByVal key As Long) As String
+    Dim upper As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    Dim lower As String = "abcdefghijklmnopqrstuvwxyz"
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 1 To message.Len()
+        Dim ch As String = Mid(message, i, 1)
+        Dim pos As Long = FindIn(upper, ch)
+        If pos > 0 Then
+            Dim newPos As Long = ((pos - 1 + key) Mod 26 + 26) Mod 26 + 1
+            out = out & Mid(upper, newPos, 1)
+        Else
+            pos = FindIn(lower, ch)
+            If pos > 0 Then
+                Dim newPos2 As Long = ((pos - 1 + key) Mod 26 + 26) Mod 26 + 1
+                out = out & Mid(lower, newPos2, 1)
+            Else
+                out = out & ch
+            End If
+        End If
+    Next
+    Return out
+End Function
+
+' 1-based position of `ch` in `alphabet`, or 0 if not found.
+Public Function FindIn(ByVal alphabet As String, ByVal ch As String) As Long
+    Dim i As Long = 1
+    Do While i <= alphabet.Len()
+        If Mid(alphabet, i, 1) = ch Then
+            Return i
+        End If
+        i = i + 1
+    Loop
+    Return 0
+End Function

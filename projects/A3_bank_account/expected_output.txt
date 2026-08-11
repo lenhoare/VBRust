@@ -1,0 +1,8 @@
+A3: bank account (Type + Result)
+
+opened  Ada: 100p
+deposit 50  -> 150
+withdraw 30 -> 120
+withdraw 200 failed: insufficient funds
+
+final  Ada: 120p

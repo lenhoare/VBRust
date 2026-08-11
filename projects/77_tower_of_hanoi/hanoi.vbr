@@ -1,0 +1,22 @@
+' 77 — Tower of Hanoi logic module.
+' Solves the classic puzzle: move `n` disks from peg 1 to peg 3 using peg 2
+' as the spare, one disk at a time, never placing a larger disk on a smaller
+' one. Returns the moves as strings "1->3" (from->to) via the classic
+' recursive algorithm: move n-1 disks to the spare, move the big disk, move
+' n-1 back.
+' NOTE: the function is named MoveDisk, not Move — `Move` lowers to the
+' Rust keyword `move`.
+Public Function Solve(ByVal n As Long) As Vec<String>
+    Dim moves As Vec<String>
+    MoveDisk(n, 1, 3, 2, moves)
+    Return moves
+End Function
+
+Public Sub MoveDisk(ByVal n As Long, ByVal src As Long, ByVal dst As Long, ByVal spare As Long, ByRef moves As Vec<String>)
+    If n = 0 Then
+        Return
+    End If
+    MoveDisk(n - 1, src, spare, dst, moves)
+    moves.Push(CStr(src) & "->" & CStr(dst))
+    MoveDisk(n - 1, spare, dst, src, moves)
+End Sub

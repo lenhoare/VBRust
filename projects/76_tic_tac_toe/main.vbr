@@ -1,0 +1,102 @@
+' 76 — Tic-Tac-Toe, entry point: a Screen (ratatui TUI) where two players
+' take turns placing X and O on a 3x3 board using the number keys 1-9
+' (keypad layout: 1=top-left ... 9=bottom-right). The rules live in ttt.vbr
+' and are unit-tested; this file only renders and wires keys.
+'
+' Screen features exercised: keymap with digit keys, state as a Vec<String>,
+' Text board rendering, game-over message.
+' NOTE: events can't call other events, so each digit key calls the shared
+' Public Sub Ttt.TryMove qualified, exactly like Life.SetCell in the
+' life_screen example.
+Screen TicTacToe
+    Title "Tic-Tac-Toe"
+
+    State
+        Dim board As Vec<String> = Ttt.NewBoard()
+        Dim moves As Long = 0
+        Dim over As Boolean = False
+        Dim message As String = "X to move — press 1..9"
+        Dim display As String = "- - - | - - - | - - -"
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "Tic-Tac-Toe"
+            Text display
+            Text ""
+            Text message
+            Text ""
+            Text "1..9 = place, r = restart, q = quit"
+        End Column
+    End View
+
+    On Key "1" Move1
+    On Key "2" Move2
+    On Key "3" Move3
+    On Key "4" Move4
+    On Key "5" Move5
+    On Key "6" Move6
+    On Key "7" Move7
+    On Key "8" Move8
+    On Key "9" Move9
+    On Key "r" Restart
+    On Key "q" Quit
+
+    Event Move1
+        Ttt.TryMove(board, moves, over, message, 0)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move2
+        Ttt.TryMove(board, moves, over, message, 1)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move3
+        Ttt.TryMove(board, moves, over, message, 2)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move4
+        Ttt.TryMove(board, moves, over, message, 3)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move5
+        Ttt.TryMove(board, moves, over, message, 4)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move6
+        Ttt.TryMove(board, moves, over, message, 5)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move7
+        Ttt.TryMove(board, moves, over, message, 6)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move8
+        Ttt.TryMove(board, moves, over, message, 7)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Move9
+        Ttt.TryMove(board, moves, over, message, 8)
+        display = Ttt.Render(board)
+    End Event
+
+    Event Restart
+        board = Ttt.NewBoard()
+        moves = 0
+        over = False
+        display = "- - - | - - - | - - -"
+        message = "X to move — press 1..9"
+    End Event
+End Screen
+
+Function Main()
+    TicTacToe.Run
+End Function

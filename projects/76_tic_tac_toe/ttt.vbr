@@ -1,0 +1,126 @@
+' 76 — Tic-Tac-Toe logic module.
+' Pure game rules — fully testable without the terminal. The Screen in
+' main.vbr renders the board and calls these.
+'
+' The board is 9 cells, index 0..8, laid out:
+'   0 1 2
+'   3 4 5
+'   6 7 8
+' Cells hold "X", "O", or "" (empty).
+Public Const Empty As String = ""
+
+' A fresh empty board.
+Public Function NewBoard() As Vec<String>
+    Dim b As Vec<String> = ["", "", "", "", "", "", "", "", ""]
+    Return b
+End Function
+
+' True if the cell is inside the board and empty.
+Public Function CanPlace(ByVal board As Vec<String>, ByVal cell As Long) As Boolean
+    If cell < 0 Or cell > 8 Then
+        Return False
+    End If
+    Return board[cell] = ""
+End Function
+
+' Place the mark; returns the new board (no mutation).
+Public Function Place(ByVal board As Vec<String>, ByVal cell As Long, ByVal mark As String) As Vec<String>
+    Dim b As Vec<String> = board.Clone()
+    Dim m As String = mark
+    b[cell] = m
+    Return b
+End Function
+
+' True when cells a, b, c are all equal and non-empty.
+Public Function LineWins(ByVal board As Vec<String>, ByVal a As Long, ByVal b As Long, ByVal c As Long) As Boolean
+    If board[a] = "" Then
+        Return False
+    End If
+    Return board[a] = board[b] And board[b] = board[c]
+End Function
+
+' The winner ("X", "O") or "" if none yet. The eight winning lines are
+' checked explicitly (nested Vec-of-Vec iteration mis-compiles — Quirk 28).
+Public Function Winner(ByVal board As Vec<String>) As String
+    If LineWins(board, 0, 1, 2) Then
+        Return board[0].Clone()
+    End If
+    If LineWins(board, 3, 4, 5) Then
+        Return board[3].Clone()
+    End If
+    If LineWins(board, 6, 7, 8) Then
+        Return board[6].Clone()
+    End If
+    If LineWins(board, 0, 3, 6) Then
+        Return board[0].Clone()
+    End If
+    If LineWins(board, 1, 4, 7) Then
+        Return board[1].Clone()
+    End If
+    If LineWins(board, 2, 5, 8) Then
+        Return board[2].Clone()
+    End If
+    If LineWins(board, 0, 4, 8) Then
+        Return board[0].Clone()
+    End If
+    If LineWins(board, 2, 4, 6) Then
+        Return board[2].Clone()
+    End If
+    Return ""
+End Function
+
+' True when every cell is filled (draw, assuming no winner).
+Public Function IsFull(ByVal board As Vec<String>) As Boolean
+    For Each cell In board
+        If cell = "" Then
+            Return False
+        End If
+    Next
+    Return True
+End Function
+
+' The next mark to play, given the count of marks already down.
+Public Function NextMark(ByVal moves As Long) As String
+    If moves Mod 2 = 0 Then
+        Return "X"
+    End If
+    Return "O"
+End Function
+
+' Render the 3x3 board as one "a b c | d e f | g h i" string.
+Public Function Render(ByVal board As Vec<String>) As String
+    Return Cell(board, 0) & " " & Cell(board, 1) & " " & Cell(board, 2) & " | " & Cell(board, 3) & " " & Cell(board, 4) & " " & Cell(board, 5) & " | " & Cell(board, 6) & " " & Cell(board, 7) & " " & Cell(board, 8)
+End Function
+
+' A cell's display: the mark, or "-" when empty.
+Public Function Cell(ByVal board As Vec<String>, ByVal i As Long) As String
+    Dim v As String = board[i]
+    If v = "" Then
+        Return "-"
+    End If
+    Return v
+End Function
+
+' One move: validate, place, update counters and the message. The Screen's
+' events call this qualified with their state fields ByRef, exactly like
+' Life.SetCell(grid, ...) in the life_screen example.
+Public Sub TryMove(ByRef board As Vec<String>, ByRef moves As Long, ByRef over As Boolean, ByRef message As String, ByVal cell As Long)
+    If over Then
+        message = "Game over — press r to restart."
+    ElseIf Not CanPlace(board, cell) Then
+        message = "Cell taken — try another."
+    Else
+        board[cell] = NextMark(moves)
+        moves = moves + 1
+        Dim w As String = Winner(board)
+        If w <> "" Then
+            over = True
+            message = w & " wins!"
+        ElseIf IsFull(board) Then
+            over = True
+            message = "It's a draw."
+        Else
+            message = NextMark(moves) & " to move — press 1..9"
+        End If
+    End If
+End Sub

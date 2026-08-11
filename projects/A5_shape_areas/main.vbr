@@ -1,0 +1,24 @@
+' A5 — Shape Areas, entry point. Builds several shapes and prints their
+' areas, perimeters and descriptions.
+Function Main()
+    Dim c As Shape = Shape.Circle(2.0)
+    Dim r As Shape = Shape.Rectangle(3.0, 4.0)
+    Dim t As Shape = Shape.Triangle(4.0, 3.0)
+
+    Dim quad As Vec<Point>
+    quad.Push(Point { x: 0.0, y: 0.0 })
+    quad.Push(Point { x: 4.0, y: 0.0 })
+    quad.Push(Point { x: 4.0, y: 3.0 })
+    quad.Push(Point { x: 0.0, y: 3.0 })
+    Dim p As Shape = Shape.Polygon(quad)
+
+    PrintShape(c)
+    PrintShape(r)
+    PrintShape(t)
+    PrintShape(p)
+    PrintShape(Shape.Empty)
+End Function
+
+Sub PrintShape(ByVal s As Shape)
+    Debug.Print Shapes.Describe(s) & "  area=" & Shapes.Area(s) & "  perimeter=" & Shapes.Perimeter(s)
+End Sub

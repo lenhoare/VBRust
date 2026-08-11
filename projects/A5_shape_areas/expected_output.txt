@@ -1,0 +1,5 @@
+circle r=2  area=12.56636  perimeter=12.56636
+rectangle 3x4  area=12  perimeter=14
+triangle b=4 h=3  area=6  perimeter=12
+polygon of 4 points  area=12  perimeter=14
+empty  area=0  perimeter=0

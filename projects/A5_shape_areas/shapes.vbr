@@ -1,0 +1,87 @@
+' A5 — Shape Areas logic module.
+' Exercises VBR's sum types: an Enum whose variants CARRY data. Each shape
+' is built by calling its variant constructor; the only way to read the
+' payload back is to Match and unpack it — the compiler guarantees every
+' Match handles every variant.
+'
+' Tests the full payload-enum surface: scalar payloads, struct payloads,
+' and a Vec payload.
+Public Type Point
+    Public X As Double
+    Public Y As Double
+End Type
+
+Public Enum Shape
+    Circle(Double)
+    Rectangle(Double, Double)
+    Triangle(Double, Double)
+    Polygon(Vec<Point>)
+    Empty
+End Enum
+
+' Area of any shape. The Match unpacks each variant's payload.
+Public Function Area(ByVal s As Shape) As Double
+    Match s
+        Shape.Circle(r) => Return 3.14159 * r * r
+        Shape.Rectangle(w, h) => Return w * h
+        Shape.Triangle(b, h) => Return 0.5 * b * h
+        Shape.Polygon(pts) => Return PolygonArea(pts)
+        Shape.Empty => Return 0.0
+    End Match
+End Function
+
+' Perimeter of any shape (polygon: sum of edge lengths).
+Public Function Perimeter(ByVal s As Shape) As Double
+    Match s
+        Shape.Circle(r) => Return 2.0 * 3.14159 * r
+        Shape.Rectangle(w, h) => Return 2.0 * (w + h)
+        Shape.Triangle(a, b) => Return a + b + Sqr(a * a + b * b)
+        Shape.Polygon(pts) => Return PolygonPerimeter(pts)
+        Shape.Empty => Return 0.0
+    End Match
+End Function
+
+' A human description of the shape.
+Public Function Describe(ByVal s As Shape) As String
+    Match s
+        Shape.Circle(r) => Return "circle r=" & r
+        Shape.Rectangle(w, h) => Return "rectangle " & w & "x" & h
+        Shape.Triangle(b, h) => Return "triangle b=" & b & " h=" & h
+        Shape.Polygon(pts) => Return "polygon of " & pts.Len() & " points"
+        Shape.Empty => Return "empty"
+    End Match
+End Function
+
+' Shoelace formula for a polygon's area (abs of the cross-sum / 2).
+Public Function PolygonArea(ByVal pts As Vec<Point>) As Double
+    Dim sum As Double = 0.0
+    Dim i As Long = 0
+    For i = 0 To pts.Len() - 2
+        sum = sum + pts[i].X * pts[i + 1].Y - pts[i + 1].X * pts[i].Y
+    Next
+    Dim last As Long = pts.Len() - 1
+    sum = sum + pts[last].X * pts[0].Y - pts[0].X * pts[last].Y
+    If sum < 0.0 Then
+        sum = -sum
+    End If
+    Return sum / 2.0
+End Function
+
+' Perimeter of a polygon: sum of edge lengths (closing the loop).
+Public Function PolygonPerimeter(ByVal pts As Vec<Point>) As Double
+    Dim total As Double = 0.0
+    Dim i As Long = 0
+    For i = 0 To pts.Len() - 2
+        total = total + Dist(pts[i], pts[i + 1])
+    Next
+    Dim last As Long = pts.Len() - 1
+    total = total + Dist(pts[last], pts[0])
+    Return total
+End Function
+
+' Euclidean distance between two points.
+Public Function Dist(ByVal a As Point, ByVal b As Point) As Double
+    Dim dx As Double = a.X - b.X
+    Dim dy As Double = a.Y - b.Y
+    Return Sqr(dx * dx + dy * dy)
+End Function

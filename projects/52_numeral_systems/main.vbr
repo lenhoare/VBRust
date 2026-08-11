@@ -1,0 +1,9 @@
+' 52 — Numeral Systems Counters, entry point.
+Function Main()
+    Debug.Print "Counting 0..15 in decimal, hex and binary:"
+    Debug.Print ""
+    Dim n As Long = 0
+    For n = 0 To 15
+        Debug.Print Numerals.Row(n)
+    Next
+End Function

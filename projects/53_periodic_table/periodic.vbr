@@ -1,0 +1,102 @@
+' 53 — Periodic Table logic module.
+' Pure parsing + lookup logic, unit-testable without the FileSystem
+' stdlib: main.vbr feeds the CSV lines (read via FileSystem.ReadLines) and
+' these functions parse and query them.
+'
+' A row is "number,symbol,name,mass,state".
+Public Type Element
+    Public Number As Long
+    Public Symbol As String
+    Public Name As String
+    Public Mass As Double
+    Public State As String
+End Type
+
+' Parse one CSV line into an Element. Returns nothing useful for the
+' header; callers skip the first line.
+Public Function ParseRow(ByVal line As String) As Element
+    Dim parts As Vec<String> = SplitCsv(line)
+    Dim num As Long = Val(parts[0])
+    Dim mass As Double = Val(parts[3])
+    Return Element { number: num, symbol: parts[1].Clone(), name: parts[2].Clone(), mass: mass, state: parts[4].Clone() }
+End Function
+
+' Split a CSV line on commas into fields (simple — no quoted commas here).
+Public Function SplitCsv(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim current As String = ""
+    Dim i As Long = 0
+    For i = 1 To line.Len()
+        Dim ch As String = Mid(line, i, 1)
+        If ch = "," Then
+            out.Push(current)
+            current = ""
+        Else
+            current = current & ch
+        End If
+    Next
+    out.Push(current)
+    Return out
+End Function
+
+' The element with this symbol, or Nothing (checked by the caller via
+' FoundFlag). Returns the found state through a ByRef flag — VBR has no
+' null element, so this is the idiomatic "maybe absent" for a struct.
+Public Function FindBySymbol(ByVal elements As Vec<Element>, ByVal symbol As String, ByRef found As Boolean) As Element
+    Dim i As Long = 0
+    For i = 0 To elements.Len() - 1
+        If elements[i].Symbol = symbol Then
+            found = True
+            Return elements[i].Clone()
+        End If
+    Next
+    found = False
+    Return Element { number: 0, symbol: "", name: "", mass: 0.0, state: "" }
+End Function
+
+' The element with this atomic number, or the found-flag form above.
+Public Function FindByNumber(ByVal elements As Vec<Element>, ByVal num As Long, ByRef found As Boolean) As Element
+    Dim i As Long = 0
+    For i = 0 To elements.Len() - 1
+        If elements[i].Number = num Then
+            found = True
+            Return elements[i].Clone()
+        End If
+    Next
+    found = False
+    Return Element { number: 0, symbol: "", name: "", mass: 0.0, state: "" }
+End Function
+
+' Count how many elements are in each state ("gas"/"solid"/"liquid").
+Public Function CountState(ByVal elements As Vec<Element>, ByVal state As String) As Long
+    Dim count As Long = 0
+    For Each e In elements
+        If e.State = state Then
+            count = count + 1
+        End If
+    Next
+    Return count
+End Function
+
+' A formatted table row: "  6 C  Carbon     12.011 solid".
+Public Function FormatRow(ByVal e As Element) As String
+    Return Pad3(e.Number) & " " & PadRight(e.Symbol, 3) & " " & PadRight(e.Name, 11) & " " & PadRight(CStr(e.Mass), 8) & e.State
+End Function
+
+' Right-justify a number into 3 chars.
+Public Function Pad3(ByVal n As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < 3
+        s = " " & s
+    Loop
+    Return s
+End Function
+
+' Left-justify text into `width` chars.
+Public Function PadRight(ByVal s As String, ByVal width As Long) As String
+    Dim out As String = s
+    Do While out.Len() < width
+        out = out & " "
+    Loop
+    Return out
+End Function

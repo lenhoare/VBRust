@@ -1,0 +1,23 @@
+' 12 — Collatz Sequence logic module.
+' Given a starting integer n: if n is even, the next number is n/2; if odd,
+' it is 3n + 1. The sequence continues until it reaches 1.
+' Returns the sequence as a Vec<Long> (starting value included, ending at 1).
+Public Function Collatz(ByVal start As Long) As Vec<Long>
+    Dim seq As Vec<Long>
+    Dim n As Long = start
+    seq.Push(n)
+    Do While n <> 1
+        If n Mod 2 = 0 Then
+            n = n / 2
+        Else
+            n = 3 * n + 1
+        End If
+        seq.Push(n)
+    Loop
+    Return seq
+End Function
+
+' The number of terms in the Collatz sequence for `start`.
+Public Function CollatzLen(ByVal start As Long) As Long
+    Return Collatz(start).Len()
+End Function

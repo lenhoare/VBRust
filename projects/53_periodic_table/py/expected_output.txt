@@ -1,0 +1,12 @@
+Periodic table (5 elements)
+CSV has 25 lines (header + rows)
+No. Sym Name        Mass     State
+  1 H   Hydrogen    1.008   gas
+  6 C   Carbon      12.011  solid
+  8 O   Oxygen      15.999  gas
+ 26 Fe  Iron        55.845  solid
+ 79 Au  Gold        196.97  solid
+
+By state: 2 gas, 3 solid, 0 liquid
+Au is Gold (196.97)
+26 is Fe, Iron

@@ -1,0 +1,70 @@
+' 64 — Seven-Segment Display logic module.
+' Converts a string of digits into calculator-style seven-segment text
+' graphics. Each digit is drawn on a 3-row x 3-column grid; rows of the
+' digits are joined horizontally with one space between digits. Supports
+' digits 0-9 and the '-' sign.
+' The three rows are built from segment masks (top, middle, bottom) plus
+' the two vertical segments, following the classic 7-seg layout:
+'    _        _  _     _  _  _  _  _
+'  | _|  _||_ |_ |_   | ||_||_ | |_|
+'  ||_  _|  | _||_|  ||_||_ |_||_| _|
+Public Function DigitsToText(ByVal number As String) As Vec<String>
+    Dim row1 As String = ""
+    Dim row2 As String = ""
+    Dim row3 As String = ""
+    Dim i As Long = 0
+    For i = 1 To number.Len()
+        Dim d As String = Mid(number, i, 1)
+        ' Structs must be built complete, so branch to the constructor call
+        ' directly instead of declaring an empty Segment.
+        If i > 1 Then
+            row1 = row1 & " "
+            row2 = row2 & " "
+            row3 = row3 & " "
+        End If
+        If d = "-" Then
+            Dim seg As Segment = Dash()
+            row1 = row1 & seg.top
+            row2 = row2 & seg.mid
+            row3 = row3 & seg.bottom
+        Else
+            Dim dv As Long = Val(d)
+            Dim seg2 As Segment = SegmentForDigit(dv)
+            row1 = row1 & seg2.top
+            row2 = row2 & seg2.mid
+            row3 = row3 & seg2.bottom
+        End If
+    Next
+    Dim rows As Vec<String>
+    rows.Push(row1)
+    rows.Push(row2)
+    rows.Push(row3)
+    Return rows
+End Function
+
+Public Type Segment
+    Public top As String
+    Public mid As String
+    Public bottom As String
+End Type
+
+Public Function Dash() As Segment
+    Return Segment { top: "   ", mid: " _ ", bottom: "   " }
+End Function
+
+' The three rows for a single digit (7-seg convention).
+Public Function SegmentForDigit(ByVal n As Long) As Segment
+    Match n
+        0 => Return Segment { top: " _ ", mid: "| |", bottom: "|_|" }
+        1 => Return Segment { top: "   ", mid: "  |", bottom: "  |" }
+        2 => Return Segment { top: " _ ", mid: " _|", bottom: "|_ " }
+        3 => Return Segment { top: " _ ", mid: " _|", bottom: " _|" }
+        4 => Return Segment { top: "   ", mid: "|_|", bottom: "  |" }
+        5 => Return Segment { top: " _ ", mid: "|_ ", bottom: " _|" }
+        6 => Return Segment { top: " _ ", mid: "|_ ", bottom: "|_|" }
+        7 => Return Segment { top: " _ ", mid: "  |", bottom: "  |" }
+        8 => Return Segment { top: " _ ", mid: "|_|", bottom: "|_|" }
+        9 => Return Segment { top: " _ ", mid: "|_|", bottom: " _|" }
+        _ => Return Segment { top: "   ", mid: "   ", bottom: "   " }
+    End Match
+End Function

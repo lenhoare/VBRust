@@ -1,0 +1,29 @@
+' 50 — Ninety-Nine Bottles, test file.
+Test "stanza for five bottles"
+    Dim lines As Vec<String> = Bottles.Stanza(5)
+    Assert lines[0] = "5 bottles of milk on the wall, 5 bottles of milk."
+    Assert lines[1] = "Take one down and pass it around, 4 bottles of milk on the wall."
+End Test
+
+Test "stanza for two bottles says bottles"
+    Dim lines As Vec<String> = Bottles.Stanza(2)
+    Assert lines[1] = "Take one down and pass it around, 1 bottle of milk on the wall."
+End Test
+
+Test "stanza for one bottle is singular"
+    Dim lines As Vec<String> = Bottles.Stanza(1)
+    Assert lines[0] = "1 bottle of milk on the wall, 1 bottle of milk."
+    Assert lines[1] = "Take it down and pass it around, no more bottles of milk on the wall."
+End Test
+
+Test "stanza for zero bottles sends you shopping"
+    Dim lines As Vec<String> = Bottles.Stanza(0)
+    Assert lines[0] = "No more bottles of milk on the wall, no more bottles of milk."
+    Assert lines[1] = "Go to the store and buy some more, 99 bottles of milk on the wall."
+End Test
+
+Test "plural helper"
+    Assert Bottles.Plural(1) = " bottle"
+    Assert Bottles.Plural(2) = " bottles"
+    Assert Bottles.Plural(0) = " bottles"
+End Test

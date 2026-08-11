@@ -1,0 +1,31 @@
+' 42 — Magic Fortune Ball, entry point: a Window (Iced GUI). Click the
+' button to "shake" the ball; the answer appears, cycling deterministically.
+' The answer text is mirrored into state (views can't call modules).
+Window FortuneBall
+    Title "Magic Fortune Ball"
+
+    State
+        Dim shake As Long = 0
+        Dim answer As String = "Ask a question, then click Shake."
+    End State
+
+    View
+        Column
+            Spacing 12
+            Text "Magic Fortune Ball"
+            Text answer
+            Button "Shake"
+                On Click ShakeBall
+            End Button
+        End Column
+    End View
+
+    Event ShakeBall
+        answer = Fortune.Intro(shake) & " " & Fortune.Answer(shake)
+        shake = shake + 1
+    End Event
+End Window
+
+Function Main()
+    FortuneBall.Run
+End Function

@@ -1,0 +1,38 @@
+' 35 — Hex Grid, test file.
+Test "hex row phases"
+    Assert HexGrid.HexRow(0) = "  /\  "
+    Assert HexGrid.HexRow(1) = " /  \ "
+    Assert HexGrid.HexRow(2) = "/    \"
+    Assert HexGrid.HexRow(3) = "\    /"
+    Assert HexGrid.HexRow(4) = " \  / "
+    Assert HexGrid.HexRow(5) = "  \/  "
+End Test
+
+Test "single column has six rows"
+    Dim rows As Vec<String> = HexGrid.HexGrid(1, 1)
+    Assert rows.Len() = 6
+    Assert rows[0] = "  /\  "
+    Assert rows[5] = "  \/  "
+End Test
+
+Test "even group starts at column zero"
+    Dim rows As Vec<String> = HexGrid.HexGrid(2, 1)
+    Assert rows[0] = "  /\    /\  "
+    Assert rows[2] = "/    \/    \"
+End Test
+
+Test "odd group offset by three"
+    Dim rows As Vec<String> = HexGrid.HexGrid(2, 2)
+    Assert rows[6] = "     /\    /\  "
+    Assert rows[8] = "   /    \/    \"
+End Test
+
+Test "two groups give twelve rows"
+    Dim rows As Vec<String> = HexGrid.HexGrid(3, 2)
+    Assert rows.Len() = 12
+End Test
+
+Test "spaces helper"
+    Assert HexGrid.Spaces(0) = ""
+    Assert HexGrid.Spaces(3) = "   "
+End Test

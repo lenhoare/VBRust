@@ -1,0 +1,24 @@
+' 26 — Fibonacci logic module.
+' Returns the first n Fibonacci numbers (0, 1, 1, 2, 3, 5, ...).
+Public Function Fibs(ByVal n As Long) As Vec<Long>
+    Dim out As Vec<Long>
+    If n <= 0 Then
+        Return out
+    End If
+    Dim a As Long = 0
+    Dim b As Long = 1
+    Dim i As Long = 0
+    For i = 1 To n
+        out.Push(a)
+        Dim nextA As Long = b
+        b = a + b
+        a = nextA
+    Next
+    Return out
+End Function
+
+' The nth Fibonacci number (0-based: Fib(0) = 0, Fib(1) = 1).
+Public Function Fib(ByVal n As Long) As Long
+    Dim xs As Vec<Long> = Fibs(n + 1)
+    Return xs[n]
+End Function

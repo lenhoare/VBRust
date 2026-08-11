@@ -1,0 +1,29 @@
+' A3 — bank account, test file. Exercises the Public surface of bank.vbr.
+' Note: the Account Type is project-global (not qualified), so tests build
+' accounts directly and call methods on the value. The free helper
+' TryWithdraw (Public in bank.vbr) is called qualified as Bank.TryWithdraw.
+
+Test "deposit adds to the balance"
+    Dim acc As Account = Account { owner: "Ada", balance: 100 }
+    Assert acc.Deposit(50).Unwrap() = 150
+    Assert acc.Balance = 150
+End Test
+
+Test "withdraw deducts from the balance"
+    Dim acc As Account = Account { owner: "Ada", balance: 100 }
+    Assert acc.Withdraw(30).Unwrap() = 70
+    Assert acc.Balance = 70
+End Test
+
+Test "withdraw refuses an overdraft and leaves the balance untouched"
+    Dim acc As Account = Account { owner: "Ada", balance: 10 }
+    Assert Not Bank.TryWithdraw(acc, 50)
+    Assert acc.Balance = 10
+End Test
+
+Test "withdraw refuses a non-positive amount"
+    Dim acc As Account = Account { owner: "Ada", balance: 10 }
+    Assert Not Bank.TryWithdraw(acc, 0)
+    Assert Not Bank.TryWithdraw(acc, -5)
+    Assert acc.Balance = 10
+End Test

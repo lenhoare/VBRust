@@ -1,0 +1,36 @@
+' 6 — Caesar Cipher, test file.
+Test "shift by three on hello"
+    Assert Caesar.Encrypt("HELLO", 3) = "KHOOR"
+End Test
+
+Test "wrap around at Z"
+    Assert Caesar.Encrypt("XYZ", 3) = "ABC"
+End Test
+
+Test "lowercase letters shift too"
+    Assert Caesar.Encrypt("abc", 1) = "bcd"
+End Test
+
+Test "non letters pass through unchanged"
+    Assert Caesar.Encrypt("A1 B!", 1) = "B1 C!"
+End Test
+
+Test "decrypt reverses encrypt"
+    Assert Caesar.Decrypt("KHOOR", 3) = "HELLO"
+    Assert Caesar.Decrypt(Caesar.Encrypt("THE QUICK BROWN FOX", 7), 7) = "THE QUICK BROWN FOX"
+End Test
+
+Test "key of twenty six leaves message unchanged"
+    Assert Caesar.Encrypt("HELLO", 26) = "HELLO"
+    Assert Caesar.Encrypt("HELLO", 52) = "HELLO"
+End Test
+
+Test "negative key shifts backwards"
+    Assert Caesar.Encrypt("KHOOR", -3) = "HELLO"
+End Test
+
+Test "find position helper"
+    Assert Caesar.FindIn("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "A") = 1
+    Assert Caesar.FindIn("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Z") = 26
+    Assert Caesar.FindIn("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "1") = 0
+End Test

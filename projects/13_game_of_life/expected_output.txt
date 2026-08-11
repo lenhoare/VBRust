@@ -1,0 +1,4 @@
+A Window (Iced GUI) produces no program stdout — the generated `fn main`
+calls `iced::run("Game of Life", update, view)` and the user's `Function
+Main()` body is replaced entirely. There is nothing to diff. Verified by
+launch + screenshot under WSLg/X11 (blinker rendered, status correct).

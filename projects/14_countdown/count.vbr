@@ -1,0 +1,80 @@
+' 14 — Countdown logic module.
+' Pure logic for a countdown timer: the decrement rule, formatting to
+' M:SS, and seven-segment rendering of the digits (re-using the same
+' segment shapes as project 64). The Screen in main.vbr owns the timer.
+'
+' Rendered output: three text rows (the classic 7-seg look) per line of
+' text. A countdown like "1:30" becomes three rows of segment graphics.
+Public Function Decrement(ByVal seconds As Long) As Long
+    If seconds <= 0 Then
+        Return 0
+    End If
+    Return seconds - 1
+End Function
+
+' Format seconds as M:SS (e.g. 90 -> "1:30", 5 -> "0:05").
+Public Function FormatTime(ByVal seconds As Long) As String
+    Dim m As Long = seconds / 60
+    Dim s As Long = seconds Mod 60
+    Dim ss As String = CStr(s)
+    If s < 10 Then
+        ss = "0" & ss
+    End If
+    Return CStr(m) & ":" & ss
+End Function
+
+' The three display rows for one text line, using seven-segment digits.
+' Returns a Vec<String> of exactly 3 rows.
+Public Function SegRows(ByVal text As String) As Vec<String>
+    Dim row1 As String = ""
+    Dim row2 As String = ""
+    Dim row3 As String = ""
+    Dim i As Long = 0
+    For i = 1 To text.Len()
+        Dim ch As String = Mid(text, i, 1)
+        If i > 1 Then
+            row1 = row1 & " "
+            row2 = row2 & " "
+            row3 = row3 & " "
+        End If
+        If ch = ":" Then
+            row1 = row1 & "   "
+            row2 = row2 & " o "
+            row3 = row3 & " o "
+        Else
+            Dim d As Long = Val(ch)
+            Dim seg As Seg = SegForDigit(d)
+            row1 = row1 & seg.top
+            row2 = row2 & seg.mid
+            row3 = row3 & seg.bottom
+        End If
+    Next
+    Dim rows As Vec<String>
+    rows.Push(row1)
+    rows.Push(row2)
+    rows.Push(row3)
+    Return rows
+End Function
+
+Type Seg
+    Public top As String
+    Public mid As String
+    Public bottom As String
+End Type
+
+' The three rows for a single digit (standard 7-seg convention).
+Public Function SegForDigit(ByVal n As Long) As Seg
+    Match n
+        0 => Return Seg { top: " _ ", mid: "| |", bottom: "|_|" }
+        1 => Return Seg { top: "   ", mid: "  |", bottom: "  |" }
+        2 => Return Seg { top: " _ ", mid: " _|", bottom: "|_ " }
+        3 => Return Seg { top: " _ ", mid: " _|", bottom: " _|" }
+        4 => Return Seg { top: "   ", mid: "|_|", bottom: "  |" }
+        5 => Return Seg { top: " _ ", mid: "|_ ", bottom: " _|" }
+        6 => Return Seg { top: " _ ", mid: "|_ ", bottom: "|_|" }
+        7 => Return Seg { top: " _ ", mid: "  |", bottom: "  |" }
+        8 => Return Seg { top: " _ ", mid: "|_|", bottom: "|_|" }
+        9 => Return Seg { top: " _ ", mid: "|_|", bottom: " _|" }
+        _ => Return Seg { top: "   ", mid: "   ", bottom: "   " }
+    End Match
+End Function

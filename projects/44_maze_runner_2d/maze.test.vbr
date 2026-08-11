@@ -1,0 +1,59 @@
+' 44 — Maze Runner 2D, test file.
+Test "maze dimensions"
+    Assert Maze.MazeWidth() = 12
+    Assert Maze.MazeHeight() = 12
+End Test
+
+Test "walls and floors"
+    Assert Maze.IsWall(0, 0)
+    Assert Maze.IsWall(11, 11)
+    Assert Not Maze.IsWall(1, 1)
+    Assert Not Maze.IsWall(2, 2)
+End Test
+
+Test "out of bounds is a wall"
+    Assert Maze.IsWall(-1, 0)
+    Assert Maze.IsWall(0, -1)
+    Assert Maze.IsWall(12, 0)
+    Assert Maze.IsWall(0, 12)
+End Test
+
+Test "exit detection"
+    Assert Maze.IsExit(9, 9)
+    Assert Not Maze.IsExit(1, 1)
+End Test
+
+Test "move into open floor"
+    Dim m1 As Vec<Long> = Maze.TryMove(1, 1, 1, 0)
+    Assert m1[0] = 2
+    Assert m1[1] = 1
+End Test
+
+Test "move into wall is blocked"
+    Dim m1 As Vec<Long> = Maze.TryMove(1, 1, 0, -1)   ' up from (1,1) is wall
+    Assert m1[0] = 1
+    Assert m1[1] = 1
+    Dim m2 As Vec<Long> = Maze.TryMove(0, 1, -1, 0)   ' left into border
+    Assert m2[0] = 0
+    Assert m2[1] = 1
+End Test
+
+Test "start is not a wall"
+    Assert Not Maze.IsWall(Maze.StartX(), Maze.StartY())
+End Test
+
+Test "won only on the exit"
+    Assert Not Maze.Won(1, 1)
+    Assert Maze.Won(9, 9)
+End Test
+
+Test "a path along the first corridor moves through"
+    ' Walk right along row 1 from the start: (1,1) -> (2,1) open,
+    ' (3,1) is a wall.
+    Dim m1 As Vec<Long> = Maze.TryMove(1, 1, 1, 0)
+    Assert m1[0] = 2
+    Assert m1[1] = 1
+    Dim m2 As Vec<Long> = Maze.TryMove(2, 1, 1, 0)
+    Assert m2[0] = 2
+    Assert m2[1] = 1
+End Test

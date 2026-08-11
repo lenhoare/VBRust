@@ -1,0 +1,20 @@
+' 12 — Collatz Sequence, test file.
+Test "sequence for 12"
+    Assert Collatz.Collatz(12) = [12, 6, 3, 10, 5, 16, 8, 4, 2, 1]
+End Test
+
+Test "sequence for 1 is just itself"
+    Assert Collatz.Collatz(1) = [1]
+End Test
+
+Test "odd number 3 goes up then down"
+    Assert Collatz.Collatz(3) = [3, 10, 5, 16, 8, 4, 2, 1]
+End Test
+
+Test "length for 12"
+    Assert Collatz.CollatzLen(12) = 10
+End Test
+
+Test "length for 27"
+    Assert Collatz.CollatzLen(27) = 112
+End Test

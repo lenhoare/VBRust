@@ -1,0 +1,119 @@
+' A4 — Football ELO logic module.
+' A classic Elo rating system for teams. Pure functions, unit-testable
+' without the DataFrame: main.vbr feeds it the extracted match columns.
+'
+' Elo model: every team starts at 1500. After a match, each side's rating
+' moves by K * (actual - expected), where expected is the logistic
+' function of the rating difference and actual is 1 (win), 0.5 (draw) or
+' 0 (loss). K=32 is the common club-football choice.
+'
+' Teams are tracked in a Vec<Rating> registry with a linear find — a
+' HashMap would need its String keys auto-borrowed at the call site, which
+' the transpiler doesn't do (Quirk 35). 20 teams * 760 matches is trivial.
+Public Const START_RATING As Long = 1500
+Public Const K_FACTOR As Long = 32
+
+' One ranked row: a team and its rating.
+Public Type Rating
+    Public Team As String
+    Public Points As Long
+End Type
+
+' The expected score (0..1) for a team rated `rating` against an opponent
+' rated `opponent`. The standard Elo formula.
+Public Function ExpectedScore(ByVal rating As Long, ByVal opponent As Long) As Double
+    Dim diff As Double = opponent - rating
+    Return 1.0 / (1.0 + 10.0 ^ (diff / 400.0))
+End Function
+
+' The actual score for the HOME side from the goal counts: 1 win, 0.5
+' draw, 0 loss.
+Public Function HomeScore(ByVal homeGoals As Long, ByVal awayGoals As Long) As Double
+    If homeGoals > awayGoals Then
+        Return 1.0
+    End If
+    If homeGoals < awayGoals Then
+        Return 0.0
+    End If
+    Return 0.5
+End Function
+
+' The new rating after a match. Round the movement to a whole number.
+' (Use a Double literal for K: i64 * f64 doesn't compile, and a Const
+' assigned into a Double doesn't auto-widen — Quirk 36.)
+Public Function NewRating(ByVal rating As Long, ByVal expected As Double, ByVal actual As Double) As Long
+    Dim delta As Long = Round(32.0 * (actual - expected))
+    Return rating + delta
+End Function
+
+' A full season of matches: parallel arrays of home team, away team, and
+' goal counts. Processes them in order and returns the final ranking,
+' best-rated first (ties broken alphabetically).
+Public Function RankSeason(ByVal homes As Vec<String>, ByVal aways As Vec<String>, ByVal homeGoals As Vec<Long>, ByVal awayGoals As Vec<Long>) As Vec<Rating>
+    Dim registry As Vec<Rating>
+    Dim i As Long = 0
+    For i = 0 To homes.Len() - 1
+        Dim home As String = homes[i].Clone()
+        Dim away As String = aways[i].Clone()
+        If Not HasTeam(registry, home) Then
+            registry.Push(Rating { team: home.Clone(), points: START_RATING })
+        End If
+        If Not HasTeam(registry, away) Then
+            registry.Push(Rating { team: away.Clone(), points: START_RATING })
+        End If
+        Dim hIdx As Long = FindTeam(registry, home)
+        Dim aIdx As Long = FindTeam(registry, away)
+        Dim rHome As Long = registry[hIdx].Points
+        Dim rAway As Long = registry[aIdx].Points
+        Dim eHome As Double = ExpectedScore(rHome, rAway)
+        Dim eAway As Double = ExpectedScore(rAway, rHome)
+        Dim sHome As Double = HomeScore(homeGoals[i], awayGoals[i])
+        Dim sAway As Double = 1.0 - sHome
+        registry[hIdx].Points = NewRating(rHome, eHome, sHome)
+        registry[aIdx].Points = NewRating(rAway, eAway, sAway)
+    Next
+    SortDesc(registry)
+    Return registry
+End Function
+
+' Does the registry already contain this team?
+Public Function HasTeam(ByVal rs As Vec<Rating>, ByVal team As String) As Boolean
+    Return FindTeam(rs, team) >= 0
+End Function
+
+' The index of the team in the registry, or -1.
+Public Function FindTeam(ByVal rs As Vec<Rating>, ByVal team As String) As Long
+    Dim i As Long = 0
+    For i = 0 To rs.Len() - 1
+        If rs[i].Team = team Then
+            Return i
+        End If
+    Next
+    Return -1
+End Function
+
+' Insertion sort: rating descending, then team ascending for ties.
+Public Sub SortDesc(ByRef rs As Vec<Rating>)
+    Dim i As Long = 1
+    For i = 1 To rs.Len() - 1
+        Dim j As Long = i
+        Do While j > 0 And Worse(rs[j - 1], rs[j])
+            Dim tmp As Rating = rs[j].Clone()
+            rs[j] = rs[j - 1].Clone()
+            rs[j - 1] = tmp
+            j = j - 1
+        Loop
+    Next
+End Sub
+
+' Is `a` ranked worse than `b`? Lower rating is worse; equal ratings
+' compare team names so ties are deterministic.
+Public Function Worse(ByVal a As Rating, ByVal b As Rating) As Boolean
+    If a.Points < b.Points Then
+        Return True
+    End If
+    If a.Points > b.Points Then
+        Return False
+    End If
+    Return a.Team > b.Team
+End Function

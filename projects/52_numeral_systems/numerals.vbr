@@ -1,0 +1,43 @@
+' 52 — Numeral Systems Counters logic module.
+' Shows the same integer in decimal, hexadecimal and binary.
+Public Function ToBinary(ByVal n As Long) As String
+    If n = 0 Then
+        Return "0"
+    End If
+    Dim out As String = ""
+    Dim x As Long = n
+    Do While x > 0
+        Dim digit As Long = x Mod 2
+        out = CStr(digit) & out
+        x = x / 2
+    Loop
+    Return out
+End Function
+
+Public Function ToHex(ByVal n As Long) As String
+    Dim digits As String = "0123456789ABCDEF"
+    If n = 0 Then
+        Return "0"
+    End If
+    Dim out As String = ""
+    Dim x As Long = n
+    Do While x > 0
+        Dim d As Long = x Mod 16
+        out = Mid(digits, d + 1, 1) & out
+        x = x / 16
+    Loop
+    Return out
+End Function
+
+' One row of the table: decimal, hex, binary, space-padded to fixed widths.
+Public Function Row(ByVal n As Long) As String
+    Return Pad(CStr(n), 6) & " " & Pad(ToHex(n), 6) & " " & Pad(ToBinary(n), 12)
+End Function
+
+Public Function Pad(ByVal s As String, ByVal width As Long) As String
+    Dim out As String = s
+    Do While out.Len() < width
+        out = " " & out
+    Loop
+    Return out
+End Function

@@ -1,0 +1,50 @@
+' 59 — Rock Paper Scissors, entry point: a Screen (ratatui TUI) where the
+' player picks Rock/Paper/Scissors with r/p/s keys and the computer's
+' deterministic move cycles. Score is tracked; q quits.
+'
+' Screen features exercised: single-character keymap, score state, message
+' updates from events. All game rules live in rps.vbr (unit-tested).
+Screen RpsGame
+    Title "Rock Paper Scissors"
+
+    State
+        Dim round As Long = 0
+        Dim playerScore As Long = 0
+        Dim computerScore As Long = 0
+        Dim ties As Long = 0
+        Dim message As String = "Press r, p or s to play."
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "Rock Paper Scissors"
+            Text message
+            Text ""
+            Text "Score — you: " & playerScore & "  computer: " & computerScore & "  ties: " & ties
+            Text ""
+            Text "r = rock, p = paper, s = scissors, q = quit"
+        End Column
+    End View
+
+    On Key "r" PlayRock
+    On Key "p" PlayPaper
+    On Key "s" PlayScissors
+    On Key "q" Quit
+
+    Event PlayRock
+        Rps.Play(round, playerScore, computerScore, ties, message, "R")
+    End Event
+
+    Event PlayPaper
+        Rps.Play(round, playerScore, computerScore, ties, message, "P")
+    End Event
+
+    Event PlayScissors
+        Rps.Play(round, playerScore, computerScore, ties, message, "S")
+    End Event
+End Screen
+
+Function Main()
+    RpsGame.Run
+End Function

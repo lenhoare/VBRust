@@ -1,0 +1,10 @@
+' 61 — ROT13, entry point.
+Function Main()
+    Dim message As String = "Hello, World! 123"
+    Debug.Print "Original: " & message
+    Dim secret As String = Rot13.Rot13(message)
+    Debug.Print "Rot13:    " & secret
+    Debug.Print "Back:     " & Rot13.Rot13(secret)
+    Debug.Print ""
+    Debug.Print "ROT13 of 'THE QUICK BROWN FOX' is: " & Rot13.Rot13("THE QUICK BROWN FOX")
+End Function

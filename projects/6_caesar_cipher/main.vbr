@@ -1,0 +1,16 @@
+' 6 — Caesar Cipher, entry point.
+Function Main()
+    Dim message As String = "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG."
+    Dim key As Long = 13
+    Debug.Print "Original:  " & message
+    Debug.Print "Key:       " & key
+    Dim secret As String = Caesar.Encrypt(message, key)
+    Debug.Print "Encrypted: " & secret
+    Debug.Print "Decrypted: " & Caesar.Decrypt(secret, key)
+    Debug.Print ""
+    If Caesar.Decrypt(secret, key) = message Then
+        Debug.Print "Round-trip check: PASS"
+    Else
+        Debug.Print "Round-trip check: FAIL"
+    End If
+End Function

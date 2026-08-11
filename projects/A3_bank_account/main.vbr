@@ -1,0 +1,28 @@
+' A3 — bank account demo, entry point.
+' Thin by design: builds an account, runs a small scenario, prints results.
+' All the logic lives in bank.vbr and is exercised properly by bank.test.vbr.
+Function Main()
+    Debug.Print "A3: bank account (Type + Result)"
+    Debug.Print ""
+
+    Dim acc As Account = Account { owner: "Ada", balance: 100 }
+    Debug.Print "opened  " & acc.Describe()
+
+    Match acc.Deposit(50)
+        Ok(newbalance) => Debug.Print "deposit 50  -> " & newbalance
+        Err(reason) => Debug.Print "deposit failed: " & reason
+    End Match
+
+    Match acc.Withdraw(30)
+        Ok(newbalance) => Debug.Print "withdraw 30 -> " & newbalance
+        Err(reason) => Debug.Print "withdraw failed: " & reason
+    End Match
+
+    Match acc.Withdraw(200)
+        Ok(newbalance) => Debug.Print "withdraw 200 -> " & newbalance
+        Err(reason) => Debug.Print "withdraw 200 failed: " & reason
+    End Match
+
+    Debug.Print ""
+    Debug.Print "final  " & acc.Describe()
+End Function

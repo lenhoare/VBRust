@@ -1,0 +1,58 @@
+' 53 — Periodic Table, test file.
+Test "split csv fields"
+    Dim parts As Vec<String> = Periodic.SplitCsv("6,C,Carbon,12.011,solid")
+    Assert parts.Len() = 5
+    Assert parts[0] = "6"
+    Assert parts[1] = "C"
+    Assert parts[4] = "solid"
+End Test
+
+Test "parse row builds an element"
+    Dim e As Element = Periodic.ParseRow("26,Fe,Iron,55.845,solid")
+    Assert e.Number = 26
+    Assert e.Symbol = "Fe"
+    Assert e.Name = "Iron"
+    Assert e.Mass = 55.845
+    Assert e.State = "solid"
+End Test
+
+Test "find by symbol"
+    Dim els As Vec<Element>
+    els.Push(Periodic.ParseRow("1,H,Hydrogen,1.008,gas"))
+    els.Push(Periodic.ParseRow("8,O,Oxygen,15.999,gas"))
+    Dim found As Boolean = False
+    Dim e As Element = Periodic.FindBySymbol(els, "O", found)
+    Assert found
+    Assert e.Number = 8
+    Dim e2 As Element = Periodic.FindBySymbol(els, "Zz", found)
+    Assert Not found
+End Test
+
+Test "find by number"
+    Dim els As Vec<Element>
+    els.Push(Periodic.ParseRow("79,Au,Gold,196.97,solid"))
+    Dim found As Boolean = False
+    Dim e As Element = Periodic.FindByNumber(els, 79, found)
+    Assert found
+    Assert e.Symbol = "Au"
+End Test
+
+Test "count by state"
+    Dim els As Vec<Element>
+    els.Push(Periodic.ParseRow("1,H,Hydrogen,1.008,gas"))
+    els.Push(Periodic.ParseRow("6,C,Carbon,12.011,solid"))
+    els.Push(Periodic.ParseRow("8,O,Oxygen,15.999,gas"))
+    Assert Periodic.CountState(els, "gas") = 2
+    Assert Periodic.CountState(els, "solid") = 1
+    Assert Periodic.CountState(els, "liquid") = 0
+End Test
+
+Test "format row"
+    Dim e As Element = Periodic.ParseRow("6,C,Carbon,12.011,solid")
+    Assert Periodic.FormatRow(e) = "  6 C   Carbon      12.011  solid"
+End Test
+
+Test "pad helpers"
+    Assert Periodic.Pad3(6) = "  6"
+    Assert Periodic.PadRight("C", 3) = "C  "
+End Test

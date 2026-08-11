@@ -1,0 +1,39 @@
+' 65 — Shining Carpet, test file.
+Test "hexagon row phases"
+    Assert Carpet.HexRow(0) = "  /\  "
+    Assert Carpet.HexRow(1) = " /  \ "
+    Assert Carpet.HexRow(2) = "/    \"
+    Assert Carpet.HexRow(3) = "\    /"
+    Assert Carpet.HexRow(4) = " \  / "
+    Assert Carpet.HexRow(5) = "  \/  "
+End Test
+
+Test "single column carpet has six rows"
+    Dim rows As Vec<String> = Carpet.Carpet(1, 1)
+    Assert rows.Len() = 6
+    Assert rows[0] = "  /\  "
+    Assert rows[2] = "/    \"
+    Assert rows[5] = "  \/  "
+End Test
+
+Test "even group starts at column zero"
+    Dim rows As Vec<String> = Carpet.Carpet(2, 1)
+    Assert rows[0] = "  /\    /\  "
+    Assert rows[2] = "/    \/    \"
+End Test
+
+Test "odd group is offset by three"
+    Dim rows As Vec<String> = Carpet.Carpet(2, 2)
+    Assert rows[6] = "     /\    /\  "
+    Assert rows[8] = "   /    \/    \"
+End Test
+
+Test "two row groups give twelve rows"
+    Dim rows As Vec<String> = Carpet.Carpet(3, 2)
+    Assert rows.Len() = 12
+End Test
+
+Test "spaces helper"
+    Assert Carpet.Spaces(0) = ""
+    Assert Carpet.Spaces(3) = "   "
+End Test

@@ -1,0 +1,29 @@
+' 31 — Guess the Number logic module.
+' Pure game logic — testable without the terminal. The Screen in main.vbr
+' owns the UI and calls these on input.
+'
+' The computer picks a number 1..=100; the player has 10 guesses. Each guess
+' is answered "too high" / "too low" / "correct".
+Public Const MaxGuess As Long = 100
+
+' The secret for a given seed — deterministic, so tests and the demo agree.
+Public Function SecretFor(ByVal seed As Long) As Long
+    Return (seed * 37 Mod 100) + 1
+End Function
+
+' The hint for a guess: "high" (guess > secret), "low" (guess < secret), or
+' "correct". Returns the string the TUI displays.
+Public Function Hint(ByVal secret As Long, ByVal guess As Long) As String
+    If guess > secret Then
+        Return "too high"
+    ElseIf guess < secret Then
+        Return "too low"
+    Else
+        Return "correct"
+    End If
+End Function
+
+' The remaining guesses after `used` of `allowed` have been spent.
+Public Function Remaining(ByVal used As Long, ByVal allowed As Long) As Long
+    Return allowed - used
+End Function

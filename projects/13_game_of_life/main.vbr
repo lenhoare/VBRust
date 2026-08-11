@@ -1,0 +1,96 @@
+' 13 — Conway's Game of Life, entry point: a Window (Iced GUI).
+' The grid is 20x15; live cells are computed into state rects by the
+' events, and the Canvas Draw block only renders them (canvas bodies
+' don't run the resolver — see notes).
+'
+' Window features exercised: Button row, Text status, Canvas with a Draw
+' block over a state Vec, state-machine events calling the logic module.
+Window GameOfLife
+    Title "Game of Life"
+
+    State
+        Dim cols As Long = 20
+        Dim rows As Long = 15
+        Dim cell As Long = 20
+        Dim grid As Vec<Long> = Life.BlinkerSeed(20, 15)
+        ' A state field can't read another field's initialiser (`grid` is
+        ' not yet in scope), so rects is built from a fresh identical seed
+        ' (same pattern, deterministic — matches grid exactly).
+        Dim rects As Vec<CellRect> = Life.LiveRects(Life.BlinkerSeed(20, 15), 20)
+        Dim gen As Long = 0
+        Dim status As String = "Generation 0 — 3 live cells"
+    End State
+
+    View
+        Column
+            Spacing 8
+            Text "Conway's Game of Life"
+            Text status
+            Row
+                Button "Step"
+                    On Click StepOnce
+                End Button
+                Button "Blinker"
+                    On Click SeedBlinker
+                End Button
+                Button "Glider"
+                    On Click SeedGlider
+                End Button
+                Button "Clear"
+                    On Click Clear
+                End Button
+            End Row
+            Canvas Board Width 400 Height 300
+        End Column
+    End View
+
+    Event StepOnce
+        grid = Life.NextGen(grid, cols, rows)
+        rects = Life.LiveRects(grid, cols)
+        gen = gen + 1
+        status = "Generation " & gen & " — " & Life.CountLive(grid) & " live cells"
+    End Event
+
+    Event SeedBlinker
+        grid = Life.BlinkerSeed(cols, rows)
+        rects = Life.LiveRects(grid, cols)
+        gen = 0
+        status = "Generation 0 — 3 live cells"
+    End Event
+
+    Event SeedGlider
+        grid = Life.GliderSeed(cols, rows)
+        rects = Life.LiveRects(grid, cols)
+        gen = 0
+        status = "Generation 0 — 5 live cells"
+    End Event
+
+    Event Clear
+        grid = Life.NewGrid(cols, rows)
+        rects = Life.LiveRects(grid, cols)
+        gen = 0
+        status = "Generation 0 — 0 live cells"
+    End Event
+End Window
+
+Canvas Board
+    Draw
+        ' Grid lines (light).
+        Dim gx As Long = 0
+        For gx = 0 To 400 Step 20
+            Stroke Line(gx, 0, gx, 300), Color.Gray, 1
+        Next
+        Dim gy As Long = 0
+        For gy = 0 To 300 Step 20
+            Stroke Line(0, gy, 400, gy), Color.Gray, 1
+        Next
+        ' Live cells from state.
+        For Each r In rects
+            Fill Rect(r.X * 20, r.Y * 20, 20, 20), Color(0.2, 0.7, 0.2)
+        Next
+    End Draw
+End Canvas
+
+Function Main()
+    GameOfLife.Run
+End Function

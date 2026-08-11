@@ -1,0 +1,46 @@
+' A5 — Shape Areas, test file.
+Test "circle area"
+    Assert Shapes.Area(Shape.Circle(1.0)) = 3.14159
+    Assert Shapes.Area(Shape.Circle(2.0)) = 12.56636
+End Test
+
+Test "rectangle area"
+    Assert Shapes.Area(Shape.Rectangle(3.0, 4.0)) = 12.0
+End Test
+
+Test "triangle area"
+    Assert Shapes.Area(Shape.Triangle(4.0, 3.0)) = 6.0
+End Test
+
+Test "empty shape"
+    Assert Shapes.Area(Shape.Empty) = 0.0
+    Assert Shapes.Perimeter(Shape.Empty) = 0.0
+End Test
+
+Test "circle perimeter"
+    Assert Shapes.Perimeter(Shape.Circle(1.0)) = 6.28318
+End Test
+
+Test "rectangle perimeter"
+    Assert Shapes.Perimeter(Shape.Rectangle(3.0, 4.0)) = 14.0
+End Test
+
+Test "polygon area and perimeter"
+    Dim pts As Vec<Point>
+    pts.Push(Point { x: 0.0, y: 0.0 })
+    pts.Push(Point { x: 4.0, y: 0.0 })
+    pts.Push(Point { x: 4.0, y: 3.0 })
+    Dim tri As Shape = Shape.Polygon(pts)
+    Assert Shapes.Area(tri) = 6.0
+    Assert Shapes.Perimeter(tri) = 12.0
+End Test
+
+Test "describe shapes"
+    Assert Shapes.Describe(Shape.Circle(2.0)) = "circle r=2"
+    Assert Shapes.Describe(Shape.Rectangle(3.0, 4.0)) = "rectangle 3x4"
+    Assert Shapes.Describe(Shape.Empty) = "empty"
+End Test
+
+Test "dist helper"
+    Assert Shapes.Dist(Point { x: 0.0, y: 0.0 }, Point { x: 3.0, y: 4.0 }) = 5.0
+End Test

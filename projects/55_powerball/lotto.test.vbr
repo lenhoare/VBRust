@@ -1,0 +1,48 @@
+' 55 — Powerball, test file.
+Test "match counting"
+    Dim draw As Vec<Long> = [7, 13, 22, 31, 45]
+    Dim t1 As Vec<Long> = [7, 13, 22, 31, 45]
+    Dim t2 As Vec<Long> = [7, 13, 22, 99, 98]
+    Dim t3 As Vec<Long> = [1, 2, 3, 4, 5]
+    Assert Lotto.Matches(t1, draw) = 5
+    Assert Lotto.Matches(t2, draw) = 3
+    Assert Lotto.Matches(t3, draw) = 0
+End Test
+
+Test "in draw helper"
+    Dim draw As Vec<Long> = [7, 13, 22, 31, 45]
+    Assert Lotto.InDraw(draw, 7)
+    Assert Lotto.InDraw(draw, 45)
+    Assert Not Lotto.InDraw(draw, 8)
+End Test
+
+Test "jackpot needs all five and the pb"
+    Assert Lotto.Prize(5, True) = 100000000
+    Assert Lotto.Prize(5, False) = 1000000
+End Test
+
+Test "lower tiers"
+    Assert Lotto.Prize(4, True) = 50000
+    Assert Lotto.Prize(4, False) = 100
+    Assert Lotto.Prize(3, True) = 100
+    Assert Lotto.Prize(3, False) = 7
+    Assert Lotto.Prize(2, True) = 7
+    Assert Lotto.Prize(1, True) = 4
+    Assert Lotto.Prize(0, True) = 4
+    Assert Lotto.Prize(0, False) = 0
+End Test
+
+Test "tier names"
+    Assert Lotto.TierName(100000000) = "jackpot"
+    Assert Lotto.TierName(0) = "nothing"
+    Assert Lotto.TierName(4) = "4"
+End Test
+
+Test "top by count picks the largest"
+    Dim keys As Vec<Long> = [10, 20, 30]
+    Dim counts As Vec<Long> = [1, 5, 3]
+    Dim top As Vec<Long> = Lotto.TopByCount(keys, counts, 2)
+    Assert top.Len() = 2
+    Assert top[0] = 20
+    Assert top[1] = 30
+End Test

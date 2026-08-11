@@ -1,0 +1,42 @@
+' 20 — Digital Stream, test file.
+Test "new columns spread deterministically"
+    Dim c As StreamColumn = Stream.NewColumn(0)
+    Assert c.Head = 0
+    Assert c.Speed = 1
+    Dim c2 As StreamColumn = Stream.NewColumn(1)
+    Assert c2.Head = -1
+    Assert c2.Speed = 4
+End Test
+
+Test "step advances the head and wraps"
+    Dim c As StreamColumn = StreamColumn { head: 8, speed: 2 }
+    Dim c2 As StreamColumn = Stream.StepColumn(c, 10)
+    Assert c2.Head = 0
+    Dim c3 As StreamColumn = Stream.StepColumn(StreamColumn { head: 3, speed: 2 }, 10)
+    Assert c3.Head = 5
+End Test
+
+Test "head cell is lit"
+    Dim c As StreamColumn = StreamColumn { head: 4, speed: 1 }
+    Assert Stream.IsLit(c, 4, 10, 3)
+End Test
+
+Test "cells behind head within trail are lit"
+    Dim c As StreamColumn = StreamColumn { head: 4, speed: 1 }
+    Assert Stream.IsLit(c, 3, 10, 3)
+    Assert Stream.IsLit(c, 2, 10, 3)
+    Assert Not Stream.IsLit(c, 1, 10, 3)
+End Test
+
+Test "trail wraps at the top"
+    Dim c As StreamColumn = StreamColumn { head: 1, speed: 1 }
+    Assert Stream.IsLit(c, 9, 10, 3)
+    Assert Stream.IsLit(c, 0, 10, 3)
+End Test
+
+Test "bit char alternates by row"
+    Assert Stream.BitChar(0) = "1"
+    Assert Stream.BitChar(3) = "1"
+    Assert Stream.BitChar(1) = "0"
+    Assert Stream.BitChar(2) = "0"
+End Test

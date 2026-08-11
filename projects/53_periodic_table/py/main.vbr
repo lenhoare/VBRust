@@ -1,0 +1,107 @@
+' 53 — Periodic Table, single-file variant for the Python target.
+' `vbr py` transpiles ONE file (no multi-module project mode — Quirk 48),
+' and the Python backend lacks the VB string builtins (Mid/Left/Val —
+' Quirk 49), so this variant keeps the CSV parsing in the Rust-only
+' multi-module project and instead exercises the stdlib with one
+' FileSystem read plus a hardcoded element table. Same spirit, honest
+' about what the Python target supports.
+'
+' The ground-truth discipline: the Python output must match `vbr runproject`
+' byte-for-byte for this deterministic program.
+Function Main()
+    ' Prove the vbrpy FileSystem package works on the Python target.
+    Dim lines As Vec<String> = FileSystem.ReadLines("/home/len/dev/vbrprojects/VBRust/projects/53_periodic_table/periodictable.csv").Unwrap()
+
+    Dim elements As Vec<Element>
+    elements.Push(Element { number: 1, symbol: "H", name: "Hydrogen", mass: 1.008, state: "gas" })
+    elements.Push(Element { number: 6, symbol: "C", name: "Carbon", mass: 12.011, state: "solid" })
+    elements.Push(Element { number: 8, symbol: "O", name: "Oxygen", mass: 15.999, state: "gas" })
+    elements.Push(Element { number: 26, symbol: "Fe", name: "Iron", mass: 55.845, state: "solid" })
+    elements.Push(Element { number: 79, symbol: "Au", name: "Gold", mass: 196.97, state: "solid" })
+
+    Debug.Print "Periodic table (" & elements.Len() & " elements)"
+    Debug.Print "CSV has " & lines.Len() & " lines (header + rows)"
+    Debug.Print "No. Sym Name        Mass     State"
+    Dim j As Long = 0
+    For j = 0 To elements.Len() - 1
+        Dim row As String = FormatRow(elements[j])
+        Debug.Print row
+    Next
+
+    Debug.Print ""
+    Debug.Print "By state: " & CountState(elements, "gas") & " gas, " & CountState(elements, "solid") & " solid, " & CountState(elements, "liquid") & " liquid"
+
+    Dim gold As Element = FindBySymbol(elements, "Au")
+    If gold.Symbol <> "" Then
+        Debug.Print "Au is " & gold.Name & " (" & gold.Mass & ")"
+    End If
+
+    Dim fe As Element = FindByNumber(elements, 26)
+    If fe.Symbol <> "" Then
+        Debug.Print "26 is " & fe.Symbol & ", " & fe.Name
+    End If
+End Function
+
+Type Element
+    Public Number As Long
+    Public Symbol As String
+    Public Name As String
+    Public Mass As Double
+    Public State As String
+End Type
+
+Function NoneElement() As Element
+    Return Element { number: 0, symbol: "", name: "", mass: 0.0, state: "" }
+End Function
+
+Function FindBySymbol(ByVal elements As Vec<Element>, ByVal symbol As String) As Element
+    Dim i As Long = 0
+    For i = 0 To elements.Len() - 1
+        Dim e As Element = elements[i]
+        If e.Symbol = symbol Then
+            Return e
+        End If
+    Next
+    Return NoneElement()
+End Function
+
+Function FindByNumber(ByVal elements As Vec<Element>, ByVal num As Long) As Element
+    Dim i As Long = 0
+    For i = 0 To elements.Len() - 1
+        Dim e As Element = elements[i]
+        If e.Number = num Then
+            Return e
+        End If
+    Next
+    Return NoneElement()
+End Function
+
+Function CountState(ByVal elements As Vec<Element>, ByVal state As String) As Long
+    Dim count As Long = 0
+    For Each e In elements
+        If e.State = state Then
+            count = count + 1
+        End If
+    Next
+    Return count
+End Function
+
+Function FormatRow(ByVal e As Element) As String
+    Return Pad3(e.Number) & " " & PadRight(e.Symbol, 3) & " " & PadRight(e.Name, 11) & " " & PadRight(CStr(e.Mass), 8) & e.State
+End Function
+
+Function Pad3(ByVal n As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < 3
+        s = " " & s
+    Loop
+    Return s
+End Function
+
+Function PadRight(ByVal s As String, ByVal width As Long) As String
+    Dim out As String = s
+    Do While out.Len() < width
+        out = out & " "
+    Loop
+    Return out
+End Function

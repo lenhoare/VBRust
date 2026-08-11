@@ -1,0 +1,62 @@
+' 13 — Conway's Game of Life, test file.
+Test "new grid is all dead"
+    Dim g As Vec<Long> = Life.NewGrid(5, 4)
+    Assert g.Len() = 20
+    Assert Life.CountLive(g) = 0
+End Test
+
+Test "cell at out of bounds reads dead"
+    Dim g As Vec<Long> = Life.NewGrid(5, 4)
+    Assert Life.CellAt(g, -1, 0, 5, 4) = 0
+    Assert Life.CellAt(g, 5, 0, 5, 4) = 0
+    Assert Life.CellAt(g, 0, 4, 5, 4) = 0
+End Test
+
+Test "set cell and count neighbours"
+    Dim g As Vec<Long> = Life.NewGrid(5, 5)
+    Life.SetCell(g, 2, 2, 5, 1)
+    Assert Life.CellAt(g, 2, 2, 5, 5) = 1
+    ' Neighbours of (2,2): the 8 surrounding cells are all dead.
+    Assert Life.CountNeighbours(g, 2, 2, 5, 5) = 0
+    ' A cell next to the live one sees 1 neighbour.
+    Assert Life.CountNeighbours(g, 1, 1, 5, 5) = 1
+End Test
+
+Test "blinker seed is three in a row"
+    Dim g As Vec<Long> = Life.BlinkerSeed(5, 5)
+    Assert Life.CountLive(g) = 3
+    Assert Life.CellAt(g, 1, 2, 5, 5) = 1
+    Assert Life.CellAt(g, 2, 2, 5, 5) = 1
+    Assert Life.CellAt(g, 3, 2, 5, 5) = 1
+End Test
+
+Test "blinker oscillates horizontal to vertical"
+    Dim g As Vec<Long> = Life.BlinkerSeed(5, 5)
+    Dim g2 As Vec<Long> = Life.NextGen(g, 5, 5)
+    ' Still 3 live cells, now vertical.
+    Assert Life.CountLive(g2) = 3
+    Assert Life.CellAt(g2, 2, 1, 5, 5) = 1
+    Assert Life.CellAt(g2, 2, 2, 5, 5) = 1
+    Assert Life.CellAt(g2, 2, 3, 5, 5) = 1
+End Test
+
+Test "blinker returns to horizontal after two generations"
+    Dim g As Vec<Long> = Life.BlinkerSeed(5, 5)
+    Dim g1 As Vec<Long> = Life.NextGen(g, 5, 5)
+    Dim g2 As Vec<Long> = Life.NextGen(g1, 5, 5)
+    Assert Life.CellAt(g2, 1, 2, 5, 5) = 1
+    Assert Life.CellAt(g2, 2, 2, 5, 5) = 1
+    Assert Life.CellAt(g2, 3, 2, 5, 5) = 1
+End Test
+
+Test "solitary cell dies"
+    Dim g As Vec<Long> = Life.NewGrid(5, 5)
+    Life.SetCell(g, 2, 2, 5, 1)
+    Dim g2 As Vec<Long> = Life.NextGen(g, 5, 5)
+    Assert Life.CountLive(g2) = 0
+End Test
+
+Test "glider seed has five cells"
+    Dim g As Vec<Long> = Life.GliderSeed(10, 10)
+    Assert Life.CountLive(g) = 5
+End Test

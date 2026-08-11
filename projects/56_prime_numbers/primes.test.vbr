@@ -1,0 +1,30 @@
+' 56 — Prime Numbers, test file.
+Test "small primes are prime"
+    Assert Primes.IsPrime(2)
+    Assert Primes.IsPrime(3)
+    Assert Primes.IsPrime(5)
+    Assert Primes.IsPrime(7)
+End Test
+
+Test "composites are not prime"
+    Assert Not Primes.IsPrime(1)
+    Assert Not Primes.IsPrime(4)
+    Assert Not Primes.IsPrime(9)
+    Assert Not Primes.IsPrime(100)
+End Test
+
+Test "first primes sequence"
+    Assert Primes.FirstPrimes(10) = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+End Test
+
+Test "next prime finds the next"
+    Assert Primes.NextPrime(2) = 2
+    Assert Primes.NextPrime(10) = 11
+    Assert Primes.NextPrime(100) = 101
+End Test
+
+Test "range scan between fifty and one hundred"
+    Dim xs As Vec<Long> = Primes.FirstPrimes(25)
+    Assert xs[24] = 97
+    Assert xs.Len() = 25
+End Test

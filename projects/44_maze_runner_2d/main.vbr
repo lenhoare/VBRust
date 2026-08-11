@@ -1,0 +1,120 @@
+' 44 — Maze Runner 2D, entry point: a Godot 2D game (GDExtension).
+' The player moves through a maze with WASD/arrows; walls block, reaching
+' the exit wins. All grid logic lives in maze.vbr (unit-tested); this node
+' reads input, moves, and draws.
+'
+' Godot features exercised: Node2D, On Ready / On Process / On Draw,
+' Export fields, Me.Position, Me.DrawRect, Input.IsJustPressed, and a
+' signal to tell the UI we won.
+Node2D "MazeRunner"
+    Export TileSize As Single = 24
+
+    Dim px As Long = 1
+    Dim py As Long = 1
+    Dim won As Boolean = False
+    Dim moves As Long = 0
+
+    Signal Finished(moves As Long)
+
+    On Ready
+        px = Maze.StartX()
+        py = Maze.StartY()
+        Me.Position = Vector2.Zero
+        ' Live self-check of the maze logic (vbr test can't compile a Godot
+        ' main.vbr — spec §10 defers .test.vbr inside Godot projects — so
+        ' the logic is verified here, in Godot's own output, on startup).
+        Dim ok As Boolean = True
+        If Maze.MazeWidth() <> 12 Then ok = False
+        If Maze.MazeHeight() <> 12 Then ok = False
+        If Not Maze.IsWall(0, 0) Then ok = False
+        If Maze.IsWall(1, 1) Then ok = False
+        If Not Maze.IsExit(9, 9) Then ok = False
+        Dim m1 As Vec<Long> = Maze.TryMove(1, 1, 1, 0)
+        If m1[0] <> 2 Or m1[1] <> 1 Then ok = False
+        Dim m2 As Vec<Long> = Maze.TryMove(1, 1, 0, -1)
+        If m2[0] <> 1 Or m2[1] <> 1 Then ok = False
+        If Maze.Won(1, 1) Then ok = False
+        If Not Maze.Won(9, 9) Then ok = False
+        If ok Then
+            Debug.Print "MAZE LOGIC SELF-CHECK: PASS"
+        Else
+            Debug.Print "MAZE LOGIC SELF-CHECK: FAIL"
+        End If
+    End Ready
+
+    On Process(delta)
+        If Not won Then
+            Dim dx As Long = 0
+            Dim dy As Long = 0
+            If Input.IsJustPressed("ui_right") Then
+                dx = 1
+            End If
+            If Input.IsJustPressed("ui_left") Then
+                dx = -1
+            End If
+            If Input.IsJustPressed("ui_down") Then
+                dy = 1
+            End If
+            If Input.IsJustPressed("ui_up") Then
+                dy = -1
+            End If
+            If dx <> 0 Or dy <> 0 Then
+                Dim np As Vec<Long> = Maze.TryMove(px, py, dx, dy)
+                Dim nx As Long = np[0]
+                Dim ny As Long = np[1]
+                If nx <> px Or ny <> py Then
+                    px = nx
+                    py = ny
+                    moves = moves + 1
+                End If
+                If Maze.Won(px, py) Then
+                    won = True
+                    Emit Finished(moves)
+                End If
+                Me.QueueRedraw()
+            End If
+        End If
+    End Process
+
+    On Draw
+        Dim w As Long = Maze.MazeWidth()
+        Dim h As Long = Maze.MazeHeight()
+        Dim ts As Single = TileSize
+        Dim y As Long = 0
+        For y = 0 To h - 1
+            Dim x As Long = 0
+            For x = 0 To w - 1
+                If Maze.IsWall(x, y) Then
+                    Me.DrawRect(Rect2(x * ts, y * ts, ts, ts), Color(0.2, 0.2, 0.35, 1.0))
+                Else
+                    Me.DrawRect(Rect2(x * ts, y * ts, ts, ts), Color(0.1, 0.1, 0.15, 1.0))
+                End If
+            Next
+        Next
+        ' The exit tile glows.
+        Me.DrawRect(Rect2(9 * ts, 9 * ts, ts, ts), Color(0.9, 0.7, 0.1, 1.0))
+        ' The player (px/py copied to locals — reading a field inside the
+        ' draw_rect args while self is mutably borrowed fails).
+        Dim lx As Long = px
+        Dim ly As Long = py
+        Me.DrawRect(Rect2(lx * ts + 4, ly * ts + 4, ts - 8, ts - 8), Color(0.9, 0.3, 0.3, 1.0))
+    End Draw
+End Node2D
+
+' A tiny HUD node that listens for the win signal and prints to the
+' console (visible with `godot --verbose` or in the editor output).
+Node2D "RunnerHud"
+    On Ready
+        Dim runner As MazeRunner = Me.GetNode("../MazeRunner")
+        Connect runner.Finished To OnFinished
+    End Ready
+
+    Sub OnFinished(moves As Long)
+        Debug.Print "Maze solved in " & moves & " moves!"
+    End Sub
+End Node2D
+
+Function Main()
+    ' Not used — Godot drives the scene. Kept so the file is a valid VBR
+    ' program for `vbr test` on the sibling logic module.
+End Function

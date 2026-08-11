@@ -1,0 +1,23 @@
+' 42 — Magic Fortune Ball, test file.
+Test "answers are deterministic"
+    Assert Fortune.Answer(0) = "Yes, definitely."
+    Assert Fortune.Answer(1) = "Ask again later."
+    Assert Fortune.Answer(2) = "My reply is no."
+End Test
+
+Test "answers cycle"
+    Assert Fortune.Answer(8) = "Yes, definitely."
+    Assert Fortune.Answer(9) = "Ask again later."
+End Test
+
+Test "every answer is non empty"
+    Dim i As Long = 0
+    For i = 0 To 15
+        Assert Fortune.Answer(i).Len() > 0
+    Next
+End Test
+
+Test "intro counts shakes"
+    Assert Fortune.Intro(0) = "Shake #1:"
+    Assert Fortune.Intro(7) = "Shake #8:"
+End Test

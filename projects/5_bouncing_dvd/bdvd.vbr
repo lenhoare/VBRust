@@ -1,0 +1,45 @@
+' 5 — Bouncing DVD Logo logic module.
+' Pure simulation of the DVD screensaver: a logo bounces diagonally inside
+' a W x H field, reflecting off the edges. The TUI in main.vbr renders the
+' position on a timer; all the motion math is here and unit-tested.
+'
+' Position is (x, y) with velocity (dx, dy), each +/-1 per tick.
+Public Type Logo
+    Public X As Long
+    Public Y As Long
+    Public Dx As Long
+    Public Dy As Long
+End Type
+
+' A new logo at the top-left moving down-right.
+Public Function Spawn() As Logo
+    Return Logo { x: 0, y: 0, dx: 1, dy: 1 }
+End Function
+
+' Advance one tick; reflect velocity at the walls. Returns the new state.
+Public Function Advance(ByVal logo As Logo, ByVal width As Long, ByVal height As Long) As Logo
+    Dim nx As Long = logo.X + logo.Dx
+    Dim ny As Long = logo.Y + logo.Dy
+    Dim ndx As Long = logo.Dx
+    Dim ndy As Long = logo.Dy
+    If nx < 0 Or nx >= width Then
+        ndx = -ndx
+        nx = logo.X + ndx
+    End If
+    If ny < 0 Or ny >= height Then
+        ndy = -ndy
+        ny = logo.Y + ndy
+    End If
+    Return Logo { x: nx, y: ny, dx: ndx, dy: ndy }
+End Function
+
+' A logo is at a wall when its next step would leave the field.
+Public Function AtWall(ByVal logo As Logo, ByVal width As Long, ByVal height As Long) As Boolean
+    If logo.X + logo.Dx < 0 Or logo.X + logo.Dx >= width Then
+        Return True
+    End If
+    If logo.Y + logo.Dy < 0 Or logo.Y + logo.Dy >= height Then
+        Return True
+    End If
+    Return False
+End Function

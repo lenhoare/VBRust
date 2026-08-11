@@ -1,0 +1,39 @@
+' 14 — Countdown, test file.
+Test "decrement counts down to zero"
+    Assert Count.Decrement(90) = 89
+    Assert Count.Decrement(1) = 0
+    Assert Count.Decrement(0) = 0
+End Test
+
+Test "format time as minutes colon seconds"
+    Assert Count.FormatTime(90) = "1:30"
+    Assert Count.FormatTime(5) = "0:05"
+    Assert Count.FormatTime(0) = "0:00"
+    Assert Count.FormatTime(125) = "2:05"
+End Test
+
+Test "segment rows has three rows"
+    Dim rows As Vec<String> = Count.SegRows("0:05")
+    Assert rows.Len() = 3
+End Test
+
+Test "zero renders classic segments"
+    Dim rows As Vec<String> = Count.SegRows("0")
+    Assert rows[0] = " _ "
+    Assert rows[1] = "| |"
+    Assert rows[2] = "|_|"
+End Test
+
+Test "colon renders as dots"
+    Dim rows As Vec<String> = Count.SegRows(":")
+    Assert rows[0] = "   "
+    Assert rows[1] = " o "
+    Assert rows[2] = " o "
+End Test
+
+Test "two digit countdown renders"
+    Dim rows As Vec<String> = Count.SegRows("1:30")
+    Assert rows[0] = "         _   _ "
+    Assert rows[1] = "  |  o   _| | |"
+    Assert rows[2] = "  |  o   _| |_|"
+End Test

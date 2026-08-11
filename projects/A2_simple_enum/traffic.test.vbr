@@ -1,0 +1,23 @@
+' A2 — simple enum demo, test file.
+' Each Assert calls the Public function DurationSec directly on the enum value.
+' The enum is project-global, so we qualify it as TrafficLight.Red etc.
+'
+' NOTE: constants are Double, so comparisons with 0 need .0 or a Double variable.
+
+Test "red light duration"
+    Assert Traffic.DurationSec(TrafficLight.Red) = 30
+End Test
+
+Test "yellow light duration"
+    Assert Traffic.DurationSec(TrafficLight.Yellow) = 5
+End Test
+
+Test "green light duration"
+    Assert Traffic.DurationSec(TrafficLight.Green) = 45
+End Test
+
+Test "constants are positive"
+    Assert Traffic.DefaultRedSec > 0.0
+    Assert Traffic.DefaultYellowSec > 0.0
+    Assert Traffic.DefaultGreenSec > 0.0
+End Test

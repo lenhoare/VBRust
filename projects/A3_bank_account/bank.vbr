@@ -1,0 +1,47 @@
+' A3 — bank account: Type (struct) + Result error handling demo.
+' Logic module under test. main.vbr and bank.test.vbr both call into this.
+'
+' Demonstrates:
+'   - Public Type (struct) with fields, built with a literal constructor
+'   - Methods on the Type (Function Account.Deposit etc.) using Me
+'   - &mut self inference: Deposit/Withdraw assign to Me.Balance
+'   - Result<Long> returns with Ok(...) / Err("...") — errors as values
+'   - A free helper (TryWithdraw) that flattens a Result to a Boolean
+'     (Return inside a Match arm)
+
+Public Type Account
+    Public Owner As String
+    Public Balance As Long
+End Type
+
+Public Function Account.Deposit(ByVal amount As Long) As Result<Long>
+    If amount <= 0 Then
+        Return Err("amount must be positive")
+    End If
+    Me.Balance = Me.Balance + amount
+    Return Ok(Me.Balance)
+End Function
+
+Public Function Account.Withdraw(ByVal amount As Long) As Result<Long>
+    If amount <= 0 Then
+        Return Err("amount must be positive")
+    End If
+    If amount > Me.Balance Then
+        Return Err("insufficient funds")
+    End If
+    Me.Balance = Me.Balance - amount
+    Return Ok(Me.Balance)
+End Function
+
+Public Function Account.Describe() As String
+    Return Me.Owner & ": " & Me.Balance & "p"
+End Function
+
+' Flatten a withdrawal into a simple yes/no. Callers pass the account ByRef so
+' a successful withdrawal still writes the new balance back.
+Public Function TryWithdraw(ByRef acc As Account, ByVal amount As Long) As Boolean
+    Match acc.Withdraw(amount)
+        Ok(_) => Return True
+        Err(_) => Return False
+    End Match
+End Function

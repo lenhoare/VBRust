@@ -1,0 +1,47 @@
+' A4 — Football ELO command-line tool.
+' Reads three seasons of Premier League results with a DataFrame, extracts
+' the match columns, runs the Elo engine (elo.vbr) and prints the final
+' ranking.
+'
+' DataFrame features exercised: ReadCsv, Sort (by timestamp so matches are
+' processed chronologically), Column extraction into Vec<String>/Vec<Long>.
+Function Main()
+    ' The trimmed CSV (raw file has N/A values that abort ReadCsv — see
+    ' notes.md; pl_trim.csv keeps only the five numeric/name columns).
+    Dim df As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/A4_football_data/pl_trim.csv")
+    df = df.Sort("timestamp")
+
+    Dim homes As Vec<String> = df.Column("home_team_name")
+    Dim aways As Vec<String> = df.Column("away_team_name")
+    Dim homeGoals As Vec<Long> = df.Column("home_team_goal_count")
+    Dim awayGoals As Vec<Long> = df.Column("away_team_goal_count")
+
+    Debug.Print "Premier League ELO (23/24 - 25/26)"
+    Debug.Print "Matches: " & homes.Len()
+    Debug.Print ""
+
+    Dim ranking As Vec<Rating> = Elo.RankSeason(homes, aways, homeGoals, awayGoals)
+    Dim i As Long = 0
+    For i = 0 To ranking.Len() - 1
+        Dim rank As Long = i + 1
+        Debug.Print Pad(rank, 3) & ". " & PadName(ranking[i].Team.Clone()) & " " & ranking[i].Points
+    Next
+End Function
+
+' Right-justify a number into `width` chars.
+Function Pad(ByVal n As Long, ByVal width As Long) As String
+    Dim s As String = CStr(n)
+    Do While s.Len() < width
+        s = " " & s
+    Loop
+    Return s
+End Function
+
+' Left-justify a team name to a fixed width so the table lines up.
+Function PadName(ByVal name As String) As String
+    Dim s As String = name
+    Do While s.Len() < 24
+        s = s & " "
+    Loop
+    Return s
+End Function

@@ -1,0 +1,47 @@
+' 5 — Bouncing DVD Logo, test file.
+Test "spawn starts at top left moving down right"
+    Dim l As Logo = Bdvd.Spawn()
+    Assert l.X = 0
+    Assert l.Y = 0
+    Assert l.Dx = 1
+    Assert l.Dy = 1
+End Test
+
+Test "advance moves diagonally"
+    Dim l As Logo = Bdvd.Spawn()
+    Dim l2 As Logo = Bdvd.Advance(l, 10, 10)
+    Assert l2.X = 1
+    Assert l2.Y = 1
+End Test
+
+Test "bounces off the right wall"
+    Dim l As Logo = Logo { x: 9, y: 5, dx: 1, dy: 1 }
+    Dim l2 As Logo = Bdvd.Advance(l, 10, 10)
+    Assert l2.X = 8
+    Assert l2.Dx = -1
+End Test
+
+Test "bounces off the bottom wall"
+    Dim l As Logo = Logo { x: 5, y: 9, dx: 1, dy: 1 }
+    Dim l2 As Logo = Bdvd.Advance(l, 10, 10)
+    Assert l2.Y = 8
+    Assert l2.Dy = -1
+End Test
+
+Test "bounces off the top and left walls"
+    Dim l As Logo = Logo { x: 0, y: 2, dx: -1, dy: -1 }
+    Dim l2 As Logo = Bdvd.Advance(l, 10, 10)
+    Assert l2.X = 1
+    Assert l2.Dx = 1
+    Dim l3 As Logo = Logo { x: 2, y: 0, dx: -1, dy: -1 }
+    Dim l4 As Logo = Bdvd.Advance(l3, 10, 10)
+    Assert l4.Y = 1
+    Assert l4.Dy = 1
+End Test
+
+Test "at wall detection"
+    Dim l As Logo = Logo { x: 9, y: 5, dx: 1, dy: 1 }
+    Assert Bdvd.AtWall(l, 10, 10)
+    Dim l2 As Logo = Logo { x: 5, y: 5, dx: 1, dy: 1 }
+    Assert Not Bdvd.AtWall(l2, 10, 10)
+End Test

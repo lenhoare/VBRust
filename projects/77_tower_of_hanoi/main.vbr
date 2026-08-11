@@ -1,0 +1,23 @@
+' 77 — Tower of Hanoi, entry point.
+Function Main()
+    Debug.Print "Tower of Hanoi, 3 disks:"
+    Dim moves As Vec<String> = Hanoi.Solve(3)
+    Debug.Print JoinMoves(moves)
+    Debug.Print ""
+    Debug.Print "Tower of Hanoi, 4 disks (" & moves.Len() & " moves):"
+    Debug.Print JoinMoves(Hanoi.Solve(4))
+End Function
+
+Function JoinMoves(ByVal xs As Vec<String>) As String
+    Dim out As String = ""
+    Dim first As Boolean = True
+    For Each m In xs
+        If first Then
+            out = m.Clone()
+            first = False
+        Else
+            out = out & "  " & m
+        End If
+    Next
+    Return out
+End Function

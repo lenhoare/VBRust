@@ -1,0 +1,34 @@
+' 57 — Progress Bar logic module.
+' Pure frame logic for a download-progress demo — testable without any UI.
+' The Screen in main.vbr owns the terminal and calls these on a timer.
+'
+' A download has a total size and a bytes-so-far counter. Progress() returns
+' 0..=100; the TUI renders it with a Gauge, and StatusText() builds the
+' classic "12.3 MB / 45.6 MB" line.
+Public Function Progress(ByVal done As Long, ByVal total As Long) As Long
+    If total <= 0 Then
+        Return 0
+    End If
+    ' Widen one operand to Double FIRST: `done / total` on two Longs is
+    ' integer division in Rust (25/100 = 0), and the cast to Double happens
+    ' after. Dividing a Double by a Long gives true f64 division.
+    Dim d As Double = done
+    Dim p As Double = d / total
+    Return Round(p * 100)
+End Function
+
+' The next simulated chunk size (deterministic pseudo-random walk so the
+' demo doesn't stall: 1..5 units per tick).
+Public Function NextChunk(ByVal tick As Long) As Long
+    Return (tick * 7 Mod 5) + 1
+End Function
+
+' "12 MB / 45 MB" status line.
+Public Function StatusText(ByVal done As Long, ByVal total As Long) As String
+    Return CStr(done) & " MB / " & CStr(total) & " MB"
+End Function
+
+' True once the download is complete.
+Public Function IsComplete(ByVal done As Long, ByVal total As Long) As Boolean
+    Return done >= total
+End Function

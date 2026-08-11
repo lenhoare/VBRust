@@ -1,0 +1,29 @@
+' 61 — ROT13, test file.
+Test "hello world round trip"
+    Assert Rot13.Rot13("Hello, World!") = "Uryyb, Jbeyq!"
+    Assert Rot13.Rot13(Rot13.Rot13("Hello, World!")) = "Hello, World!"
+End Test
+
+Test "rot13 of rot13 is identity"
+    Assert Rot13.Rot13("The quick brown fox") = "Gur dhvpx oebja sbk"
+    Assert Rot13.Rot13("Gur dhvpx oebja sbk") = "The quick brown fox"
+End Test
+
+Test "numbers and punctuation unchanged"
+    Assert Rot13.Rot13("123!?.") = "123!?."
+End Test
+
+Test "uppercase rotates within uppercase"
+    Assert Rot13.Rot13("ABCDEFGHIJKLMNOPQRSTUVWXYZ") = "NOPQRSTUVWXYZABCDEFGHIJKLM"
+End Test
+
+Test "lowercase rotates within lowercase"
+    Assert Rot13.Rot13("nopqrstuvwxyzabcdefghijklm") = "abcdefghijklmnopqrstuvwxyz"
+End Test
+
+Test "rotate thirteen helper"
+    Assert Rot13.Rotate13(1) = 14
+    Assert Rot13.Rotate13(14) = 1
+    Assert Rot13.Rotate13(26) = 13
+    Assert Rot13.Rotate13(13) = 26
+End Test

@@ -1,0 +1,37 @@
+' 24 — Factor Finder logic module.
+' Returns all multiplicative factors of a positive whole number, ascending.
+' The classic optimisation: test divisors only up to the square root and add
+' both divisor and quotient when they differ.
+Public Function Factors(ByVal n As Long) As Vec<Long>
+    Dim out As Vec<Long>
+    If n < 1 Then
+        Return out
+    End If
+    Dim i As Long = 1
+    Do While i * i <= n
+        If n Mod i = 0 Then
+            out.Push(i)
+            Dim other As Long = n / i
+            If other <> i Then
+                out.Push(other)
+            End If
+        End If
+        i = i + 1
+    Loop
+    SortAsc(out)
+    Return out
+End Function
+
+' Simple ascending sort of a Vec<Long> (insertion sort — small lists).
+Public Sub SortAsc(ByRef xs As Vec<Long>)
+    Dim i As Long = 1
+    For i = 1 To xs.Len() - 1
+        Dim j As Long = i
+        Do While j > 0 And xs[j] < xs[j - 1]
+            Dim tmp As Long = xs[j]
+            xs[j] = xs[j - 1]
+            xs[j - 1] = tmp
+            j = j - 1
+        Loop
+    Next
+End Sub

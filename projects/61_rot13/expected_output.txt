@@ -1,0 +1,5 @@
+Original: Hello, World! 123
+Rot13:    Uryyb, Jbeyq! 123
+Back:     Hello, World! 123
+
+ROT13 of 'THE QUICK BROWN FOX' is: GUR DHVPX OEBJA SBK

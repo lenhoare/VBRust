@@ -1,0 +1,30 @@
+' 34 — Hangman, test file.
+Test "word picks deterministically"
+    Assert Hangman.PickWord(0) = "PYTHON"
+    Assert Hangman.PickWord(1) = "JAVA"
+    Assert Hangman.PickWord(8) = "PYTHON"
+End Test
+
+Test "mask hides unguessed letters"
+    Assert Hangman.Mask("PYTHON", "") = "______"
+    Assert Hangman.Mask("PYTHON", "P") = "P_____"
+    Assert Hangman.Mask("PYTHON", "PON") = "P___ON"
+End Test
+
+Test "solved when all letters guessed"
+    Assert Hangman.IsSolved("PYTHON", "PYTHON")
+    Assert Hangman.IsSolved("PYTHON", "PYTHONX")
+    Assert Not Hangman.IsSolved("PYTHON", "PYTHO")
+End Test
+
+Test "wrong count ignores repeated wrong letters"
+    Assert Hangman.WrongCount("PYTHON", "Q") = 1
+    Assert Hangman.WrongCount("PYTHON", "QQ") = 2
+    Assert Hangman.WrongCount("PYTHON", "P") = 0
+    Assert Hangman.WrongCount("PYTHON", "PQRST") = 3
+End Test
+
+Test "contains helper"
+    Assert Hangman.Contains("PYTHON", "Y")
+    Assert Not Hangman.Contains("PYTHON", "X")
+End Test

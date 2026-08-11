@@ -1,0 +1,25 @@
+' 7 — Caesar Hacker, test file.
+Test "known key three decrypts"
+    Assert Hacker.Shift("KHOOR", 3) = "HELLO"
+End Test
+
+Test "brute force finds the right key for a short message"
+    Dim all As Vec<String> = Hacker.TryAllKeys("KHOOR")
+    Assert all[3] = "3: HELLO"
+    Assert all.Len() = 26
+End Test
+
+Test "english score ranks real text higher"
+    Assert Hacker.EnglishScore("the quick brown fox jumps over the lazy dog") > Hacker.EnglishScore("xli uymgo fvsar jsb nyqtw sziv xli pedc hsk")
+End Test
+
+Test "best guess finds readable plaintext"
+    Dim guess As String = Hacker.BestGuess("QEB NRFZH YOLTK CLU GRJMP LSBO QEB IXWV ALD")
+    Assert guess = "key 23: THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG"
+End Test
+
+Test "contains helper"
+    Assert Hacker.Contains("hello world", "world")
+    Assert Not Hacker.Contains("hello world", "xyz")
+    Assert Hacker.Contains("abc", "abc")
+End Test

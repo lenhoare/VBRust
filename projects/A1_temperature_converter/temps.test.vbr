@@ -1,0 +1,36 @@
+' Executable specs for temps.vbr — run with `vbr test`. Each Assert calls a
+' Public function of the sibling module directly (never via Main). All the
+' values are chosen to be exactly representable in binary floating point, so
+' the float arithmetic here is deterministic.
+'
+' Float literals are written explicitly (0.0, not 0): qualified calls don't
+' yet adapt integer literals to Double parameters.
+
+Test "celsius to fahrenheit at the freezing and boiling points"
+    Assert Temps.CtoF(0.0) = 32.0
+    Assert Temps.CtoF(100.0) = 212.0
+End Test
+
+Test "fahrenheit to celsius round-trips the same two points"
+    Assert Temps.FtoC(32.0) = 0.0
+    Assert Temps.FtoC(212.0) = 100.0
+End Test
+
+Test "kelvin conversions anchor at absolute zero"
+    Assert Temps.CtoK(0.0) = 273.15
+    Assert Temps.KtoC(273.15) = 0.0
+    Assert Temps.CtoK(Temps.AbsoluteZeroC) = 0.0
+End Test
+
+Test "absolute zero is a public constant near -460 Fahrenheit"
+    Assert Temps.AbsoluteZeroC < 0.0
+    Assert Temps.CtoF(Temps.AbsoluteZeroC) < -450.0
+End Test
+
+Test "describe sorts temperatures into five bands"
+    Assert Temps.Describe(-50.0) = "bitter"
+    Assert Temps.Describe(-5.0) = "cold"
+    Assert Temps.Describe(10.0) = "mild"
+    Assert Temps.Describe(25.0) = "warm"
+    Assert Temps.Describe(35.0) = "hot"
+End Test

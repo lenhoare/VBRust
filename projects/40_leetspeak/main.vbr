@@ -1,0 +1,8 @@
+' 40 — Leetspeak, entry point.
+Function Main()
+    Debug.Print "Leetspeak translations:"
+    Debug.Print "  " & Leet.Leet("hello world")
+    Debug.Print "  " & Leet.Leet("The quick brown fox")
+    Debug.Print "  " & Leet.Leet("ELITE HACKER")
+    Debug.Print "  " & Leet.Leet("password is 123")
+End Function

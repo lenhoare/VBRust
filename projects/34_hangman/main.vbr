@@ -1,0 +1,214 @@
+' 34 — Hangman, entry point: a Window (Iced GUI). The word is masked and
+' revealed as letters are guessed via 26 buttons. All rules live in
+' hangman.vbr (unit-tested); each letter button calls the shared
+' Hangman.Guess Sub qualified (events can't call other events).
+'
+' Window features exercised: many buttons, conditional view (letters
+' hidden after game over), Text masked word.
+Window HangmanGame
+    Title "Hangman"
+
+    State
+        Dim round As Long = 0
+        Dim word As String = Hangman.PickWord(0)
+        Dim guessed As String = ""
+        Dim masked As String = "______"
+        Dim phase As Long = 0        ' 0=playing 1=won 2=lost
+        Dim message As String = "Guess a letter."
+    End State
+
+    View
+        Column
+            Spacing 8
+            Text "Hangman"
+            Text "Word: " & masked
+            Text message
+            Text ""
+
+            If phase = 0 Then
+                Column
+                    Row
+                        Button "A"
+                            On Click GuessA
+                        End Button
+                        Button "B"
+                            On Click GuessB
+                        End Button
+                        Button "C"
+                            On Click GuessC
+                        End Button
+                        Button "D"
+                            On Click GuessD
+                        End Button
+                        Button "E"
+                            On Click GuessE
+                        End Button
+                        Button "F"
+                            On Click GuessF
+                        End Button
+                        Button "G"
+                            On Click GuessG
+                        End Button
+                        Button "H"
+                            On Click GuessH
+                        End Button
+                        Button "I"
+                            On Click GuessI
+                        End Button
+                        Button "J"
+                            On Click GuessJ
+                        End Button
+                        Button "K"
+                            On Click GuessK
+                        End Button
+                        Button "L"
+                            On Click GuessL
+                        End Button
+                        Button "M"
+                            On Click GuessM
+                        End Button
+                    End Row
+                    Row
+                        Button "N"
+                            On Click GuessN
+                        End Button
+                        Button "O"
+                            On Click GuessO
+                        End Button
+                        Button "P"
+                            On Click GuessP
+                        End Button
+                        Button "Q"
+                            On Click GuessQ
+                        End Button
+                        Button "R"
+                            On Click GuessR
+                        End Button
+                        Button "S"
+                            On Click GuessS
+                        End Button
+                        Button "T"
+                            On Click GuessT
+                        End Button
+                        Button "U"
+                            On Click GuessU
+                        End Button
+                        Button "V"
+                            On Click GuessV
+                        End Button
+                        Button "W"
+                            On Click GuessW
+                        End Button
+                        Button "X"
+                            On Click GuessX
+                        End Button
+                        Button "Y"
+                            On Click GuessY
+                        End Button
+                        Button "Z"
+                            On Click GuessZ
+                        End Button
+                    End Row
+                End Column
+            End If
+
+            If phase <> 0 Then
+                Button "Play again"
+                    On Click NewGame
+                End Button
+            End If
+        End Column
+    End View
+
+    Event GuessA
+        Hangman.Guess(word, guessed, masked, phase, message, "A")
+    End Event
+    Event GuessB
+        Hangman.Guess(word, guessed, masked, phase, message, "B")
+    End Event
+    Event GuessC
+        Hangman.Guess(word, guessed, masked, phase, message, "C")
+    End Event
+    Event GuessD
+        Hangman.Guess(word, guessed, masked, phase, message, "D")
+    End Event
+    Event GuessE
+        Hangman.Guess(word, guessed, masked, phase, message, "E")
+    End Event
+    Event GuessF
+        Hangman.Guess(word, guessed, masked, phase, message, "F")
+    End Event
+    Event GuessG
+        Hangman.Guess(word, guessed, masked, phase, message, "G")
+    End Event
+    Event GuessH
+        Hangman.Guess(word, guessed, masked, phase, message, "H")
+    End Event
+    Event GuessI
+        Hangman.Guess(word, guessed, masked, phase, message, "I")
+    End Event
+    Event GuessJ
+        Hangman.Guess(word, guessed, masked, phase, message, "J")
+    End Event
+    Event GuessK
+        Hangman.Guess(word, guessed, masked, phase, message, "K")
+    End Event
+    Event GuessL
+        Hangman.Guess(word, guessed, masked, phase, message, "L")
+    End Event
+    Event GuessM
+        Hangman.Guess(word, guessed, masked, phase, message, "M")
+    End Event
+    Event GuessN
+        Hangman.Guess(word, guessed, masked, phase, message, "N")
+    End Event
+    Event GuessO
+        Hangman.Guess(word, guessed, masked, phase, message, "O")
+    End Event
+    Event GuessP
+        Hangman.Guess(word, guessed, masked, phase, message, "P")
+    End Event
+    Event GuessQ
+        Hangman.Guess(word, guessed, masked, phase, message, "Q")
+    End Event
+    Event GuessR
+        Hangman.Guess(word, guessed, masked, phase, message, "R")
+    End Event
+    Event GuessS
+        Hangman.Guess(word, guessed, masked, phase, message, "S")
+    End Event
+    Event GuessT
+        Hangman.Guess(word, guessed, masked, phase, message, "T")
+    End Event
+    Event GuessU
+        Hangman.Guess(word, guessed, masked, phase, message, "U")
+    End Event
+    Event GuessV
+        Hangman.Guess(word, guessed, masked, phase, message, "V")
+    End Event
+    Event GuessW
+        Hangman.Guess(word, guessed, masked, phase, message, "W")
+    End Event
+    Event GuessX
+        Hangman.Guess(word, guessed, masked, phase, message, "X")
+    End Event
+    Event GuessY
+        Hangman.Guess(word, guessed, masked, phase, message, "Y")
+    End Event
+    Event GuessZ
+        Hangman.Guess(word, guessed, masked, phase, message, "Z")
+    End Event
+
+    Event NewGame
+        round = round + 1
+        word = Hangman.PickWord(round)
+        guessed = ""
+        masked = "______"
+        phase = 0
+        message = "Guess a letter."
+    End Event
+End Window
+
+Function Main()
+    HangmanGame.Run
+End Function

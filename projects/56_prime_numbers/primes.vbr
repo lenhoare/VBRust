@@ -1,0 +1,44 @@
+' 56 — Prime Numbers logic module.
+' Brute-force prime finding. Tests odd numbers for divisibility up to their
+' square root (the classic optimisation); 2 is handled as a special case.
+Public Function IsPrime(ByVal n As Long) As Boolean
+    If n < 2 Then
+        Return False
+    End If
+    If n = 2 Then
+        Return True
+    End If
+    If n Mod 2 = 0 Then
+        Return False
+    End If
+    Dim i As Long = 3
+    Do While i * i <= n
+        If n Mod i = 0 Then
+            Return False
+        End If
+        i = i + 2
+    Loop
+    Return True
+End Function
+
+' The first `count` primes, ascending.
+Public Function FirstPrimes(ByVal count As Long) As Vec<Long>
+    Dim out As Vec<Long>
+    Dim n As Long = 2
+    Do While out.Len() < count
+        If IsPrime(n) Then
+            out.Push(n)
+        End If
+        n = n + 1
+    Loop
+    Return out
+End Function
+
+' The first prime greater than or equal to `n`.
+Public Function NextPrime(ByVal n As Long) As Long
+    Dim i As Long = n
+    Do While Not IsPrime(i)
+        i = i + 1
+    Loop
+    Return i
+End Function

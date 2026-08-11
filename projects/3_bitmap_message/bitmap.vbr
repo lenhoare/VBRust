@@ -1,0 +1,27 @@
+' 3 — Bitmap Message logic module.
+' Replaces every non-space character of a multiline bitmap with the next
+' character of a message, repeating the message as needed. Spaces stay
+' spaces. The bitmap is given as a Vec<String> of rows (no newline
+' constants needed), and the result is returned the same way.
+Public Function Display(ByVal message As String, ByVal bitmap As Vec<String>) As Vec<String>
+    Dim out As Vec<String>
+    Dim msgPos As Long = 0
+    For Each row In bitmap
+        Dim newRow As String = ""
+        Dim i As Long = 0
+        For i = 1 To row.Len()
+            Dim ch As String = Mid(row, i, 1)
+            If ch = " " Then
+                newRow = newRow & " "
+            Else
+                msgPos = msgPos + 1
+                newRow = newRow & Mid(message, msgPos, 1)
+                If msgPos >= message.Len() Then
+                    msgPos = 0
+                End If
+            End If
+        Next
+        out.Push(newRow)
+    Next
+    Return out
+End Function

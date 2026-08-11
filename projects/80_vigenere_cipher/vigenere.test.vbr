@@ -1,0 +1,26 @@
+' 80 — Vigenère Cipher, test file.
+Test "classic lemon attack at dawn"
+    Assert Vigenere.Encrypt("ATTACKATDAWN", "LEMON") = "LXFOPVEFRNHR"
+End Test
+
+Test "decrypt reverses encrypt"
+    Assert Vigenere.Decrypt("LXFOPVEFRNHR", "LEMON") = "ATTACKATDAWN"
+End Test
+
+Test "key position resets and repeats"
+    Assert Vigenere.Encrypt("AAAA", "BC") = "BCBC"
+    Assert Vigenere.Encrypt("AAAAA", "BC") = "BCBCB"
+End Test
+
+Test "non letters pass through and do not advance key"
+    Assert Vigenere.Encrypt("A!A!A", "BC") = "B!C!B"
+End Test
+
+Test "case is preserved"
+    Assert Vigenere.Encrypt("Attack", "LEMON") = "Lxfopv"
+End Test
+
+Test "single letter key behaves like caesar"
+    Assert Vigenere.Encrypt("HELLO", "B") = "IFMMP"
+    Assert Vigenere.Decrypt("IFMMP", "B") = "HELLO"
+End Test

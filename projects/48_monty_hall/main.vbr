@@ -1,0 +1,105 @@
+' 48 — Monty Hall, entry point: a Window (Iced GUI) that plays the classic
+' paradox. Phase 1: pick a door. Phase 2: the host opens a goat door, then
+' choose Stay or Switch. Phase 3: reveal + play again.
+'
+' Window features exercised: Button, Text, If-in-view (conditional
+' widgets), state machine in events. The rules live in monty.vbr
+' (unit-tested).
+Window MontyHall
+    Title "Monty Hall"
+
+    State
+        Dim phase As Long = 0        ' 0=pick 1=stay/switch 2=reveal
+        Dim round As Long = 0
+        Dim car As Long = 0
+        Dim pick As Long = 0
+        Dim host As Long = 0
+        Dim wins As Long = 0
+        Dim losses As Long = 0
+        Dim message As String = "Pick a door: one hides a car, two hide goats."
+    End State
+
+    View
+        Column
+            Spacing 12
+            Text "Monty Hall"
+            Text message
+            Text "Wins: " & wins & "   Losses: " & losses
+
+            If phase = 0 Then
+                Row
+                    Button "Door 1"
+                        On Click Pick0
+                    End Button
+                    Button "Door 2"
+                        On Click Pick1
+                    End Button
+                    Button "Door 3"
+                        On Click Pick2
+                    End Button
+                End Row
+            End If
+
+            If phase = 1 Then
+                Text "The host opened a goat door. Stay or switch?"
+                Row
+                    Button "Stay"
+                        On Click Stay
+                    End Button
+                    Button "Switch"
+                        On Click SwitchDoor
+                    End Button
+                End Row
+            End If
+
+            If phase = 2 Then
+                Text "The car was behind door " & (car + 1) & "."
+                Button "Play again"
+                    On Click NewRound
+                End Button
+            End If
+        End Column
+    End View
+
+    Event Pick0
+        Monty.PickDoor(round, car, pick, host, phase, message, 0)
+    End Event
+
+    Event Pick1
+        Monty.PickDoor(round, car, pick, host, phase, message, 1)
+    End Event
+
+    Event Pick2
+        Monty.PickDoor(round, car, pick, host, phase, message, 2)
+    End Event
+
+    Event Stay
+        If Monty.PlayerWins(car, pick, host, False) Then
+            wins = wins + 1
+        Else
+            losses = losses + 1
+        End If
+        message = "You stayed with door " & (pick + 1) & "."
+        phase = 2
+    End Event
+
+    Event SwitchDoor
+        If Monty.PlayerWins(car, pick, host, True) Then
+            wins = wins + 1
+        Else
+            losses = losses + 1
+        End If
+        message = "You switched away from door " & (pick + 1) & "."
+        phase = 2
+    End Event
+
+    Event NewRound
+        round = round + 1
+        phase = 0
+        message = "Pick a door: one hides a car, two hide goats."
+    End Event
+End Window
+
+Function Main()
+    MontyHall.Run
+End Function

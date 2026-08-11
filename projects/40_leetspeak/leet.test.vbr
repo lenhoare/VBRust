@@ -1,0 +1,26 @@
+' 40 — Leetspeak, test file.
+Test "basic letters map to digits"
+    Assert Leet.Leet("a") = "4"
+    Assert Leet.Leet("e") = "3"
+    Assert Leet.Leet("o") = "0"
+    Assert Leet.Leet("s") = "5"
+    Assert Leet.Leet("t") = "7"
+End Test
+
+Test "hello world"
+    Assert Leet.Leet("hello world") = "h3110 w0r1d"
+End Test
+
+Test "case insensitive mapping"
+    Assert Leet.Leet("HELLO") = "H3110"
+    Assert Leet.Leet("Hello") = "H3110"
+End Test
+
+Test "unknown characters pass through"
+    Assert Leet.Leet("hi!") = "h1!"
+    Assert Leet.Leet("123") = "123"
+End Test
+
+Test "full sentence"
+    Assert Leet.Leet("the quick brown fox") = "7h3 qu1ck 8r0wn f0x"
+End Test

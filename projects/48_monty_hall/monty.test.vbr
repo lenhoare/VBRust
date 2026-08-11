@@ -1,0 +1,35 @@
+' 48 — Monty Hall, test file.
+Test "car door is deterministic"
+    Assert Monty.CarDoor(0) = 0
+    Assert Monty.CarDoor(1) = 1
+    Assert Monty.CarDoor(2) = 2
+    Assert Monty.CarDoor(3) = 0
+End Test
+
+Test "host opens a goat door"
+    Assert Monty.HostOpens(0, 1) = 2
+    Assert Monty.HostOpens(2, 2) = 0
+    Assert Monty.HostOpens(0, 0) = 1
+End Test
+
+Test "staying wins only when pick is the car"
+    Assert Monty.PlayerWins(0, 0, 1, False)
+    Assert Not Monty.PlayerWins(0, 1, 2, False)
+End Test
+
+Test "switching wins when pick was a goat"
+    Assert Monty.PlayerWins(0, 1, 2, True)
+    Assert Monty.PlayerWins(2, 0, 1, True)
+    Assert Not Monty.PlayerWins(0, 0, 1, True)
+End Test
+
+Test "host door is never the car or the pick"
+    Dim seed As Long = 0
+    For seed = 0 To 20
+        Dim car As Long = Monty.CarDoor(seed)
+        Dim pick As Long = (seed * 2 + 1) Mod 3
+        Dim host As Long = Monty.HostOpens(car, pick)
+        Assert host <> car
+        Assert host <> pick
+    Next
+End Test

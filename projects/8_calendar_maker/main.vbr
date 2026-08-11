@@ -1,0 +1,17 @@
+' 8 — Calendar Maker, entry point. Prints three month calendars.
+Function Main()
+    Debug.Print "July 2024:"
+    PrintRows(Calendar.BuildCalendar(2024, 7))
+    Debug.Print ""
+    Debug.Print "February 2024 (leap):"
+    PrintRows(Calendar.BuildCalendar(2024, 2))
+    Debug.Print ""
+    Debug.Print "January 2023:"
+    PrintRows(Calendar.BuildCalendar(2023, 1))
+End Function
+
+Sub PrintRows(ByVal rows As Vec<String>)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Sub

@@ -1,0 +1,85 @@
+' 14 — Countdown, entry point: a Screen (ratatui TUI) that counts down a
+' fixed number of seconds, rendering the remaining time as seven-segment
+' text graphics refreshed by an Every timer. The segment shapes live in
+' count.vbr and are unit-tested.
+'
+' Screen features exercised: Every timer, Text rows from pre-rendered state
+' fields, start/pause/reset keys.
+' NOTE (Quirks 26 & 29): views can't call functions and events can't call
+' other events, so all rendered text lives in state fields and each event
+' inlines the segment refresh.
+Screen Countdown
+    Title "Countdown"
+
+    State
+        Dim total As Long = 90
+        Dim left As Long = 90
+        Dim running As Boolean = False
+        Dim segRow1 As String = "   "
+        Dim segRow2 As String = " o "
+        Dim segRow3 As String = " o "
+        Dim statusText As String = "Seconds left: 90"
+    End State
+
+    View
+        Column
+            Spacing 1
+            Text "Countdown:"
+            Text segRow1
+            Text segRow2
+            Text segRow3
+            Text ""
+            Text statusText
+            Text ""
+            Text "space = start/pause, r = reset, q = quit"
+        End Column
+    End View
+
+    On Key " " Toggle
+    On Key "r" Reset
+    On Key "q" Quit
+
+    Every 1000 Tick
+
+    Event Tick
+        If running And left > 0 Then
+            left = Count.Decrement(left)
+            Dim rows As Vec<String> = Count.SegRows(Count.FormatTime(left))
+            segRow1 = rows[0].Clone()
+            segRow2 = rows[1].Clone()
+            segRow3 = rows[2].Clone()
+            If left = 0 Then
+                running = False
+                statusText = "TIME'S UP!"
+            Else
+                statusText = "Seconds left: " & left
+            End If
+        End If
+    End Event
+
+    Event Toggle
+        If left = 0 Then
+            left = total
+            Dim rows As Vec<String> = Count.SegRows(Count.FormatTime(left))
+            segRow1 = rows[0].Clone()
+            segRow2 = rows[1].Clone()
+            segRow3 = rows[2].Clone()
+            statusText = "Seconds left: " & left
+        End If
+        running = Not running
+    End Event
+
+    Event Reset
+        left = total
+        running = False
+        Dim rows As Vec<String> = Count.SegRows(Count.FormatTime(left))
+        segRow1 = rows[0].Clone()
+        segRow2 = rows[1].Clone()
+        segRow3 = rows[2].Clone()
+        statusText = "Seconds left: " & left
+    End Event
+End Screen
+
+Function Main()
+    Countdown.Run
+End Function

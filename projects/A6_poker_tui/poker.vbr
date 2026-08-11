@@ -1,0 +1,528 @@
+' Poker — playing-card model, Texas Hold'em hand evaluator, and equity
+' simulation. Pure logic, fully testable without the TUI.
+'
+' Card model: a Card is (rank, suit). Rank 2..14 (11=J,12=Q,13=K,14=A);
+' suit 0..3 (0=clubs,1=diamonds,2=hearts,3=spades).
+'
+' Hand evaluation: given 5-7 cards, return the best 5-card hand's score as
+' a single Long that is directly comparable. Score = category*15^5 +
+' tiebreak digits in base 15 (a five-digit "rank signature"), so a higher
+' score is always the better hand. Categories: 0 high card, 1 pair,
+' 2 two pair, 3 trips, 4 straight, 5 flush, 6 full house, 7 quads,
+' 8 straight flush.
+'
+' Equity: Monte Carlo over a fixed-seed LCG — given my hole cards and the
+' known board, deal random opponent hands + the remaining board many times
+' and count how often my best hand beats every opponent.
+Public Type Card
+    Public Rank As Long
+    Public Suit As Long
+End Type
+
+' ---------- card helpers ----------
+
+' Parse "Ah", "Td", "Ks", "9c" into a Card. Rank 0 = invalid.
+Public Function ParseCard(ByVal text As String) As Card
+    If text.Len() < 2 Then
+        Return InvalidCard()
+    End If
+    ' Assign Left/Right to locals first (Quirk 19: a call result isn't
+    ' auto-borrowed into a ByVal String param).
+    Dim firstCh As String = Left(text, 1)
+    Dim lastCh As String = Right(text, 1)
+    Dim r As Long = ParseRank(firstCh)
+    Dim s As Long = ParseSuit(lastCh)
+    If r < 2 Or s < 0 Then
+        Return InvalidCard()
+    End If
+    Return Card { rank: r, suit: s }
+End Function
+
+' The card's display name, e.g. "Ah".
+Public Function CardName(ByVal c As Card) As String
+    If c.Rank < 2 Then
+        Return "??"
+    End If
+    Return RankChar(c.Rank) & SuitChar(c.Suit)
+End Function
+
+' "A", "K", "Q", "J", "T", or the digit.
+Public Function RankChar(ByVal r As Long) As String
+    If r = 14 Then
+        Return "A"
+    ElseIf r = 13 Then
+        Return "K"
+    ElseIf r = 12 Then
+        Return "Q"
+    ElseIf r = 11 Then
+        Return "J"
+    ElseIf r = 10 Then
+        Return "T"
+    Else
+        Return CStr(r)
+    End If
+End Function
+
+' "c", "d", "h", "s".
+Public Function SuitChar(ByVal s As Long) As String
+    If s = 0 Then
+        Return "c"
+    ElseIf s = 1 Then
+        Return "d"
+    ElseIf s = 2 Then
+        Return "h"
+    Else
+        Return "s"
+    End If
+End Function
+
+Public Function ParseRank(ByVal ch As String) As Long
+    If ch = "A" Then
+        Return 14
+    ElseIf ch = "K" Then
+        Return 13
+    ElseIf ch = "Q" Then
+        Return 12
+    ElseIf ch = "J" Then
+        Return 11
+    ElseIf ch = "T" Then
+        Return 10
+    Else
+        Return Val(ch)
+    End If
+End Function
+
+Public Function ParseSuit(ByVal ch As String) As Long
+    If ch = "c" Then
+        Return 0
+    ElseIf ch = "d" Then
+        Return 1
+    ElseIf ch = "h" Then
+        Return 2
+    ElseIf ch = "s" Then
+        Return 3
+    Else
+        Return -1
+    End If
+End Function
+
+Public Function InvalidCard() As Card
+    Return Card { rank: 0, suit: 0 }
+End Function
+
+' ---------- hand evaluation ----------
+
+' The best 5-card score from 5..7 cards. Tries every 5-card combination
+' and keeps the maximum (C(7,5)=21 — trivial).
+Public Function BestScore(ByVal cards As Vec<Card>) As Long
+    Dim n As Long = cards.Len()
+    Dim best As Long = -1
+    Dim i As Long = 0
+    For i = 0 To n - 1
+        Dim j As Long = 0
+        For j = i + 1 To n - 1
+            Dim k As Long = 0
+            For k = j + 1 To n - 1
+                Dim l As Long = 0
+                For l = k + 1 To n - 1
+                    Dim m As Long = 0
+                    For m = l + 1 To n - 1
+                        Dim five As Vec<Card>
+                        five.Push(cards[i].Clone())
+                        five.Push(cards[j].Clone())
+                        five.Push(cards[k].Clone())
+                        five.Push(cards[l].Clone())
+                        five.Push(cards[m].Clone())
+                        Dim sc As Long = Score5(five)
+                        If sc > best Then
+                            best = sc
+                        End If
+                    Next
+                Next
+            Next
+        Next
+    Next
+    Return best
+End Function
+
+' Score exactly 5 cards. The score packs category and tiebreaks into one
+' comparable Long.
+Public Function Score5(ByVal cards As Vec<Card>) As Long
+    ' Rank counts (index 0..1 unused; 2..14) and suit counts — Vec so no
+    ' fixed-array parameter syntax is needed.
+    Dim rc As Vec<Long> = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    Dim sc As Vec<Long> = [0, 0, 0, 0]
+    Dim i As Long = 0
+    For i = 0 To 4
+        rc[cards[i].Rank] = rc[cards[i].Rank] + 1
+        sc[cards[i].Suit] = sc[cards[i].Suit] + 1
+    Next
+
+    ' Suit counts.
+    Dim flushSuit As Long = -1
+    Dim s As Long = 0
+    For s = 0 To 3
+        If sc[s] = 5 Then
+            flushSuit = s
+        End If
+    Next
+
+    ' Straight: the five distinct ranks sorted; a wheel (A,2,3,4,5) counts
+    ' as a 5-high straight.
+    Dim ranks As Vec<Long>
+    Dim r As Long = 2
+    For r = 2 To 14
+        If rc[r] > 0 Then
+            ranks.Push(r)
+        End If
+    Next
+    Dim straightHigh As Long = -1
+    If ranks.Len() = 5 Then
+        If ranks[4] - ranks[0] = 4 Then
+            straightHigh = ranks[4]
+        ElseIf ranks[0] = 2 And ranks[1] = 3 And ranks[2] = 4 And ranks[3] = 5 And ranks[4] = 14 Then
+            straightHigh = 5
+        End If
+    End If
+
+    ' Counts of counts: quads/trips/pairs (by descending rank).
+    Dim quadRank As Long = 0
+    Dim tripRank As Long = 0
+    Dim pair1 As Long = 0
+    Dim pair2 As Long = 0
+    For r = 14 To 2 Step -1
+        If rc[r] = 4 Then
+            quadRank = r
+        ElseIf rc[r] = 3 Then
+            If tripRank = 0 Then
+                tripRank = r
+            End If
+        ElseIf rc[r] = 2 Then
+            If pair1 = 0 Then
+                pair1 = r
+            ElseIf pair2 = 0 Then
+                pair2 = r
+            End If
+        End If
+    Next
+
+    ' Build the tiebreak signature: up to 5 significant ranks, highest
+    ' first (kickers fill the rest), each 0..14 -> base 15 digit.
+    Dim sig As Vec<Long>
+    If flushSuit >= 0 And straightHigh > 0 Then
+        Return Pack(8, straightHigh, 0, 0, 0, 0)
+    End If
+    If quadRank > 0 Then
+        sig.Push(quadRank)
+        PushKickers(rc, sig, 1)
+        Return PackV(7, sig)
+    End If
+    If tripRank > 0 And pair1 > 0 Then
+        Return Pack(6, tripRank, pair1, 0, 0, 0)
+    End If
+    If flushSuit >= 0 Then
+        PushAllRanks(rc, sig)
+        Return PackV(5, sig)
+    End If
+    If straightHigh > 0 Then
+        Return Pack(4, straightHigh, 0, 0, 0, 0)
+    End If
+    If tripRank > 0 Then
+        sig.Push(tripRank)
+        PushKickers(rc, sig, 2)
+        Return PackV(3, sig)
+    End If
+    If pair1 > 0 And pair2 > 0 Then
+        Return Pack(2, pair1, pair2, KickerHigh(rc, pair1, pair2), 0, 0)
+    End If
+    If pair1 > 0 Then
+        sig.Push(pair1)
+        PushKickers(rc, sig, 3)
+        Return PackV(1, sig)
+    End If
+    PushAllRanks(rc, sig)
+    Return PackV(0, sig)
+End Function
+
+' category*15^5 + the five digits (base 15).
+Public Function Pack(ByVal cat As Long, ByVal a As Long, ByVal b As Long, ByVal c As Long, ByVal d As Long, ByVal e As Long) As Long
+    Return cat * 759375 + a * 50625 + b * 3375 + c * 225 + d * 15 + e
+End Function
+
+' Pack from a signature Vec (pad to 5 digits).
+Public Function PackV(ByVal cat As Long, ByVal sig As Vec<Long>) As Long
+    Dim a As Long = 0
+    Dim b As Long = 0
+    Dim c As Long = 0
+    Dim d As Long = 0
+    Dim e As Long = 0
+    If sig.Len() > 0 Then
+        a = sig[0]
+    End If
+    If sig.Len() > 1 Then
+        b = sig[1]
+    End If
+    If sig.Len() > 2 Then
+        c = sig[2]
+    End If
+    If sig.Len() > 3 Then
+        d = sig[3]
+    End If
+    If sig.Len() > 4 Then
+        e = sig[4]
+    End If
+    Return Pack(cat, a, b, c, d, e)
+End Function
+
+' Append the highest `count` single ranks as kickers.
+Public Sub PushKickers(ByRef rc As Vec<Long>, ByRef sig As Vec<Long>, ByVal count As Long)
+    Dim added As Long = 0
+    Dim r As Long = 14
+    For r = 14 To 2 Step -1
+        If added >= count Then
+            Exit For
+        End If
+        If rc[r] = 1 Then
+            sig.Push(r)
+            added = added + 1
+        End If
+    Next
+End Sub
+
+' Append every rank present, highest first (for high-card and flush).
+Public Sub PushAllRanks(ByRef rc As Vec<Long>, ByRef sig As Vec<Long>)
+    Dim r As Long = 14
+    For r = 14 To 2 Step -1
+        If rc[r] > 0 Then
+            sig.Push(r)
+        End If
+    Next
+End Sub
+
+' The highest rank not in the two pairs (the kicker).
+Public Function KickerHigh(ByRef rc As Vec<Long>, ByVal pair1 As Long, ByVal pair2 As Long) As Long
+    Dim r As Long = 14
+    For r = 14 To 2 Step -1
+        If rc[r] = 1 Then
+            Return r
+        End If
+    Next
+    Return 0
+End Function
+
+' ---------- equity simulation ----------
+
+' The Monte Carlo engine: deal `trials` random games (opponent hands +
+' remaining board) with a fixed-seed LCG, return the win fraction 0..1.
+' `myCards` = 2 hole cards, `board` = 0..5 known community cards,
+' `opponents` = number of other players.
+Public Function WinProbability(ByVal myCards As Vec<Card>, ByVal board As Vec<Card>, ByVal opponents As Long, ByVal trials As Long) As Double
+    Dim deck As Vec<Card> = BuildDeck()
+    ' Remove known cards from the deck. (For-counters are i32; widen to
+    ' Long before passing — Quirk 2's family.)
+    Dim d As Long = 0
+    For d = deck.Len() - 1 To 0 Step -1
+        If IsKnown(deck[d], myCards, board) Then
+            Dim di As Long = d
+            RemoveAt(deck, di)
+        End If
+    Next
+
+    Dim state As Long = 12345
+    Dim wins As Long = 0
+    Dim t As Long = 0
+    For t = 1 To trials
+        ' Shuffle a copy of the deck (Fisher-Yates with the LCG).
+        Dim dk As Vec<Card> = deck.Clone()
+        Dim i As Long = 0
+        For i = dk.Len() - 1 To 1 Step -1
+            Dim ii As Long = i
+            Dim j As Long = NextInt(state, ii + 1)
+            Swap(dk, ii, j)
+        Next
+        Dim pos As Long = 0
+        ' Deal each opponent 2 cards.
+        Dim oppBest As Long = -1
+        Dim o As Long = 0
+        For o = 1 To opponents
+            Dim opp As Vec<Card>
+            opp.Push(dk[pos].Clone())
+            opp.Push(dk[pos + 1].Clone())
+            pos = pos + 2
+            ' CompleteHand advances pos itself for the fillers it draws —
+            ' do NOT add (5 - board.Len()) again (that double-counts).
+            Dim oc As Vec<Card> = CompleteHand(opp, dk, pos, board)
+            Dim s As Long = BestScore(oc)
+            If s > oppBest Then
+                oppBest = s
+            End If
+        Next
+        ' My hand: my cards + the full board.
+        Dim mine As Vec<Card> = CompleteHand(myCards, dk, pos, board)
+        If BestScore(mine) > oppBest Then
+            wins = wins + 1
+        End If
+    Next
+
+    Dim w As Double = wins
+    Dim tr As Double = trials
+    Return w / tr
+End Function
+
+' Build the full 52-card deck.
+Public Function BuildDeck() As Vec<Card>
+    Dim out As Vec<Card>
+    Dim r As Long = 2
+    For r = 2 To 14
+        Dim s As Long = 0
+        For s = 0 To 3
+            out.Push(Card { rank: r, suit: s })
+        Next
+    Next
+    Return out
+End Function
+
+' Is this card one of the known ones (mine or on the board)?
+Public Function IsKnown(ByVal c As Card, ByVal mine As Vec<Card>, ByVal board As Vec<Card>) As Boolean
+    Dim i As Long = 0
+    For i = 0 To mine.Len() - 1
+        If SameCard(c, mine[i]) Then
+            Return True
+        End If
+    Next
+    Dim j As Long = 0
+    For j = 0 To board.Len() - 1
+        If SameCard(c, board[j]) Then
+            Return True
+        End If
+    Next
+    Return False
+End Function
+
+Public Function SameCard(ByVal a As Card, ByVal b As Card) As Boolean
+    Return a.Rank = b.Rank And a.Suit = b.Suit
+End Function
+
+Public Sub RemoveAt(ByRef v As Vec<Card>, ByVal idx As Long)
+    Dim i As Long = idx
+    For i = idx To v.Len() - 2
+        v[i] = v[i + 1].Clone()
+    Next
+    v.Pop()
+End Sub
+
+Public Sub Swap(ByRef v As Vec<Card>, ByVal i As Long, ByVal j As Long)
+    Dim tmp As Card = v[i].Clone()
+    v[i] = v[j].Clone()
+    v[j] = tmp
+End Sub
+
+' A complete 5-card hand: the player's cards + the known board + enough
+' fresh cards from the deck at `pos` to fill to five.
+Public Function CompleteHand(ByVal player As Vec<Card>, ByRef dk As Vec<Card>, ByRef pos As Long, ByVal board As Vec<Card>) As Vec<Card>
+    Dim out As Vec<Card>
+    Dim i As Long = 0
+    For i = 0 To player.Len() - 1
+        out.Push(player[i].Clone())
+    Next
+    Dim j As Long = 0
+    For j = 0 To board.Len() - 1
+        out.Push(board[j].Clone())
+    Next
+    Dim need As Long = 5 - out.Len()
+    Dim k As Long = 0
+    For k = 1 To need
+        out.Push(dk[pos].Clone())
+        pos = pos + 1
+    Next
+    Return out
+End Function
+
+' The next LCG value in [0, bound) — deterministic.
+Public Function NextInt(ByRef state As Long, ByVal bound As Long) As Long
+    state = (state * 1103515245 + 12345) Mod 2147483648
+    Return state Mod bound
+End Function
+
+' ---------- TUI helpers ----------
+
+' A fresh empty board.
+Public Function NewBoard() As Vec<Card>
+    Dim out As Vec<Card>
+    Return out
+End Function
+
+' Deal `count` board cards (deterministically, excluding my hole cards):
+' used by the TUI to produce the flop/turn/river.
+Public Function DealBoard(ByVal myCards As Vec<Card>, ByVal count As Long) As Vec<Card>
+    Dim deck As Vec<Card> = BuildDeck()
+    Dim d As Long = 0
+    For d = deck.Len() - 1 To 0 Step -1
+        If IsKnown(deck[d], myCards, NewBoard()) Then
+            Dim di As Long = d
+            RemoveAt(deck, di)
+        End If
+    Next
+    Dim state As Long = 98765
+    Dim out As Vec<Card>
+    Dim i As Long = 0
+    For i = 1 To count
+        Dim bound As Long = deck.Len()
+        Dim j As Long = NextInt(state, bound)
+        out.Push(deck[j].Clone())
+        RemoveAt(deck, j)
+    Next
+    Return out
+End Function
+
+' "Ah Kd 7c ..." — the board as text.
+Public Function FormatBoard(ByVal board As Vec<Card>) As String
+    Dim out As String = ""
+    Dim i As Long = 0
+    For i = 0 To board.Len() - 1
+        If i > 0 Then
+            out = out & " "
+        End If
+        Dim c As Card = board[i].Clone()
+        out = out & CardName(c)
+    Next
+    Return out
+End Function
+
+' ---------- TUI shared logic (events can't call other events, so the
+' shared setup/recompute lives here and events call it qualified) ----------
+
+' Validate and set the hole cards. Mutates the caller's state fields.
+Public Sub TrySetup(ByRef hole1 As String, ByRef hole2 As String, ByRef myCards As Vec<Card>, ByRef board As Vec<Card>, ByRef stage As Long, ByRef boardText As String, ByRef equity As String, ByRef status As String)
+    Dim c1 As Card = ParseCard(hole1)
+    Dim c2 As Card = ParseCard(hole2)
+    If c1.Rank < 2 Or c2.Rank < 2 Then
+        status = "Enter valid cards, e.g. Ah Kd."
+    Else
+        myCards = [c1, c2]
+        board = NewBoard()
+        stage = 0
+        boardText = "-"
+        equity = "Waiting for the flop..."
+        status = "Cards set. Press f for the flop."
+    End If
+End Sub
+
+' Recompute and display the win probability for the current stage.
+Public Sub ShowEquity(ByRef board As Vec<Card>, ByRef boardText As String, ByRef status As String, ByRef equity As String, ByVal myCards As Vec<Card>, ByVal stage As Long, ByVal players As String)
+    Dim n As Long = Val(players)
+    If n < 1 Then
+        n = 1
+    End If
+    Dim p As Double = WinProbability(myCards, board, n - 1, 300)
+    Dim pct As Long = Round(p * 100)
+    boardText = FormatBoard(board)
+    If stage = 1 Then
+        status = "Flop dealt."
+    ElseIf stage = 2 Then
+        status = "Turn dealt."
+    Else
+        status = "River dealt."
+    End If
+    equity = CStr(pct) & "% to win vs " & n & " players"
+End Sub

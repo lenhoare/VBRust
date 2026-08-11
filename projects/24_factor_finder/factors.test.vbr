@@ -1,0 +1,24 @@
+' 24 — Factor Finder, test file.
+Test "factors of twelve"
+    Assert Factors.Factors(12) = [1, 2, 3, 4, 6, 12]
+End Test
+
+Test "factors of a prime are one and itself"
+    Assert Factors.Factors(97) = [1, 97]
+End Test
+
+Test "factors of a perfect square include the root once"
+    Assert Factors.Factors(16) = [1, 2, 4, 8, 16]
+    Assert Factors.Factors(144) = [1, 2, 3, 4, 6, 8, 9, 12, 16, 18, 24, 36, 48, 72, 144]
+End Test
+
+Test "factors of one"
+    Assert Factors.Factors(1) = [1]
+End Test
+
+Test "ascending order preserved"
+    Dim xs As Vec<Long> = Factors.Factors(60)
+    Assert xs[0] = 1
+    Assert xs[1] = 2
+    Assert xs[xs.Len() - 1] = 60
+End Test

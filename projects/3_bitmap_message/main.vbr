@@ -1,0 +1,19 @@
+' 3 — Bitmap Message, entry point.
+' NOTE: the local variable cannot be named `bitmap` — it collides with the
+' module name `Bitmap` (from bitmap.vbr), so `bitmap.Push(...)` resolves to
+' a qualified module call. Use a different name (here: bmp).
+Function Main()
+    Dim bmp As Vec<String>
+    bmp.Push("     xxxxx     ")
+    bmp.Push("  xxx     xxx  ")
+    bmp.Push("xxx         xxx")
+    bmp.Push("xxx         xxx")
+    bmp.Push("  xxx     xxx  ")
+
+    Dim msg As String = "VBR"
+    Debug.Print "Bitmap message (" & msg & "):"
+    Dim rows As Vec<String> = Bitmap.Display(msg, bmp)
+    For Each row In rows
+        Debug.Print row
+    Next
+End Function

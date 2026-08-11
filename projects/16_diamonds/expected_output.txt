@@ -1,0 +1,15 @@
+Outline diamond (size 4):
+   /\
+  /  \
+ /    \
+/      \
+ /    \
+  /  \
+   /\
+
+Filled diamond (size 3):
+  *
+ ***
+*****
+ ***
+  *

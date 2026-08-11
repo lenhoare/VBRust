@@ -1,0 +1,24 @@
+' 26 — Fibonacci, test file.
+Test "first ten numbers"
+    Assert Fib.Fibs(10) = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+End Test
+
+Test "empty for zero count"
+    Assert Fib.Fibs(0).Len() = 0
+End Test
+
+Test "single value starts at zero"
+    Assert Fib.Fibs(1) = [0]
+End Test
+
+Test "nth number zero based"
+    Assert Fib.Fib(0) = 0
+    Assert Fib.Fib(1) = 1
+    Assert Fib.Fib(7) = 13
+    Assert Fib.Fib(10) = 55
+End Test
+
+Test "larger values stay exact"
+    Assert Fib.Fib(20) = 6765
+    Assert Fib.Fib(30) = 832040
+End Test

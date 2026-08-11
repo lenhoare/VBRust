@@ -1,0 +1,42 @@
+' A2 — simple enum demo — a traffic-light state machine.
+' Demonstrates:
+'   - Enum definition (TrafficLight)
+'   - Public Function that takes the enum and returns a duration (Long)
+'   - Public Function that returns the string name of the enum
+'   - Public Const for the default timing (uppercased on Rust side)
+'   - main.vbr that prints a table by calling the logic module (traffic.vbr)
+'
+' The enum variants carry no payload (unit variants), so they are Copy and
+' comparable with =. Match patterns are the variant names prefixed by the enum
+' name (TrafficLight.Red, etc.) because enums are project-global by bare name.
+'
+' NOTE: integer literals adapt to Long params in local calls but NOT in qualified
+' cross-module calls, so we either write literals with .0 (e.g. 30.0) or widen
+' through a local Double before passing (as done in A1). Here we use float
+' literals to keep it simple.
+
+Public Const DefaultRedSec As Double = 30.0
+Public Const DefaultYellowSec As Double = 5.0
+Public Const DefaultGreenSec As Double = 45.0
+
+Public Enum TrafficLight
+    Red
+    Yellow
+    Green
+End Enum
+
+Public Function DurationSec(ByVal light As TrafficLight) As Long
+    Match light
+        TrafficLight.Red => Return Round(DefaultRedSec)
+        TrafficLight.Yellow => Return Round(DefaultYellowSec)
+        TrafficLight.Green => Return Round(DefaultGreenSec)
+    End Match
+End Function
+
+Public Function Name(ByVal light As TrafficLight) As String
+    Match light
+        TrafficLight.Red => Return "Red"
+        TrafficLight.Yellow => Return "Yellow"
+        TrafficLight.Green => Return "Green"
+    End Match
+End Function

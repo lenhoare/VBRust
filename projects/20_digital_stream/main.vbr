@@ -1,0 +1,64 @@
+' 20 — Digital Stream, entry point: a Screen (ratatui TUI) that animates
+' the Matrix-style digital rain. The column simulation lives in stream.vbr
+' and is unit-tested; this file renders one frame per tick.
+'
+' Screen features exercised: Every timer, a Vec<StreamColumn> in state, a
+' pre-rendered frame string, deterministic BitChar per cell.
+Screen Rain
+    Title "Digital Stream"
+
+    State
+        Dim cols As Vec<StreamColumn> = Stream.NewColumns(16)
+        Dim height As Long = 12
+        Dim trail As Long = 4
+        Dim frame As String = ""
+    End State
+
+    View
+        Column
+            Spacing 0
+            Text "Digital Stream"
+            Text ""
+            Length 14
+            Text frame
+            Text ""
+            Text "q = quit"
+        End Column
+    End View
+
+    On Key "q" Quit
+
+    Every 120 Tick
+
+    Event Tick
+        ' Advance all columns (inlined — events can't call other events).
+        Dim i As Long = 0
+        For i = 0 To cols.Len() - 1
+            cols[i] = Stream.StepColumn(cols[i], height)
+        Next
+        ' Render the frame.
+        Dim out As String = ""
+        Dim row As Long = 0
+        For row = 0 To height - 1
+            Dim line As String = ""
+            Dim j As Long = 0
+            For j = 0 To cols.Len() - 1
+                If Stream.IsLit(cols[j], row, height, trail) Then
+                    line = line & Stream.BitChar(row)
+                Else
+                    line = line & " "
+                End If
+            Next
+            If row > 0 Then
+                out = out & vbLf & line
+            Else
+                out = line
+            End If
+        Next
+        frame = out
+    End Event
+End Screen
+
+Function Main()
+    Rain.Run
+End Function
