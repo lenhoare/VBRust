@@ -1,0 +1,71 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Gauges, sparkline, and an alerts list. NOC wall / status board.
+Screen StatusBoard
+    Title "Status"
+
+    Menu
+        Menu "File"
+            Item "Acknowledge" AckAlert
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "View"
+            Item "Refresh" Refresh
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Health"
+            Length 3
+            Row
+                Fill
+                Frame "Up"
+                    Column
+                        Fill
+                        Gauge 0..=100, uptime
+                    End Column
+                End Frame
+                Fill
+                Frame "Queue"
+                    Column
+                        Fill
+                        Gauge 0..=100, queue
+                    End Column
+                End Frame
+                Fill
+                Frame "Errors"
+                    Column
+                        Fill
+                        Gauge 0..=100, errors
+                    End Column
+                End Frame
+            End Row
+            Length 5
+            Frame "Traffic"
+                Column
+                    Fill
+                    Sparkline traffic
+                End Column
+            End Frame
+            Length 1
+            Text "Alerts"
+            Fill
+            List alerts
+                On Select AlertSelected
+            End List
+            Length 1
+            Row
+                Length 1
+                Button "Ack"
+                    On Click AckAlert
+                End Button
+                Length 1
+                Button "Refresh"
+                    On Click Refresh
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

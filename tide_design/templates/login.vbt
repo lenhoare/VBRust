@@ -1,0 +1,42 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Sign-in form: username, password, OK / Cancel. Every app's first screen.
+Screen Login
+    Title "Sign in"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Sign in"
+            Space Height 1
+            Length 1
+            Text "User name"
+            Length 3
+            Input userName
+            End Input
+            Length 1
+            Text "Password"
+            Length 3
+            Input password
+                On Submit DoLogin
+            End Input
+            Space Height 1
+            Length 1
+            Row
+                Length 1
+                Button "OK"
+                    On Click DoLogin
+                End Button
+                Length 1
+                Button "Cancel"
+                    On Click Quit
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

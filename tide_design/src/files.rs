@@ -200,6 +200,71 @@ fn split_path_prefix(input: &str) -> (PathBuf, String, String) {
     }
 }
 
+/// Directory Open / Save-as-template start in.
+///
+/// Prefers the crate's bundled `templates/` (when running via `cargo run`),
+/// then a `templates/` next to the binary, then `./templates` or
+/// `./tide_design/templates` from the current directory.
+pub fn templates_dir() -> PathBuf {
+    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("templates");
+    if bundled.is_dir() {
+        return bundled;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let next_to_exe = dir.join("templates");
+            if next_to_exe.is_dir() {
+                return next_to_exe;
+            }
+        }
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    for candidate in [cwd.join("templates"), cwd.join("tide_design").join("templates")] {
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+    bundled
+}
+
+/// `templates_dir()` with a trailing separator so Tab lists the files inside.
+pub fn templates_dir_slash() -> String {
+    with_trailing_sep(&templates_dir())
+}
+
+pub fn with_trailing_sep(path: &Path) -> String {
+    let mut s = path.to_string_lossy().into_owned();
+    if s.is_empty() {
+        s.push('.');
+    }
+    if !s.ends_with('/') && !s.ends_with('\\') {
+        s.push('/');
+    }
+    s
+}
+
+/// Suggested path when saving a new template: `templates/<screen>.vbt`.
+pub fn default_vbt_path(screen_name: &str) -> PathBuf {
+    templates_dir().join(format!("{}.vbt", snake_name(screen_name)))
+}
+
+fn snake_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut prev_lower = false;
+    for c in name.chars() {
+        if c.is_uppercase() && prev_lower {
+            out.push('_');
+        }
+        out.extend(c.to_lowercase());
+        prev_lower = c.is_lowercase();
+    }
+    if out.is_empty() {
+        "screen".into()
+    } else {
+        out
+    }
+}
+
 pub fn is_vbt(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -217,4 +282,31 @@ pub fn with_ext(mut path: PathBuf, ext: &str) -> PathBuf {
         path.set_extension(ext);
     }
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snake_name_splits_pascal() {
+        assert_eq!(snake_name("Notes"), "notes");
+        assert_eq!(snake_name("MasterDetail"), "master_detail");
+        assert_eq!(snake_name("FileBrowser"), "file_browser");
+        assert_eq!(snake_name("Crud"), "crud");
+    }
+
+    #[test]
+    fn bundled_templates_dir_exists() {
+        let dir = templates_dir();
+        assert!(dir.is_dir(), "{}", dir.display());
+        let n = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| is_vbt(&e.path()))
+            .count();
+        assert!(n >= 20, "expected 20 templates in {}, found {n}", dir.display());
+        let slash = templates_dir_slash();
+        assert!(slash.ends_with('/') || slash.ends_with('\\'));
+    }
 }

@@ -1,10 +1,18 @@
 ' VBR Screen template — structure only. Open in tide_design.
+' Scratch pad: a titled memo. The Notepad / Turbo Pascal editor starting point.
 Screen Notes
     Title "Notes"
 
     Menu
         Menu "File"
+            Item "New" NewNote
+            Item "Open" OpenNote
+            Item "Save" SaveNote
+            Separator
             Item "Quit" Quit
+        End Menu
+        Menu "Edit"
+            Item "Find" FindText
         End Menu
     End Menu
 

@@ -1,0 +1,44 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Output memo plus command line. BASIC, Python, SQL, Forth.
+Screen Repl
+    Title "Console"
+
+    Menu
+        Menu "File"
+            Item "Clear" ClearOutput
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Run"
+            Item "Evaluate" Evaluate
+            Item "Interrupt" Interrupt
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Output"
+            Fill
+            Memo output
+            End Memo
+            Length 1
+            Text "Command"
+            Length 3
+            Input command
+                On Submit Evaluate
+            End Input
+            Length 1
+            Row
+                Length 1
+                Button "Run"
+                    On Click Evaluate
+                End Button
+                Length 1
+                Button "Clear"
+                    On Click ClearOutput
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

@@ -1,0 +1,62 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Gauges, sparkline, and bars. Ops console / KPI wall.
+Screen Dashboard
+    Title "Dashboard"
+
+    Menu
+        Menu "File"
+            Item "Refresh" Refresh
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "View"
+            Item "Today" ViewToday
+            Item "Week" ViewWeek
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Overview"
+            Length 3
+            Row
+                Fill
+                Frame "CPU"
+                    Column
+                        Fill
+                        Gauge 0..=100, cpu
+                    End Column
+                End Frame
+                Fill
+                Frame "Memory"
+                    Column
+                        Fill
+                        Gauge 0..=100, memory
+                    End Column
+                End Frame
+                Fill
+                Frame "Disk"
+                    Column
+                        Fill
+                        Gauge 0..=100, disk
+                    End Column
+                End Frame
+            End Row
+            Length 5
+            Frame "Load"
+                Column
+                    Fill
+                    Sparkline load
+                End Column
+            End Frame
+            Fill
+            Frame "By service"
+                Column
+                    Fill
+                    BarChart services
+                End Column
+            End Frame
+        End Column
+    End View
+End Screen

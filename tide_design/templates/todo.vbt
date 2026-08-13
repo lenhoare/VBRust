@@ -1,0 +1,54 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Add line plus checklist. Sidekick, Things, every todo app.
+Screen Todo
+    Title "Tasks"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+        Menu "Task"
+            Item "Add" AddTask
+            Item "Complete" CompleteTask
+            Item "Delete" DeleteTask
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "New task"
+            Length 3
+            Input newTask
+                On Submit AddTask
+            End Input
+            Length 1
+            Row
+                Length 1
+                Button "Add"
+                    On Click AddTask
+                End Button
+                Length 1
+                Checkbox "Show done", showDone
+                End Checkbox
+            End Row
+            Length 1
+            Text "Tasks"
+            Fill
+            List tasks
+                On Select TaskSelected
+            End List
+            Length 1
+            Row
+                Length 1
+                Button "Complete"
+                    On Click CompleteTask
+                End Button
+                Length 1
+                Button "Delete"
+                    On Click DeleteTask
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

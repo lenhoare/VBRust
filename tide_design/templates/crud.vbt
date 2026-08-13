@@ -1,0 +1,44 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Table plus New / Edit / Delete. Classic data-entry CRUD.
+Screen Crud
+    Title "Records"
+
+    Menu
+        Menu "File"
+            Item "New" NewRow
+            Item "Save" SaveRow
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Edit"
+            Item "Edit" EditRow
+            Item "Delete" DeleteRow
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Records"
+            Fill
+            Table rows
+                On Select RowSelected
+            End Table
+            Length 1
+            Row
+                Length 1
+                Button "New"
+                    On Click NewRow
+                End Button
+                Length 1
+                Button "Edit"
+                    On Click EditRow
+                End Button
+                Length 1
+                Button "Delete"
+                    On Click DeleteRow
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

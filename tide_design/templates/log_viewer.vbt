@@ -1,0 +1,47 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Filter box over a scrolling log. Tail, Event Viewer, syslog.
+Screen LogViewer
+    Title "Log"
+
+    Menu
+        Menu "File"
+            Item "Open" OpenLog
+            Item "Clear" ClearLog
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "View"
+            Item "Follow" FollowTail
+            Item "Pause" PauseTail
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Filter"
+            Length 3
+            Input filter
+                On Submit ApplyFilter
+            End Input
+            Length 1
+            Row
+                Length 1
+                Radio "All", level, 0
+                    On Select LevelChanged
+                End Radio
+                Length 1
+                Radio "Warn", level, 1
+                    On Select LevelChanged
+                End Radio
+                Length 1
+                Radio "Error", level, 2
+                    On Select LevelChanged
+                End Radio
+            End Row
+            Fill
+            Memo logText
+            End Memo
+        End Column
+    End View
+End Screen

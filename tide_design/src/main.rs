@@ -22,7 +22,9 @@ use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
 use emit::{design_to_vbr, design_to_vbt};
-use files::{is_vbt, path_enter_dir, path_tab_complete, with_ext};
+use files::{
+    default_vbt_path, is_vbt, path_enter_dir, path_tab_complete, templates_dir_slash, with_ext,
+};
 use load::load_template;
 use model::{Design, Kind, MenuKind};
 use preview::hit_test;
@@ -370,7 +372,7 @@ fn open_path_dialog(ui: &mut Ui, mode: PathMode, design: &Design) {
             .as_ref()
             .filter(|p| is_vbt(p))
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| format!("{}.vbt", design.screen_name.to_ascii_lowercase())),
+            .unwrap_or_else(templates_dir_slash),
         PathMode::SaveVbr => design
             .path
             .as_ref()
@@ -382,7 +384,7 @@ fn open_path_dialog(ui: &mut Ui, mode: PathMode, design: &Design) {
             .as_ref()
             .filter(|p| is_vbt(p))
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| format!("{}.vbt", design.screen_name.to_ascii_lowercase())),
+            .unwrap_or_else(|| default_vbt_path(&design.screen_name).display().to_string()),
     };
     ui.dialog = Some(Dialog::Path {
         mode,

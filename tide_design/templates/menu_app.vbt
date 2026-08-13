@@ -1,0 +1,54 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Menu-heavy shell with a work memo. Turbo Pascal / WordStar / TIDE itself.
+Screen MenuApp
+    Title "Workbench"
+
+    Menu
+        Menu "File"
+            Item "New" FileNew
+            Item "Open" FileOpen
+            Item "Save" FileSave
+            Item "Save as" FileSaveAs
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Edit"
+            Item "Cut" EditCut
+            Item "Copy" EditCopy
+            Item "Paste" EditPaste
+            Separator
+            Item "Find" EditFind
+            Item "Replace" EditReplace
+        End Menu
+        Menu "Search"
+            Item "Find" EditFind
+            Item "Find next" FindNext
+        End Menu
+        Menu "Run"
+            Item "Compile" Compile
+            Item "Make" Make
+            Item "Run" RunProgram
+        End Menu
+        Menu "Compile"
+            Item "Compile" Compile
+            Item "Make" Make
+            Item "Build all" BuildAll
+        End Menu
+        Menu "Help"
+            Item "Contents" HelpContents
+            Item "About" HelpAbout
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Untitled"
+            Fill
+            Memo buffer
+            End Memo
+            Length 1
+            Text "F10 menu  ·  Alt+X quit"
+        End Column
+    End View
+End Screen

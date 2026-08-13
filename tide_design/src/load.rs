@@ -511,4 +511,25 @@ End Screen
         assert!(d.has_menus());
         assert!(d.root.children.iter().any(|c| c.kind == Kind::Memo));
     }
+
+    #[test]
+    fn all_bundled_templates_open() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let mut n = 0;
+        let mut names = Vec::new();
+        for ent in std::fs::read_dir(&dir).expect("templates/") {
+            let path = ent.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("vbt") {
+                continue;
+            }
+            n += 1;
+            names.push(path.file_name().unwrap().to_string_lossy().into_owned());
+            load_template(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        }
+        names.sort();
+        assert!(
+            n >= 20,
+            "expected at least 20 templates, found {n}: {names:?}"
+        );
+    }
 }

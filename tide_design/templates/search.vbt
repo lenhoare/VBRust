@@ -1,0 +1,51 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Query box plus results list. Finder, grep UI, Windows Search.
+Screen Search
+    Title "Find"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+        Menu "Search"
+            Item "Find next" FindNext
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Find"
+            Length 3
+            Input query
+                On Submit DoSearch
+            End Input
+            Length 1
+            Row
+                Length 1
+                Checkbox "Match case", matchCase
+                End Checkbox
+                Length 1
+                Checkbox "Whole word", wholeWord
+                End Checkbox
+            End Row
+            Length 1
+            Text "Results"
+            Fill
+            List results
+                On Select ResultSelected
+            End List
+            Length 1
+            Row
+                Length 1
+                Button "Search"
+                    On Click DoSearch
+                End Button
+                Length 1
+                Button "Clear"
+                    On Click ClearResults
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

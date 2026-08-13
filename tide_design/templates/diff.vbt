@@ -1,0 +1,55 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Two memos side by side. Diff, merge, before/after.
+Screen Diff
+    Title "Compare"
+
+    Menu
+        Menu "File"
+            Item "Open left" OpenLeft
+            Item "Open right" OpenRight
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "View"
+            Item "Next change" NextChange
+            Item "Previous change" PrevChange
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Compare"
+            Fill
+            Row
+                Fill
+                Frame "Left"
+                    Column
+                        Fill
+                        Memo leftText
+                        End Memo
+                    End Column
+                End Frame
+                Fill
+                Frame "Right"
+                    Column
+                        Fill
+                        Memo rightText
+                        End Memo
+                    End Column
+                End Frame
+            End Row
+            Length 1
+            Row
+                Length 1
+                Button "Next"
+                    On Click NextChange
+                End Button
+                Length 1
+                Button "Previous"
+                    On Click PrevChange
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

@@ -1,0 +1,42 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Transcript plus compose line. IRC, talk, Slack, SMS.
+Screen Chat
+    Title "Chat"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+        Menu "Room"
+            Item "Join" JoinRoom
+            Item "Leave" LeaveRoom
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Room"
+            Fill
+            Memo transcript
+            End Memo
+            Length 1
+            Text "Message"
+            Length 3
+            Input compose
+                On Submit SendMessage
+            End Input
+            Length 1
+            Row
+                Length 1
+                Button "Send"
+                    On Click SendMessage
+                End Button
+                Length 1
+                Button "Clear"
+                    On Click ClearCompose
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

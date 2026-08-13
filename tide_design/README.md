@@ -24,6 +24,35 @@ cargo run
 cargo run -- templates/notes.vbt   # open a Screen template
 ```
 
+**File → Open** and **Save as template…** start in `tide_design/templates/` (Tab lists the bundled screens). **Save as…** (`.vbr`) still uses the current directory.
+
+## Templates
+
+Twenty starter Screens — structure only, no event bodies. Open one, rearrange, then Save as a `.vbr` when you want logic.
+
+| File | Pattern |
+|------|---------|
+| `notes.vbt` | Scratch memo (Notepad / Turbo editor) |
+| `login.vbt` | Username, password, OK / Cancel |
+| `settings.vbt` | Tabbed checkboxes and radios |
+| `master_detail.vbt` | List + detail fields (Access / FileMaker) |
+| `dashboard.vbt` | Gauges, sparkline, bar chart |
+| `file_browser.vbt` | Two-pane commander (Norton / Midnight) |
+| `search.vbt` | Query box + results list |
+| `wizard.vbt` | Stepped tabs: Welcome → Details → Confirm |
+| `crud.vbt` | Table + New / Edit / Delete |
+| `log_viewer.vbt` | Filter + level radios + log memo |
+| `chat.vbt` | Transcript + compose line |
+| `mail.vbt` | Folders \| messages \| body (Pine) |
+| `calendar.vbt` | Agenda list + event detail |
+| `todo.vbt` | Add line + task list |
+| `inspector.vbt` | Labelled property rows (VB6 Properties) |
+| `diff.vbt` | Two memos side by side |
+| `repl.vbt` | Output memo + command line |
+| `menu_app.vbt` | Menu-heavy workbench (Turbo Pascal) |
+| `chart_report.vbt` | Chart above a data table |
+| `status_board.vbt` | Gauges, sparkline, alerts list |
+
 ## Keys
 
 | Key | Action |
@@ -51,10 +80,8 @@ cargo run -- templates/notes.vbt   # open a Screen template
 
 A `.vbr` a human has been editing is refused — the designer will not try to pick the View out of mixed logic. Start from a template, or from blank.
 
-Example: `templates/notes.vbt`.
-
 ## Later
 
 - Interactive preview (widgets actually focus / type)
-- Starter kits (Master/Detail, …) and “save selection as component”
+- “Save selection as component”
 - Hand-off “Open in TIDE”

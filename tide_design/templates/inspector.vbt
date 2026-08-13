@@ -1,0 +1,73 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Labelled property rows. VB6 Properties window, Delphi Object Inspector.
+Screen Inspector
+    Title "Properties"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+        Menu "Object"
+            Item "Apply" ApplyProps
+            Item "Reset" ResetProps
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Object"
+            Length 3
+            Input objName
+            End Input
+            Length 1
+            Text "Caption"
+            Length 3
+            Input caption
+            End Input
+            Length 1
+            Text "Width"
+            Length 3
+            Input width
+            End Input
+            Length 1
+            Text "Height"
+            Length 3
+            Input height
+            End Input
+            Length 1
+            Checkbox "Visible", visible
+            End Checkbox
+            Length 1
+            Checkbox "Enabled", enabled
+            End Checkbox
+            Length 1
+            Text "Align"
+            Length 1
+            Radio "Left", align, 0
+                On Select AlignChanged
+            End Radio
+            Length 1
+            Radio "Center", align, 1
+                On Select AlignChanged
+            End Radio
+            Length 1
+            Radio "Right", align, 2
+                On Select AlignChanged
+            End Radio
+            Fill
+            Space Height 1
+            Length 1
+            Row
+                Length 1
+                Button "Apply"
+                    On Click ApplyProps
+                End Button
+                Length 1
+                Button "Reset"
+                    On Click ResetProps
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

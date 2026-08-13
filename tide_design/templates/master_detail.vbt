@@ -1,0 +1,64 @@
+' VBR Screen template — structure only. Open in tide_design.
+' List on the left, fields on the right. Access, FileMaker, dBase, Outlook.
+Screen MasterDetail
+    Title "Records"
+
+    Menu
+        Menu "File"
+            Item "New" NewRecord
+            Item "Save" SaveRecord
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Record"
+            Item "Previous" PrevRecord
+            Item "Next" NextRecord
+            Item "Delete" DeleteRecord
+        End Menu
+    End Menu
+
+    View
+        Row
+            Percent 35
+            Frame "List"
+                Column
+                    Fill
+                    List records
+                        On Select RecordSelected
+                    End List
+                End Column
+            End Frame
+            Fill
+            Frame "Detail"
+                Column
+                    Length 1
+                    Text "Name"
+                    Length 3
+                    Input recName
+                    End Input
+                    Length 1
+                    Text "Code"
+                    Length 3
+                    Input recCode
+                    End Input
+                    Length 1
+                    Text "Notes"
+                    Fill
+                    Memo recNotes
+                    End Memo
+                    Length 1
+                    Row
+                        Length 1
+                        Button "Save"
+                            On Click SaveRecord
+                        End Button
+                        Length 1
+                        Button "Delete"
+                            On Click DeleteRecord
+                        End Button
+                    End Row
+                End Column
+            End Frame
+        End Row
+    End View
+End Screen

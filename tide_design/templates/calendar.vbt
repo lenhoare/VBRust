@@ -1,0 +1,72 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Day list plus event detail. Calendar / agenda, Sidekick, Outlook.
+Screen Calendar
+    Title "Calendar"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+        Menu "Event"
+            Item "New" NewEvent
+            Item "Delete" DeleteEvent
+        End Menu
+        Menu "Go"
+            Item "Today" GoToday
+            Item "Next month" NextMonth
+            Item "Previous month" PrevMonth
+        End Menu
+    End Menu
+
+    View
+        Row
+            Percent 40
+            Frame "Agenda"
+                Column
+                    Length 1
+                    Text "August 2026"
+                    Fill
+                    List days
+                        On Select DaySelected
+                    End List
+                End Column
+            End Frame
+            Fill
+            Frame "Event"
+                Column
+                    Length 1
+                    Text "Title"
+                    Length 3
+                    Input eventTitle
+                    End Input
+                    Length 1
+                    Text "When"
+                    Length 3
+                    Input eventWhen
+                    End Input
+                    Length 1
+                    Text "Where"
+                    Length 3
+                    Input eventWhere
+                    End Input
+                    Length 1
+                    Text "Notes"
+                    Fill
+                    Memo eventNotes
+                    End Memo
+                    Length 1
+                    Row
+                        Length 1
+                        Button "Save"
+                            On Click SaveEvent
+                        End Button
+                        Length 1
+                        Button "Delete"
+                            On Click DeleteEvent
+                        End Button
+                    End Row
+                End Column
+            End Frame
+        End Row
+    End View
+End Screen

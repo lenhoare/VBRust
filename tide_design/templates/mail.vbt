@@ -1,0 +1,69 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Folders | messages | body. Pine, elm, Outlook three-pane mail.
+Screen Mail
+    Title "Mail"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+        Menu "Message"
+            Item "New" NewMessage
+            Item "Reply" ReplyMessage
+            Item "Forward" ForwardMessage
+            Item "Delete" DeleteMessage
+        End Menu
+        Menu "Folder"
+            Item "Inbox" GoInbox
+            Item "Sent" GoSent
+            Item "Drafts" GoDrafts
+        End Menu
+    End Menu
+
+    View
+        Row
+            Percent 22
+            Frame "Folders"
+                Column
+                    Fill
+                    List folders
+                        On Select FolderSelected
+                    End List
+                End Column
+            End Frame
+            Percent 30
+            Frame "Messages"
+                Column
+                    Fill
+                    List messages
+                        On Select MessageSelected
+                    End List
+                End Column
+            End Frame
+            Fill
+            Frame "Body"
+                Column
+                    Length 1
+                    Text "Subject"
+                    Length 3
+                    Input subject
+                    End Input
+                    Fill
+                    Memo body
+                    End Memo
+                    Length 1
+                    Row
+                        Length 1
+                        Button "Reply"
+                            On Click ReplyMessage
+                        End Button
+                        Length 1
+                        Button "Delete"
+                            On Click DeleteMessage
+                        End Button
+                    End Row
+                End Column
+            End Frame
+        End Row
+    End View
+End Screen

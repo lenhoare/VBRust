@@ -1,0 +1,77 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Preferences: tabbed checkboxes and radios. Control Panel / Options dialog.
+Screen Settings
+    Title "Settings"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+    End Menu
+
+    View
+        Column
+            Fill
+            Tabs tab
+                On Change TabChanged
+                Tab "General"
+                    Column
+                        Length 1
+                        Checkbox "Confirm before quit", confirmQuit
+                        End Checkbox
+                        Length 1
+                        Checkbox "Restore last session", restoreSession
+                        End Checkbox
+                        Length 1
+                        Checkbox "Check for updates", checkUpdates
+                        End Checkbox
+                    End Column
+                End Tab
+                Tab "Display"
+                    Column
+                        Length 1
+                        Text "Theme"
+                        Length 1
+                        Radio "System", theme, 0
+                            On Select ThemeChanged
+                        End Radio
+                        Length 1
+                        Radio "Light", theme, 1
+                            On Select ThemeChanged
+                        End Radio
+                        Length 1
+                        Radio "Dark", theme, 2
+                            On Select ThemeChanged
+                        End Radio
+                    End Column
+                End Tab
+                Tab "Editor"
+                    Column
+                        Length 1
+                        Checkbox "Show line numbers", lineNumbers
+                        End Checkbox
+                        Length 1
+                        Checkbox "Word wrap", wordWrap
+                        End Checkbox
+                        Length 1
+                        Text "Tab width"
+                        Length 3
+                        Input tabWidth
+                        End Input
+                    End Column
+                End Tab
+            End Tabs
+            Length 1
+            Row
+                Length 1
+                Button "OK"
+                    On Click SaveSettings
+                End Button
+                Length 1
+                Button "Cancel"
+                    On Click Quit
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

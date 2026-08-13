@@ -1,0 +1,74 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Stepped tabs: Welcome → Details → Confirm. Installers, Turbo Pascal setup.
+Screen Wizard
+    Title "Setup"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+    End Menu
+
+    View
+        Column
+            Fill
+            Tabs wizardStep
+                On Change StepChanged
+                Tab "1. Welcome"
+                    Column
+                        Length 1
+                        Text "Welcome"
+                        Fill
+                        Memo welcome
+                        End Memo
+                    End Column
+                End Tab
+                Tab "2. Details"
+                    Column
+                        Length 1
+                        Text "Name"
+                        Length 3
+                        Input fullName
+                        End Input
+                        Length 1
+                        Text "Folder"
+                        Length 3
+                        Input installDir
+                        End Input
+                        Length 1
+                        Checkbox "Create desktop shortcut", desktopShortcut
+                        End Checkbox
+                    End Column
+                End Tab
+                Tab "3. Confirm"
+                    Column
+                        Length 1
+                        Text "Ready to finish"
+                        Fill
+                        Memo summary
+                        End Memo
+                    End Column
+                End Tab
+            End Tabs
+            Length 1
+            Row
+                Length 1
+                Button "Back"
+                    On Click WizardBack
+                End Button
+                Length 1
+                Button "Next"
+                    On Click WizardNext
+                End Button
+                Length 1
+                Button "Finish"
+                    On Click WizardFinish
+                End Button
+                Length 1
+                Button "Cancel"
+                    On Click Quit
+                End Button
+            End Row
+        End Column
+    End View
+End Screen

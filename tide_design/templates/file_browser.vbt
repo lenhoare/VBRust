@@ -1,0 +1,74 @@
+' VBR Screen template — structure only. Open in tide_design.
+' Two-pane commander. Norton Commander, Midnight Commander, FAR.
+Screen FileBrowser
+    Title "Files"
+
+    Menu
+        Menu "File"
+            Item "View" ViewFile
+            Item "Edit" EditFile
+            Item "Copy" CopyFile
+            Item "Move" MoveFile
+            Item "Delete" DeleteFile
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Panel"
+            Item "Swap" SwapPanels
+            Item "Same dir" SameDir
+        End Menu
+    End Menu
+
+    View
+        Column
+            Fill
+            Row
+                Fill
+                Frame "Left"
+                    Column
+                        Length 1
+                        Text "C:\\"
+                        Fill
+                        List leftFiles
+                            On Select LeftSelected
+                        End List
+                    End Column
+                End Frame
+                Fill
+                Frame "Right"
+                    Column
+                        Length 1
+                        Text "D:\\"
+                        Fill
+                        List rightFiles
+                            On Select RightSelected
+                        End List
+                    End Column
+                End Frame
+            End Row
+            Length 1
+            Row
+                Length 1
+                Button "F3 View"
+                    On Click ViewFile
+                End Button
+                Length 1
+                Button "F4 Edit"
+                    On Click EditFile
+                End Button
+                Length 1
+                Button "F5 Copy"
+                    On Click CopyFile
+                End Button
+                Length 1
+                Button "F6 Move"
+                    On Click MoveFile
+                End Button
+                Length 1
+                Button "F8 Delete"
+                    On Click DeleteFile
+                End Button
+            End Row
+        End Column
+    End View
+End Screen
