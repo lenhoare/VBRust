@@ -14,6 +14,7 @@ use crate::theme::Theme;
 pub enum MenuId {
     File,
     View,
+    Run,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,9 +34,15 @@ pub enum ViewCmd {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunCmd {
+    Test,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuCmd {
     File(FileCmd),
     View(ViewCmd),
+    Run(RunCmd),
 }
 
 pub struct MenuBar {
@@ -67,11 +74,16 @@ impl MenuBar {
                 ("Screen", MenuCmd::View(ViewCmd::Screen)),
                 ("Menu", MenuCmd::View(ViewCmd::Menu)),
             ],
+            MenuId::Run => &[("Test             F9", MenuCmd::Run(RunCmd::Test))],
         }
     }
 
     pub fn top_labels() -> &'static [(MenuId, &'static str)] {
-        &[(MenuId::File, " File "), (MenuId::View, " View ")]
+        &[
+            (MenuId::File, " File "),
+            (MenuId::View, " View "),
+            (MenuId::Run, " Run "),
+        ]
     }
 
     pub fn activate(&mut self, id: MenuId) {
@@ -154,6 +166,7 @@ pub enum Dialog {
     Code { scroll: usize },
     Path {
         mode: PathMode,
+        dir: std::path::PathBuf,
         input: String,
     },
     ConfirmOpen { path: String },
@@ -179,11 +192,9 @@ impl PathMode {
 
     pub fn hints(self) -> &'static str {
         match self {
-            PathMode::Open => {
-                "Tab=complete  Enter=open file / enter folder  Esc=Cancel"
-            }
+            PathMode::Open => "Tab=cycle files  Enter=open  Esc=Cancel",
             PathMode::SaveVbr | PathMode::SaveVbt => {
-                "Tab=complete  Enter=save / enter folder  Esc=Cancel"
+                "Tab=cycle files  Enter=save  Esc=Cancel"
             }
         }
     }
@@ -207,7 +218,7 @@ impl Default for Ui {
             page: Page::View,
             focus: Focus::Tree,
             palette_sel: 0,
-            message: " F10 File  F2 Add ".into(),
+            message: " F10 File  F9 Test  F2 Add ".into(),
             dialog: None,
             preview_hits: Vec::new(),
             path_tab: None,
@@ -694,16 +705,17 @@ fn draw_dialog(
                 22,
             );
         }
-        Dialog::Path { mode, input } => {
+        Dialog::Path { mode, dir, input } => {
+            let folder = crate::files::folder_label(dir);
             popup(
                 f,
                 area,
                 mode.title(),
                 &format!(
-                    "File or folder\n\n [{input}_]\n\n{}",
+                    "In {folder}\n\n [{input}_]\n\n{}",
                     mode.hints()
                 ),
-                56,
+                52,
                 10,
             );
         }

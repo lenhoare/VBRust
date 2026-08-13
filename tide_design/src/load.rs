@@ -513,6 +513,26 @@ End Screen
     }
 
     #[test]
+    fn bundled_templates_emit_compilable_vbr() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        for ent in std::fs::read_dir(&dir).expect("templates/") {
+            let path = ent.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("vbt") {
+                continue;
+            }
+            let d = load_template(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let src = design_to_vbr(&d);
+            let compiled = vbr::compile(&src);
+            assert!(
+                !compiled.has_errors,
+                "{} emitted VBR failed:\n{}\n--- source ---\n{src}",
+                path.display(),
+                compiled.diagnostics.join("\n")
+            );
+        }
+    }
+
+    #[test]
     fn all_bundled_templates_open() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
         let mut n = 0;

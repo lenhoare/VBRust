@@ -18,9 +18,21 @@ pub fn design_to_vbr(design: &Design) -> String {
     collect(&design.root, &mut fields, &mut events);
     collect_menu_events(&design.menu_root, &mut events);
 
+    let need_point = uses_kind(&design.root, Kind::Chart);
+    let need_bar = uses_kind(&design.root, Kind::BarChart);
+    let need_row = uses_kind(&design.root, Kind::Table);
+    let need_list = uses_kind(&design.root, Kind::List);
+    let need_spark = uses_kind(&design.root, Kind::Sparkline);
+
     let mut out = String::new();
-    if uses_kind(&design.root, Kind::Chart) {
+    if need_point {
         out.push_str("Type Point\n    Public x As Double\n    Public y As Double\nEnd Type\n\n");
+    }
+    if need_bar {
+        out.push_str("Type Bar\n    Public label As String\n    Public value As Integer\nEnd Type\n\n");
+    }
+    if need_row {
+        out.push_str("Type Row\n    Public col1 As String\n    Public col2 As String\nEnd Type\n\n");
     }
     out.push_str(&format!("Screen {}\n", design.screen_name));
     out.push_str(&format!("    Title {}\n\n", quote(&design.title)));
@@ -53,19 +65,79 @@ pub fn design_to_vbr(design: &Design) -> String {
     out.push_str("\n    Event Quit\n    End Event\n");
     out.push_str("End Screen\n\n");
 
-    out.push_str(&format!(
-        "' Open in TIDE or: vbr run {}\n",
-        design
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| format!("{}.vbr", design.screen_name.to_ascii_lowercase()))
-    ));
+    if need_list {
+        out.push_str(SAMPLE_LIST);
+    }
+    if need_row {
+        out.push_str(SAMPLE_ROWS);
+    }
+    if need_spark {
+        out.push_str(SAMPLE_SPARK);
+    }
+    if need_bar {
+        out.push_str(SAMPLE_BARS);
+    }
+    if need_point {
+        out.push_str(SAMPLE_CURVE);
+    }
+
+    out.push_str("' Open in TIDE, or Run → Test in tide_design (vbr runproject).\n");
     out.push_str("Function Main()\n");
     out.push_str(&format!("    {}.Run\n", design.screen_name));
     out.push_str("End Function\n");
     out
 }
+
+const SAMPLE_LIST: &str = "\
+Function SampleList() As Vec<String>
+    Dim v As Vec<String>
+    v.Push(\"One\")
+    v.Push(\"Two\")
+    v.Push(\"Three\")
+    Return v
+End Function\n\n";
+
+const SAMPLE_ROWS: &str = "\
+Function SampleRows() As Vec<Row>
+    Dim v As Vec<Row>
+    v.Push(Row { col1: \"Ada\", col2: \"36\" })
+    v.Push(Row { col1: \"Grace\", col2: \"79\" })
+    v.Push(Row { col1: \"Bjarne\", col2: \"60\" })
+    Return v
+End Function\n\n";
+
+const SAMPLE_SPARK: &str = "\
+Function SampleSpark() As Vec<Integer>
+    Dim v As Vec<Integer>
+    v.Push(3)
+    v.Push(7)
+    v.Push(4)
+    v.Push(9)
+    v.Push(6)
+    v.Push(8)
+    v.Push(5)
+    Return v
+End Function\n\n";
+
+const SAMPLE_BARS: &str = "\
+Function SampleBars() As Vec<Bar>
+    Dim v As Vec<Bar>
+    v.Push(Bar { label: \"A\", value: 12 })
+    v.Push(Bar { label: \"B\", value: 19 })
+    v.Push(Bar { label: \"C\", value: 8 })
+    Return v
+End Function\n\n";
+
+const SAMPLE_CURVE: &str = "\
+Function SampleCurve() As Vec<Point>
+    Dim v As Vec<Point>
+    v.Push(Point { x: 0.0, y: 0.0 })
+    v.Push(Point { x: 1.0, y: 0.5 })
+    v.Push(Point { x: 2.0, y: 2.0 })
+    v.Push(Point { x: 3.0, y: 4.5 })
+    v.Push(Point { x: 4.0, y: 8.0 })
+    Return v
+End Function\n\n";
 
 /// Screen structure only — Title, Menu, View. No State, events, keys, or Main.
 /// The designer will round-trip this; a human-edited `.vbr` will not.
@@ -128,10 +200,12 @@ fn field_type(kind: Kind) -> Option<(&'static str, Option<&'static str>)> {
         Kind::Text => Some(("String", Some("\"\""))),
         Kind::Input => Some(("String", Some("\"\""))),
         Kind::Memo => Some(("String", Some("\"\""))),
-        Kind::List | Kind::Table | Kind::BarChart => Some(("Vec<String>", None)),
-        Kind::Sparkline => Some(("Vec<Double>", None)),
-        Kind::Gauge => Some(("Integer", Some("0"))),
-        Kind::Chart => Some(("Vec<Point>", None)),
+        Kind::List => Some(("Vec<String>", Some("SampleList()"))),
+        Kind::Table => Some(("Vec<Row>", Some("SampleRows()"))),
+        Kind::BarChart => Some(("Vec<Bar>", Some("SampleBars()"))),
+        Kind::Sparkline => Some(("Vec<Integer>", Some("SampleSpark()"))),
+        Kind::Gauge => Some(("Integer", Some("50"))),
+        Kind::Chart => Some(("Vec<Point>", Some("SampleCurve()"))),
         Kind::Checkbox => Some(("Boolean", Some("False"))),
         Kind::Radio => Some(("Integer", Some("0"))),
         Kind::Tabs => Some(("Integer", Some("0"))),
@@ -449,7 +523,8 @@ mod tests {
         assert!(out.contains("Space Height 1\n"), "{out}");
         assert!(out.contains("End Frame\n"), "{out}");
         assert!(out.contains("Chart curve\n"), "{out}");
-        assert!(out.contains("Dim curve As Vec<Point>\n"), "{out}");
+        assert!(out.contains("Dim curve As Vec<Point> = SampleCurve()\n"), "{out}");
+        assert!(out.contains("Function SampleCurve()"), "{out}");
     }
 
     #[test]
@@ -514,6 +589,53 @@ mod tests {
         assert!(out.contains("        End Menu\n"), "{out}");
         assert!(out.contains("    End Menu\n"), "{out}");
         assert!(!out.contains("Event Quit()\n"), "{out}");
+    }
+
+    #[test]
+    fn emits_table_and_barchart_types() {
+        let mut d = Design::default();
+        d.selected = d.root.id;
+        assert!(d.add_child(Kind::Table));
+        d.selected = d.root.id;
+        assert!(d.add_child(Kind::BarChart));
+        d.selected = d.root.id;
+        assert!(d.add_child(Kind::List));
+        let out = design_to_vbr(&d);
+        assert!(out.contains("Type Row\n"), "{out}");
+        assert!(out.contains("Type Bar\n"), "{out}");
+        assert!(out.contains("Dim rows As Vec<Row> = SampleRows()\n"), "{out}");
+        assert!(out.contains("Dim bars As Vec<Bar> = SampleBars()\n"), "{out}");
+        assert!(out.contains("Dim items As Vec<String> = SampleList()\n"), "{out}");
+    }
+
+    #[test]
+    fn emitted_vbr_compiles() {
+        let mut d = Design::default();
+        d.selected = d.root.id;
+        for kind in [
+            Kind::Memo,
+            Kind::Input,
+            Kind::Button,
+            Kind::Checkbox,
+            Kind::Radio,
+            Kind::List,
+            Kind::Table,
+            Kind::Gauge,
+            Kind::Sparkline,
+            Kind::BarChart,
+            Kind::Chart,
+            Kind::Tabs,
+        ] {
+            d.selected = d.root.id;
+            assert!(d.add_child(kind), "{kind:?}");
+        }
+        let src = design_to_vbr(&d);
+        let compiled = vbr::compile(&src);
+        assert!(
+            !compiled.has_errors,
+            "emitted VBR failed to compile:\n{}\n--- source ---\n{src}",
+            compiled.diagnostics.join("\n")
+        );
     }
 
     #[test]

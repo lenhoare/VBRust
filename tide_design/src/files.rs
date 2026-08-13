@@ -1,41 +1,50 @@
-//! Path prompts — Tab completion copied from TIDE's Open / Save As.
+//! Filename prompts — browse a folder, Tab-cycle names (not full paths).
 
 use std::path::{Path, PathBuf};
 
-/// Cycle state for Tab path completion.
+/// Cycle state for Tab filename completion.
 #[derive(Debug, Clone, Default)]
 pub struct PathTabState {
     candidates: Vec<String>,
     index: usize,
 }
 
-/// If `input` names an existing directory, return it with a trailing separator.
-pub fn path_enter_dir(input: &str) -> Option<String> {
-    let trimmed = input.trim();
-    let path = if trimmed.is_empty() {
-        PathBuf::from(".")
-    } else {
-        PathBuf::from(trimmed)
-    };
-    if !path.is_dir() {
-        return None;
-    }
-    let normalized = normalize_path_components(&path);
-    let mut s = normalized.to_string_lossy().into_owned();
-    if s.is_empty() {
-        s.push('.');
-    }
-    let sep = preferred_sep(trimmed);
-    if !s.ends_with('/') && !s.ends_with('\\') {
-        s.push(sep);
-    }
-    Some(s)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameFilter {
+    /// Open template: `.vbt` files and folders.
+    Templates,
+    /// Save: any name.
+    All,
 }
 
-pub fn path_tab_complete(
+/// Last path component, for the dialog's "In templates" line.
+pub fn folder_label(dir: &Path) -> String {
+    dir.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| dir.display().to_string())
+}
+
+/// If `name` is `..` or a subdirectory of `dir`, the folder to browse next.
+pub fn try_enter_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+    let name = name.trim().trim_end_matches(['/', '\\']);
+    if name.is_empty() {
+        return None;
+    }
+    let next = if name == ".." {
+        dir.parent()?.to_path_buf()
+    } else {
+        dir.join(name)
+    };
+    next.is_dir().then_some(next)
+}
+
+pub fn filename_tab_complete(
+    dir: &Path,
     input: &str,
     state: &mut Option<PathTabState>,
     reverse: bool,
+    filter: NameFilter,
 ) -> (String, String) {
     if let Some(st) = state.as_mut() {
         if st.candidates.get(st.index).map(String::as_str) == Some(input) {
@@ -52,7 +61,7 @@ pub fn path_tab_complete(
                     (st.index + 1) % n
                 };
                 let msg = if n > 1 {
-                    format!(" {}/{} matches", st.index + 1, n)
+                    format!(" {}/{}  {}", st.index + 1, n, st.candidates[st.index])
                 } else {
                     String::new()
                 };
@@ -62,17 +71,17 @@ pub fn path_tab_complete(
         }
     }
 
-    let candidates = list_path_completions(input);
+    let candidates = list_filenames(dir, input, filter);
     if candidates.is_empty() {
         *state = None;
         return (input.to_string(), " No matches".into());
     }
+    let result = candidates[0].clone();
     let msg = if candidates.len() > 1 {
-        format!(" 1/{} matches — Tab to cycle", candidates.len())
+        format!(" 1/{}  {result}  — Tab to cycle", candidates.len())
     } else {
         String::new()
     };
-    let result = candidates[0].clone();
     *state = if candidates.len() == 1 && (result.ends_with('/') || result.ends_with('\\')) {
         None
     } else {
@@ -84,120 +93,45 @@ pub fn path_tab_complete(
     (result, msg)
 }
 
-fn preferred_sep(input: &str) -> char {
-    if input.contains('\\') && !input.contains('/') {
-        '\\'
-    } else {
-        '/'
-    }
-}
-
-fn normalize_path_components(path: &Path) -> PathBuf {
-    use std::path::Component;
-    let mut out = PathBuf::new();
-    for c in path.components() {
-        match c {
-            Component::Prefix(_) | Component::RootDir => out.push(c.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !out.pop() {
-                    out.push("..");
-                }
-            }
-            Component::Normal(s) => out.push(s),
-        }
-    }
-    out
-}
-
-fn list_path_completions(input: &str) -> Vec<String> {
-    let trimmed = input.trim_start();
-    let lead_ws_len = input.len() - trimmed.len();
-    let lead_ws = &input[..lead_ws_len];
-    let (dir, partial, prefix) = split_path_prefix(trimmed);
-    let Ok(rd) = std::fs::read_dir(&dir) else {
+pub fn list_filenames(dir: &Path, partial: &str, filter: NameFilter) -> Vec<String> {
+    let partial_lower = partial
+        .trim()
+        .trim_end_matches(['/', '\\'])
+        .to_ascii_lowercase();
+    let Ok(rd) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
-    let partial_lower = partial.to_ascii_lowercase();
-    let sep = preferred_sep(if prefix.is_empty() { trimmed } else { &prefix });
     let mut children: Vec<(String, bool)> = Vec::new();
     for ent in rd.flatten() {
-        let name = ent.file_name();
-        let name = name.to_string_lossy();
+        let name = ent.file_name().to_string_lossy().into_owned();
         if name == "." || name == ".." {
+            continue;
+        }
+        let is_dir = ent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir && filter == NameFilter::Templates && !is_vbt(Path::new(&name)) {
             continue;
         }
         if !partial_lower.is_empty() && !name.to_ascii_lowercase().starts_with(&partial_lower) {
             continue;
         }
-        let is_dir = ent.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        children.push((name.into_owned(), is_dir));
+        children.push((name, is_dir));
     }
     children.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
-    let mut out: Vec<String> = Vec::new();
-    for (name, is_dir) in children {
-        let mut s = String::new();
-        s.push_str(lead_ws);
-        s.push_str(&prefix);
-        s.push_str(&name);
-        if is_dir {
-            s.push(sep);
-        }
-        out.push(s);
-    }
-    let want_parent = partial_lower.is_empty()
-        || "..".starts_with(partial_lower.as_str())
-        || partial_lower == ".";
-    if want_parent {
-        if let Some(up) = parent_completion(lead_ws, &prefix, &dir, sep) {
-            out.push(up);
-        }
+    let mut out: Vec<String> = children
+        .into_iter()
+        .map(|(name, is_dir)| {
+            if is_dir {
+                format!("{name}/")
+            } else {
+                name
+            }
+        })
+        .collect();
+    let want_parent = partial_lower.is_empty() || "..".starts_with(partial_lower.as_str());
+    if want_parent && dir.parent().is_some() {
+        out.push("..".into());
     }
     out
-}
-
-fn parent_completion(lead_ws: &str, prefix: &str, dir: &Path, sep: char) -> Option<String> {
-    if let Ok(canon) = std::fs::canonicalize(dir) {
-        if canon.parent().is_none() {
-            return None;
-        }
-    }
-    let mut s = String::new();
-    s.push_str(lead_ws);
-    s.push_str(prefix);
-    s.push_str("..");
-    s.push(sep);
-    Some(s)
-}
-
-fn split_path_prefix(input: &str) -> (PathBuf, String, String) {
-    if input.is_empty() {
-        return (PathBuf::from("."), String::new(), String::new());
-    }
-    if input.ends_with('/') || input.ends_with('\\') {
-        return (PathBuf::from(input), String::new(), input.to_string());
-    }
-    let path = Path::new(input);
-    match path.file_name() {
-        Some(name) if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) => {
-            let parent = path.parent().unwrap();
-            let mut prefix = parent.to_string_lossy().into_owned();
-            if !prefix.ends_with('/') && !prefix.ends_with('\\') {
-                prefix.push(preferred_sep(input));
-            }
-            (
-                parent.to_path_buf(),
-                name.to_string_lossy().into_owned(),
-                prefix,
-            )
-        }
-        Some(name) => (
-            PathBuf::from("."),
-            name.to_string_lossy().into_owned(),
-            String::new(),
-        ),
-        None => (PathBuf::from("."), String::new(), String::new()),
-    }
 }
 
 /// Directory Open / Save-as-template start in.
@@ -227,25 +161,8 @@ pub fn templates_dir() -> PathBuf {
     bundled
 }
 
-/// `templates_dir()` with a trailing separator so Tab lists the files inside.
-pub fn templates_dir_slash() -> String {
-    with_trailing_sep(&templates_dir())
-}
-
-pub fn with_trailing_sep(path: &Path) -> String {
-    let mut s = path.to_string_lossy().into_owned();
-    if s.is_empty() {
-        s.push('.');
-    }
-    if !s.ends_with('/') && !s.ends_with('\\') {
-        s.push('/');
-    }
-    s
-}
-
-/// Suggested path when saving a new template: `templates/<screen>.vbt`.
-pub fn default_vbt_path(screen_name: &str) -> PathBuf {
-    templates_dir().join(format!("{}.vbt", snake_name(screen_name)))
+pub fn default_vbt_filename(screen_name: &str) -> String {
+    format!("{}.vbt", snake_name(screen_name))
 }
 
 fn snake_name(name: &str) -> String {
@@ -306,7 +223,22 @@ mod tests {
             .filter(|e| is_vbt(&e.path()))
             .count();
         assert!(n >= 20, "expected 20 templates in {}, found {n}", dir.display());
-        let slash = templates_dir_slash();
-        assert!(slash.ends_with('/') || slash.ends_with('\\'));
+        assert_eq!(folder_label(&dir), "templates");
+    }
+
+    #[test]
+    fn open_lists_basenames_not_paths() {
+        let dir = templates_dir();
+        let names = list_filenames(&dir, "", NameFilter::Templates);
+        assert!(names.iter().any(|n| n == "notes.vbt"), "{names:?}");
+        assert!(names.iter().any(|n| n == "calendar.vbt"), "{names:?}");
+        assert!(
+            names.iter().all(|n| !n.starts_with('/') && !n.contains("templates")),
+            "expected filenames only, got {names:?}"
+        );
+        let mut state = None;
+        let (first, msg) = filename_tab_complete(&dir, "", &mut state, false, NameFilter::Templates);
+        assert_eq!(first, "calendar.vbt");
+        assert!(msg.contains("Tab to cycle"), "{msg}");
     }
 }

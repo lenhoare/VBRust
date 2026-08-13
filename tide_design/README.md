@@ -14,7 +14,7 @@ Two pages, now on the **View** menu next to File: **Screen** (the widget tree) a
 **Menu** (Screen chrome). **F4** still toggles. The menu bar is not a palette
 widget on the Screen page — it lives next to `View` in the emitted Screen.
 
-No pixel dragging. No Window/GUI forms. Interactive “test mode” is a later slice.
+No pixel dragging. No Window/GUI forms. **Run → Test** (F9) launches the Screen through VBR.
 
 ## Run
 
@@ -24,7 +24,7 @@ cargo run
 cargo run -- templates/notes.vbt   # open a Screen template
 ```
 
-**File → Open** and **Save as template…** start in `tide_design/templates/` (Tab lists the bundled screens). **Save as…** (`.vbr`) still uses the current directory.
+**File → Open** starts in `templates/` with a blank name — Tab cycles the `.vbt` files (filenames only). **Save as template…** is the same folder with a suggested name. **Save as…** (`.vbr`) uses the current directory.
 
 ## Templates
 
@@ -66,6 +66,7 @@ Twenty starter Screens — structure only, no event bodies. Open one, rearrange,
 | `Alt+→` | Nest inside preceding container |
 | `F4` | Switch View → Screen / Menu |
 | `F10` | File menu |
+| `F9` | Run → Test (interactive Screen via `vbr runproject`) |
 | `Ctrl+N` | New design |
 | `Ctrl+O` | Open `.vbt` template |
 | `Ctrl+S` | Save (`.vbr` program, or `.vbt` if that's the current file) |
@@ -74,7 +75,9 @@ Twenty starter Screens — structure only, no event bodies. Open one, rearrange,
 
 ## Output
 
-**Save** / **Save as…** emit a complete `Screen … End Screen` plus `Function Main` — a `.vbr` you can open in TIDE or `vbr run`.
+**Run → Test** (F9) writes a temp `main.vbr` and runs `vbr runproject` — the real Screen takes over the terminal (Tab between controls, type, **q** to quit). Put `vbr` on PATH, or set `VBR_BIN`. First Test compiles ratatui; later ones reuse the cache.
+
+**Save** / **Save as…** emit a complete `Screen … End Screen` plus `Function Main` — a `.vbr` you can open in TIDE or `vbr runproject`.
 
 **Save as template…** writes a `.vbt`: the same Screen syntax, but structure only (Title, Menu, View). No `State`, no `Event` bodies, no `On Key`, no `Main`. **Open template** loads that back into the tree.
 
@@ -82,6 +85,5 @@ A `.vbr` a human has been editing is refused — the designer will not try to pi
 
 ## Later
 
-- Interactive preview (widgets actually focus / type)
 - “Save selection as component”
 - Hand-off “Open in TIDE”

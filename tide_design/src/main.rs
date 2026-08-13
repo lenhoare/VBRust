@@ -5,6 +5,7 @@ mod files;
 mod load;
 mod model;
 mod preview;
+mod run;
 mod theme;
 mod ui;
 
@@ -23,14 +24,15 @@ use ratatui::Terminal;
 
 use emit::{design_to_vbr, design_to_vbt};
 use files::{
-    default_vbt_path, is_vbt, path_enter_dir, path_tab_complete, templates_dir_slash, with_ext,
+    default_vbt_filename, filename_tab_complete, folder_label, is_vbt, templates_dir, try_enter_dir,
+    with_ext, NameFilter,
 };
 use load::load_template;
 use model::{Design, Kind, MenuKind};
 use preview::hit_test;
 use ui::{
     body_layout, hit_palette, hit_test_menu, hit_tree, Dialog, FileCmd, Focus, MenuCmd, MenuHit,
-    MenuId, Page, PathMode, Ui, ViewCmd,
+    MenuId, Page, PathMode, RunCmd, Ui, ViewCmd,
 };
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -89,7 +91,7 @@ fn event_loop(terminal: &mut Term, design: &mut Design, ui: &mut Ui) -> io::Resu
                         }
                         MenuHit::Item(cmd) => {
                             ui.menu.close();
-                            if dispatch_menu(cmd, design, ui) {
+                            if dispatch_menu(cmd, design, ui, terminal)? {
                                 return Ok(());
                             }
                         }
@@ -167,7 +169,7 @@ fn event_loop(terminal: &mut Term, design: &mut Design, ui: &mut Ui) -> io::Resu
                 }
 
                 if ui.menu.open.is_some() {
-                    if handle_menu(key, design, ui) {
+                    if handle_menu(key, design, ui, terminal)? {
                         return Ok(());
                     }
                     continue;
@@ -197,6 +199,12 @@ fn event_loop(terminal: &mut Term, design: &mut Design, ui: &mut Ui) -> io::Resu
                     }
                     KeyCode::F(10) => {
                         ui.menu.activate(MenuId::File);
+                    }
+                    KeyCode::F(9) => {
+                        ui.message = run::run_test(terminal, design)?;
+                    }
+                    KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::ALT) => {
+                        ui.menu.activate(MenuId::Run);
                     }
                     KeyCode::F(2) => {
                         ui.palette_sel = 0;
@@ -290,17 +298,26 @@ fn event_loop(terminal: &mut Term, design: &mut Design, ui: &mut Ui) -> io::Resu
     }
 }
 
-fn handle_menu(key: crossterm::event::KeyEvent, design: &mut Design, ui: &mut Ui) -> bool {
+fn handle_menu(
+    key: crossterm::event::KeyEvent,
+    design: &mut Design,
+    ui: &mut Ui,
+    terminal: &mut Term,
+) -> io::Result<bool> {
     match key.code {
         KeyCode::Esc => ui.menu.close(),
         KeyCode::Up => ui.menu.move_sel(-1),
         KeyCode::Down => ui.menu.move_sel(1),
         KeyCode::Left => switch_top_menu(ui, -1),
         KeyCode::Right => switch_top_menu(ui, 1),
+        KeyCode::F(9) => {
+            ui.menu.close();
+            return dispatch_menu(MenuCmd::Run(RunCmd::Test), design, ui, terminal);
+        }
         KeyCode::Enter => {
             if let Some(cmd) = ui.menu.current_cmd() {
                 ui.menu.close();
-                return dispatch_menu(cmd, design, ui);
+                return dispatch_menu(cmd, design, ui, terminal);
             }
         }
         KeyCode::Char(c) if c.eq_ignore_ascii_case(&'f') => {
@@ -313,9 +330,14 @@ fn handle_menu(key: crossterm::event::KeyEvent, design: &mut Design, ui: &mut Ui
                 open_view_menu(ui);
             }
         }
+        KeyCode::Char(c) if c.eq_ignore_ascii_case(&'r') => {
+            if ui.menu.open != Some(MenuId::Run) {
+                ui.menu.activate(MenuId::Run);
+            }
+        }
         _ => {}
     }
-    false
+    Ok(false)
 }
 
 fn open_view_menu(ui: &mut Ui) {
@@ -342,7 +364,12 @@ fn switch_top_menu(ui: &mut Ui, delta: isize) {
     }
 }
 
-fn dispatch_menu(cmd: MenuCmd, design: &mut Design, ui: &mut Ui) -> bool {
+fn dispatch_menu(
+    cmd: MenuCmd,
+    design: &mut Design,
+    ui: &mut Ui,
+    terminal: &mut Term,
+) -> io::Result<bool> {
     match cmd {
         MenuCmd::File(FileCmd::New) => request_new(design, ui),
         MenuCmd::File(FileCmd::Open) => open_path_dialog(ui, PathMode::Open, design),
@@ -351,7 +378,7 @@ fn dispatch_menu(cmd: MenuCmd, design: &mut Design, ui: &mut Ui) -> bool {
         MenuCmd::File(FileCmd::SaveAsTemplate) => {
             open_path_dialog(ui, PathMode::SaveVbt, design)
         }
-        MenuCmd::File(FileCmd::Quit) => return request_quit(design, ui),
+        MenuCmd::File(FileCmd::Quit) => return Ok(request_quit(design, ui)),
         MenuCmd::View(ViewCmd::Screen) => {
             ui.set_page(Page::View);
             ui.message = " View → Screen.".into();
@@ -360,36 +387,64 @@ fn dispatch_menu(cmd: MenuCmd, design: &mut Design, ui: &mut Ui) -> bool {
             ui.set_page(Page::Menu);
             ui.message = " View → Menu.".into();
         }
+        MenuCmd::Run(RunCmd::Test) => {
+            ui.message = run::run_test(terminal, design)?;
+        }
     }
-    false
+    Ok(false)
 }
 
 fn open_path_dialog(ui: &mut Ui, mode: PathMode, design: &Design) {
     ui.path_tab = None;
-    let initial = match mode {
-        PathMode::Open => design
-            .path
-            .as_ref()
-            .filter(|p| is_vbt(p))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(templates_dir_slash),
-        PathMode::SaveVbr => design
-            .path
-            .as_ref()
-            .filter(|p| !is_vbt(p))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| format!("{}.vbr", design.screen_name.to_ascii_lowercase())),
-        PathMode::SaveVbt => design
-            .path
-            .as_ref()
-            .filter(|p| is_vbt(p))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| default_vbt_path(&design.screen_name).display().to_string()),
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let (dir, input) = match mode {
+        PathMode::Open => {
+            let dir = design
+                .path
+                .as_ref()
+                .filter(|p| is_vbt(p))
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .filter(|d| d.is_dir())
+                .unwrap_or_else(templates_dir);
+            (dir, String::new())
+        }
+        PathMode::SaveVbr => {
+            let dir = design
+                .path
+                .as_ref()
+                .filter(|p| !is_vbt(p))
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .filter(|d| d.is_dir())
+                .unwrap_or(cwd);
+            let name = design
+                .path
+                .as_ref()
+                .filter(|p| !is_vbt(p))
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("{}.vbr", design.screen_name.to_ascii_lowercase()));
+            (dir, name)
+        }
+        PathMode::SaveVbt => {
+            let dir = design
+                .path
+                .as_ref()
+                .filter(|p| is_vbt(p))
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .filter(|d| d.is_dir())
+                .unwrap_or_else(templates_dir);
+            let name = design
+                .path
+                .as_ref()
+                .filter(|p| is_vbt(p))
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| default_vbt_filename(&design.screen_name));
+            (dir, name)
+        }
     };
-    ui.dialog = Some(Dialog::Path {
-        mode,
-        input: initial,
-    });
+    ui.message = format!(" In {}.", folder_label(&dir));
+    ui.dialog = Some(Dialog::Path { mode, dir, input });
 }
 
 fn palette_move(ui: &mut Ui, delta: isize) {
@@ -532,19 +587,30 @@ fn handle_dialog(
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => ui.dialog = None,
             _ => {}
         },
-        Dialog::Path { mode, mut input } => match key.code {
+        Dialog::Path {
+            mode,
+            dir,
+            mut input,
+        } => match key.code {
             KeyCode::Esc => {
                 ui.path_tab = None;
                 ui.dialog = None;
             }
             KeyCode::Enter => {
                 ui.path_tab = None;
-                if let Some(dir) = path_enter_dir(&input) {
-                    ui.message = format!(" In {dir}  (Tab lists, Enter continues)");
-                    ui.dialog = Some(Dialog::Path { mode, input: dir });
+                if let Some(next) = try_enter_dir(&dir, &input) {
+                    ui.message = format!(" In {}.", folder_label(&next));
+                    ui.dialog = Some(Dialog::Path {
+                        mode,
+                        dir: next,
+                        input: String::new(),
+                    });
+                } else if input.trim().is_empty() {
+                    ui.message = " Tab to pick a file, or type a name.".into();
+                    ui.dialog = Some(Dialog::Path { mode, dir, input });
                 } else {
                     ui.dialog = None;
-                    let mut path = PathBuf::from(input.trim());
+                    let mut path = dir.join(input.trim());
                     match mode {
                         PathMode::Open => {
                             path = with_ext(path, "vbt");
@@ -572,22 +638,27 @@ fn handle_dialog(
             KeyCode::Tab | KeyCode::BackTab => {
                 let reverse = matches!(key.code, KeyCode::BackTab)
                     || key.modifiers.contains(KeyModifiers::SHIFT);
-                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse);
+                let filter = match mode {
+                    PathMode::Open => NameFilter::Templates,
+                    PathMode::SaveVbr | PathMode::SaveVbt => NameFilter::All,
+                };
+                let (next, msg) =
+                    filename_tab_complete(&dir, &input, &mut ui.path_tab, reverse, filter);
                 input = next;
                 if !msg.is_empty() {
                     ui.message = msg;
                 }
-                ui.dialog = Some(Dialog::Path { mode, input });
+                ui.dialog = Some(Dialog::Path { mode, dir, input });
             }
             KeyCode::Backspace => {
                 ui.path_tab = None;
                 input.pop();
-                ui.dialog = Some(Dialog::Path { mode, input });
+                ui.dialog = Some(Dialog::Path { mode, dir, input });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ui.path_tab = None;
                 input.push(c);
-                ui.dialog = Some(Dialog::Path { mode, input });
+                ui.dialog = Some(Dialog::Path { mode, dir, input });
             }
             _ => {}
         },
