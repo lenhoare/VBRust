@@ -1,0 +1,22 @@
+id = "vec.clear"
+title = "Clear"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.Clear"
+
+summary = "Removes every item, leaving the list empty."
+
+returns = "Nothing — the list is emptied in place."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [1, 2, 3]
+    v.Clear()
+
+    Debug.Print v.Is_Empty()  ' True
+    Debug.Print v.Len()       ' 0
+End Function
+"""
+
+see_also = ["vec", "vec.isempty", "vec.pop"]

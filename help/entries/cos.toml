@@ -1,0 +1,23 @@
+id = "cos"
+title = "Cos"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Cos(<angle in radians>)
+"""
+
+summary = "The cosine of an angle given in radians."
+
+remarks = """
+`Cos` returns the cosine of an angle in **radians**. It sits alongside `Sin` and `Tan`; remember the input is radians, so convert from degrees by multiplying by π / 180.
+"""
+
+example = """
+Function Main()
+    Debug.Print Cos(0.0)         ' 1
+    Debug.Print Cos(3.14159)     ' ≈ -1
+End Function
+"""
+
+see_also = ["sin", "tan"]

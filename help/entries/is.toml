@@ -1,0 +1,32 @@
+id = "is"
+title = "Is"
+category = "Operators"
+kind = "operator"
+
+syntax = """
+If <expression> Is <pattern> Then
+    <statements using the bound names>
+End If
+"""
+
+replaces = "TypeOf … Is"
+
+summary = "Tests a value against a pattern and, if it fits, unpacks it in one step."
+
+remarks = """
+`Is` matches a value against a pattern and, when it fits, binds any names inside the pattern for use in the block. It is the one-branch cousin of `Match` — Rust programmers know it as `if let`.
+
+It shines with `Option` and `Result`: `If find(...) Is Some(pos) Then` both tests that there *was* a result and hands you `pos` in a single line. It also works in a loop header — `Do While <expr> Is <pattern>`.
+"""
+
+example = """
+Function Main()
+    Dim s As String = "Hello"
+
+    If InStr(s, "ll") Is Some(pos) Then
+        Debug.Print pos
+    End If
+End Function
+"""
+
+see_also = ["match", "if", "instr"]

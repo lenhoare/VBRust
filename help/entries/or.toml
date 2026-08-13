@@ -1,0 +1,26 @@
+id = "or"
+title = "Or"
+category = "Operators"
+kind = "operator"
+
+syntax = """
+<condition> Or <condition>
+"""
+
+summary = "True when either condition is true."
+
+remarks = """
+`Or` is true when *at least one* of its two conditions is true. Combine it with `And` and `Not` to express richer tests.
+"""
+
+example = """
+Function Main()
+    Dim day As String = "Sat"
+
+    If day = "Sat" Or day = "Sun" Then
+        Debug.Print "weekend"
+    End If
+End Function
+"""
+
+see_also = ["and", "not", "xor", "if"]

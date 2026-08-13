@@ -1,0 +1,49 @@
+id = "vec"
+title = "Vec<T>"
+category = "Collections & wrappers"
+kind = "type"
+
+syntax = """
+Dim <name> As Vec<<T>> = [<items>]
+"""
+
+replaces = "fixed arrays and ReDim (and Collection)"
+
+summary = "A list that grows and shrinks — the everyday collection."
+
+remarks = """
+`Vec<T>` is a list of values, all of the same type `T`. It replaces classic VB's fixed arrays and `ReDim` dance: it grows on demand, so you rarely need to know the size in advance.
+
+Start it with a list literal — `[1, 2, 3]` — or empty with `[]`. Add to it with `.Push(x)`, count with `.Len()`, read an item with `list[i]`, and walk every item with `For Each`. Index safely with `.Get(i)`, which returns an `Option` rather than risking an out-of-range crash.
+"""
+
+members = """
+property | .Len()          | How many items the list holds.
+property | .Is_Empty()      | True when the list has no items.
+method   | .Push(item)     | Add an item to the end.
+method   | .Pop()          | Remove and return the last item, as an Option.
+method   | .Get(i)         | The item at index i, as an Option (never crashes).
+method   | .First()        | The first item, as an Option.
+method   | .Last()         | The last item, as an Option.
+method   | .Contains(item) | True if the item is present.
+method   | .Sort()         | Sort the items in place, smallest first.
+method   | .Reverse()      | Reverse the order in place.
+method   | .Clear()        | Remove every item.
+"""
+
+example = """
+Function Main()
+    Dim scores As Vec<Long> = [10, 20]
+    scores.Push(30)
+
+    Dim total As Long = 0
+    For Each s In scores
+        total = total + s
+    Next
+
+    Debug.Print scores.Len()
+    Debug.Print total
+End Function
+"""
+
+see_also = ["array", "hashmap", "for-each", "redim"]

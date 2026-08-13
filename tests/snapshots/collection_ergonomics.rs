@@ -24,7 +24,7 @@ fn main() {
     // A `String` *local* key borrows for `contains_key`/`get`, like a literal.
     let who: String = "Ada".to_string();
     if scores.contains_key(&who) {
-        println!("{} scored {}", who, scores.get(&who).unwrap());
+        println!("{} scored {}", who, scores.get(&who).copied().unwrap());
     }
     println!("known via param: {}", knows(&scores, &who));
     let names: Vec<String> = vec!["Ada".to_string(), "Grace".to_string()];

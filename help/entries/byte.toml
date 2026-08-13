@@ -1,0 +1,23 @@
+id = "byte"
+title = "Byte"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As Byte
+"""
+
+summary = "A whole number from 0 to 255 (Rust u8)."
+
+remarks = """
+`Byte` holds a small non-negative whole number, 0 through 255 — Rust's `u8`. It is the natural type for raw data, colour channels, and anything measured in single bytes.
+"""
+
+example = """
+Function Main()
+    Dim level As Byte = 255
+    Debug.Print level
+End Function
+"""
+
+see_also = ["integer", "long"]

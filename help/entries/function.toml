@@ -1,0 +1,34 @@
+id = "function"
+title = "Function"
+category = "Procedures"
+kind = "keyword"
+
+syntax = """
+Function <Name>([<params>]) [As <ReturnType>]
+    <statements>
+    Return <value>
+End Function
+"""
+
+summary = "Defines a reusable procedure that can take arguments and return a value."
+
+remarks = """
+A `Function` groups statements under a name. Parameters are declared `name As Type`; the optional `As <ReturnType>` after the parentheses is the type of the value it hands back with `Return`.
+
+Use a `Sub` instead when the procedure does something but has nothing to return.
+
+`Function Main()` is special: it is where the program starts.
+"""
+
+example = """
+Function Add(a As Long, b As Long) As Long
+    Return a + b
+End Function
+
+Function Main()
+    Dim total As Long = Add(2, 3)
+    Debug.Print total
+End Function
+"""
+
+see_also = ["sub", "return", "dim"]

@@ -174,6 +174,10 @@ End Function
   or `Private` functions are file-local (§13). The same applies to `Type` and
   `Const`.
 - **Entry point:** `Function Main()` → `fn main()`.
+- A `Sub` may also be declared **inside** a surface block (`Screen`/`Window`/
+  `Page`), where it becomes a *helper method on the state* — reachable from
+  events and other helpers, with direct field access. This is how events share
+  logic; see `gui_spec.md` §2.3.
 
 ### Parameters
 ```

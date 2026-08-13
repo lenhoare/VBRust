@@ -1,0 +1,23 @@
+id = "longlong"
+title = "LongLong"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As LongLong
+"""
+
+summary = "A very wide whole number (Rust i128) for values beyond Long."
+
+remarks = """
+`LongLong` holds whole numbers far larger than `Long` can — it maps to Rust's `i128`. Use it when a count or product could genuinely exceed a `Long`'s range; otherwise `Long` is lighter and just as convenient.
+"""
+
+example = """
+Function Main()
+    Dim big As LongLong = 9000000000
+    Debug.Print big
+End Function
+"""
+
+see_also = ["long", "integer"]

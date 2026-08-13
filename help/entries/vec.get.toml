@@ -1,0 +1,25 @@
+id = "vec.get"
+title = "Get"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.Get"
+
+summary = "Reads the item at an index, safely."
+
+arguments = """
+i | Long | The position to read, counting from 0.
+"""
+
+returns = "Option<T> — Some(item) when i is a valid index, or None when it is out of range (the item's own value, not a reference). Because it never crashes, prefer this to v[i] whenever the index might be off."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [10, 20]
+
+    Debug.Print v.Get(0).Unwrap_Or(-1)   ' 10
+    Debug.Print v.Get(5).Unwrap_Or(-1)   ' -1 — out of range
+End Function
+"""
+
+see_also = ["vec", "vec.first", "vec.last", "option"]

@@ -1,0 +1,40 @@
+id = "enum"
+title = "Enum"
+category = "Custom types"
+kind = "keyword"
+
+syntax = """
+Enum <Name>
+    <Variant1>
+    <Variant2>
+End Enum
+"""
+
+summary = "Defines a type whose value is one of a fixed set of named variants."
+
+remarks = """
+An `Enum` lists the only values a variable of that type may hold. It makes intent obvious and lets `Match` check that every case is handled.
+
+VBR enums go beyond classic VB: a variant can also carry data, giving you Rust-style sum types. The plain, C-like form shown here is the everyday case.
+"""
+
+example = """
+Enum Suit
+    Hearts
+    Diamonds
+    Clubs
+    Spades
+End Enum
+
+Function Main()
+    Dim s As Suit = Suit.Hearts
+
+    Match s
+        Suit.Hearts => Debug.Print "red"
+        Suit.Diamonds => Debug.Print "red"
+        _ => Debug.Print "black"
+    End Match
+End Function
+"""
+
+see_also = ["match", "type"]

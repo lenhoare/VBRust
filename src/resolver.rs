@@ -509,6 +509,24 @@ fn builtin_vtype(name: &str) -> Option<VType> {
     })
 }
 
+/// The element type read by `get(i)`/`first()`/`last()` on `name`, if it is a
+/// collection: a `Vec`/array element, or a `Map`'s value (for `get`). `None`
+/// for anything else (a stdlib wrapper's `Get`, a user struct's own method, …).
+fn collection_element(ctx: &Ctx, name: &str, method: &str) -> Option<DeclType> {
+    match ctx.binding(name).and_then(|b| b.ty.as_ref())? {
+        DeclType::Vec(inner) => Some((**inner).clone()),
+        DeclType::Array(t, _) => Some(DeclType::Plain(*t)),
+        DeclType::Map(_, v) if method == "get" => Some((**v).clone()),
+        _ => None,
+    }
+}
+
+/// Is this a `Copy` type? Every scalar is; a `String`, struct, or collection is
+/// not (it must be cloned to be handed back by value).
+fn is_copy_decl(dt: &DeclType) -> bool {
+    matches!(dt, DeclType::Plain(t) if !matches!(t, Type::Text))
+}
+
 /// Rewrite a function body in place. Returns the set of *locals* passed by
 /// `ByRef` to some call (they must be declared `mut`).
 pub fn resolve_body(
@@ -1495,6 +1513,32 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
+            // `opt.Unwrap_Or("x")` on an `Option<String>` needs an *owned*
+            // String default — a string literal is `&str`, so give it `.to_string()`.
+            if snake(method) == "unwrap_or" {
+                for arg in args.iter_mut() {
+                    if matches!(&arg.kind, ExprKind::Str(_)) {
+                        to_owned_string(arg);
+                    }
+                }
+            }
+            // Decide (before any node-rewriting below) whether this is
+            // `get`/`first`/`last` on a collection, which reads an element in
+            // place and so returns `Option<&T>`. If so we wrap it further down to
+            // hand back the *value* — `.copied()` for a scalar, `.cloned()` for a
+            // String/struct — so `.Unwrap_Or`, assignment and printing all work.
+            let owned_wrap: Option<&'static str> = {
+                let m = snake(method);
+                if matches!(m.as_str(), "get" | "first" | "last") {
+                    match &(&**recv).kind {
+                        ExprKind::Ident(r) => collection_element(ctx, r, &m)
+                            .map(|dt| if is_copy_decl(&dt) { "copied" } else { "cloned" }),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            };
             // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
             // not an owned String — use `.to_string()` so it fits a String slot.
             if method.eq_ignore_ascii_case("clone") {
@@ -1601,6 +1645,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 e.kind = ExprKind::Call {
                     name: format!("crate::{}::{}", module, snake(method)),
                     args: taken,
+                };
+            }
+            // Apply the owned-return wrap decided earlier (`get`/`first`/`last`).
+            if let Some(wrap) = owned_wrap {
+                let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
+                e.kind = ExprKind::MethodCall {
+                    recv: Box::new(inner),
+                    method: wrap.to_string(),
+                    args: Vec::new(),
                 };
             }
         }
@@ -1760,6 +1813,18 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         ExprKind::Index(inner, idx) => {
             resolve_expr(inner, ctx);
             resolve_expr(idx, ctx);
+            // A `HashMap` indexes by `&Q`, so a map key that is a plain variable
+            // must be borrowed — `map[key]` → `map[&key]`. String literals are
+            // handled by the backend; a numeric Vec/array index is left to be
+            // cast to `usize`.
+            if let ExprKind::Ident(name) = &inner.kind {
+                if ctx.is_map(name)
+                    && !matches!(&idx.kind, ExprKind::Ref(_) | ExprKind::Str(_))
+                {
+                    let key = std::mem::replace(&mut idx.kind, ExprKind::Int(0)).at(idx.span);
+                    idx.kind = ExprKind::Ref(Box::new(key));
+                }
+            }
         }
         ExprKind::StructLit { fields, .. } => {
             for (_, v) in fields.iter_mut() {

@@ -1,0 +1,22 @@
+id = "log"
+title = "Log"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Log(<number>)
+"""
+
+summary = "The natural logarithm (base e) of a number."
+
+remarks = """
+`Log` returns the natural logarithm — the logarithm to base *e* — of a positive number. It is the inverse of `Exp`: `Log(Exp(1.0))` is 1.
+"""
+
+example = """
+Function Main()
+    Debug.Print Log(2.718281828)    ' ≈ 1
+End Function
+"""
+
+see_also = ["exp", "sqr"]

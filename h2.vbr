@@ -1,0 +1,7 @@
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+    If ages.Get("Ada") Is Some(a) Then
+        Debug.Print a
+    End If
+End Function

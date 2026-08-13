@@ -1,0 +1,30 @@
+id = "const"
+title = "Const"
+category = "Declarations"
+kind = "keyword"
+
+syntax = """
+Const <NAME> As <Type> = <constant value>
+"""
+
+summary = "Declares a named value that never changes."
+
+remarks = """
+A `Const` binds a name to a fixed value known at compile time. Because it can never be reassigned, it reads as clearer intent than a `Dim` you simply never touch.
+
+Constants live at the top of the file (module level), not inside a procedure — declare them there and every function can use them.
+
+A constant widens like a variable of its type: a `Const` of `Long` used in a `Double` expression is promoted just as a `Long` variable would be, so mixing it into floating-point maths is fine.
+"""
+
+example = """
+Const Pi As Double = 3.14159
+
+Function Main()
+    Dim radius As Double = 2.0
+
+    Debug.Print Pi * radius * radius
+End Function
+"""
+
+see_also = ["dim", "double"]

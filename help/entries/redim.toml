@@ -1,0 +1,14 @@
+id = "redim"
+title = "ReDim"
+category = "Declarations"
+kind = "keyword"
+
+summary = "Classic VB's array-resizing keyword — use a Vec instead."
+
+remarks = """
+VB's `ReDim` (and `ReDim Preserve`) resized fixed arrays. VBR doesn't have it, because it doesn't need it: declare a **`Vec`** and it grows on demand.
+
+`Dim scores As Vec<Long> = []` starts empty; `scores.Push(10)` adds an item; `scores.Len()` gives the count; `scores[0]` reads one. No resizing dance, and no off-by-one over a fixed upper bound.
+"""
+
+see_also = ["dim", "for-each"]

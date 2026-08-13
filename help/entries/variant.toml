@@ -1,0 +1,14 @@
+id = "variant"
+title = "Variant"
+category = "Data types"
+kind = "type"
+
+summary = "Classic VB's hold-anything type — not supported; name the concrete type."
+
+remarks = """
+VB's `Variant` could hold a value of any type, decided at run time. VBR — like Rust — insists on knowing each value's type when it compiles, so `Variant` is not supported.
+
+Declare the type you actually mean. When a value really can be one of a few shapes, model that with an `Enum` (a sum type), which names the possibilities explicitly and lets `Match` handle each — safer and clearer than a catch-all.
+"""
+
+see_also = ["enum", "dim", "match"]

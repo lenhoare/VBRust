@@ -1,0 +1,7 @@
+Function Main()
+    Dim v As Vec<Long> = [10, 20]
+    Match v.Get(0)
+        Some(x) => Debug.Print x        ' 10
+        None    => Debug.Print "none"
+    End Match
+End Function

@@ -1,0 +1,35 @@
+id = "do-loop"
+title = "Do…Loop"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+Do [While <cond>] [Until <cond>]
+    <statements>
+Loop [While <cond>] [Until <cond>]
+"""
+
+summary = "Repeats a block while (or until) a condition holds."
+
+remarks = """
+`Do…Loop` is the general loop for when you don't know the count in advance. Put the test at the **top** (`Do While …` / `Do Until …`) to check before each pass, or at the **bottom** (`Loop While …` / `Loop Until …`) to run the body at least once.
+
+`While` keeps going while its condition is true; `Until` keeps going until its condition becomes true. `Exit Do` leaves the loop early.
+
+For a fixed count, prefer `For…Next`.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 5
+
+    Do
+        n = n - 1
+        If n = 2 Then Exit Do
+    Loop Until n = 0
+
+    Debug.Print n
+End Function
+"""
+
+see_also = ["while", "for", "exit", "continue"]

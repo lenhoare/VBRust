@@ -1,0 +1,22 @@
+id = "asc"
+title = "Asc"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Asc(<string>)
+"""
+
+summary = "The character code of a string's first character."
+
+remarks = """
+`Asc` returns the Unicode code point of the first character of a string — `Asc("A")` is 65. Its inverse is `Chr`, which turns a code back into a character.
+"""
+
+example = """
+Function Main()
+    Debug.Print Asc("A")
+End Function
+"""
+
+see_also = ["chr", "len"]

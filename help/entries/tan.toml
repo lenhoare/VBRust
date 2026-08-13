@@ -1,0 +1,23 @@
+id = "tan"
+title = "Tan"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Tan(<angle in radians>)
+"""
+
+summary = "The tangent of an angle given in radians."
+
+remarks = """
+`Tan` returns the tangent of an angle in **radians** — equivalently `Sin` divided by `Cos`. As with the others, the input is radians, not degrees.
+"""
+
+example = """
+Function Main()
+    Debug.Print Tan(0.0)
+    Debug.Print Tan(0.7854)      ' ≈ π/4, so ≈ 1
+End Function
+"""
+
+see_also = ["sin", "cos"]

@@ -34,6 +34,7 @@ fn main() {
         Some("py") => cmd_py(&args[1..]),
         Some("c") => cmd_c(&args[1..]),
         Some("graduate") => cmd_graduate(&args[1..]),
+        Some("help") => cmd_help(&args[1..]),
         _ => {
             usage();
             exit(2);
@@ -58,8 +59,55 @@ fn usage() {
          \tvbr c <file.vbr>        transpile to C (core language; -o <file> to write it)\n\
          \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
          \t                        The project keeps building; you maintain that file in Rust\n\
-         \t                        from now on. Graduate main.vbr last to finish the journey."
+         \t                        from now on. Graduate main.vbr last to finish the journey.\n\
+         \tvbr help build [dir]    generate the offline help site + text skin from help/entries/\n\
+         \t                        into help/build/ (dir overrides the entries folder)."
     );
+}
+
+/// `vbr help build [entries_dir]` — regenerate the offline help from
+/// `help/entries/` into `help/build/`. Fails if any example doesn't transpile.
+fn cmd_help(args: &[String]) {
+    let rest: &[String] = match args.first().map(String::as_str) {
+        Some("build") => &args[1..],
+        _ => {
+            eprintln!("Usage: vbr help build [entries_dir]");
+            exit(2);
+        }
+    };
+    let entries = rest
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("help/entries"));
+    let out = PathBuf::from("help/build");
+    match vbr::help::build(&entries, &out) {
+        Ok(report) => {
+            for (id, err) in &report.failures {
+                eprintln!("✘ {}: {}", id, err);
+            }
+            println!(
+                "Help: wrote {} pages → {} ({} of {} topics + {} member pages, {} stub{}).",
+                report.written,
+                out.display(),
+                report.covered,
+                report.total,
+                report.members,
+                report.stubs.len(),
+                if report.stubs.len() == 1 { "" } else { "s" }
+            );
+            if !report.failures.is_empty() {
+                eprintln!(
+                    "\n{} example(s) failed to transpile — help not fully valid.",
+                    report.failures.len()
+                );
+                exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("✘ {}", e);
+            exit(1);
+        }
+    }
 }
 
 /// Read a file, transpile it, print diagnostics, and bail on errors.

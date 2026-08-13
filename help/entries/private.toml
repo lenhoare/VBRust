@@ -1,0 +1,29 @@
+id = "private"
+title = "Private"
+category = "Declarations"
+kind = "keyword"
+
+syntax = """
+Private Function <Name>(...) ...
+Private Sub <Name>(...) ...
+"""
+
+summary = "Keeps a procedure visible only within its own module."
+
+remarks = """
+`Private` marks a `Function` or `Sub` as an implementation detail of the current file — other modules in the project cannot call it. Use it for helpers you don't want to expose.
+
+Contrast with `Public`, which shares a procedure across the project.
+"""
+
+example = """
+Private Function Squared(n As Long) As Long
+    Return n * n
+End Function
+
+Function Main()
+    Debug.Print Squared(9)
+End Function
+"""
+
+see_also = ["public", "function", "sub"]

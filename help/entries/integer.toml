@@ -1,0 +1,25 @@
+id = "integer"
+title = "Integer"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As Integer
+"""
+
+summary = "A whole number in the range of a 16-bit signed value (Rust i16)."
+
+remarks = """
+`Integer` holds whole numbers roughly between −32,768 and 32,767. In Rust terms it is an `i16`.
+
+When you're unsure, `Long` is the everyday choice — it is wider and rarely overflows. VBR widens automatically when you mix sizes in arithmetic, so an `Integer` used with a `Long` is promoted for you.
+"""
+
+example = """
+Function Main()
+    Dim small As Integer = 250
+    Debug.Print small * 2
+End Function
+"""
+
+see_also = ["long", "longlong", "byte"]

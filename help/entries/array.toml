@@ -1,0 +1,35 @@
+id = "array"
+title = "Arrays"
+category = "Collections & wrappers"
+kind = "type"
+
+syntax = """
+Dim <name>(<size>) As <Type>
+"""
+
+summary = "A fixed-size block of values, all the same type."
+
+remarks = """
+`Dim a(3) As Long` makes a fixed array of three `Long`s, each starting at 0. The size is fixed for the array's life — for a collection that grows, use a `Vec` instead.
+
+Index with **square brackets**, Rust-style: `a[0]`, not `a(0)`. `.Len()` gives the size, and `.Get(i)` reads an element safely as an `Option`. Reading `a[i]` with an out-of-range `i` stops the program, so prefer `.Get` when the index might be off.
+"""
+
+members = """
+property | .Len()  | How many slots the array has (its fixed size).
+method   | .Get(i) | The item at index i, as an Option (never crashes).
+"""
+
+example = """
+Function Main()
+    Dim a(3) As Long
+    a[0] = 10
+    a[1] = 20
+    a[2] = 30
+
+    Debug.Print a[1]
+    Debug.Print a.Len()
+End Function
+"""
+
+see_also = ["vec", "hashmap", "redim"]

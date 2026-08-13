@@ -1,0 +1,33 @@
+id = "while"
+title = "While"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+Do While <condition>
+    <statements>
+Loop
+"""
+
+replaces = "While … Wend"
+
+summary = "The condition that drives a Do loop — VBR has no standalone While…Wend."
+
+remarks = """
+If your fingers reach for classic VB's `While … Wend`, note that VBR doesn't have it. Write `Do While <condition> … Loop` instead — same idea, one consistent loop keyword.
+
+`While` can also sit on the closing line (`Loop While <condition>`) to test *after* each pass, and its opposite is `Until`. See `Do…Loop` for the whole family.
+"""
+
+example = """
+Function Main()
+    Dim i As Long = 0
+
+    Do While i < 3
+        Debug.Print i
+        i = i + 1
+    Loop
+End Function
+"""
+
+see_also = ["do-loop", "for", "exit"]

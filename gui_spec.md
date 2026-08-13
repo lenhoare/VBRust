@@ -89,6 +89,21 @@ resolution pass as a function-body `Dim`, so calling your own functions works
 with full argument treatment (`Dim living As Long = CountLive(SeedGrid())`
 borrows the ByVal `Vec` exactly as anywhere else).
 
+**Fields initialise in order, and a later one may read an earlier one.** The
+`State` block reads top-to-bottom like a function body — a field's initialiser
+can use any field declared above it, correctly typed and borrowed (not moved):
+
+```vb
+State
+    Dim grid As Vec<Long> = Life.BlinkerSeed(20, 15)
+    Dim rects As Vec<CellRect> = Life.LiveRects(grid, 20)   ' reads `grid`
+End State
+```
+
+(Internally the constructor emits the initialisers as sequential `let` bindings
+before assembling the struct, so `grid` is a live local when `rects` is built —
+`Life.LiveRects(&grid, …)`. A field can only see fields *above* it.)
+
 **Multi-file projects.** A `Window` (like a `Screen`) joins a project: UI in
 `main.vbr`, logic in sibling modules, called qualified from State
 initialisers, events, and helper functions with the full cross-module
@@ -182,6 +197,53 @@ An event (or the view) **may call your own top-level `Function`/`Sub`s**
 inlined. Event bodies run the full resolver (coercions, stdlib calls, `&`/`&mut`
 argument treatment), and a helper may freely use stdlib namespaces and `HashMap` —
 their imports are scanned from helper bodies too, not only events.
+
+#### Helper `Sub`s — sharing logic between events *(BUILT)*
+
+A `Sub Name(params) … End Sub` written **inside** the block is a helper that
+reads and writes state directly — like an event, but callable by name. Events
+(and other helpers) invoke it, so shared logic lives in one place without
+threading state fields around:
+
+```vb
+State
+    Dim board As Vec<String> = Ttt.NewBoard()
+    Dim message As String = "X to move"
+End State
+
+Sub TryMove(ByVal cell As Long)
+    If board[cell] <> "" Then Return   ' a bare Return is fine here (see below)
+    board[cell] = "X"
+    message = "O to move"
+End Sub
+
+Event Cell1
+    TryMove(0)
+End Event
+Event Cell2
+    TryMove(1)
+End Event
+```
+
+Semantics:
+- A helper `Sub` lowers to a **method on the state struct** (`&mut self`), so its
+  body reaches fields directly (`board`, `message`) and its parameters follow the
+  ordinary rules (`ByVal String` → a `&str`, `ByRef` → a mutable borrow).
+- A call to a helper — from an event or another helper — is rewritten to a method
+  call on the state receiver (`TryMove(0)` → `state.trymove(0)`; from inside
+  another helper, `self.trymove(0)`).
+- Argument coercion is the usual event/function treatment (a `String` argument is
+  borrowed, a narrower number is widened).
+
+This is the intended answer to *"can one event call another?"* — not directly
+(events are entry points, not procedures), but a shared helper `Sub` gives the
+same result, explicitly. It replaces the older workaround of hoisting the logic
+to a **module** `Sub` and passing every touched field as a `ByRef` parameter.
+
+Unlike an event, a helper `Sub` returns `()`, so a **bare `Return`** inside it is
+a normal early exit (`If done Then Return`) — an event has no single return type
+across the surfaces, so a bare `Return` there is rejected; put the guarded logic
+in a helper `Sub` when you want to bail out early.
 
 #### Async events — `Await` *(BUILT — slice 4)*
 

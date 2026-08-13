@@ -2478,9 +2478,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         ExprKind::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
         ExprKind::Index(inner, idx) => {
-            // A Rust index must be `usize`; a literal is fine, anything else is cast.
+            // A numeric index must be `usize`; a *map key* must not be cast.
             let i = match &idx.kind {
                 ExprKind::Int(n) => n.to_string(),
+                // A string-literal key (`map["k"]`) → a `&str`; `HashMap` indexes
+                // by `&Q` and `String: Borrow<str>`, so this type-checks directly.
+                ExprKind::Str(s) => format!("{s:?}"),
+                // A key the resolver already borrowed (a map lookup by variable),
+                // or any pre-formed reference — pass straight through, no cast.
+                ExprKind::Ref(_) => render_expr(idx, None),
+                // Otherwise a numeric index into a Vec/array — cast to usize.
                 _ => format!("({}) as usize", render_expr(idx, None)),
             };
             // `render_recv` parenthesises a leading unary, so a deref'd receiver
@@ -2664,6 +2671,12 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("abs", 1) => Some(math0(&args[0], "abs")),
         ("int", 1) => Some(math0(&args[0], "floor")),
         ("round", 1) => Some(math0(&args[0], "round")),
+        // `Round(x, places)` → round to that many decimals: scale, round, unscale.
+        ("round", 2) => Some(format!(
+            "{{ let __scale = 10f64.powi(({}) as i32); (({}) * __scale).round() / __scale }}",
+            r(1),
+            r(0)
+        )),
         ("sin", 1) => Some(math0(&args[0], "sin")),
         ("cos", 1) => Some(math0(&args[0], "cos")),
         ("tan", 1) => Some(math0(&args[0], "tan")),
@@ -2847,13 +2860,19 @@ fn flatten_concat(e: &Expr) -> (String, Vec<String>) {
 pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
     for stmt in stmts {
         match stmt {
-            Stmt::Assign { target, .. } => {
+            Stmt::Assign { target, value, .. } => {
                 if let Some(root) = lvalue_root(target) {
                     set.insert(root);
                 }
+                // The right-hand side may itself mutate (`x = v.pop()`).
+                mark_mutating_calls(value, set);
             }
             // `nums.push(...)` etc. mutate the receiver collection.
             Stmt::Expr(e) => mark_mutating_calls(e, set),
+            // A mutating call in an initialiser (`Dim last = v.Pop()`) mutates
+            // its receiver just as much as a statement-level one does.
+            Stmt::Dim { init: Some(e), .. } => mark_mutating_calls(e, set),
+            Stmt::Return(Some(e)) => mark_mutating_calls(e, set),
             // `Set Mut a = b` borrows b mutably, so b's own binding must be `mut`.
             Stmt::Set {
                 mutable: true,
@@ -2866,7 +2885,8 @@ pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                 branches,
                 else_body,
             } => {
-                for (_, body) in branches {
+                for (cond, body) in branches {
+                    mark_mutating_calls(cond, set);
                     collect_mutated(body, set);
                 }
                 if let Some(body) = else_body {
@@ -2876,7 +2896,10 @@ pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
             Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
                 collect_mutated(body, set)
             }
-            Stmt::Match { arms, .. } => {
+            // The scrutinee of a `Match` — and of `If … Is …` (an if-let) — can
+            // mutate too (`If v.Pop() Is Some(x) Then …`).
+            Stmt::Match { scrutinee, arms, .. } => {
+                mark_mutating_calls(scrutinee, set);
                 for arm in arms {
                     collect_mutated(&arm.body, set);
                 }

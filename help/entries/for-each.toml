@@ -1,0 +1,33 @@
+id = "for-each"
+title = "For Each"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+For Each <var> In <collection>
+    <statements>
+Next
+"""
+
+summary = "Visits each item of a collection in turn."
+
+remarks = """
+`For Each` binds `<var>` to each element of a collection — a `Vec<T>`, for example — one at a time, so you work with the item itself rather than an index.
+
+Reach for `For Each` when you care about the values; reach for `For … Next` when you need the counting number.
+"""
+
+example = """
+Function Main()
+    Dim nums As Vec<Long> = [10, 20, 30]
+    Dim total As Long = 0
+
+    For Each n In nums
+        total = total + n
+    Next
+
+    Debug.Print total
+End Function
+"""
+
+see_also = ["for", "do-loop"]

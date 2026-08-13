@@ -465,6 +465,15 @@ ask you to say `ByVal` or `ByRef` outright.)
 A function is private to its file unless marked `Public`, which makes it callable
 from other modules in a project (§10) and emits `pub fn`.
 
+### Helper `Sub`s inside a surface
+
+A `Sub` can also live *inside* a `Screen`/`Window`/`Page` block. There it becomes
+a helper that reads and writes the block's `State` directly and is callable by
+name from events (and from other helpers) — the tidy way to share logic between
+events without threading state around. The surfaces have their own guide
+(`gui_and_tui_guide.md`, spec in `gui_spec.md`); this is the one place they touch
+the ordinary rules for a `Sub`.
+
 ---
 
 ## 5. Strings and Ownership

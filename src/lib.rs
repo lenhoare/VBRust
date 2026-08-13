@@ -9,6 +9,7 @@ pub mod complete;
 pub mod diagnostics;
 pub mod godot;
 pub mod gui;
+pub mod help;
 pub mod iter;
 pub mod lexer;
 pub mod parser;

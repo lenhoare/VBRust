@@ -1,0 +1,44 @@
+id = "hashmap"
+title = "HashMap<K,V>"
+category = "Collections & wrappers"
+kind = "type"
+
+syntax = """
+Dim <name> As HashMap<<K>, <V>>
+"""
+
+replaces = "Scripting.Dictionary"
+
+summary = "A lookup table pairing keys with values — VB's Dictionary."
+
+remarks = """
+`HashMap<K, V>` maps each **key** of type `K` to a **value** of type `V` — the modern stand-in for VB's `Dictionary`. Declare it and it starts empty; there's no separate creation step.
+
+Add or overwrite with `.Insert(key, value)`. Read a key directly with `map[key]` — quick, but it stops the program if the key isn't there. When you're not sure, look it up safely with `.Get(key)`, which returns an `Option` — `Some(v)` when the key is present, `None` when it isn't — and unpack it with `Is Some(...)` or `Match`.
+"""
+
+members = """
+property | .Len()            | How many key/value pairs it holds.
+method   | .Insert(key, val) | Add a pair, or overwrite the value for an existing key.
+method   | .Get(key)         | The value for a key, as an Option.
+method   | .Contains_Key(key) | True if the key is present.
+method   | .Remove(key)      | Remove the entry for a key.
+"""
+
+example = """
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+    ages.Insert("Grace", 45)
+
+    Debug.Print ages["Ada"]         ' 36 — direct read
+
+    If ages.Get("Bob") Is Some(a) Then
+        Debug.Print a
+    Else
+        Debug.Print "no Bob"        ' safe lookup, no crash
+    End If
+End Function
+"""
+
+see_also = ["vec", "array", "option", "is"]

@@ -1,0 +1,23 @@
+id = "sin"
+title = "Sin"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Sin(<angle in radians>)
+"""
+
+summary = "The sine of an angle given in radians."
+
+remarks = """
+`Sin` returns the sine of an angle measured in **radians** (not degrees). It pairs with `Cos` and `Tan`. To convert degrees to radians, multiply by π / 180.
+"""
+
+example = """
+Function Main()
+    Debug.Print Sin(0.0)
+    Debug.Print Sin(1.5708)      ' ≈ π/2, so ≈ 1
+End Function
+"""
+
+see_also = ["cos", "tan"]

@@ -1,0 +1,33 @@
+id = "sub"
+title = "Sub"
+category = "Procedures"
+kind = "keyword"
+
+syntax = """
+Sub <Name>([<params>])
+    <statements>
+End Sub
+"""
+
+summary = "Defines a procedure that does something but returns no value."
+
+remarks = """
+A `Sub` is a `Function` with nothing to hand back — use it for actions: printing, updating a value passed by reference, driving a step of the program.
+
+Parameters work exactly as in a `Function`. When you need a result instead, use a `Function` with `As <Type>` and `Return`.
+
+Inside a `Window` or `Screen` block, a `Sub` becomes a helper method on the state that events can share — see the surface guide.
+"""
+
+example = """
+Sub Greet(name As String)
+    Debug.Print "Hello, " & name
+End Sub
+
+Function Main()
+    Greet("Ada")
+    Greet("Grace")
+End Function
+"""
+
+see_also = ["function", "return"]

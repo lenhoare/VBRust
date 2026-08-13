@@ -1,0 +1,38 @@
+id = "match"
+title = "Match"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+Match <expression>
+    <pattern> => <statement>
+    <pattern> => <statement>
+    _ => <statement>
+End Match
+"""
+
+replaces = "Select … Case"
+
+summary = "Chooses a branch by matching a value against patterns — VBR's Select Case."
+
+remarks = """
+`Match` compares one expression against a list of patterns and runs the arm whose pattern fits. Each arm is written `pattern => body`; `_` is the catch-all that matches anything.
+
+Patterns can be literals, enum variants, or ranges. Matching an `Enum` is especially natural — one arm per variant — and VBR checks you have covered them.
+
+`Match` replaces classic `Select Case`; there is no `Case` keyword.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 2
+
+    Match n
+        1 => Debug.Print "one"
+        2 => Debug.Print "two"
+        _ => Debug.Print "many"
+    End Match
+End Function
+"""
+
+see_also = ["if", "enum"]

@@ -1,0 +1,23 @@
+id = "single"
+title = "Single"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As Single
+"""
+
+summary = "A fractional number at single precision (Rust f32)."
+
+remarks = """
+`Single` stores numbers with a fractional part using less memory and precision than `Double` (it is Rust's `f32`). For most work `Double` is the better default; reach for `Single` only when you specifically want the narrower type.
+"""
+
+example = """
+Function Main()
+    Dim ratio As Single = 1.5
+    Debug.Print ratio * 2.0
+End Function
+"""
+
+see_also = ["double", "long"]

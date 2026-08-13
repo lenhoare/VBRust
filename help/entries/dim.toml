@@ -1,0 +1,32 @@
+id = "dim"
+title = "Dim"
+category = "Declarations"
+kind = "keyword"
+
+syntax = """
+Dim <name> As <Type> [= <initial value>]
+Dim <name1> As <Type1>, <name2> As <Type2>
+"""
+
+summary = "Declares a variable and, usually, gives it a starting value."
+
+remarks = """
+`Dim` introduces a variable with a fixed type. Unlike classic VB, VBR wants the type up front so it can generate matching Rust — `Dim n As Long` becomes `let mut n: i64`.
+
+You can give a starting value on the same line with `=`. Several variables can share one line, separated by commas, each with its own `As`.
+
+A variable is only mutable where the code actually reassigns it; VBR works that out for you and emits `let` or `let mut` accordingly.
+"""
+
+example = """
+Function Main()
+    Dim count As Long = 0
+    Dim name As String = "Ada"
+
+    count = count + 1
+    Debug.Print name
+    Debug.Print count
+End Function
+"""
+
+see_also = ["const", "set", "long", "string"]

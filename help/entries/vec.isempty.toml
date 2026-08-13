@@ -1,0 +1,24 @@
+id = "vec.isempty"
+title = "IsEmpty"
+category = "Vec<T>"
+kind = "property"
+parent = "vec"
+anchor = "m/Vec.IsEmpty"
+
+replaces = "IsEmpty"
+
+summary = "Whether the list has no items at all."
+
+returns = "Boolean — True when the list is empty, False otherwise."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = []
+    Debug.Print v.Is_Empty()  ' True
+
+    v.Push(1)
+    Debug.Print v.Is_Empty()  ' False
+End Function
+"""
+
+see_also = ["vec", "vec.len", "vec.clear"]

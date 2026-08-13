@@ -1,0 +1,23 @@
+id = "right"
+title = "Right"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Right(<string>, <count>)
+"""
+
+summary = "The last few characters of a string."
+
+remarks = """
+`Right(s, n)` returns the final `n` characters of `s`. As with `Left`, asking for more than there are gives the whole string.
+"""
+
+example = """
+Function Main()
+    Dim word As String = "Hello"
+    Debug.Print Right(word, 2)
+End Function
+"""
+
+see_also = ["left", "mid", "len"]

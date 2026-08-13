@@ -10,7 +10,7 @@ fn main() {
     grid[1][2] = 42;
     println!("grid[1][2] = {}", grid[1][2]);
     // .get() returns an Option, so out-of-bounds is handled, not a crash
-    match scores.get(0) {
+    match scores.get(0).copied() {
         Some ( v ) => {
             println!("first score = {}", v);
         }

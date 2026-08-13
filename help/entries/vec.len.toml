@@ -1,0 +1,19 @@
+id = "vec.len"
+title = "Len"
+category = "Vec<T>"
+kind = "property"
+parent = "vec"
+anchor = "m/Vec.Len"
+
+summary = "How many items the list currently holds."
+
+returns = "Long — the number of items. Zero for an empty list."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [10, 20, 30]
+    Debug.Print v.Len()      ' 3
+End Function
+"""
+
+see_also = ["vec", "vec.isempty", "vec.get"]

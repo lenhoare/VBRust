@@ -1,0 +1,23 @@
+id = "replace"
+title = "Replace"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Replace(<string>, <find>, <replacement>)
+"""
+
+summary = "A copy of a string with every occurrence of one piece swapped for another."
+
+remarks = """
+`Replace(s, find, replacement)` returns a new string in which every occurrence of `find` has been swapped for `replacement`. The original is left unchanged. If `find` never appears, you get the string back as-is.
+"""
+
+example = """
+Function Main()
+    Dim s As String = "one two two three"
+    Debug.Print Replace(s, "two", "2")
+End Function
+"""
+
+see_also = ["trim", "ucase", "instr"]

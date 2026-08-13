@@ -1,0 +1,23 @@
+id = "abs"
+title = "Abs"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Abs(<number>)
+"""
+
+summary = "The size of a number, ignoring its sign."
+
+remarks = """
+`Abs` returns the magnitude of a number — `Abs(-5)` and `Abs(5)` are both 5. Useful for distances and differences where only the size matters, not the direction.
+"""
+
+example = """
+Function Main()
+    Debug.Print Abs(-5)
+    Debug.Print Abs(3)
+End Function
+"""
+
+see_also = ["int", "round", "sqr"]

@@ -1,0 +1,34 @@
+id = "return"
+title = "Return"
+category = "Procedures"
+kind = "keyword"
+
+syntax = """
+Return <value>
+Return
+"""
+
+summary = "Hands a value back from a Function and stops it."
+
+remarks = """
+`Return <value>` ends a `Function` and gives that value to the caller. Its type must match the function's `As <Type>`.
+
+A bare `Return` (no value) leaves a `Sub` early.
+
+Note: inside a surface **event** handler, avoid a bare `Return` to bail out — an event lowers differently on each surface. Guard with `If`/`ElseIf` instead, or put the shared logic in a helper `Sub` where `Return` is fine.
+"""
+
+example = """
+Function Max(a As Long, b As Long) As Long
+    If a > b Then
+        Return a
+    End If
+    Return b
+End Function
+
+Function Main()
+    Debug.Print Max(3, 9)
+End Function
+"""
+
+see_also = ["function", "sub", "if"]

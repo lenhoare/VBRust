@@ -1,0 +1,20 @@
+id = "vec.sort"
+title = "Sort"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.Sort"
+
+summary = "Puts the items in ascending order."
+
+returns = "Nothing — the list is reordered in place, smallest first."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [3, 1, 2]
+    v.Sort()
+    Debug.Print v.First().Unwrap_Or(-1)  ' 1 — smallest is now first
+End Function
+"""
+
+see_also = ["vec", "vec.reverse"]

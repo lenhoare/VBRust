@@ -1,0 +1,23 @@
+id = "sqr"
+title = "Sqr"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Sqr(<number>)
+"""
+
+summary = "The square root of a number."
+
+remarks = """
+`Sqr` returns the square root — `Sqr(16.0)` is `4`. (The name comes from classic VB; it is *square root*, not squaring.) Give it a `Double`; the result is a `Double`.
+"""
+
+example = """
+Function Main()
+    Debug.Print Sqr(16.0)
+    Debug.Print Sqr(2.0)
+End Function
+"""
+
+see_also = ["abs", "exp", "log"]

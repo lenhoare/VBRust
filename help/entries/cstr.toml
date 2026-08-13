@@ -1,0 +1,27 @@
+id = "cstr"
+title = "CStr"
+category = "Conversion"
+kind = "function"
+
+syntax = """
+CStr(<value>)
+"""
+
+summary = "Turns a number (or other value) into a string."
+
+remarks = """
+`CStr` converts a value to its text form — `CStr(42)` is `"42"`. Use it when you need a number as part of a string and aren't already joining with `&` (which converts for you).
+
+Its rough opposite is `Val`, which reads a number back out of a string.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 42
+    Dim label As String = "n = " & CStr(n)
+
+    Debug.Print label
+End Function
+"""
+
+see_also = ["str", "val", "string"]

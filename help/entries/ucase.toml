@@ -1,0 +1,22 @@
+id = "ucase"
+title = "UCase"
+category = "String functions"
+kind = "function"
+
+syntax = """
+UCase(<string>)
+"""
+
+summary = "A copy of a string with every letter in upper case."
+
+remarks = """
+`UCase` returns the string with all letters capitalised. Its opposite is `LCase`. A handy pair for case-insensitive comparisons: upper-case both sides before testing.
+"""
+
+example = """
+Function Main()
+    Debug.Print UCase("hello")
+End Function
+"""
+
+see_also = ["lcase", "trim", "replace"]

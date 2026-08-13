@@ -7,7 +7,7 @@ fn main() {
     nums.push(3);
     nums.push(1);
     nums.push(2);
-    match nums.first() {
+    match nums.first().copied() {
         Some ( v ) => {
             println!("first  = {}", v);
         }
@@ -15,7 +15,7 @@ fn main() {
             println!("empty");
         }
     }
-    match nums.get(5) {
+    match nums.get(5).copied() {
         Some ( v ) => {
             println!("at 5   = {}", v);
         }

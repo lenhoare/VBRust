@@ -1,0 +1,40 @@
+id = "if"
+title = "If…Then…Else"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+If <condition> Then
+    <statements>
+ElseIf <condition> Then
+    <statements>
+Else
+    <statements>
+End If
+"""
+
+summary = "Runs one branch of code or another depending on a condition."
+
+remarks = """
+`If` tests a condition and runs the block after `Then` when it is true. Add `ElseIf` branches for further tests, and a final `Else` for when none matched.
+
+Conditions combine with `And`, `Or`, `Not` and the comparison operators (`=`, `<>`, `<`, `>`, `<=`, `>=`).
+
+A one-line form — `If <cond> Then <statement>` — is handy for a single guarded action.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 7
+
+    If n Mod 2 = 0 Then
+        Debug.Print "even"
+    ElseIf n > 5 Then
+        Debug.Print "big and odd"
+    Else
+        Debug.Print "small and odd"
+    End If
+End Function
+"""
+
+see_also = ["match", "and", "or", "not"]

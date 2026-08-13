@@ -1,0 +1,26 @@
+id = "round"
+title = "Round"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Round(<number>)
+Round(<number>, <decimal places>)
+"""
+
+summary = "Rounds a number to the nearest whole number, or to a set number of decimal places."
+
+remarks = """
+`Round(x)` rounds to the nearest whole number — `Round(3.7)` is `4`. Give a second argument to keep that many digits after the decimal point: `Round(3.14159, 2)` is `3.14`. A value exactly halfway rounds away from zero.
+
+To drop the fraction instead (always rounding down), use `Int`.
+"""
+
+example = """
+Function Main()
+    Debug.Print Round(3.7)          ' 4
+    Debug.Print Round(3.14159, 2)   ' 3.14
+End Function
+"""
+
+see_also = ["int", "abs"]

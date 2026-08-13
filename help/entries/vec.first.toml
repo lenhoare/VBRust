@@ -1,0 +1,19 @@
+id = "vec.first"
+title = "First"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.First"
+
+summary = "The first item of the list, safely."
+
+returns = "Option<T> — Some(item) with the first element, or None if the list is empty."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [10, 20, 30]
+    Debug.Print v.First().Unwrap_Or(-1)  ' 10
+End Function
+"""
+
+see_also = ["vec", "vec.last", "vec.get", "option"]

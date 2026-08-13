@@ -1,0 +1,23 @@
+id = "int"
+title = "Int"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Int(<number>)
+"""
+
+summary = "Drops the fractional part of a number, rounding down."
+
+remarks = """
+`Int` returns the whole-number part of a value, rounding **down** to the nearest integer — `Int(3.9)` is `3`. To round to the nearest whole number instead, use `Round`.
+"""
+
+example = """
+Function Main()
+    Debug.Print Int(3.9)
+    Debug.Print Int(3.1)
+End Function
+"""
+
+see_also = ["round", "abs"]

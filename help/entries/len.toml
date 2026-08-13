@@ -1,0 +1,23 @@
+id = "len"
+title = "Len"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Len(<string>)
+"""
+
+summary = "How many characters are in a string."
+
+remarks = """
+`Len` counts the *characters* in a string, not the bytes, so it stays correct for accented letters and emoji. An empty string has length 0.
+"""
+
+example = """
+Function Main()
+    Dim word As String = "Hello"
+    Debug.Print Len(word)
+End Function
+"""
+
+see_also = ["mid", "left", "right", "string"]

@@ -1,0 +1,30 @@
+id = "instr"
+title = "InStr"
+category = "String functions"
+kind = "function"
+
+syntax = """
+InStr(<string>, <substring>)
+"""
+
+summary = "Finds where one string appears inside another."
+
+remarks = """
+`InStr` searches for a substring and reports where it starts. In classic VB it returned 0 when the text wasn't found — an easy trap. VBR instead returns an **`Option`**: `Some(pos)` when found, `None` when not, so you can't accidentally treat "not found" as a real position.
+
+Unpack it with `Is Some(...)` or `Match`. The position counts characters.
+"""
+
+example = """
+Function Main()
+    Dim s As String = "Hello, World"
+
+    If InStr(s, "World") Is Some(pos) Then
+        Debug.Print pos
+    Else
+        Debug.Print "not found"
+    End If
+End Function
+"""
+
+see_also = ["is", "mid", "replace"]

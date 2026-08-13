@@ -3331,6 +3331,12 @@ impl<'a> Parser<'a> {
             } else {
                 let mut b = vec![Stmt::LineMark(self.line()), self.parse_stmt()?];
                 b.append(&mut self.dim_overflow);
+                // A one-line arm may end with a trailing comment (`=> foo   ' note`);
+                // consume it so it isn't mistaken for the next arm's pattern.
+                if let Tok::Comment(text) = self.peek().clone() {
+                    self.advance();
+                    b.push(Stmt::Comment(text));
+                }
                 b
             };
             arms.push(MatchArm { pattern, guard, body });

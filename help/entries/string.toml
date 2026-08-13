@@ -1,0 +1,35 @@
+id = "string"
+title = "String"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As String
+"""
+
+summary = "A piece of text."
+
+remarks = """
+`String` holds text of any length. Join two with `&` (`first & " " & last`), and reach for the string functions — `Len`, `Left`, `Right`, `Mid`, `UCase`, `Replace`, and friends — to pick it apart.
+
+VBR strings are proper Unicode text, so `Len` and `Mid` count *characters*, not bytes — they stay correct with accents and emoji.
+"""
+
+members = """
+method | .Contains(part)    | True if the text contains that piece.
+method | .Starts_With(part) | True if the text begins with that piece.
+method | .Ends_With(part)   | True if the text ends with that piece.
+"""
+
+example = """
+Function Main()
+    Dim first As String = "Grace"
+    Dim last As String = "Hopper"
+    Dim full As String = first & " " & last
+
+    Debug.Print full
+    Debug.Print Len(full)
+End Function
+"""
+
+see_also = ["len", "left", "mid", "replace", "cstr"]

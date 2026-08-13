@@ -1,0 +1,22 @@
+id = "chr"
+title = "Chr"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Chr(<code>)
+"""
+
+summary = "The character for a given character code."
+
+remarks = """
+`Chr` turns a numeric code point into a one-character string — `Chr(65)` is `"A"`. It is the inverse of `Asc`, and handy for producing characters that are awkward to type.
+"""
+
+example = """
+Function Main()
+    Debug.Print Chr(65) & Chr(66) & Chr(67)
+End Function
+"""
+
+see_also = ["asc", "string"]

@@ -1,0 +1,22 @@
+id = "lcase"
+title = "LCase"
+category = "String functions"
+kind = "function"
+
+syntax = """
+LCase(<string>)
+"""
+
+summary = "A copy of a string with every letter in lower case."
+
+remarks = """
+`LCase` returns the string with all letters in lower case — the mirror of `UCase`. Lower-casing both sides is a simple way to compare text without caring about capitalisation.
+"""
+
+example = """
+Function Main()
+    Debug.Print LCase("HELLO")
+End Function
+"""
+
+see_also = ["ucase", "trim", "replace"]

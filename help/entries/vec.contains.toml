@@ -1,0 +1,25 @@
+id = "vec.contains"
+title = "Contains"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.Contains"
+
+summary = "Whether a given value is somewhere in the list."
+
+arguments = """
+item | T | The value to look for.
+"""
+
+returns = "Boolean — True if the item appears at least once, False otherwise."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [1, 2, 3]
+
+    Debug.Print v.Contains(2)   ' True
+    Debug.Print v.Contains(9)   ' False
+End Function
+"""
+
+see_also = ["vec", "vec.get"]

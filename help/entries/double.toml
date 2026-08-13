@@ -1,0 +1,27 @@
+id = "double"
+title = "Double"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As Double
+"""
+
+summary = "The everyday fractional-number type (Rust f64)."
+
+remarks = """
+`Double` is the go-to type for numbers with a decimal point — measurements, averages, prices you don't need exact to the penny. It maps to Rust's `f64`.
+
+Mixing a whole number into a `Double` expression widens it automatically, so `Pi * r` works whether `r` is a `Long` or a `Double`.
+"""
+
+example = """
+Function Main()
+    Dim radius As Double = 2.5
+    Dim area As Double = 3.14159 * radius * radius
+
+    Debug.Print area
+End Function
+"""
+
+see_also = ["single", "long", "val"]

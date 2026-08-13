@@ -1,0 +1,23 @@
+id = "exp"
+title = "Exp"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Exp(<number>)
+"""
+
+summary = "e raised to the given power."
+
+remarks = """
+`Exp(x)` returns *e* (about 2.71828) raised to the power `x`. It is the inverse of `Log`, and the building block of exponential growth and decay.
+"""
+
+example = """
+Function Main()
+    Debug.Print Exp(0.0)     ' 1
+    Debug.Print Exp(1.0)     ' ≈ 2.71828
+End Function
+"""
+
+see_also = ["log", "sqr"]

@@ -1,0 +1,26 @@
+id = "mod"
+title = "Mod"
+category = "Operators"
+kind = "operator"
+
+syntax = """
+<number> Mod <number>
+"""
+
+summary = "The remainder left after dividing one whole number by another."
+
+remarks = """
+`a Mod b` gives what's left over after dividing `a` by `b`. `7 Mod 3` is `1`. A common use is testing divisibility: `n Mod 2 = 0` is true for even numbers.
+"""
+
+example = """
+Function Main()
+    For n = 1 To 6
+        If n Mod 2 = 0 Then
+            Debug.Print n & " is even"
+        End If
+    Next
+End Function
+"""
+
+see_also = ["for", "if"]

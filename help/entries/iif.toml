@@ -1,0 +1,25 @@
+id = "iif"
+title = "IIf"
+category = "Conversion"
+kind = "function"
+
+syntax = """
+IIf(<condition>, <value if true>, <value if false>)
+"""
+
+summary = "Picks one of two values based on a condition, inline."
+
+remarks = """
+`IIf(cond, a, b)` yields `a` when the condition is true and `b` when it is false — a compact `If` you can drop right inside an expression. Both arms must be the same type.
+
+Reach for it when a full `If` block would be overkill; keep the arms simple, since both are read as values.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 7
+    Debug.Print IIf(n Mod 2 = 0, "even", "odd")
+End Function
+"""
+
+see_also = ["if", "match"]

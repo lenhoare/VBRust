@@ -1,0 +1,23 @@
+id = "mid"
+title = "Mid"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Mid(<string>, <start>, <count>)
+"""
+
+summary = "A run of characters taken from the middle of a string."
+
+remarks = """
+`Mid(s, start, count)` returns `count` characters beginning at position `start`. As in classic VB the position is **1-based** — `Mid(s, 1, …)` starts at the first character — and VBR counts by characters, so it stays correct on any text.
+"""
+
+example = """
+Function Main()
+    Dim word As String = "Hello"
+    Debug.Print Mid(word, 2, 3)      ' "ell"
+End Function
+"""
+
+see_also = ["left", "right", "len", "instr"]

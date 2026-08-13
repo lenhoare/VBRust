@@ -1,0 +1,34 @@
+id = "exit"
+title = "Exit"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+Exit For
+Exit Do
+Exit Function
+Exit Sub
+"""
+
+summary = "Leaves a loop or procedure early."
+
+remarks = """
+`Exit` jumps straight out of the nearest enclosing thing of the named kind: `Exit For` and `Exit Do` break out of a loop; `Exit Function` and `Exit Sub` leave the procedure.
+
+To skip to the *next* pass of a loop rather than leaving it, use `Continue`.
+"""
+
+example = """
+Function Main()
+    Dim total As Long = 0
+
+    For n = 1 To 100
+        total = total + n
+        If total > 20 Then Exit For
+    Next
+
+    Debug.Print total
+End Function
+"""
+
+see_also = ["continue", "for", "do-loop", "return"]

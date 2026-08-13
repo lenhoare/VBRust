@@ -1,0 +1,25 @@
+id = "val"
+title = "Val"
+category = "Conversion"
+kind = "function"
+
+syntax = """
+Val(<string>)
+"""
+
+summary = "Reads a number out of a string."
+
+remarks = """
+`Val` parses the leading number from a string and returns it as a `Double`. `Val("3.14")` is `3.14`. It is lenient: text it can't read as a number yields 0 rather than an error, so it is convenient for tidy input but not a strict validator.
+
+Assign the result straight into the numeric type you want — `Dim n As Long = Val(s)` narrows the `Double` for you.
+"""
+
+example = """
+Function Main()
+    Dim n As Double = Val("3.14")
+    Debug.Print n * 2.0
+End Function
+"""
+
+see_also = ["cstr", "str", "double"]

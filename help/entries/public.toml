@@ -1,0 +1,29 @@
+id = "public"
+title = "Public"
+category = "Declarations"
+kind = "keyword"
+
+syntax = """
+Public Function <Name>(...) ...
+Public Sub <Name>(...) ...
+"""
+
+summary = "Marks a procedure as visible to other modules in a project."
+
+remarks = """
+In a multi-file project, `Public` on a `Function` or `Sub` lets other modules call it. It is the counterpart of `Private`, which keeps a procedure to its own module.
+
+In a single file everything is reachable, so `Public` mainly matters once you split a program into modules.
+"""
+
+example = """
+Public Function Twice(n As Long) As Long
+    Return n * 2
+End Function
+
+Function Main()
+    Debug.Print Twice(21)
+End Function
+"""
+
+see_also = ["private", "function", "sub"]

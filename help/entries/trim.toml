@@ -1,0 +1,23 @@
+id = "trim"
+title = "Trim"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Trim(<string>)
+"""
+
+summary = "A copy of a string with leading and trailing spaces removed."
+
+remarks = """
+`Trim` strips whitespace from both ends of a string, leaving the inside untouched. It is the usual first step when cleaning up text a user typed.
+"""
+
+example = """
+Function Main()
+    Dim messy As String = "   hello   "
+    Debug.Print Trim(messy) & "!"
+End Function
+"""
+
+see_also = ["replace", "ucase", "lcase"]

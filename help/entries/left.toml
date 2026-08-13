@@ -1,0 +1,25 @@
+id = "left"
+title = "Left"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Left(<string>, <count>)
+"""
+
+summary = "The first few characters of a string."
+
+remarks = """
+`Left(s, n)` returns the first `n` characters of `s`. Ask for more than the string holds and you simply get the whole string back.
+
+Its mirror is `Right`; to take from the middle, use `Mid`.
+"""
+
+example = """
+Function Main()
+    Dim word As String = "Hello"
+    Debug.Print Left(word, 3)
+End Function
+"""
+
+see_also = ["right", "mid", "len"]

@@ -1,0 +1,25 @@
+id = "vec.push"
+title = "Push"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.Push"
+
+summary = "Adds an item to the end of the list."
+
+arguments = """
+item | T | The value to append. Its type must match the list's element type.
+"""
+
+returns = "Nothing — the list is changed in place, growing by one."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [1, 2]
+    v.Push(3)
+
+    Debug.Print v.Len()      ' 3
+End Function
+"""
+
+see_also = ["vec", "vec.pop", "vec.clear"]

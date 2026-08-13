@@ -1,0 +1,22 @@
+id = "str"
+title = "Str"
+category = "Conversion"
+kind = "function"
+
+syntax = """
+Str(<number>)
+"""
+
+summary = "Turns a number into a string."
+
+remarks = """
+`Str` converts a number to text. It is close to `CStr`; in classic VB `Str` also left a leading space where the sign would go. For building labels, `CStr` or joining with `&` is usually what you want.
+"""
+
+example = """
+Function Main()
+    Debug.Print Str(42)
+End Function
+"""
+
+see_also = ["cstr", "val"]

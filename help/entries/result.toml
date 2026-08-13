@@ -1,0 +1,46 @@
+id = "result"
+title = "Result<T>"
+category = "Collections & wrappers"
+kind = "type"
+
+syntax = """
+Function <Name>(...) As Result<<T>>
+    Return Ok(<value>)
+    Return Err(<message>)
+End Function
+"""
+
+replaces = "On Error and the Err object"
+
+summary = "A value that succeeded (Ok) or failed (Err) — errors you can't ignore."
+
+remarks = """
+`Result<T>` is either `Ok(value)` on success or `Err(message)` on failure. A function that can fail returns one, so the caller *must* deal with both outcomes — this is VBR's answer to `On Error`, made visible in the type.
+
+Handle it with a `Match` on `Ok`/`Err`. Inside another fallible function, the `?` operator (see "? (try)") forwards an `Err` for you and unwraps an `Ok`, so the happy path stays clean.
+"""
+
+members = """
+property | .Is_Ok()            | True when the result succeeded.
+property | .Is_Err()           | True when it failed.
+method   | .Unwrap_Or(default) | The Ok value, or the given default on Err.
+method   | .Unwrap()           | The Ok value — but crashes on Err (prefer ? or Match).
+"""
+
+example = """
+Function Half(n As Long) As Result<Long>
+    If n Mod 2 <> 0 Then
+        Return Err("not even")
+    End If
+    Return Ok(n / 2)
+End Function
+
+Function Main()
+    Match Half(10)
+        Ok(h) => Debug.Print h
+        Err(e) => Debug.Print e
+    End Match
+End Function
+"""
+
+see_also = ["option", "question", "match"]

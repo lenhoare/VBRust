@@ -1,0 +1,26 @@
+id = "not"
+title = "Not"
+category = "Operators"
+kind = "operator"
+
+syntax = """
+Not <condition>
+"""
+
+summary = "Flips a Boolean — true becomes false and back."
+
+remarks = """
+`Not` negates a condition: `Not done` is true exactly when `done` is false. It reads well in guards — `If Not found Then …`.
+"""
+
+example = """
+Function Main()
+    Dim found As Boolean = False
+
+    If Not found Then
+        Debug.Print "still searching"
+    End If
+End Function
+"""
+
+see_also = ["and", "or", "xor", "boolean"]

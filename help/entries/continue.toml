@@ -1,0 +1,27 @@
+id = "continue"
+title = "Continue"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+Continue
+"""
+
+summary = "Skips the rest of this pass and starts the loop's next one."
+
+remarks = """
+`Continue` abandons the current iteration and jumps straight to the loop's next pass — handy for skipping items that don't interest you without nesting the rest of the body inside an `If`.
+
+Unlike `Exit`, it does not name the loop kind: a bare `Continue` always applies to the nearest enclosing loop.
+"""
+
+example = """
+Function Main()
+    For n = 1 To 6
+        If n Mod 2 = 0 Then Continue
+        Debug.Print n           ' odd numbers only
+    Next
+End Function
+"""
+
+see_also = ["exit", "for", "do-loop"]

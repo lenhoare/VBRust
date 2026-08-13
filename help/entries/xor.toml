@@ -1,0 +1,26 @@
+id = "xor"
+title = "Xor"
+category = "Operators"
+kind = "operator"
+
+syntax = """
+<condition> Xor <condition>
+"""
+
+summary = "True when exactly one of the two conditions is true."
+
+remarks = """
+`Xor` (exclusive or) is true when the two conditions *differ* — one true, one false — and false when they agree. Handy for toggles and parity checks.
+"""
+
+example = """
+Function Main()
+    Dim a As Boolean = True
+    Dim b As Boolean = False
+
+    Debug.Print a Xor b     ' True — they differ
+    Debug.Print a Xor a     ' False — they agree
+End Function
+"""
+
+see_also = ["and", "or", "not"]

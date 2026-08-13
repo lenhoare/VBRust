@@ -1,0 +1,34 @@
+id = "for"
+title = "For…Next"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+For <var> = <start> To <end> [Step <n>]
+    <statements>
+Next
+"""
+
+summary = "Repeats a block a fixed number of times, counting a variable through a range."
+
+remarks = """
+`For` counts `<var>` from `<start>` up to and including `<end>`. The counter's type is inferred from the range, so you do not `Dim` it separately.
+
+`Step <n>` changes the increment — `Step 2` counts in twos, and a negative step counts downward.
+
+To walk the items of a collection rather than a number range, use `For Each`.
+"""
+
+example = """
+Function Main()
+    Dim total As Long = 0
+
+    For i = 1 To 5
+        total = total + i
+    Next
+
+    Debug.Print total
+End Function
+"""
+
+see_also = ["for-each", "do-loop", "while", "exit"]

@@ -1,0 +1,35 @@
+id = "type"
+title = "Type"
+category = "Custom types"
+kind = "keyword"
+
+syntax = """
+Type <Name>
+    <Field> As <Type>
+    <Field> As <Type>
+End Type
+"""
+
+summary = "Defines a record — a value that groups several named fields together."
+
+remarks = """
+`Type` bundles related fields into one named value (a `struct` in Rust). Reach for it whenever you find yourself passing the same few variables around together.
+
+Create one by listing every field at once — `Point { X: 1, Y: 2 }`. VBR does not let you declare an empty record and fill it in later; giving all fields up front means a value is never half-built. Read or assign a field with dot notation, `p.X`.
+"""
+
+example = """
+Type Point
+    X As Long
+    Y As Long
+End Type
+
+Function Main()
+    Dim p As Point = Point { X: 3, Y: 4 }
+
+    Debug.Print p.X
+    Debug.Print p.Y
+End Function
+"""
+
+see_also = ["enum", "dim", "new"]

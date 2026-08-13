@@ -1,0 +1,22 @@
+id = "vec.pop"
+title = "Pop"
+category = "Vec<T>"
+kind = "method"
+parent = "vec"
+anchor = "m/Vec.Pop"
+
+summary = "Removes the last item and hands it back."
+
+returns = "Option<T> — Some(item) with the removed value, or None if the list was already empty. The list shrinks by one."
+
+example = """
+Function Main()
+    Dim v As Vec<Long> = [1, 2, 3]
+
+    Dim last As Option<Long> = v.Pop()
+    Debug.Print last.Unwrap_Or(-1)   ' 3
+    Debug.Print v.Len()              ' 2
+End Function
+"""
+
+see_also = ["vec", "vec.push", "vec.last", "option"]

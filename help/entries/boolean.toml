@@ -1,0 +1,26 @@
+id = "boolean"
+title = "Boolean"
+category = "Data types"
+kind = "type"
+
+syntax = """
+Dim <name> As Boolean
+"""
+
+summary = "A true/false value."
+
+remarks = """
+`Boolean` holds one of two values, `True` or `False`. It is what conditions produce and what `If`, `Do While`, and the logical operators (`And`, `Or`, `Not`, `Xor`) work with.
+"""
+
+example = """
+Function Main()
+    Dim ready As Boolean = True
+
+    If ready Then
+        Debug.Print "go"
+    End If
+End Function
+"""
+
+see_also = ["and", "or", "not", "if"]

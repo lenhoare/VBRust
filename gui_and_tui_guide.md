@@ -78,6 +78,15 @@ Read it top to bottom and the three parts announce themselves.
 just gathered inside `State … End State`. It can hold primitives, enums, and
 `Vec<T>` collections (a growing list you fill in an event and show in the view).
 It is the *only* memory the program has; everything on screen is derived from it.
+The block reads top-to-bottom like a function body, so a field's initialiser may
+use any field declared **above** it:
+
+```vb
+State
+    Dim grid As Vec<Long> = MakeGrid(20, 15)
+    Dim rects As Vec<CellRect> = LiveRects(grid, 20)   ' reads the field above
+End State
+```
 
 **View** is a tree of widgets wrapped in `View … End View`. Crucially, it is a
 *picture of the state*, not a set of objects you keep and mutate. `Text count`
