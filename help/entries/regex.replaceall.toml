@@ -1,0 +1,25 @@
+id = "regex.replaceall"
+title = "ReplaceAll"
+category = "Regex"
+kind = "method"
+parent = "regex"
+anchor = "ns/Regex.ReplaceAll"
+
+summary = "Replaces every match of a pattern."
+
+arguments = """
+pattern | String | The regular expression to search for.
+text | String | The text to search in.
+replacement | String | What to put in place of each match.
+"""
+
+returns = "Result<String> — Ok with the edited text (unchanged if nothing matched), or Err(message) if the pattern is invalid."
+
+example = """
+Function Main()
+    Dim hidden As String = Regex.ReplaceAll("[0-9]", "id 4 8 15", "#").Unwrap()
+    Debug.Print hidden   ' id # # ##
+End Function
+"""
+
+see_also = ["regex", "regex.replace", "regex.findall"]

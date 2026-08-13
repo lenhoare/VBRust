@@ -1,0 +1,19 @@
+id = "option.unwrap"
+title = "Unwrap"
+category = "Option<T>"
+kind = "method"
+parent = "option"
+anchor = "m/Option.Unwrap"
+
+summary = "The value inside — but crashes on None."
+
+returns = "T — the contained value. Stops the program if the option is None, so reach for Unwrap_Or, Is Some, or Match unless you are certain there is a value."
+
+example = """
+Function Main()
+    Dim found As Option<Long> = Some(7)
+    Debug.Print found.Unwrap()   ' 7
+End Function
+"""
+
+see_also = ["option", "option.unwrap_or", "is", "match"]

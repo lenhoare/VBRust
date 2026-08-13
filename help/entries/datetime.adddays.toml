@@ -1,0 +1,25 @@
+id = "datetime.adddays"
+title = "AddDays"
+category = "DateTime"
+kind = "method"
+parent = "datetime"
+anchor = "ns/DateTime.AddDays"
+
+summary = "A new DateTime shifted by a number of days."
+
+arguments = """
+n | Long | How many days to add. A negative number moves backwards.
+"""
+
+returns = "DateTime — a new value; the original is unchanged. AddHours(n) and AddMinutes(n) shift by hours and minutes the same way."
+
+example = """
+Function Main()
+    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d").Unwrap()
+
+    Debug.Print d.AddDays(7).Format("%Y-%m-%d")    ' 2026-08-21
+    Debug.Print d.AddDays(-1).Format("%Y-%m-%d")   ' 2026-08-13
+End Function
+"""
+
+see_also = ["datetime", "datetime.diffdays"]

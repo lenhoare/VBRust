@@ -1564,7 +1564,16 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             };
             if stdlib_recv {
                 for arg in args.iter_mut() {
+                    let owned_dt = matches!(
+                        infer(arg, ctx),
+                        VType::Decl(DeclType::Named(ref n)) if n == "DateTime"
+                    ) && !matches!(&arg.kind, ExprKind::Ref(_));
                     if infer(arg, ctx).is_owned_string() {
+                        let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
+                        arg.kind = ExprKind::Ref(Box::new(inner));
+                    } else if owned_dt {
+                        // A `DateTime` argument (`d.DiffDays(other)`) is taken by
+                        // reference — it's never passed to a stdlib method by value.
                         let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
                         arg.kind = ExprKind::Ref(Box::new(inner));
                     } else if let ExprKind::List(elems) = &mut arg.kind {

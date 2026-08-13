@@ -1,0 +1,26 @@
+id = "filesystem.append"
+title = "Append"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Append"
+
+summary = "Adds text to the end of a file."
+
+arguments = """
+path | String | The path of the file to append to.
+text | String | The text to add at the end.
+"""
+
+returns = "Result — Ok on success, or Err(message) on failure. Creates the file first if it doesn't exist."
+
+example = """
+Function Main()
+    FileSystem.Write("log.txt", "start").Unwrap()
+    FileSystem.Append("log.txt", " more").Unwrap()
+
+    Debug.Print FileSystem.Read("log.txt").Unwrap()   ' start more
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.write"]

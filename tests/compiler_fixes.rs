@@ -81,6 +81,19 @@ fn get_first_last_return_owned_values() {
 }
 
 #[test]
+fn datetime_argument_is_borrowed() {
+    // `a.DiffDays(b)` — a DateTime argument to a stdlib method is taken by ref.
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim a As DateTime = DateTime.Now()\n\
+        \x20   Dim b As DateTime = DateTime.Now()\n\
+        \x20   Debug.Print a.DiffDays(b)\n\
+        End Function\n",
+    ));
+    assert!(rust.contains("diff_days(&b)"), "DateTime arg should be borrowed: {rust}");
+}
+
+#[test]
 fn match_arm_accepts_trailing_comment() {
     // The single-line arm form used to reject a trailing `' comment`.
     let src = "Function Main()\n\

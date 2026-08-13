@@ -1,0 +1,22 @@
+id = "hashmap.len"
+title = "Len"
+category = "HashMap<K,V>"
+kind = "property"
+parent = "hashmap"
+anchor = "m/HashMap.Len"
+
+summary = "How many key/value pairs the map holds."
+
+returns = "Long — the number of entries. Zero when the map is empty."
+
+example = """
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+    ages.Insert("Grace", 45)
+
+    Debug.Print ages.Len()   ' 2
+End Function
+"""
+
+see_also = ["hashmap", "hashmap.insert"]

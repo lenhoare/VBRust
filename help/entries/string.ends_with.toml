@@ -1,0 +1,24 @@
+id = "string.ends_with"
+title = "Ends_With"
+category = "String"
+kind = "method"
+parent = "string"
+anchor = "m/String.Ends_With"
+
+summary = "Whether the text ends with a given piece."
+
+arguments = """
+part | String | The text to look for at the end.
+"""
+
+returns = "Boolean — True if the string ends with part."
+
+example = """
+Function Main()
+    Dim s As String = "report.csv"
+    Debug.Print s.Ends_With(".csv")   ' True
+    Debug.Print s.Ends_With(".txt")   ' False
+End Function
+"""
+
+see_also = ["string", "string.starts_with", "string.contains"]

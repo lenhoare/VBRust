@@ -1,0 +1,19 @@
+id = "result.unwrap"
+title = "Unwrap"
+category = "Result<T>"
+kind = "method"
+parent = "result"
+anchor = "m/Result.Unwrap"
+
+summary = "The Ok value — but crashes on Err."
+
+returns = "T — the Ok value. Stops the program on an Err, so prefer the ? operator, Unwrap_Or, or Match unless you are certain it succeeded."
+
+example = """
+Function Main()
+    Dim r As Result<Long> = Ok(9)
+    Debug.Print r.Unwrap()   ' 9
+End Function
+"""
+
+see_also = ["result", "result.unwrap_or", "question", "match"]

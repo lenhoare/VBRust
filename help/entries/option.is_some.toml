@@ -1,0 +1,22 @@
+id = "option.is_some"
+title = "Is_Some"
+category = "Option<T>"
+kind = "property"
+parent = "option"
+anchor = "m/Option.Is_Some"
+
+summary = "Whether the option holds a value."
+
+returns = "Boolean — True for Some, False for None."
+
+example = """
+Function Main()
+    Dim found As Option<Long> = Some(5)
+    Debug.Print found.Is_Some()     ' True
+
+    Dim missing As Option<Long> = None
+    Debug.Print missing.Is_Some()   ' False
+End Function
+"""
+
+see_also = ["option", "option.is_none", "is"]

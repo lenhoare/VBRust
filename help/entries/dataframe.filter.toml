@@ -1,0 +1,26 @@
+id = "dataframe.filter"
+title = "Filter"
+category = "DataFrame"
+kind = "method"
+parent = "dataframe"
+anchor = "ns/DataFrame.Filter"
+
+summary = "Keeps only the rows where a column formula is true."
+
+arguments = """
+condition | (column formula) | A true/false formula over the columns. Combine comparisons with And, Or, Not.
+"""
+
+returns = "DataFrame — a new table with just the matching rows. The condition is tested on every row."
+
+example = """
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+
+    df = df.Filter(age >= 18 And active)
+
+    df.Print()
+End Function
+"""
+
+see_also = ["dataframe", "dataframe.withcolumn", "and"]

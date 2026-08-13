@@ -1,0 +1,25 @@
+id = "filesystem.exists"
+title = "Exists"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Exists"
+
+summary = "Whether a file exists at the given path."
+
+arguments = """
+path | String | The path to check.
+"""
+
+returns = "Boolean — True if a file exists there, False otherwise. Unlike most FileSystem calls, this returns a plain Boolean, not a Result."
+
+example = """
+Function Main()
+    Debug.Print FileSystem.Exists("out.txt")   ' False
+
+    FileSystem.Write("out.txt", "hi").Unwrap()
+    Debug.Print FileSystem.Exists("out.txt")   ' True
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.delete"]

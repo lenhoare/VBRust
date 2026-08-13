@@ -1,0 +1,28 @@
+id = "dataframe.withcolumn"
+title = "WithColumn"
+category = "DataFrame"
+kind = "method"
+parent = "dataframe"
+anchor = "ns/DataFrame.WithColumn"
+
+summary = "Adds or replaces a column, computed from a formula over the others."
+
+arguments = """
+name | String | The name of the column to create (or overwrite).
+formula | (column formula) | An expression over other columns, applied to every row. Bare names are columns; use arithmetic, comparisons, And/Or/Not, and IIf(cond, a, b).
+"""
+
+returns = "DataFrame — a new table with the extra column. The formula runs down every row at once, so there's no loop to write."
+
+example = """
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+
+    df = df.WithColumn("total", price * qty)
+    df = df.WithColumn("band", IIf(total >= 100, "big", "small"))
+
+    df.Print()
+End Function
+"""
+
+see_also = ["dataframe", "dataframe.filter", "iif"]

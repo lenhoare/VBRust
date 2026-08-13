@@ -1,0 +1,23 @@
+id = "datetime.format"
+title = "Format"
+category = "DateTime"
+kind = "method"
+parent = "datetime"
+anchor = "ns/DateTime.Format"
+
+summary = "Formats a DateTime as text."
+
+arguments = """
+pattern | String | The format to produce, e.g. "%Y-%m-%d %H:%M". Common codes: %Y year, %m month, %d day, %H hour, %M minute.
+"""
+
+returns = "String — the DateTime written in that format."
+
+example = """
+Function Main()
+    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d").Unwrap()
+    Debug.Print d.Format("%d/%m/%Y")   ' 14/08/2026
+End Function
+"""
+
+see_also = ["datetime", "datetime.parse", "datetime.now"]

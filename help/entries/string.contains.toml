@@ -1,0 +1,24 @@
+id = "string.contains"
+title = "Contains"
+category = "String"
+kind = "method"
+parent = "string"
+anchor = "m/String.Contains"
+
+summary = "Whether the text contains a given piece anywhere."
+
+arguments = """
+part | String | The text to search for.
+"""
+
+returns = "Boolean — True if part appears somewhere in the string."
+
+example = """
+Function Main()
+    Dim s As String = "hello world"
+    Debug.Print s.Contains("o w")   ' True
+    Debug.Print s.Contains("xyz")   ' False
+End Function
+"""
+
+see_also = ["string", "string.starts_with", "instr"]

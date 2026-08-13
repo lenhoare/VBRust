@@ -1,0 +1,23 @@
+id = "dataframe.readcsv"
+title = "ReadCsv"
+category = "DataFrame"
+kind = "method"
+parent = "dataframe"
+anchor = "ns/DataFrame.ReadCsv"
+
+summary = "Loads a CSV file into a DataFrame."
+
+arguments = """
+path | String | The path of the CSV file. The first row is taken as the column names.
+"""
+
+returns = "DataFrame — the table, with each column's type inferred from its values. Common blank/NA tokens are read as missing values."
+
+example = """
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+    df.Print()
+End Function
+"""
+
+see_also = ["dataframe", "dataframe.withcolumn", "dataframe.column"]

@@ -36,6 +36,7 @@ pub enum Kind {
     Builtin,
     Type,
     Operator,
+    Namespace,
 }
 
 /// Anchor prefix for a `kind` string (as authored in an entry's `kind =` line).
@@ -44,6 +45,7 @@ fn anchor_prefix(kind: &str) -> &'static str {
         "function" | "builtin" => "fn",
         "type" => "ty",
         "operator" => "op",
+        "namespace" => "ns",
         _ => "kw",
     }
 }
@@ -148,6 +150,15 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("tan", "Tan", "Math functions", Builtin, "fn/Tan"),
         item!("log", "Log", "Math functions", Builtin, "fn/Log"),
         item!("exp", "Exp", "Math functions", Builtin, "fn/Exp"),
+        // Standard library (namespaces)
+        item!("filesystem", "FileSystem", "Standard library", Namespace, "ns/FileSystem"),
+        item!("http", "Http", "Standard library", Namespace, "ns/Http"),
+        item!("database", "Database", "Standard library", Namespace, "ns/Database"),
+        item!("json", "Json", "Standard library", Namespace, "ns/Json"),
+        item!("datetime", "DateTime", "Standard library", Namespace, "ns/DateTime"),
+        item!("regex", "Regex", "Standard library", Namespace, "ns/Regex"),
+        item!("dataframe", "DataFrame", "Standard library", Namespace, "ns/DataFrame"),
+        item!("shell", "Shell", "Standard library", Namespace, "ns/Shell"),
     ]
 }
 
@@ -381,9 +392,14 @@ pub fn build(entries_dir: &Path, out_dir: &Path) -> Result<Report, String> {
     // 2b. The real gate: type-check each generated program with rustc, so an
     // example that transpiles but isn't valid Rust (a mis-spelled method, say)
     // is caught here rather than shipped.
-    let examples: Vec<(String, String)> =
-        rust_of.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    failures.append(&mut rustc_check_all(&examples));
+    // Core examples check with bare rustc (fast); stdlib examples need
+    // `vbr_stdlib`, so they go through a batched `cargo check`.
+    let (stdlib_ex, core_ex): (Vec<(String, String)>, Vec<(String, String)>) = rust_of
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .partition(|(_, r)| r.contains("vbr_stdlib"));
+    failures.append(&mut rustc_check_all(&core_ex));
+    failures.append(&mut stdlib_check_all(&stdlib_ex));
 
     // 3. Order entries by manifest position (sidebar order); unknown ids last.
     let manifest = help_manifest();
@@ -550,6 +566,109 @@ fn rustc_check_all(examples: &[(String, String)]) -> Vec<(String, String)> {
         }
     });
     failures.into_inner().unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// Stdlib examples pull in `vbr_stdlib`, so bare rustc can't check them. Compile
+// them together in one throwaway cargo project (heavy deps like polars build
+// once and cache) with `cargo check` — type-checks, never runs, so no I/O.
+// ---------------------------------------------------------------------------
+
+/// Namespaces that need a `vbr_stdlib` Cargo feature; FileSystem/Shell are std-only.
+const STDLIB_FEATURES: &[(&str, &str)] = &[
+    ("Json", "json"),
+    ("DateTime", "datetime"),
+    ("Regex", "regex"),
+    ("Http", "http"),
+    ("DataFrame", "dataframe"),
+    ("Database", "database"),
+];
+
+fn stdlib_crate_path() -> String {
+    std::env::var("VBR_STDLIB_PATH")
+        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/vbr_stdlib").to_string())
+}
+
+fn cargo_available() -> bool {
+    Command::new("cargo").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+fn stdlib_check_all(examples: &[(String, String)]) -> Vec<(String, String)> {
+    if examples.is_empty() {
+        return Vec::new();
+    }
+    if !cargo_available() {
+        eprintln!("⚠ cargo not found — skipping the stdlib compile check.");
+        return Vec::new();
+    }
+    // Only the features the examples actually use, so a FileSystem-only run
+    // never has to build polars.
+    let mut feats: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for (_, rust) in examples {
+        for (ns, feat) in STDLIB_FEATURES {
+            if rust.contains(ns) {
+                feats.insert(feat);
+            }
+        }
+    }
+    let feat_list = feats.iter().map(|f| format!("{f:?}")).collect::<Vec<_>>().join(", ");
+    let dir = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/target/help_stdlib_check"));
+    let bin = dir.join("src/bin");
+    if fs::create_dir_all(&bin).is_err() {
+        eprintln!("⚠ could not create the stdlib check project — skipping.");
+        return Vec::new();
+    }
+    // A private `[workspace]` keeps this from joining the vbr workspace.
+    let cargo_toml = format!(
+        "[package]\nname = \"help_stdlib_check\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+         [workspace]\n\n[dependencies]\nvbr_stdlib = {{ path = {:?}, default-features = false, features = [{}] }}\n",
+        stdlib_crate_path(),
+        feat_list
+    );
+    let _ = fs::write(dir.join("Cargo.toml"), &cargo_toml);
+    let _ = fs::remove_dir_all(&bin);
+    let _ = fs::create_dir_all(&bin);
+    let mut id_of_bin: BTreeMap<String, String> = BTreeMap::new();
+    for (id, rust) in examples {
+        let stem = id.replace('.', "_");
+        let _ = fs::write(bin.join(format!("{stem}.rs")), rust);
+        id_of_bin.insert(stem, id.clone());
+    }
+    let out = match Command::new("cargo")
+        .args(["check", "--quiet", "--message-format=json"])
+        .current_dir(&dir)
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("⚠ cargo check failed to run: {e}");
+            return Vec::new();
+        }
+    };
+    let mut failures = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if v["reason"] != "compiler-message" || v["message"]["level"] != "error" {
+            continue;
+        }
+        if let Some(id) = id_of_bin.get(v["target"]["name"].as_str().unwrap_or("")) {
+            if seen.insert(id.clone()) {
+                let msg = v["message"]["message"].as_str().unwrap_or("did not compile");
+                failures.push((format!("{id} (cargo)"), msg.to_string()));
+            }
+        }
+    }
+    // A dependency/build failure not tied to one bin.
+    if !out.status.success() && failures.is_empty() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let msg = stderr.lines().find(|l| l.contains("error")).unwrap_or("cargo check failed");
+        failures.push(("stdlib (cargo)".to_string(), msg.trim().to_string()));
+    }
+    failures
 }
 
 fn members_json(members: &[Member], kind: &str) -> serde_json::Value {

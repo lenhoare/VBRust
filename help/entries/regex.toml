@@ -1,0 +1,29 @@
+id = "regex"
+title = "Regex"
+category = "Standard library"
+kind = "namespace"
+anchor = "ns/Regex"
+
+summary = "Match and replace text using patterns."
+
+remarks = """
+`Regex` searches text with **regular expressions**. `IsMatch` tests whether a pattern is present; `FindAll` pulls out every match; `Replace` / `ReplaceAll` substitute; `Captures` returns the groups of the first match. Every call takes the **pattern first**, then the text.
+
+They return a **Result** because an invalid pattern is an error. Patterns are ordinary VBR strings, so a backslash class like `\\d` is written just as it looks. Needs the `regex` feature — build as a project.
+"""
+
+members = """
+method | IsMatch(pattern, text)                 | Whether the pattern matches anywhere. Returns Result<Boolean>.
+method | FindAll(pattern, text)                 | Every match, in order. Returns Result<Vec<String>>.
+method | Replace(pattern, text, replacement)    | Replace the first match. Returns Result<String>.
+method | ReplaceAll(pattern, text, replacement) | Replace every match. Returns Result<String>.
+"""
+
+example = """
+Function Main()
+    Dim cleaned As String = Regex.ReplaceAll("o", "foo boo", "0").Unwrap()
+    Debug.Print cleaned   ' f00 b00
+End Function
+"""
+
+see_also = ["regex.ismatch", "regex.replaceall", "instr", "replace"]

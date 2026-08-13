@@ -1,0 +1,19 @@
+id = "result.is_err"
+title = "Is_Err"
+category = "Result<T>"
+kind = "property"
+parent = "result"
+anchor = "m/Result.Is_Err"
+
+summary = "Whether the result is a failure."
+
+returns = "Boolean — True for Err, False for Ok."
+
+example = """
+Function Main()
+    Dim r As Result<Long> = Err("nope")
+    Debug.Print r.Is_Err()   ' True
+End Function
+"""
+
+see_also = ["result", "result.is_ok"]

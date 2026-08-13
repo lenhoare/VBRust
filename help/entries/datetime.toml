@@ -1,0 +1,33 @@
+id = "datetime"
+title = "DateTime"
+category = "Standard library"
+kind = "namespace"
+anchor = "ns/DateTime"
+
+summary = "Work with dates and times."
+
+remarks = """
+`DateTime.Now()` gives the current moment; `DateTime.Parse(text, pattern)` reads one from text. Both hand you a **DateTime value**, which then has its own methods: `Format` it back to text, read its `Year` / `Month` / `Day`, shift it with `AddDays` / `AddHours` / `AddMinutes`, or compare two with `DiffDays` / `DiffHours`.
+
+Format patterns are the usual `%Y-%m-%d %H:%M` style codes. Needs the `datetime` feature — build as a project.
+"""
+
+members = """
+method | Now()                | The current date and time. Returns a DateTime.
+method | Parse(text, pattern) | Read a DateTime from text, using a format pattern. Returns Result<DateTime>.
+method | Format(pattern)      | Format the DateTime as text with a pattern. Returns String.
+method | Year()               | The year. Returns Long. (Month and Day work the same way.)
+method | AddDays(n)           | A new DateTime shifted by n days. Returns a DateTime. (AddHours/AddMinutes too.)
+method | DiffDays(other)      | Whole days between this DateTime and another. Returns Long. (DiffHours too.)
+"""
+
+example = """
+Function Main()
+    Dim today As DateTime = DateTime.Now()
+
+    Debug.Print today.Format("%Y-%m-%d")
+    Debug.Print today.AddDays(7).Format("%Y-%m-%d")   ' one week later
+End Function
+"""
+
+see_also = ["datetime.now", "datetime.format", "datetime.adddays"]

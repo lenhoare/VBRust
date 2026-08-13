@@ -1,0 +1,26 @@
+id = "hashmap.contains_key"
+title = "Contains_Key"
+category = "HashMap<K,V>"
+kind = "method"
+parent = "hashmap"
+anchor = "m/HashMap.Contains_Key"
+
+summary = "Whether a given key is present in the map."
+
+arguments = """
+key | K | The key to check for.
+"""
+
+returns = "Boolean — True if the key exists in the map, False otherwise."
+
+example = """
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+
+    Debug.Print ages.Contains_Key("Ada")   ' True
+    Debug.Print ages.Contains_Key("Bob")   ' False
+End Function
+"""
+
+see_also = ["hashmap", "hashmap.get"]

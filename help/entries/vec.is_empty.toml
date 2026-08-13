@@ -1,9 +1,9 @@
-id = "vec.isempty"
-title = "IsEmpty"
+id = "vec.is_empty"
+title = "Is_Empty"
 category = "Vec<T>"
 kind = "property"
 parent = "vec"
-anchor = "m/Vec.IsEmpty"
+anchor = "m/Vec.Is_Empty"
 
 replaces = "IsEmpty"
 

@@ -1,0 +1,26 @@
+id = "result.unwrap_or"
+title = "Unwrap_Or"
+category = "Result<T>"
+kind = "method"
+parent = "result"
+anchor = "m/Result.Unwrap_Or"
+
+summary = "The Ok value, or a fallback when it is an Err."
+
+arguments = """
+default | T | The value to use when the result is an Err.
+"""
+
+returns = "T — the Ok value on success, otherwise the default. Never crashes."
+
+example = """
+Function Main()
+    Dim ok As Result<Long> = Ok(8)
+    Debug.Print ok.Unwrap_Or(0)    ' 8
+
+    Dim bad As Result<Long> = Err("oops")
+    Debug.Print bad.Unwrap_Or(0)   ' 0
+End Function
+"""
+
+see_also = ["result", "result.unwrap", "option.unwrap_or"]

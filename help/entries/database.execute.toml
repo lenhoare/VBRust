@@ -1,0 +1,27 @@
+id = "database.execute"
+title = "Execute"
+category = "Database"
+kind = "method"
+parent = "database"
+anchor = "ns/Database.Execute"
+
+summary = "Runs a statement that changes data (INSERT, UPDATE, DELETE, CREATE)."
+
+arguments = """
+sql | String | The SQL to run, with ? placeholders for any values.
+params | Vec<String> | The values to fill the ? placeholders, in order. Pass [] for none.
+"""
+
+returns = "Result<Long> — Ok with the number of rows changed, or Err(message) if the SQL fails."
+
+example = """
+Function Main()
+    Dim db As Database = Database.Open(":memory:").Unwrap()
+    db.Execute("CREATE TABLE users (name TEXT)", []).Unwrap()
+
+    Dim changed As Long = db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"]).Unwrap()
+    Debug.Print changed   ' 1
+End Function
+"""
+
+see_also = ["database", "database.query", "database.lastinsertid"]

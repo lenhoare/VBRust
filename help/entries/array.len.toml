@@ -1,0 +1,19 @@
+id = "array.len"
+title = "Len"
+category = "Arrays"
+kind = "property"
+parent = "array"
+anchor = "m/Array.Len"
+
+summary = "How many slots the array has."
+
+returns = "Long — the array's fixed size, set when it was declared."
+
+example = """
+Function Main()
+    Dim a(4) As Long
+    Debug.Print a.Len()   ' 4
+End Function
+"""
+
+see_also = ["array", "array.get", "vec.len"]

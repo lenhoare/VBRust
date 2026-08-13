@@ -1,0 +1,24 @@
+id = "string.starts_with"
+title = "Starts_With"
+category = "String"
+kind = "method"
+parent = "string"
+anchor = "m/String.Starts_With"
+
+summary = "Whether the text begins with a given piece."
+
+arguments = """
+part | String | The text to look for at the start.
+"""
+
+returns = "Boolean — True if the string starts with part."
+
+example = """
+Function Main()
+    Dim s As String = "hello world"
+    Debug.Print s.Starts_With("hello")   ' True
+    Debug.Print s.Starts_With("world")   ' False
+End Function
+"""
+
+see_also = ["string", "string.ends_with", "string.contains"]

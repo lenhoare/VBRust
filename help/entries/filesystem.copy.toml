@@ -1,0 +1,26 @@
+id = "filesystem.copy"
+title = "Copy"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Copy"
+
+summary = "Copies a file to another path."
+
+arguments = """
+source | String | The path of the file to copy.
+dest | String | The path to copy it to (overwritten if it exists).
+"""
+
+returns = "Result — Ok on success, or Err(message) if the source is missing or the copy fails."
+
+example = """
+Function Main()
+    FileSystem.Write("a.txt", "data").Unwrap()
+    FileSystem.Copy("a.txt", "b.txt").Unwrap()
+
+    Debug.Print FileSystem.Read("b.txt").Unwrap()   ' data
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.write", "filesystem.delete"]

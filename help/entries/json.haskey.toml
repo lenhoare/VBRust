@@ -1,0 +1,25 @@
+id = "json.haskey"
+title = "HasKey"
+category = "Json"
+kind = "method"
+parent = "json"
+anchor = "ns/Json.HasKey"
+
+summary = "Whether an object has a given key."
+
+arguments = """
+key | String | The key to check for.
+"""
+
+returns = "Boolean — True if the key is present. Unlike the Get accessors, this returns a plain Boolean, so it's handy to check before reading."
+
+example = """
+Function Main()
+    Dim doc As Json = Json.Parse("{""name"": ""Ada""}").Unwrap()
+
+    Debug.Print doc.HasKey("name")   ' True
+    Debug.Print doc.HasKey("age")    ' False
+End Function
+"""
+
+see_also = ["json", "json.get", "json.getstring"]

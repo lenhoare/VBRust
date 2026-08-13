@@ -16,4 +16,4 @@ Function Main()
 End Function
 """
 
-see_also = ["vec", "vec.isempty", "vec.get"]
+see_also = ["vec", "vec.is_empty", "vec.get"]

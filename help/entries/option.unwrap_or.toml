@@ -1,0 +1,26 @@
+id = "option.unwrap_or"
+title = "Unwrap_Or"
+category = "Option<T>"
+kind = "method"
+parent = "option"
+anchor = "m/Option.Unwrap_Or"
+
+summary = "The value inside, or a fallback when it is None."
+
+arguments = """
+default | T | The value to use when the option is None.
+"""
+
+returns = "T — the contained value if Some, otherwise the default. Never crashes."
+
+example = """
+Function Main()
+    Dim found As Option<Long> = Some(42)
+    Debug.Print found.Unwrap_Or(0)     ' 42
+
+    Dim missing As Option<Long> = None
+    Debug.Print missing.Unwrap_Or(0)   ' 0
+End Function
+"""
+
+see_also = ["option", "option.unwrap", "result.unwrap_or"]

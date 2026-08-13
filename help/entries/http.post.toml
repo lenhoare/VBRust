@@ -1,0 +1,30 @@
+id = "http.post"
+title = "Post"
+category = "Http"
+kind = "method"
+parent = "http"
+anchor = "ns/Http.Post"
+
+summary = "Sends a body to a URL with request headers."
+
+arguments = """
+url | String | The address to post to.
+body | String | The request body (often a JSON string).
+headers | HashMap<String, String> | Request headers. Pass an empty HashMap for none.
+"""
+
+returns = "Result<String> — Ok with the response body, or Err(message) if the request fails."
+
+example = """
+Function Main()
+    Dim headers As HashMap<String, String>
+    headers.Insert("Content-Type", "application/json")
+
+    Match Http.Post("https://api.example.com", "{}", headers)
+        Ok(reply) => Debug.Print reply
+        Err(e)    => Debug.Print "error: " & e
+    End Match
+End Function
+"""
+
+see_also = ["http", "http.get", "json", "hashmap"]

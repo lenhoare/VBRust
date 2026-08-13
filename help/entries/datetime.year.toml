@@ -1,0 +1,21 @@
+id = "datetime.year"
+title = "Year"
+category = "DateTime"
+kind = "method"
+parent = "datetime"
+anchor = "ns/DateTime.Year"
+
+summary = "The year part of a DateTime."
+
+returns = "Long — the four-digit year. Month() and Day() work the same way, returning the month (1–12) and day (1–31)."
+
+example = """
+Function Main()
+    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d").Unwrap()
+    Debug.Print d.Year()    ' 2026
+    Debug.Print d.Month()   ' 8
+    Debug.Print d.Day()     ' 14
+End Function
+"""
+
+see_also = ["datetime", "datetime.format"]

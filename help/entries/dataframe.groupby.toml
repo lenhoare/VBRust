@@ -1,0 +1,26 @@
+id = "dataframe.groupby"
+title = "GroupBy"
+category = "DataFrame"
+kind = "method"
+parent = "dataframe"
+anchor = "ns/DataFrame.GroupBy"
+
+summary = "Groups rows by a column, then summarises each group with Agg."
+
+arguments = """
+key | String | The column to group by — rows sharing a value form one group.
+"""
+
+returns = "DataFrame — always chained with .Agg(...), which produces one row per group. Inside Agg, summarise columns with Sum(col), Mean(col), Min(col), Max(col), or Count() for the number of rows in each group."
+
+example = """
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+
+    Dim byBand As DataFrame = df.GroupBy("band").Agg(Sum(qty), Mean(price), Count())
+
+    byBand.Print()
+End Function
+"""
+
+see_also = ["dataframe", "dataframe.column", "dataframe.filter"]

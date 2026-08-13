@@ -19,4 +19,4 @@ Function Main()
 End Function
 """
 
-see_also = ["vec", "vec.isempty", "vec.pop"]
+see_also = ["vec", "vec.is_empty", "vec.pop"]

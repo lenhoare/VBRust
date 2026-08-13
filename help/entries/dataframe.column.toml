@@ -1,0 +1,25 @@
+id = "dataframe.column"
+title = "Column"
+category = "DataFrame"
+kind = "method"
+parent = "dataframe"
+anchor = "ns/DataFrame.Column"
+
+summary = "Pulls one column out of the table as a Vec."
+
+arguments = """
+name | String | The column to extract.
+"""
+
+returns = "Vec<T> — the column's values as an ordinary list. The element type comes from the Dim you assign into (Vec<Long>, Vec<String>, Vec<Double>), so it must match the column's type."
+
+example = """
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+
+    Dim names As Vec<String> = df.Column("name")
+    Debug.Print names.Len()
+End Function
+"""
+
+see_also = ["dataframe", "dataframe.groupby", "vec"]

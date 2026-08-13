@@ -1,0 +1,27 @@
+id = "hashmap.remove"
+title = "Remove"
+category = "HashMap<K,V>"
+kind = "method"
+parent = "hashmap"
+anchor = "m/HashMap.Remove"
+
+summary = "Removes the entry for a key, handing back its value if there was one."
+
+arguments = """
+key | K | The key whose entry to remove.
+"""
+
+returns = "Option<V> — Some(value) with the value that was removed, or None if the key wasn't there."
+
+example = """
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+
+    Dim removed As Option<Long> = ages.Remove("Ada")
+    Debug.Print removed.Unwrap_Or(-1)   ' 36
+    Debug.Print ages.Len()              ' 0
+End Function
+"""
+
+see_also = ["hashmap", "hashmap.insert", "option"]

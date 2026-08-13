@@ -1,0 +1,30 @@
+id = "database.query"
+title = "Query"
+category = "Database"
+kind = "method"
+parent = "database"
+anchor = "ns/Database.Query"
+
+summary = "Runs a SELECT and returns the rows."
+
+arguments = """
+sql | String | The SELECT statement, with ? placeholders for any values.
+params | Vec<String> | The values for the ? placeholders. Pass [] for none.
+"""
+
+returns = "Result<Vec<Json>> — Ok with one Json object per row (read its columns with GetString / GetInt), or Err(message) if the query fails."
+
+example = """
+Function Main()
+    Dim db As Database = Database.Open(":memory:").Unwrap()
+    db.Execute("CREATE TABLE users (name TEXT)", []).Unwrap()
+    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"]).Unwrap()
+
+    Dim rows As Vec<Json> = db.Query("SELECT name FROM users", []).Unwrap()
+    For Each row In rows
+        Debug.Print row.GetString("name").Unwrap()   ' Ada
+    Next
+End Function
+"""
+
+see_also = ["database", "database.execute", "json"]

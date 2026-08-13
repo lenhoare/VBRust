@@ -1,0 +1,29 @@
+id = "http"
+title = "Http"
+category = "Standard library"
+kind = "namespace"
+anchor = "ns/Http"
+
+summary = "Fetch and send data over the web."
+
+remarks = """
+`Http.Get(url)` fetches a page or API response as text; `Http.Post(url, body, headers)` sends data. Both return a **Result** — the network can fail — so handle it with `Match`.
+
+HTTPS works out of the box, no setup. In a **Window** or **Screen** event, a web request must be run with **`Await`** so the interface doesn't freeze (see the surface guide); in an ordinary `Function` it simply blocks until the reply arrives. Needs the `http` feature — build as a project.
+"""
+
+members = """
+method | Get(url)                 | Fetch the response at a URL as text. Returns Result<String>.
+method | Post(url, body, headers) | Send body to a URL with request headers. Returns Result<String>.
+"""
+
+example = """
+Function Main()
+    Match Http.Get("https://example.com")
+        Ok(body) => Debug.Print "got " & Len(body) & " bytes"
+        Err(e)   => Debug.Print "error: " & e
+    End Match
+End Function
+"""
+
+see_also = ["http.get", "http.post", "json", "await"]

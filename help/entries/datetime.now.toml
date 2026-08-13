@@ -1,0 +1,19 @@
+id = "datetime.now"
+title = "Now"
+category = "DateTime"
+kind = "method"
+parent = "datetime"
+anchor = "ns/DateTime.Now"
+
+summary = "The current date and time."
+
+returns = "DateTime — the moment the call runs. Not a Result: reading the clock can't fail."
+
+example = """
+Function Main()
+    Dim now As DateTime = DateTime.Now()
+    Debug.Print now.Format("%Y-%m-%d %H:%M")
+End Function
+"""
+
+see_also = ["datetime", "datetime.format", "datetime.parse"]

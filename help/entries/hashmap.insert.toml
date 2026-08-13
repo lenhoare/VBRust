@@ -1,0 +1,27 @@
+id = "hashmap.insert"
+title = "Insert"
+category = "HashMap<K,V>"
+kind = "method"
+parent = "hashmap"
+anchor = "m/HashMap.Insert"
+
+summary = "Adds a key/value pair, or overwrites the value for an existing key."
+
+arguments = """
+key | K | The key to store the value under.
+val | V | The value to store.
+"""
+
+returns = "Nothing — the map is updated in place. Inserting a key that already exists replaces its value."
+
+example = """
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+    ages.Insert("Ada", 37)          ' same key — overwrites
+
+    Debug.Print ages.Get("Ada").Unwrap_Or(0)   ' 37
+End Function
+"""
+
+see_also = ["hashmap", "hashmap.get", "hashmap.remove"]

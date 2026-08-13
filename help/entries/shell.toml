@@ -1,0 +1,27 @@
+id = "shell"
+title = "Shell"
+category = "Standard library"
+kind = "namespace"
+anchor = "ns/Shell"
+
+summary = "Run external commands and programs."
+
+remarks = """
+`Shell` runs a command line and gives you its result. `Run` waits for the command to finish and returns its output as text. `Start` launches it *without* waiting and hands back a **Process** you can `Wait` on, poll with `IsRunning`, or `Kill`.
+
+Both return a **Result** — the command might not exist, or might fail. Being an outside-world operation, a Shell program is built as a **project** (`vbr runproject` / `vbr build`).
+"""
+
+members = """
+method | Run(command)   | Run a command, wait for it, and return its output. Returns Result<String>.
+method | Start(command) | Launch a command without waiting; returns a Process handle. Returns Result<Process>.
+"""
+
+example = """
+Function Main()
+    Dim output As String = Shell.Run("echo hello").Unwrap()
+    Debug.Print output
+End Function
+"""
+
+see_also = ["shell.run", "shell.start", "filesystem", "result"]

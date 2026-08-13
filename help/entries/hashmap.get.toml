@@ -1,0 +1,26 @@
+id = "hashmap.get"
+title = "Get"
+category = "HashMap<K,V>"
+kind = "method"
+parent = "hashmap"
+anchor = "m/HashMap.Get"
+
+summary = "Looks up the value stored under a key, safely."
+
+arguments = """
+key | K | The key to look up.
+"""
+
+returns = "Option<V> — Some(value) when the key is present, or None when it isn't (the value itself, not a reference)."
+
+example = """
+Function Main()
+    Dim ages As HashMap<String, Long>
+    ages.Insert("Ada", 36)
+
+    Debug.Print ages.Get("Ada").Unwrap_Or(0)   ' 36
+    Debug.Print ages.Get("Bob").Unwrap_Or(0)   ' 0 — key absent
+End Function
+"""
+
+see_also = ["hashmap", "hashmap.contains_key", "option"]

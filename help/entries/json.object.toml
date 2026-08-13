@@ -1,0 +1,22 @@
+id = "json.object"
+title = "Object"
+category = "Json"
+kind = "method"
+parent = "json"
+anchor = "ns/Json.Object"
+
+summary = "Starts a new, empty JSON object to build up."
+
+returns = "Json — an empty object. Fill it with SetString / SetInt / SetBool / Set, then render it with ToString. (Json.Array() starts an empty array for Push instead.)"
+
+example = """
+Function Main()
+    Dim person As Json = Json.Object()
+    person.SetString("name", "Grace")
+    person.SetInt("born", 1906)
+
+    Debug.Print person.ToString().Unwrap()   ' {"name":"Grace","born":1906}
+End Function
+"""
+
+see_also = ["json", "json.setstring", "json.push", "json.tostring"]

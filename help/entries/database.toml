@@ -1,0 +1,36 @@
+id = "database"
+title = "Database"
+category = "Standard library"
+kind = "namespace"
+anchor = "ns/Database"
+
+summary = "Store and query data in a SQLite database."
+
+remarks = """
+`Database.Open(path)` opens (or creates) a SQLite database file and hands back a connection. On it you run SQL: `Execute` for statements that change data (CREATE, INSERT, UPDATE, DELETE), `Query` for SELECTs that return rows.
+
+Both take the SQL plus a **list of parameters** — pass `["Ada", "42"]` to fill the `?` placeholders (and `[]` for none). Using placeholders instead of pasting values into the SQL keeps you safe from injection. A `Query` returns each row as a **Json** object you read with `GetString` / `GetInt`.
+
+SQLite is built in — no server to install. Needs the `database` feature; build as a project.
+"""
+
+members = """
+method | Open(path)             | Open or create a SQLite file. Returns Result<Database>.
+method | Execute(sql, params)   | Run a statement (INSERT/UPDATE/…); returns the number of rows changed. Returns Result<Long>.
+method | Query(sql, params)     | Run a SELECT; returns one Json row per result. Returns Result<Vec<Json>>.
+method | LastInsertId()         | The rowid of the most recent insert. Returns Long.
+"""
+
+example = """
+Function Main()
+    Dim db As Database = Database.Open("app.db").Unwrap()
+
+    db.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", []).Unwrap()
+    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"]).Unwrap()
+
+    Dim rows As Vec<Json> = db.Query("SELECT name FROM users", []).Unwrap()
+    Debug.Print rows.Len()   ' 1
+End Function
+"""
+
+see_also = ["database.open", "database.query", "json", "result"]

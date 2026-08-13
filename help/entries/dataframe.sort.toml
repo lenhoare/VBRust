@@ -1,0 +1,25 @@
+id = "dataframe.sort"
+title = "Sort"
+category = "DataFrame"
+kind = "method"
+parent = "dataframe"
+anchor = "ns/DataFrame.Sort"
+
+summary = "Sorts the rows by a column."
+
+arguments = """
+name | String | The column to sort by (ascending).
+"""
+
+returns = "DataFrame — a new table with the rows in order."
+
+example = """
+Function Main()
+    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+
+    df = df.Sort("total")
+    df.Print()
+End Function
+"""
+
+see_also = ["dataframe", "dataframe.filter"]

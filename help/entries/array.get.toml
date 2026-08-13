@@ -1,0 +1,27 @@
+id = "array.get"
+title = "Get"
+category = "Arrays"
+kind = "method"
+parent = "array"
+anchor = "m/Array.Get"
+
+summary = "Reads the item at an index, safely."
+
+arguments = """
+i | Long | The position to read, counting from 0.
+"""
+
+returns = "Option<T> — Some(item) when i is a valid index, or None when it is out of range. Prefer this to a[i] whenever the index might be off."
+
+example = """
+Function Main()
+    Dim a(3) As Long
+    a[0] = 10
+    a[1] = 20
+
+    Debug.Print a.Get(1).Unwrap_Or(-1)   ' 20
+    Debug.Print a.Get(9).Unwrap_Or(-1)   ' -1 — out of range
+End Function
+"""
+
+see_also = ["array", "array.len", "vec.get", "option"]

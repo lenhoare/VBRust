@@ -1,0 +1,26 @@
+id = "filesystem.write"
+title = "Write"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Write"
+
+summary = "Writes text to a file, replacing anything already there."
+
+arguments = """
+path | String | The path of the file to write.
+text | String | The text to write. Any existing content is replaced.
+"""
+
+returns = "Result — Ok on success, or Err(message) if the file can't be written. Creates the file if it doesn't exist."
+
+example = """
+Function Main()
+    FileSystem.Write("out.txt", "first line").Unwrap()
+    FileSystem.Write("out.txt", "replaced").Unwrap()   ' overwrites
+
+    Debug.Print FileSystem.Read("out.txt").Unwrap()    ' replaced
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.append", "filesystem.read"]

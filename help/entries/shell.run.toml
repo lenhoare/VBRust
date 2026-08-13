@@ -1,0 +1,25 @@
+id = "shell.run"
+title = "Run"
+category = "Shell"
+kind = "method"
+parent = "shell"
+anchor = "ns/Shell.Run"
+
+summary = "Runs a command, waits for it to finish, and returns its output."
+
+arguments = """
+command | String | The command line to run.
+"""
+
+returns = "Result<String> — Ok with everything the command printed, or Err(message) if it couldn't be run."
+
+example = """
+Function Main()
+    Match Shell.Run("echo hello")
+        Ok(out) => Debug.Print out
+        Err(e)  => Debug.Print "failed: " & e
+    End Match
+End Function
+"""
+
+see_also = ["shell", "shell.start", "result"]

@@ -1,0 +1,25 @@
+id = "http.get"
+title = "Get"
+category = "Http"
+kind = "method"
+parent = "http"
+anchor = "ns/Http.Get"
+
+summary = "Fetches the response at a URL as text."
+
+arguments = """
+url | String | The address to fetch (http or https).
+"""
+
+returns = "Result<String> — Ok with the response body as text, or Err(message) if the request fails (bad host, no network, error status)."
+
+example = """
+Function Main()
+    Match Http.Get("https://example.com")
+        Ok(body) => Debug.Print "got " & Len(body) & " bytes"
+        Err(e)   => Debug.Print "error: " & e
+    End Match
+End Function
+"""
+
+see_also = ["http", "http.post", "await", "result"]

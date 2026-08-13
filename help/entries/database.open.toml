@@ -1,0 +1,25 @@
+id = "database.open"
+title = "Open"
+category = "Database"
+kind = "method"
+parent = "database"
+anchor = "ns/Database.Open"
+
+summary = "Opens a SQLite database file, creating it if needed."
+
+arguments = """
+path | String | The database file to open. Use ":memory:" for a temporary in-memory database.
+"""
+
+returns = "Result<Database> — Ok with a connection to run Execute/Query on, or Err(message) if the file can't be opened."
+
+example = """
+Function Main()
+    Dim db As Database = Database.Open(":memory:").Unwrap()
+
+    db.Execute("CREATE TABLE t (n INTEGER)", []).Unwrap()
+    Debug.Print db.Execute("INSERT INTO t VALUES (1)", []).Unwrap()   ' 1 row changed
+End Function
+"""
+
+see_also = ["database", "database.execute", "database.query"]

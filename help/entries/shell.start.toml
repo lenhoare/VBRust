@@ -1,0 +1,26 @@
+id = "shell.start"
+title = "Start"
+category = "Shell"
+kind = "method"
+parent = "shell"
+anchor = "ns/Shell.Start"
+
+summary = "Launches a command without waiting, returning a Process handle."
+
+arguments = """
+command | String | The command line to launch.
+"""
+
+returns = "Result<Process> — Ok with a Process you control, or Err(message) if it couldn't start. The Process has .Wait() (block until it finishes, returning its exit code), .IsRunning() (Boolean), and .Kill()."
+
+example = """
+Function Main()
+    Dim p As Process = Shell.Start("sleep 1").Unwrap()
+
+    Debug.Print p.IsRunning()   ' True
+    Dim code As Long = p.Wait()
+    Debug.Print code            ' 0
+End Function
+"""
+
+see_also = ["shell", "shell.run"]

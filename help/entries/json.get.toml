@@ -1,0 +1,25 @@
+id = "json.get"
+title = "Get"
+category = "Json"
+kind = "method"
+parent = "json"
+anchor = "ns/Json.Get"
+
+summary = "The nested Json value stored at a key."
+
+arguments = """
+key | String | The key whose value to fetch.
+"""
+
+returns = "Result<Json> — Ok with the value as a Json (which you read further with GetString, GetInt, …), or Err(message) if the key is missing."
+
+example = """
+Function Main()
+    Dim doc As Json = Json.Parse("{""user"": {""name"": ""Ada""}}").Unwrap()
+
+    Dim user As Json = doc.Get("user").Unwrap()
+    Debug.Print user.GetString("name").Unwrap()   ' Ada
+End Function
+"""
+
+see_also = ["json", "json.getstring", "json.haskey"]
