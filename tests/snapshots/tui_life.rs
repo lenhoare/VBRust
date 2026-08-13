@@ -19,6 +19,7 @@ fn countlive(grid: &Vec<i64>) -> i64 {
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::text::{Line, Span};
 use ratatui::Frame;
 
 struct Life {
@@ -41,15 +42,17 @@ impl Default for Life {
 }
 
 fn view(state: &Life, frame: &mut Frame) {
-    let block = Block::bordered().title("VBR Life");
     let area = frame.area();
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
+    let block = Block::bordered().title("VBR Life");
+    let inner = block.inner(chunks_status[0]);
+    frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(Paragraph::new(format!("Living: {}", state.living)), chunks_0[0]);
     frame.render_widget(Paragraph::new(format!("Ticks: {}", state.ticks)), chunks_0[1]);
     frame.render_widget(Paragraph::new(""), chunks_0[2]);
     frame.render_widget(Paragraph::new("Press s to step, q to quit"), chunks_0[3]);
+    frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), Span::styled(" s ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Advance  "), Span::styled(" q ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Quit  ")])).style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)), chunks_status[1]);
 }
 
 fn main() -> std::io::Result<()> {

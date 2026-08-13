@@ -84,8 +84,47 @@ pub fn emit_tui_program(
     let structs: HashMap<String, &StructDef> =
         program.structs.iter().map(|s| (s.name.clone(), s)).collect();
 
+    let file_in_event = program.screens.iter().any(|sc| {
+        sc.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
+    });
+    let file_wrong = program
+        .functions
+        .iter()
+        .any(|f| crate::transpiler::uses_file_dialog(&f.body))
+        || program.screens.iter().any(|sc| {
+            sc.subs.iter().any(|s| crate::transpiler::uses_file_dialog(&s.body))
+        });
+    if file_wrong {
+        diags.error_once(
+            "tui-file-dialog-place",
+            "GetOpenFilename / GetSaveAsFilename only work in a Screen Event — they need \
+             the live terminal. Don't put them in a Function or a Screen Sub; call them \
+             from the event, then pass the path to a helper.",
+        );
+    }
+    if file_in_event {
+        for sc in &program.screens {
+            for e in &sc.events {
+                if crate::transpiler::uses_file_dialog(&e.body) {
+                    crate::transpiler::note_builtins(&e.body, diags);
+                }
+            }
+        }
+        if web {
+            diags.note(
+                "tui-web-file-dialog",
+                "GetOpenFilename / GetSaveAsFilename aren't available in the browser yet \
+                 (run the Screen in the terminal). They return \"\" here.",
+            );
+        }
+    }
+
     for sc in &program.screens {
-        out.push_str(&emit_screen(sc, &t, &structs, &program.functions, diags));
+        out.push_str(&emit_screen(sc, &t, &structs, &program.functions, web, diags));
+        out.push('\n');
+    }
+    if !web && file_in_event {
+        out.push_str(FILE_DIALOG_MOD);
         out.push('\n');
     }
     let launched_screen = launched(program, |name| {
@@ -142,6 +181,7 @@ fn emit_screen(
     t: &surface::Tables,
     structs: &HashMap<String, &StructDef>,
     helpers: &[Function],
+    web: bool,
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -153,33 +193,62 @@ fn emit_screen(
     let enums = &t.enums;
     let (fields, field_ty) = state_maps(&sc.state);
 
-    // Focusable widgets — Input (types into a String), List/Table (select over a
-    // Vec). List/Table need a runtime `ListState`/`TableState`; >1 focusable adds
-    // a shared focus index (Tab cycles). Only List/Table make the view `&mut`.
+    // Focusable widgets — Input / List / Table / Button / Checkbox / Radio / Tabs / Memo.
+    // List/Table need a runtime `ListState`/`TableState`; Memo keeps a hidden
+    // `tui_textarea::TextArea`. >1 focusable adds a shared focus index (Tab cycles).
+    // List/Table/Memo make the view `&mut` (native Memo mutates cursor style).
     let focusables = collect_focusables(&sc.view);
     let multi = focusables.len() > 1;
-    let has_stateful = focusables.iter().any(Focusable::selectable);
+    let has_memo = focusables.iter().any(Focusable::is_memo);
+    let has_stateful = focusables.iter().any(|f| f.selectable() || (f.is_memo() && !web));
     for fo in &focusables {
         validate_focusable(fo, &field_ty, structs, diags);
     }
-    // field → focus index (an Input shows a cursor only when it is focused).
-    let focus_map: HashMap<String, usize> =
-        focusables.iter().enumerate().map(|(i, f)| (f.field.clone(), i)).collect();
+    if web && has_memo {
+        diags.note(
+            "tui-web-memo",
+            "A Memo isn't editable in the browser yet (run it in the terminal). It shows as \
+             read-only text.",
+        );
+    }
 
     // Render the view body up front (into `inner`) — this decides which imports
-    // are needed and whether the view reads `state`.
+    // are needed and whether the view reads `state`. `focus_seq` assigns the
+    // same Tab-order indices `collect_focusables` walked.
     let mut body = String::new();
     let mut counter = 0usize;
-    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, &focus_map, multi, &mut counter, 1, &mut body, diags);
+    let mut focus_seq = 0usize;
+    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, multi, web, &mut focus_seq, &mut counter, 1, &mut body, diags);
+
+    let has_menu = screen_has_menu(sc);
+    let status_src = emit_status_bar(sc, &focusables, &fields, enums, has_menu);
+    let has_bar = status_src.is_some();
+    if web && has_menu {
+        diags.note(
+            "tui-web-menu",
+            "A Menu bar draws in the browser but isn't interactive yet (run it in the terminal). \
+             F10 / Alt+letter open the dropdowns there.",
+        );
+    }
 
     // ── imports (only what the body uses, so it stays warning-free) ──
     let mut widgets = vec!["Block"];
-    if body.contains("Paragraph::new(") {
+    if body.contains("Paragraph::new(") || has_bar || has_menu {
         widgets.push("Paragraph");
     }
+    if has_menu {
+        widgets.push("Clear");
+    }
     out.push_str(&format!("use ratatui::widgets::{{{}}};\n", widgets.join(", ")));
-    if body.contains("Layout::") {
-        out.push_str("use ratatui::layout::{Constraint, Layout};\n");
+    if body.contains("Layout::") || has_bar || has_menu {
+        if has_menu {
+            out.push_str("use ratatui::layout::{Constraint, Layout, Rect};\n");
+        } else {
+            out.push_str("use ratatui::layout::{Constraint, Layout};\n");
+        }
+    }
+    if has_bar || has_menu {
+        out.push_str("use ratatui::text::{Line, Span};\n");
     }
     out.push_str("use ratatui::Frame;\n");
     // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
@@ -193,12 +262,21 @@ fn emit_screen(
         out.push_str(&format!("    {}: {},\n", rust_name(&f.name), decltype_rust(&f.ty)));
     }
     for fo in &focusables {
-        if let Some(st) = fo.state_ty() {
+        if fo.is_memo() && !web {
+            out.push_str(&format!(
+                "    {}_state: tui_textarea::TextArea<'static>,\n",
+                fo.field
+            ));
+        } else if let Some(st) = fo.state_ty() {
             out.push_str(&format!("    {}_state: ratatui::widgets::{},\n", fo.field, st));
         }
     }
     if multi {
         out.push_str("    focus_index: usize,\n");
+    }
+    if has_menu {
+        out.push_str("    menu_open: Option<usize>,\n");
+        out.push_str("    menu_sel: usize,\n");
     }
     out.push_str("}\n\n");
 
@@ -219,6 +297,14 @@ fn emit_screen(
     // The initialisers as sequential `let`s (so a field can read a sibling),
     // then the struct built from them by field-init shorthand.
     let names = surface::emit_state_lets(&sc.state, &t, 2, diags, &mut out, |_| None);
+    for fo in &focusables {
+        if fo.is_memo() && !web {
+            out.push_str(&format!(
+                "        let {}_state = if {}.is_empty() {{ tui_textarea::TextArea::default() }} else {{ tui_textarea::TextArea::from({}.lines()) }};\n",
+                fo.field, fo.field, fo.field
+            ));
+        }
+    }
     if fallible {
         out.push_str(&format!("        Ok({} {{\n", ty));
     } else {
@@ -228,7 +314,9 @@ fn emit_screen(
         out.push_str(&format!("            {},\n", name));
     }
     for fo in &focusables {
-        if let Some(st) = fo.state_ty() {
+        if fo.is_memo() && !web {
+            out.push_str(&format!("            {}_state,\n", fo.field));
+        } else if let Some(st) = fo.state_ty() {
             out.push_str(&format!(
                 "            {}_state: ratatui::widgets::{}::default().with_selected(Some(0)),\n",
                 fo.field, st
@@ -238,6 +326,10 @@ fn emit_screen(
     if multi {
         out.push_str("            focus_index: 0,\n");
     }
+    if has_menu {
+        out.push_str("            menu_open: None,\n");
+        out.push_str("            menu_sel: 0,\n");
+    }
     if fallible {
         out.push_str("        })\n    }\n}\n\n");
     } else {
@@ -246,53 +338,104 @@ fn emit_screen(
 
     // ── in-block `Sub` helpers → methods on the state ──
     surface::emit_subs(&sc.subs, ty, &fields, &field_ty, t, diags, &mut out);
+    if has_menu && !web {
+        emit_menu_impl(sc, ty, &mut out);
+    }
 
     // ── view ──
     // `state` is `_state` when nothing reads it. A list/table makes the view
     // `&mut` (its state mutates when rendered); an input alone reads immutably
     // (typing happens in the event loop).
     let title = sc.title.clone().unwrap_or_else(|| sc.name.clone());
+    let uses_state = body.contains("state.")
+        || status_src.as_ref().is_some_and(|s| s.contains("state."))
+        || has_menu;
     let (param_name, param_ty) = if has_stateful {
         ("state".to_string(), format!("&mut {}", ty))
-    } else if body.contains("state.") {
+    } else if uses_state {
         ("state".to_string(), format!("&{}", ty))
     } else {
         ("_state".to_string(), format!("&{}", ty))
     };
     out.push_str(&format!("fn view({}: {}, frame: &mut Frame) {{\n", param_name, param_ty));
-    out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
-    out.push_str("    let area = frame.area();\n");
-    out.push_str("    let inner = block.inner(area);\n");
-    out.push_str("    frame.render_widget(block, area);\n");
-    out.push_str(&body);
+    if has_menu {
+        out.push_str("    let area = frame.area();\n");
+        let mut parts: Vec<&str> = Vec::new();
+        parts.push("Constraint::Length(1)");
+        parts.push("Constraint::Fill(1)");
+        if has_bar {
+            parts.push("Constraint::Length(1)");
+        }
+        out.push_str(&format!(
+            "    let chunks = Layout::vertical([{}]).split(area);\n",
+            parts.join(", ")
+        ));
+        out.push_str("    let menu_area = chunks[0];\n");
+        emit_menu_bar_draw(sc, &mut out);
+        out.push_str("    let view_area = chunks[1];\n");
+        out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+        out.push_str("    let inner = block.inner(view_area);\n");
+        out.push_str("    frame.render_widget(block, view_area);\n");
+        out.push_str(&body);
+        if let Some(bar) = &status_src {
+            out.push_str("    let status_area = chunks[2];\n");
+            out.push_str(bar);
+        }
+        emit_menu_dropdown_draw(sc, &mut out);
+    } else if has_bar {
+        out.push_str("    let area = frame.area();\n");
+        out.push_str("    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);\n");
+        out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+        out.push_str("    let inner = block.inner(chunks_status[0]);\n");
+        out.push_str("    frame.render_widget(block, chunks_status[0]);\n");
+        out.push_str(&body);
+        if let Some(bar) = &status_src {
+            out.push_str(bar);
+        }
+    } else {
+        out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+        out.push_str("    let area = frame.area();\n");
+        out.push_str("    let inner = block.inner(area);\n");
+        out.push_str("    frame.render_widget(block, area);\n");
+        out.push_str(&body);
+    }
     out.push_str("}\n");
 
     out
 }
 
-/// A focusable widget — Input, List, or Table. All three join the focus ring
-/// (Tab cycles); the kind decides the widget, its optional runtime state type,
-/// and which keys apply. `handler` is the `On Submit`/`On Select` event, if any.
+/// A focusable widget. All kinds join the focus ring (Tab cycles); the kind
+/// decides the widget, its optional runtime state type, and which keys apply.
+/// `handler` is the `On Submit` / `On Select` / `On Click` / `On Toggle` event.
 #[derive(Clone, Copy, PartialEq)]
 enum FocusKind {
     Input,
     List,
     Table,
+    Button,
+    Checkbox,
+    Radio,
+    Tabs,
+    Memo,
 }
 
 struct Focusable {
     field: String,
     handler: Option<String>,
     kind: FocusKind,
+    /// Radio: this button's option expression (assigned into `field` on activate).
+    option: Option<Expr>,
+    /// Tabs: how many panes (for wrap-around). Unused on other kinds.
+    tab_count: usize,
 }
 
 impl Focusable {
-    /// The runtime widget-state type (List/Table); an Input needs none.
+    /// The runtime widget-state type (List/Table); others need none.
     fn state_ty(&self) -> Option<&'static str> {
         match self.kind {
             FocusKind::List => Some("ListState"),
             FocusKind::Table => Some("TableState"),
-            FocusKind::Input => None,
+            _ => None,
         }
     }
     fn selectable(&self) -> bool {
@@ -301,21 +444,83 @@ impl Focusable {
     fn is_input(&self) -> bool {
         matches!(self.kind, FocusKind::Input)
     }
+    fn is_activate(&self) -> bool {
+        matches!(self.kind, FocusKind::Button | FocusKind::Checkbox | FocusKind::Radio)
+    }
+    fn is_tabs(&self) -> bool {
+        matches!(self.kind, FocusKind::Tabs)
+    }
+    fn is_memo(&self) -> bool {
+        matches!(self.kind, FocusKind::Memo)
+    }
+}
+
+fn take_focus(seq: &mut usize) -> usize {
+    let i = *seq;
+    *seq += 1;
+    i
+}
+
+/// Reverse-video the focused Button / Checkbox / Radio.
+fn emit_focus_style(out: &mut String, pad: &str, id: usize, idx: usize, multi: bool) {
+    out.push_str(&format!(
+        "{}let mut style_{} = ratatui::style::Style::new();\n",
+        pad, id
+    ));
+    if multi {
+        out.push_str(&format!("{}if state.focus_index == {} {{\n", pad, idx));
+        out.push_str(&format!(
+            "{}    style_{} = style_{}.add_modifier(ratatui::style::Modifier::REVERSED);\n",
+            pad, id, id
+        ));
+        out.push_str(&format!("{}}}\n", pad));
+    } else {
+        out.push_str(&format!(
+            "{}style_{} = style_{}.add_modifier(ratatui::style::Modifier::REVERSED);\n",
+            pad, id, id
+        ));
+    }
 }
 
 /// The focusable widgets in a view, in first-seen (Tab) order.
 fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
     let mut out = Vec::new();
     fn walk(node: &ViewNode, out: &mut Vec<Focusable>) {
-        let push = |out: &mut Vec<Focusable>, field: &str, handler: &Option<String>, kind| {
-            out.push(Focusable { field: rust_name(field), handler: handler.clone(), kind });
+        let push = |out: &mut Vec<Focusable>, field: &str, handler: &Option<String>, kind, option, tab_count| {
+            out.push(Focusable {
+                field: rust_name(field),
+                handler: handler.clone(),
+                kind,
+                option,
+                tab_count,
+            });
         };
         match node {
-            ViewNode::Input { field, on_submit } => push(out, field, on_submit, FocusKind::Input),
-            ViewNode::List { field, on_select } => push(out, field, on_select, FocusKind::List),
-            ViewNode::Table { field, on_select } => push(out, field, on_select, FocusKind::Table),
+            ViewNode::Input { field, on_submit } => push(out, field, on_submit, FocusKind::Input, None, 0),
+            ViewNode::Memo { field } => push(out, field, &None, FocusKind::Memo, None, 0),
+            ViewNode::List { field, on_select } => push(out, field, on_select, FocusKind::List, None, 0),
+            ViewNode::Table { field, on_select } => push(out, field, on_select, FocusKind::Table, None, 0),
+            ViewNode::Button { on_click, .. } => {
+                // No bound field — a synthetic name keeps the focus ring unique.
+                let id = format!("_button{}", out.len());
+                push(out, &id, on_click, FocusKind::Button, None, 0);
+            }
+            ViewNode::Checkbox { value, on_toggle, .. } => {
+                push(out, value, on_toggle, FocusKind::Checkbox, None, 0);
+            }
+            ViewNode::Radio { value, option, on_select, .. } => {
+                push(out, value, &Some(on_select.clone()), FocusKind::Radio, Some(option.clone()), 0);
+            }
+            ViewNode::Tabs { field, tabs, on_change } => {
+                push(out, field, on_change, FocusKind::Tabs, None, tabs.len());
+                // Walk every pane so nested List/Input state is declared, same as Match arms.
+                tabs.iter().for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
+            }
             ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+                children.iter().for_each(|c| walk(c, out))
+            }
+            ViewNode::Frame { children, .. } => {
                 children.iter().for_each(|c| walk(c, out))
             }
             // `Match`/`If` view nodes carry child widgets in their arms/branches —
@@ -343,14 +548,11 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             | ViewNode::Chart { .. }
             | ViewNode::Canvas { .. }
             | ViewNode::Text(_)
-            | ViewNode::Button { .. }
             | ViewNode::TextInput { .. }
             | ViewNode::TextArea { .. }
-            | ViewNode::Checkbox { .. }
             | ViewNode::Slider { .. }
             | ViewNode::Toggler { .. }
-            | ViewNode::ProgressBar { .. }
-            | ViewNode::Radio { .. } => {}
+            | ViewNode::ProgressBar { .. } => {}
         }
     }
     walk(view, &mut out);
@@ -370,6 +572,14 @@ fn validate_focusable(
                 diags.error_once(
                     &format!("input-field-{}", fo.field),
                     format!("An Input binds to a `String` state field — `{}` isn't one.", fo.field),
+                );
+            }
+        }
+        FocusKind::Memo => {
+            if !matches!(field_ty.get(&fo.field), Some(DeclType::Plain(Type::Text))) {
+                diags.error_once(
+                    &format!("memo-field-{}", fo.field),
+                    format!("A Memo binds to a `String` state field — `{}` isn't one.", fo.field),
                 );
             }
         }
@@ -399,6 +609,139 @@ fn validate_focusable(
                 );
             }
         }
+        FocusKind::Button => {}
+        FocusKind::Checkbox => {
+            if !matches!(field_ty.get(&fo.field), Some(DeclType::Plain(Type::Boolean))) {
+                diags.error_once(
+                    &format!("checkbox-field-{}", fo.field),
+                    format!("A Checkbox binds to a `Boolean` state field — `{}` isn't one.", fo.field),
+                );
+            }
+        }
+        FocusKind::Radio => {
+            let ok = matches!(
+                field_ty.get(&fo.field),
+                Some(DeclType::Named(_))
+                    | Some(DeclType::Plain(
+                        Type::Integer | Type::Long | Type::LongLong | Type::Byte
+                    ))
+            );
+            if !ok {
+                diags.error_once(
+                    &format!("radio-field-{}", fo.field),
+                    format!(
+                        "A Radio binds to an enum or integer field (the selectable values must be \
+                         Copy and comparable) — `{}` isn't one.",
+                        fo.field
+                    ),
+                );
+            }
+        }
+        FocusKind::Tabs => {
+            if !matches!(field_ty.get(&fo.field), Some(DeclType::Plain(Type::Integer))) {
+                diags.error_once(
+                    &format!("tabs-field-{}", fo.field),
+                    format!(
+                        "Tabs binds to an `Integer` state field (0 = first tab) — `{}` isn't one.",
+                        fo.field
+                    ),
+                );
+            }
+        }
+    }
+}
+
+/// Bottom cyan bar: optional `Status` text on the left, then hotkey labels
+/// from `On Key` plus built-in Tab / Enter / Up-Down when those apply.
+fn emit_status_bar(
+    sc: &Screen,
+    focusables: &[Focusable],
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+    has_menu: bool,
+) -> Option<String> {
+    let items = status_hotkeys(sc, focusables);
+    if sc.status.is_none() && items.is_empty() {
+        return None;
+    }
+    let mut spans: Vec<String> = Vec::new();
+    if let Some(e) = &sc.status {
+        spans.push(format!(
+            "Span::raw(format!(\" {{}}  \", {}))",
+            text_content(e, fields, enums)
+        ));
+    } else {
+        spans.push("Span::raw(\" \")".into());
+    }
+    let key_style =
+        "ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)";
+    for (key, label) in &items {
+        spans.push(format!("Span::styled({:?}, {})", format!(" {key} "), key_style));
+        spans.push(format!("Span::raw({:?})", format!(" {label}  ")));
+    }
+    let area = if has_menu {
+        "status_area"
+    } else {
+        "chunks_status[1]"
+    };
+    Some(format!(
+        "    frame.render_widget(Paragraph::new(Line::from(vec![{}]))\
+         .style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan)\
+         .fg(ratatui::style::Color::Black)), {area});\n",
+        spans.join(", ")
+    ))
+}
+
+fn status_hotkeys(sc: &Screen, focusables: &[Focusable]) -> Vec<(String, String)> {
+    let mut items = Vec::new();
+    let mut used: HashSet<String> = HashSet::new();
+    for k in &sc.keys {
+        let disp = display_key(&k.key);
+        used.insert(k.key.to_ascii_lowercase());
+        let label = k
+            .label
+            .clone()
+            .unwrap_or_else(|| k.handler.clone());
+        items.push((disp, label));
+    }
+    let multi = focusables.len() > 1;
+    let has_sel = focusables.iter().any(Focusable::selectable);
+    let has_tabs = focusables.iter().any(Focusable::is_tabs);
+    let has_enter = focusables.iter().any(|f| !f.is_memo());
+    if multi && !used.contains("tab") {
+        items.push(("Tab".into(), "focus".into()));
+    }
+    if has_sel && !used.contains("up") && !used.contains("down") {
+        items.push(("Up/Down".into(), "move".into()));
+    }
+    if has_tabs && !used.contains("left") && !used.contains("right") {
+        items.push(("Left/Right".into(), "switch".into()));
+    }
+    if has_enter && !used.contains("enter") {
+        items.push(("Enter".into(), "ok".into()));
+    }
+    if screen_has_menu(sc) && !used.contains("f10") {
+        items.push(("F10".into(), "menu".into()));
+    }
+    items
+}
+
+fn display_key(key: &str) -> String {
+    if key.chars().count() == 1 {
+        return key.to_string();
+    }
+    match key.to_ascii_lowercase().as_str() {
+        "esc" | "escape" => "Esc".into(),
+        "enter" => "Enter".into(),
+        "tab" => "Tab".into(),
+        "space" => "Space".into(),
+        "backspace" => "BkSp".into(),
+        "up" => "Up".into(),
+        "down" => "Down".into(),
+        "left" => "Left".into(),
+        "right" => "Right".into(),
+        "f10" => "F10".into(),
+        _ => key.to_string(),
     }
 }
 
@@ -412,8 +755,9 @@ fn render_view_node(
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
     structs: &HashMap<String, &StructDef>,
-    focus_map: &HashMap<String, usize>,
     multi: bool,
+    web: bool,
+    focus_seq: &mut usize,
     counter: &mut usize,
     indent: usize,
     out: &mut String,
@@ -423,7 +767,7 @@ fn render_view_node(
     match node {
         // A constraint is consumed by the parent container; render the child.
         ViewNode::Constrained { child, .. } => render_view_node(
-            child, area, fields, field_ty, enums, structs, focus_map, multi, counter, indent, out,
+            child, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter, indent, out,
             diags,
         ),
         ViewNode::Text(e) => {
@@ -452,20 +796,155 @@ fn render_view_node(
             for (i, child) in children.iter().enumerate() {
                 let sub = format!("chunks_{}[{}]", id, i);
                 render_view_node(
-                    child, &sub, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    child, &sub, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
                     indent, out, diags,
                 );
             }
         }
+        ViewNode::Frame {
+            title,
+            children,
+            spacing,
+            padding,
+        } => {
+            let id = *counter;
+            *counter += 1;
+            let mut block = String::from("Block::bordered()");
+            if let Some(t) = title {
+                block.push_str(&format!(".title({})", text_content(t, fields, enums)));
+            }
+            out.push_str(&format!("{}let block_{} = {};\n", pad, id, block));
+            out.push_str(&format!(
+                "{}let inner_{} = block_{}.inner({});\n",
+                pad, id, id, area
+            ));
+            out.push_str(&format!(
+                "{}frame.render_widget(block_{}, {});\n",
+                pad, id, area
+            ));
+            let inner = format!("inner_{}", id);
+            match children.as_slice() {
+                [] => {}
+                [one] if spacing.is_none() && padding.is_none() => {
+                    render_view_node(
+                        one, &inner, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                        indent, out, diags,
+                    );
+                }
+                _ => {
+                    let col = ViewNode::Column {
+                        children: children.clone(),
+                        spacing: *spacing,
+                        padding: *padding,
+                    };
+                    render_view_node(
+                        &col, &inner, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                        indent, out, diags,
+                    );
+                }
+            }
+        }
+        ViewNode::Tabs { field, tabs, .. } => {
+            let id = *counter;
+            *counter += 1;
+            let idx = take_focus(focus_seq);
+            let f = rust_name(field);
+            let n = tabs.len().max(1);
+            let titles: Vec<String> = tabs
+                .iter()
+                .map(|p| tab_title_string(&p.title, fields, enums))
+                .collect();
+            out.push_str(&format!(
+                "{}let titles_{} = vec![{}];\n",
+                pad,
+                id,
+                titles.join(", ")
+            ));
+            out.push_str(&format!(
+                "{}let mut style_{} = ratatui::style::Style::new();\n",
+                pad, id
+            ));
+            if multi {
+                out.push_str(&format!("{}if state.focus_index == {} {{\n", pad, idx));
+                out.push_str(&format!(
+                    "{}    style_{} = style_{}.add_modifier(ratatui::style::Modifier::UNDERLINED);\n",
+                    pad, id, id
+                ));
+                out.push_str(&format!("{}}}\n", pad));
+            } else {
+                out.push_str(&format!(
+                    "{}style_{} = style_{}.add_modifier(ratatui::style::Modifier::UNDERLINED);\n",
+                    pad, id, id
+                ));
+            }
+            out.push_str(&format!(
+                "{}let chunks_{} = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split({});\n",
+                pad, id, area
+            ));
+            out.push_str(&format!(
+                "{}frame.render_widget(ratatui::widgets::Tabs::new(titles_{}).select((state.{}.max(0) as usize).min({}))\
+                 .highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED))\
+                 .style(style_{}), chunks_{}[0]);\n",
+                pad, id, f, n - 1, id, id
+            ));
+            let body_area = format!("chunks_{}[1]", id);
+            if tabs.len() == 1 {
+                render_body_nodes(
+                    &tabs[0].children,
+                    &body_area,
+                    fields,
+                    field_ty,
+                    enums,
+                    structs,
+                    multi,
+                    web,
+                    focus_seq,
+                    counter,
+                    indent,
+                    out,
+                    diags,
+                );
+            } else {
+                out.push_str(&format!("{}match state.{} {{\n", pad, f));
+                for (i, pane) in tabs.iter().enumerate() {
+                    let pat = if i + 1 == tabs.len() {
+                        "_".to_string()
+                    } else {
+                        i.to_string()
+                    };
+                    out.push_str(&format!("{}    {} => {{\n", pad, pat));
+                    render_body_nodes(
+                        &pane.children,
+                        &body_area,
+                        fields,
+                        field_ty,
+                        enums,
+                        structs,
+                        multi,
+                        web,
+                        focus_seq,
+                        counter,
+                        indent + 2,
+                        out,
+                        diags,
+                    );
+                    out.push_str(&format!("{}    }}\n", pad));
+                }
+                out.push_str(&format!("{}}}\n", pad));
+            }
+        }
+        ViewNode::Space { .. } => {
+            // Layout already reserved the gap via `child_constraint`.
+        }
         ViewNode::Input { field, .. } => {
             let f = rust_name(field);
+            let idx = take_focus(focus_seq);
             out.push_str(&format!(
                 "{}frame.render_widget(Paragraph::new(state.{}.as_str())\
                  .block(Block::bordered().title({:?})), {});\n",
                 pad, f, field, area
             ));
             // Place the terminal cursor at the end of the text when focused.
-            let idx = focus_map.get(&f).copied().unwrap_or(0);
             let set_cursor = format!(
                 "frame.set_cursor_position(({}.x + 1 + state.{}.chars().count() as u16, {}.y + 1));",
                 area, f, area
@@ -479,7 +958,103 @@ fn render_view_node(
                 out.push_str(&format!("{}{}\n", pad, set_cursor));
             }
         }
+        ViewNode::Memo { field } => {
+            let f = rust_name(field);
+            let idx = take_focus(focus_seq);
+            if web {
+                out.push_str(&format!(
+                    "{}frame.render_widget(Paragraph::new(state.{}.as_str())\
+                     .block(Block::bordered().title({:?})), {});\n",
+                    pad, f, field, area
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{}state.{}_state.set_block(Block::bordered().title({:?}));\n",
+                    pad, f, field
+                ));
+                let show_cursor = |out: &mut String, pad: &str| {
+                    out.push_str(&format!(
+                        "{}state.{}_state.set_cursor_style(ratatui::style::Style::new()\
+                         .add_modifier(ratatui::style::Modifier::REVERSED));\n",
+                        pad, f
+                    ));
+                    out.push_str(&format!(
+                        "{}state.{}_state.set_cursor_line_style(ratatui::style::Style::new()\
+                         .add_modifier(ratatui::style::Modifier::UNDERLINED));\n",
+                        pad, f
+                    ));
+                };
+                let hide_cursor = |out: &mut String, pad: &str| {
+                    out.push_str(&format!(
+                        "{}state.{}_state.set_cursor_style(ratatui::style::Style::new());\n",
+                        pad, f
+                    ));
+                    out.push_str(&format!(
+                        "{}state.{}_state.set_cursor_line_style(ratatui::style::Style::new());\n",
+                        pad, f
+                    ));
+                };
+                if multi {
+                    out.push_str(&format!("{}if state.focus_index == {} {{\n", pad, idx));
+                    show_cursor(out, &format!("{}    ", pad));
+                    out.push_str(&format!("{}}} else {{\n", pad));
+                    hide_cursor(out, &format!("{}    ", pad));
+                    out.push_str(&format!("{}}}\n", pad));
+                } else {
+                    show_cursor(out, &pad);
+                }
+                out.push_str(&format!(
+                    "{}frame.render_widget(&state.{}_state, {});\n",
+                    pad, f, area
+                ));
+            }
+        }
+        ViewNode::Button { label, .. } => {
+            let idx = take_focus(focus_seq);
+            let id = *counter;
+            *counter += 1;
+            emit_focus_style(out, &pad, id, idx, multi);
+            let lbl = text_content(label, fields, enums);
+            out.push_str(&format!(
+                "{}frame.render_widget(Paragraph::new(format!(\"[ {{}} ]\", {})).style(style_{}), {});\n",
+                pad, lbl, id, area
+            ));
+        }
+        ViewNode::Checkbox { label, value, .. } => {
+            let idx = take_focus(focus_seq);
+            let id = *counter;
+            *counter += 1;
+            let f = rust_name(value);
+            let lbl = text_content(label, fields, enums);
+            emit_focus_style(out, &pad, id, idx, multi);
+            out.push_str(&format!(
+                "{}let mark_{} = if state.{} {{ \"x\" }} else {{ \" \" }};\n",
+                pad, id, f
+            ));
+            out.push_str(&format!(
+                "{}frame.render_widget(Paragraph::new(format!(\"[{{}}] {{}}\", mark_{}, {})).style(style_{}), {});\n",
+                pad, id, lbl, id, area
+            ));
+        }
+        ViewNode::Radio { label, value, option, .. } => {
+            let idx = take_focus(focus_seq);
+            let id = *counter;
+            *counter += 1;
+            let f = rust_name(value);
+            let lbl = text_content(label, fields, enums);
+            let opt = render_expr(&rewrite_expr(option.clone(), fields, enums), None);
+            emit_focus_style(out, &pad, id, idx, multi);
+            out.push_str(&format!(
+                "{}let mark_{} = if state.{} == {} {{ \"*\" }} else {{ \" \" }};\n",
+                pad, id, f, opt
+            ));
+            out.push_str(&format!(
+                "{}frame.render_widget(Paragraph::new(format!(\"({{}}) {{}}\", mark_{}, {})).style(style_{}), {});\n",
+                pad, id, lbl, id, area
+            ));
+        }
         ViewNode::List { field, .. } => {
+            let _idx = take_focus(focus_seq);
             let f = rust_name(field);
             let id = *counter;
             *counter += 1;
@@ -499,6 +1074,7 @@ fn render_view_node(
             ));
         }
         ViewNode::Table { field, .. } => {
+            let _idx = take_focus(focus_seq);
             let f = rust_name(field);
             let id = *counter;
             *counter += 1;
@@ -719,7 +1295,7 @@ fn render_view_node(
                 };
                 out.push_str(&format!("{}    {}{} => {{\n", pad, arm.pattern, guard));
                 render_body_nodes(
-                    &arm.body, area, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    &arm.body, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
                     indent + 2, out, diags,
                 );
                 out.push_str(&format!("{}    }}\n", pad));
@@ -734,28 +1310,38 @@ fn render_view_node(
                 let kw = if i == 0 { "if" } else { "} else if" };
                 out.push_str(&format!("{}{} {} {{\n", pad, kw, c));
                 render_body_nodes(
-                    body, area, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    body, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
                     indent + 1, out, diags,
                 );
             }
             if let Some(b) = else_body {
                 out.push_str(&format!("{}}} else {{\n", pad));
                 render_body_nodes(
-                    b, area, fields, field_ty, enums, structs, focus_map, multi, counter,
+                    b, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
                     indent + 1, out, diags,
                 );
             }
             out.push_str(&format!("{}}}\n", pad));
         }
         other => {
-            diags.error_once(
-                "tui-widget-unsupported",
-                format!(
-                    "That widget isn't supported in a Screen yet ({}). A Screen supports Column, \
-                     Row, Text, Input, List, Table, Gauge, Sparkline, BarChart, Chart, Match, and If.",
-                    tui_node_name(other)
-                ),
-            );
+            let name = tui_node_name(other);
+            if name == "TextArea" {
+                diags.error_once(
+                    "tui-textarea-use-memo",
+                    "A TextArea is a Window (GUI) editor — on a Screen use `Memo <field>` bound \
+                     to a String.",
+                );
+            } else {
+                diags.error_once(
+                    "tui-widget-unsupported",
+                    format!(
+                        "That widget isn't supported in a Screen yet ({}). A Screen supports Column, \
+                         Row, Frame, Tabs, Space, Text, Button, Checkbox, Radio, Input, Memo, List, Table, Gauge, \
+                         Sparkline, BarChart, Chart, Match, and If.",
+                        name
+                    ),
+                );
+            }
         }
     }
 }
@@ -770,8 +1356,9 @@ fn render_body_nodes(
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
     structs: &HashMap<String, &StructDef>,
-    focus_map: &HashMap<String, usize>,
     multi: bool,
+    web: bool,
+    focus_seq: &mut usize,
     counter: &mut usize,
     indent: usize,
     out: &mut String,
@@ -780,13 +1367,13 @@ fn render_body_nodes(
     match body {
         [] => {}
         [one] => render_view_node(
-            one, area, fields, field_ty, enums, structs, focus_map, multi, counter, indent, out,
+            one, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter, indent, out,
             diags,
         ),
         many => {
             let col = ViewNode::Column { children: many.to_vec(), spacing: None, padding: None };
             render_view_node(
-                &col, area, fields, field_ty, enums, structs, focus_map, multi, counter, indent,
+                &col, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter, indent,
                 out, diags,
             );
         }
@@ -801,14 +1388,21 @@ fn child_constraint(node: &ViewNode) -> String {
         ViewNode::Constrained { size, .. } => constraint_expr(*size),
         ViewNode::Column { .. }
         | ViewNode::Row { .. }
+        | ViewNode::Frame { .. }
+        | ViewNode::Tabs { .. }
         | ViewNode::Match { .. }
         | ViewNode::If { .. }
         | ViewNode::List { .. }
-        | ViewNode::Table { .. } => "Constraint::Fill(1)".to_string(),
+        | ViewNode::Table { .. }
+        | ViewNode::Memo { .. } => "Constraint::Fill(1)".to_string(),
         ViewNode::Input { .. } | ViewNode::Gauge { .. } => "Constraint::Length(3)".to_string(),
+        ViewNode::Button { .. } | ViewNode::Checkbox { .. } | ViewNode::Radio { .. } => {
+            "Constraint::Length(1)".to_string()
+        }
         ViewNode::Sparkline { .. } | ViewNode::BarChart { .. } | ViewNode::Chart { .. } => {
             "Constraint::Fill(1)".to_string()
         }
+        ViewNode::Space { amount, .. } => format!("Constraint::Length({})", amount),
         _ => "Constraint::Length(1)".to_string(),
     }
 }
@@ -886,7 +1480,8 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Radio { .. } => "Radio",
         ViewNode::Image { .. } => "Image",
         ViewNode::Canvas { .. } => "Canvas",
-        ViewNode::Space { .. } => "Space",
+        ViewNode::Tabs { .. } => "Tabs",
+        ViewNode::Memo { .. } => "Memo",
         ViewNode::Match { .. } => "Match",
         ViewNode::If { .. } => "If",
         _ => "widget",
@@ -922,7 +1517,11 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     let has_focus = !focusables.is_empty();
     let has_sel = focusables.iter().any(Focusable::selectable);
     let has_input = focusables.iter().any(Focusable::is_input);
+    let has_activate = focusables.iter().any(Focusable::is_activate);
+    let has_tabs = focusables.iter().any(Focusable::is_tabs);
+    let has_memo = focusables.iter().any(Focusable::is_memo);
     let multi = focusables.len() > 1;
+    let has_menu = screen_has_menu(sc);
     // Keys the user bound explicitly — their bindings win over the built-in
     // navigation (so we skip a built-in arm whose key they've taken).
     let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
@@ -951,12 +1550,22 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     // focusable widget mutates it (typing into an input, moving a selection).
     let mutates = has_focus
         || has_timer
+        || has_menu
         || sc.keys.iter().any(|k| events.contains_key(&k.handler.to_ascii_lowercase()));
     let let_state = if mutates { "let mut state" } else { "let state" };
     // Only a list/table makes the view `&mut` (its state mutates on render).
-    let draw_arg = if has_sel { "&mut state" } else { "&state" };
+    let draw_arg = if has_sel || has_memo { "&mut state" } else { "&state" };
+    crate::transpiler::FILE_DIALOG_CTX.with(|c| {
+        *c.borrow_mut() = Some(crate::transpiler::FileDialogCtx {
+            view_arg: draw_arg.to_string(),
+        });
+    });
     out.push_str("fn main() -> std::io::Result<()> {\n");
-    out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};\n");
+    out.push_str("    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind");
+    if has_menu {
+        out.push_str(", KeyModifiers");
+    }
+    out.push_str("};\n");
     if surface::state_fallible(&sc.state, &t) {
         // Fallible state construction runs *before* the terminal takes over,
         // so a failure prints normally and the app never starts half-alive.
@@ -1019,7 +1628,24 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     }
     out.push_str("        if let Event::Key(key) = event::read()? {\n");
     out.push_str("            if key.kind == KeyEventKind::Press {\n");
+    if has_menu {
+        out.push_str("                if state.menu_open.is_some() {\n");
+        emit_menu_open_keys(
+            sc, &events, &async_by_name, &fields, &field_ty, t, &mut dummy, &mut out,
+        );
+        out.push_str("                } else {\n");
+    }
     out.push_str("                match key.code {\n");
+    if has_menu && !user_keys.contains("KeyCode::F(10)") {
+        out.push_str("                    KeyCode::F(10) => state.menu_activate(0),\n");
+    }
+    if has_menu {
+        out.push_str(
+            "                    KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::ALT) => {\n",
+        );
+        emit_menu_alt_activate(sc, &mut out, 6);
+        out.push_str("                    }\n");
+    }
     for k in &sc.keys {
         out.push_str(&format!("                    {} => {{\n", key_pattern(&k.key)));
         let handler = k.handler.to_ascii_lowercase();
@@ -1034,17 +1660,8 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
         out.push_str("                    }\n");
     }
     // Built-in focus navigation (only for keys the user hasn't bound). Order
-    // matters: specific user `Char('x')` arms above, general `Char(c)` typing last.
-    if has_sel && !user_keys.contains("KeyCode::Down") {
-        out.push_str("                    KeyCode::Down => {\n");
-        out.push_str(&nav_dispatch(&focusables, multi, "select_next", 6));
-        out.push_str("                    }\n");
-    }
-    if has_sel && !user_keys.contains("KeyCode::Up") {
-        out.push_str("                    KeyCode::Up => {\n");
-        out.push_str(&nav_dispatch(&focusables, multi, "select_previous", 6));
-        out.push_str("                    }\n");
-    }
+    // matters: Tab leaves a Memo; then a focused Memo swallows remaining keys;
+    // then list/tab/input arms. User `Char('x')` arms above still win.
     if multi && !user_keys.contains("KeyCode::Tab") {
         out.push_str(&format!(
             "                    KeyCode::Tab => {{\n                        \
@@ -1052,29 +1669,78 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
             focusables.len()
         ));
     }
-    if has_focus && !user_keys.contains("KeyCode::Enter") {
+    if let Some(feed) = memo_feed(&focusables, multi, 6) {
+        if !multi {
+            // The only focusable is the Memo — remaining keys go to the editor.
+            out.push_str("                    _ => {\n");
+            out.push_str(&feed);
+            out.push_str("                    }\n");
+        } else {
+            out.push_str("                    _ if ");
+            out.push_str(&memo_focused_guard(&focusables, multi));
+            out.push_str(" => {\n");
+            out.push_str(&feed);
+            out.push_str("                    }\n");
+        }
+    }
+    let memo_owns_rest = has_memo && !multi;
+    if !memo_owns_rest && has_sel && !user_keys.contains("KeyCode::Down") {
+        out.push_str("                    KeyCode::Down => {\n");
+        out.push_str(&nav_dispatch(&focusables, multi, "select_next", 6));
+        out.push_str("                    }\n");
+    }
+    if !memo_owns_rest && has_sel && !user_keys.contains("KeyCode::Up") {
+        out.push_str("                    KeyCode::Up => {\n");
+        out.push_str(&nav_dispatch(&focusables, multi, "select_previous", 6));
+        out.push_str("                    }\n");
+    }
+    if !memo_owns_rest && has_tabs && !user_keys.contains("KeyCode::Left") {
+        out.push_str("                    KeyCode::Left => {\n");
+        out.push_str(&tab_dispatch(
+            &focusables, multi, -1, &events, &fields, &field_ty, t, 6,
+        ));
+        out.push_str("                    }\n");
+    }
+    if !memo_owns_rest && has_tabs && !user_keys.contains("KeyCode::Right") {
+        out.push_str("                    KeyCode::Right => {\n");
+        out.push_str(&tab_dispatch(
+            &focusables, multi, 1, &events, &fields, &field_ty, t, 6,
+        ));
+        out.push_str("                    }\n");
+    }
+    if !memo_owns_rest && has_focus && !user_keys.contains("KeyCode::Enter") {
         out.push_str("                    KeyCode::Enter => {\n");
         out.push_str(&enter_dispatch(&focusables, multi, &events, &fields, &field_ty, t, 6));
         out.push_str("                    }\n");
     }
-    if has_input && !user_keys.contains("KeyCode::Backspace") {
+    if !memo_owns_rest && has_input && !user_keys.contains("KeyCode::Backspace") {
         out.push_str("                    KeyCode::Backspace => {\n");
         out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.pop();", f), 6));
         out.push_str("                    }\n");
     }
-    if has_input {
+    if !memo_owns_rest && (has_input || has_activate || has_tabs) {
         out.push_str("                    KeyCode::Char(c) => {\n");
-        out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.push(c);", f), 6));
+        out.push_str(&char_dispatch(
+            &focusables, multi, &events, &fields, &field_ty, t, 6,
+        ));
         out.push_str("                    }\n");
     }
-    out.push_str("                    _ => {}\n");
+    if !memo_owns_rest {
+        out.push_str("                    _ => {}\n");
+    }
     out.push_str("                }\n");
+    if has_menu {
+        out.push_str("                }\n");
+    }
     out.push_str("            }\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("    ratatui::restore();\n");
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
+    crate::transpiler::FILE_DIALOG_CTX.with(|c| {
+        *c.borrow_mut() = None;
+    });
     out
 }
 
@@ -1109,6 +1775,8 @@ fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> S
     let has_focus = !focusables.is_empty();
     let has_sel = focusables.iter().any(Focusable::selectable);
     let has_input = focusables.iter().any(Focusable::is_input);
+    let has_activate = focusables.iter().any(Focusable::is_activate);
+    let has_tabs = focusables.iter().any(Focusable::is_tabs);
     let multi = focusables.len() > 1;
     let user_keys: HashSet<String> = sc.keys.iter().map(|k| key_pattern(&k.key)).collect();
 
@@ -1190,6 +1858,20 @@ fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> S
             out.push_str(&nav_dispatch(&focusables, multi, "select_previous", 5));
             out.push_str("                }\n");
         }
+        if has_tabs && !user_keys.contains("KeyCode::Left") {
+            out.push_str("                KeyCode::Left => {\n");
+            out.push_str(&tab_dispatch(
+                &focusables, multi, -1, &events, &fields, &field_ty, t, 5,
+            ));
+            out.push_str("                }\n");
+        }
+        if has_tabs && !user_keys.contains("KeyCode::Right") {
+            out.push_str("                KeyCode::Right => {\n");
+            out.push_str(&tab_dispatch(
+                &focusables, multi, 1, &events, &fields, &field_ty, t, 5,
+            ));
+            out.push_str("                }\n");
+        }
         if multi && !user_keys.contains("KeyCode::Tab") {
             out.push_str(&format!(
                 "                KeyCode::Tab => {{\n                    \
@@ -1207,9 +1889,11 @@ fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> S
             out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.pop();", f), 5));
             out.push_str("                }\n");
         }
-        if has_input {
+        if has_input || has_activate || has_tabs {
             out.push_str("                KeyCode::Char(c) => {\n");
-            out.push_str(&input_dispatch(&focusables, multi, &|f| format!("state.{}.push(c);", f), 5));
+            out.push_str(&char_dispatch(
+                &focusables, multi, &events, &fields, &field_ty, t, 5,
+            ));
             out.push_str("                }\n");
         }
         out.push_str("                _ => {}\n");
@@ -1362,9 +2046,177 @@ fn nav_dispatch(focusables: &[Focusable], multi: bool, method: &str, base: usize
     out
 }
 
-/// Enter on the focused widget → its handler: an Input's `On Submit` (reading the
-/// bound field from state), or a List/Table's `On Select` (with the selected row).
-/// `base` is the indent level of the emitted body.
+fn memo_focused_guard(focusables: &[Focusable], multi: bool) -> String {
+    let idxs: Vec<usize> = focusables
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.is_memo())
+        .map(|(i, _)| i)
+        .collect();
+    if !multi {
+        return "true".into();
+    }
+    if idxs.len() == 1 {
+        format!("state.focus_index == {}", idxs[0])
+    } else {
+        let pats = idxs
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        format!("matches!(state.focus_index, {})", pats)
+    }
+}
+
+fn memo_feed(focusables: &[Focusable], multi: bool, base: usize) -> Option<String> {
+    let memos: Vec<(usize, &Focusable)> = focusables
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.is_memo())
+        .collect();
+    if memos.is_empty() {
+        return None;
+    }
+    let feed = |fo: &Focusable, indent: usize| -> String {
+        let p = "    ".repeat(indent);
+        format!(
+            "{}let _ = state.{}_state.input(key);\n{}state.{} = state.{}_state.lines().join(\"\\n\");\n",
+            p, fo.field, p, fo.field, fo.field
+        )
+    };
+    if !multi {
+        return Some(feed(memos[0].1, base));
+    }
+    let pad = "    ".repeat(base);
+    let mut out = format!("{}match state.focus_index {{\n", pad);
+    for (i, f) in &memos {
+        out.push_str(&format!("{}    {} => {{\n", pad, i));
+        out.push_str(&feed(f, base + 2));
+        out.push_str(&format!("{}    }}\n", pad));
+    }
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
+    Some(out)
+}
+
+/// Left/Right on the focused Tabs widget — wrap-around by `delta` (±1).
+#[allow(clippy::too_many_arguments)]
+fn tab_dispatch(
+    focusables: &[Focusable],
+    multi: bool,
+    delta: i32,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+    base: usize,
+) -> String {
+    let tabs: Vec<(usize, &Focusable)> = focusables
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.is_tabs())
+        .collect();
+    if !multi {
+        return cycle_tab(tabs[0].1, delta, base, events, fields, field_ty, t);
+    }
+    let pad = "    ".repeat(base);
+    let mut out = format!("{}match state.focus_index {{\n", pad);
+    for (i, f) in &tabs {
+        let arm = cycle_tab(f, delta, base + 2, events, fields, field_ty, t);
+        out.push_str(&format!("{}    {} => {{\n", pad, i));
+        out.push_str(&arm);
+        out.push_str(&format!("{}    }}\n", pad));
+    }
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
+    out
+}
+
+fn cycle_tab(
+    fo: &Focusable,
+    delta: i32,
+    indent: usize,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+) -> String {
+    let pad = "    ".repeat(indent);
+    let n = fo.tab_count.max(1);
+    let step = if delta < 0 {
+        format!("state.{} - {}", fo.field, -delta)
+    } else {
+        format!("state.{} + {}", fo.field, delta)
+    };
+    let mut s = format!(
+        "{}let next_{} = ({}).rem_euclid({});\n",
+        pad, fo.field, step, n
+    );
+    s.push_str(&format!("{}if next_{} != state.{} {{\n", pad, fo.field, fo.field));
+    s.push_str(&format!("{}    state.{} = next_{};\n", pad, fo.field, fo.field));
+    let inner = tab_change_event(fo, indent + 1, events, fields, field_ty, t);
+    s.push_str(&inner);
+    s.push_str(&format!("{}}}\n", pad));
+    s
+}
+
+fn jump_tab(
+    fo: &Focusable,
+    indent: usize,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+) -> String {
+    let pad = "    ".repeat(indent);
+    let n = fo.tab_count.max(1);
+    let mut s = format!("{}if let Some(d) = c.to_digit(10) {{\n", pad);
+    s.push_str(&format!("{}    let i = d as i32 - 1;\n", pad));
+    s.push_str(&format!(
+        "{}    if i >= 0 && i < {} && i != state.{} {{\n",
+        pad, n, fo.field
+    ));
+    s.push_str(&format!("{}        state.{} = i;\n", pad, fo.field));
+    s.push_str(&tab_change_event(fo, indent + 2, events, fields, field_ty, t));
+    s.push_str(&format!("{}    }}\n", pad));
+    s.push_str(&format!("{}}}\n", pad));
+    s
+}
+
+fn tab_change_event(
+    fo: &Focusable,
+    indent: usize,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+) -> String {
+    let Some(ev) = fo
+        .handler
+        .as_ref()
+        .and_then(|h| events.get(&h.to_ascii_lowercase()))
+    else {
+        return String::new();
+    };
+    let mut s = String::new();
+    if let Some(p) = ev.params.first() {
+        let pad = "    ".repeat(indent);
+        s.push_str(&format!(
+            "{}let {} = state.{};\n",
+            pad,
+            rust_name(&p.name),
+            fo.field
+        ));
+    }
+    let mut dummy = Diagnostics::new();
+    surface::emit_event_stmts(
+        &ev.body, &ev.params, "state", fields, field_ty, t, indent, &mut dummy, &mut s,
+    );
+    s
+}
+
+/// Enter on the focused widget → Input submit, List/Table select, or
+/// Button/Checkbox/Radio activate.
 #[allow(clippy::too_many_arguments)]
 fn enter_dispatch(
     focusables: &[Focusable],
@@ -1376,37 +2228,44 @@ fn enter_dispatch(
     base: usize,
 ) -> String {
     let body = |fo: &Focusable, indent: usize| -> String {
-        let pad = "    ".repeat(indent);
-        let mut s = String::new();
-        let Some(ev) = fo.handler.as_ref().and_then(|h| events.get(&h.to_ascii_lowercase())) else {
-            return s;
-        };
-        let mut dummy = Diagnostics::new();
-        let mut emit_body = |s: &mut String, extra: usize| {
-            surface::emit_event_stmts(&ev.body, &ev.params, "state", fields, field_ty, t, indent + extra, &mut dummy, s);
-        };
-        if fo.is_input() {
-            // Submit: bind the handler's parameter to a clone of the typed text
-            // (so `list.Push(text)` moves the local, not the state field).
-            if let Some(p) = ev.params.first() {
-                s.push_str(&format!("{}let {} = state.{}.clone();\n", pad, rust_name(&p.name), fo.field));
+        match fo.kind {
+            FocusKind::Button | FocusKind::Checkbox | FocusKind::Radio => {
+                activate_widget(fo, indent, events, fields, field_ty, t)
             }
-            emit_body(&mut s, 0);
-        } else {
-            s.push_str(&format!("{}if let Some(i) = state.{}_state.selected() {{\n", pad, fo.field));
-            match ev.params.first() {
-                Some(p) => s.push_str(&format!(
-                    "{}    let {} = state.{}[i].clone();\n",
-                    pad,
-                    rust_name(&p.name),
-                    fo.field
-                )),
-                None => s.push_str(&format!("{}    let _ = i;\n", pad)),
+            FocusKind::Tabs => cycle_tab(fo, 1, indent, events, fields, field_ty, t),
+            FocusKind::Memo => String::new(),
+            FocusKind::Input | FocusKind::List | FocusKind::Table => {
+                let pad = "    ".repeat(indent);
+                let mut s = String::new();
+                let Some(ev) = fo.handler.as_ref().and_then(|h| events.get(&h.to_ascii_lowercase())) else {
+                    return s;
+                };
+                let mut dummy = Diagnostics::new();
+                let mut emit_body = |s: &mut String, extra: usize| {
+                    surface::emit_event_stmts(&ev.body, &ev.params, "state", fields, field_ty, t, indent + extra, &mut dummy, s);
+                };
+                if fo.is_input() {
+                    if let Some(p) = ev.params.first() {
+                        s.push_str(&format!("{}let {} = state.{}.clone();\n", pad, rust_name(&p.name), fo.field));
+                    }
+                    emit_body(&mut s, 0);
+                } else {
+                    s.push_str(&format!("{}if let Some(i) = state.{}_state.selected() {{\n", pad, fo.field));
+                    match ev.params.first() {
+                        Some(p) => s.push_str(&format!(
+                            "{}    let {} = state.{}[i].clone();\n",
+                            pad,
+                            rust_name(&p.name),
+                            fo.field
+                        )),
+                        None => s.push_str(&format!("{}    let _ = i;\n", pad)),
+                    }
+                    emit_body(&mut s, 1);
+                    s.push_str(&format!("{}}}\n", pad));
+                }
+                s
             }
-            emit_body(&mut s, 1);
-            s.push_str(&format!("{}}}\n", pad));
         }
-        s
     };
     if !multi {
         return body(&focusables[0], base);
@@ -1420,6 +2279,98 @@ fn enter_dispatch(
         }
         out.push_str(&format!("{}    {} => {{\n", pad, i));
         out.push_str(&arm);
+        out.push_str(&format!("{}    }}\n", pad));
+    }
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
+    out
+}
+
+/// Toggle / set / click the focused Button, Checkbox, or Radio, then run its event.
+fn activate_widget(
+    fo: &Focusable,
+    indent: usize,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+) -> String {
+    let pad = "    ".repeat(indent);
+    let mut s = String::new();
+    match fo.kind {
+        FocusKind::Checkbox => {
+            s.push_str(&format!("{}state.{} = !state.{};\n", pad, fo.field, fo.field));
+        }
+        FocusKind::Radio => {
+            if let Some(opt) = &fo.option {
+                let expr = render_expr(&rewrite_expr(opt.clone(), fields, &t.enums), None);
+                s.push_str(&format!("{}state.{} = {};\n", pad, fo.field, expr));
+            }
+        }
+        FocusKind::Button => {}
+        _ => return s,
+    }
+    if let Some(ev) = fo.handler.as_ref().and_then(|h| events.get(&h.to_ascii_lowercase())) {
+        let mut dummy = Diagnostics::new();
+        if let Some(p) = ev.params.first() {
+            let pname = rust_name(&p.name);
+            match fo.kind {
+                FocusKind::Checkbox => {
+                    s.push_str(&format!("{}let {} = state.{};\n", pad, pname, fo.field));
+                }
+                FocusKind::Radio => {
+                    s.push_str(&format!("{}let {} = state.{};\n", pad, pname, fo.field));
+                }
+                _ => {}
+            }
+        }
+        surface::emit_event_stmts(
+            &ev.body, &ev.params, "state", fields, field_ty, t, indent, &mut dummy, &mut s,
+        );
+    }
+    s
+}
+
+/// Printable keys: type into a focused Input; Space activates Button/Checkbox/Radio.
+#[allow(clippy::too_many_arguments)]
+fn char_dispatch(
+    focusables: &[Focusable],
+    multi: bool,
+    events: &HashMap<String, &GuiEvent>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+    base: usize,
+) -> String {
+    let pad = "    ".repeat(base);
+    let arm = |fo: &Focusable, indent: usize| -> String {
+        let p = "    ".repeat(indent);
+        if fo.is_input() {
+            format!("{}state.{}.push(c);\n", p, fo.field)
+        } else if fo.is_activate() {
+            let inner = activate_widget(fo, indent + 1, events, fields, field_ty, t);
+            if inner.is_empty() {
+                String::new()
+            } else {
+                format!("{}if c == ' ' {{\n{}{}}}\n", p, inner, p)
+            }
+        } else if fo.is_tabs() {
+            jump_tab(fo, indent, events, fields, field_ty, t)
+        } else {
+            String::new()
+        }
+    };
+    if !multi {
+        return arm(&focusables[0], base);
+    }
+    let mut out = format!("{}match state.focus_index {{\n", pad);
+    for (i, fo) in focusables.iter().enumerate() {
+        let a = arm(fo, base + 2);
+        if a.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("{}    {} => {{\n", pad, i));
+        out.push_str(&a);
         out.push_str(&format!("{}    }}\n", pad));
     }
     out.push_str(&format!("{}    _ => {{}}\n", pad));
@@ -1451,6 +2402,313 @@ fn input_dispatch(
     out
 }
 
+fn screen_has_menu(sc: &Screen) -> bool {
+    sc.menu.as_ref().is_some_and(|m| !m.menus.is_empty())
+}
+
+fn accel_char(s: &str) -> Option<char> {
+    s.chars()
+        .find(|c| c.is_ascii_alphabetic())
+        .map(|c| c.to_ascii_lowercase())
+}
+
+fn menu_bar_label(title: &str) -> String {
+    format!(" {} ", title)
+}
+
+fn emit_menu_impl(sc: &Screen, ty: &str, out: &mut String) {
+    let Some(menu) = &sc.menu else { return };
+    if menu.menus.is_empty() {
+        return;
+    }
+    let n = menu.menus.len();
+    out.push_str(&format!("impl {} {{\n", ty));
+    out.push_str("    fn menu_activate(&mut self, i: usize) {\n");
+    out.push_str("        self.menu_open = Some(i);\n");
+    out.push_str("        self.menu_sel = Self::menu_first_item(i);\n");
+    out.push_str("    }\n");
+    out.push_str("    fn menu_close(&mut self) {\n");
+    out.push_str("        self.menu_open = None;\n");
+    out.push_str("        self.menu_sel = 0;\n");
+    out.push_str("    }\n");
+    out.push_str("    fn menu_len(menu: usize) -> usize {\n");
+    out.push_str("        match menu {\n");
+    for (i, g) in menu.menus.iter().enumerate() {
+        out.push_str(&format!("            {} => {},\n", i, g.items.len()));
+    }
+    out.push_str("            _ => 0,\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("    fn menu_is_sep(menu: usize, item: usize) -> bool {\n");
+    out.push_str("        match (menu, item) {\n");
+    for (mi, g) in menu.menus.iter().enumerate() {
+        for (ii, it) in g.items.iter().enumerate() {
+            if matches!(it, MenuEntry::Separator) {
+                out.push_str(&format!("            ({}, {}) => true,\n", mi, ii));
+            }
+        }
+    }
+    out.push_str("            _ => false,\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("    fn menu_first_item(menu: usize) -> usize {\n");
+    out.push_str("        let n = Self::menu_len(menu);\n");
+    out.push_str("        (0..n).find(|&i| !Self::menu_is_sep(menu, i)).unwrap_or(0)\n");
+    out.push_str("    }\n");
+    out.push_str("    fn menu_next(&mut self, delta: isize) {\n");
+    out.push_str(&format!("        let n = {}isize;\n", n));
+    out.push_str("        let cur = self.menu_open.unwrap_or(0) as isize;\n");
+    out.push_str("        let mut i = cur + delta;\n");
+    out.push_str("        while i < 0 {\n");
+    out.push_str("            i += n;\n");
+    out.push_str("        }\n");
+    out.push_str("        self.menu_activate((i % n) as usize);\n");
+    out.push_str("    }\n");
+    out.push_str("    fn menu_move_sel(&mut self, delta: isize) {\n");
+    out.push_str("        let Some(m) = self.menu_open else { return };\n");
+    out.push_str("        let n = Self::menu_len(m) as isize;\n");
+    out.push_str("        if n == 0 {\n");
+    out.push_str("            return;\n");
+    out.push_str("        }\n");
+    out.push_str("        let mut s = self.menu_sel as isize;\n");
+    out.push_str("        for _ in 0..n {\n");
+    out.push_str("            s += delta;\n");
+    out.push_str("            while s < 0 {\n");
+    out.push_str("                s += n;\n");
+    out.push_str("            }\n");
+    out.push_str("            s %= n;\n");
+    out.push_str("            if !Self::menu_is_sep(m, s as usize) {\n");
+    out.push_str("                self.menu_sel = s as usize;\n");
+    out.push_str("                return;\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+}
+
+fn emit_menu_bar_draw(sc: &Screen, out: &mut String) {
+    let Some(menu) = &sc.menu else { return };
+    out.push_str(
+        "    let menu_style = ratatui::style::Style::new().bg(ratatui::style::Color::Cyan)\
+         .fg(ratatui::style::Color::Black);\n",
+    );
+    out.push_str("    let mut menu_spans = Vec::new();\n");
+    for (i, g) in menu.menus.iter().enumerate() {
+        let label = menu_bar_label(&g.title);
+        out.push_str(&format!(
+            "    menu_spans.push(Span::styled({:?}, if state.menu_open == Some({}) {{ \
+             menu_style.add_modifier(ratatui::style::Modifier::REVERSED) }} else {{ menu_style }}));\n",
+            label, i
+        ));
+    }
+    out.push_str(
+        "    frame.render_widget(Paragraph::new(Line::from(menu_spans)).style(menu_style), menu_area);\n",
+    );
+}
+
+fn emit_menu_dropdown_draw(sc: &Screen, out: &mut String) {
+    let Some(menu) = &sc.menu else { return };
+    let labels: Vec<String> = menu.menus.iter().map(|g| menu_bar_label(&g.title)).collect();
+    out.push_str("    if let Some(open) = state.menu_open {\n");
+    out.push_str(&format!(
+        "        let labels: [&str; {}] = [{}];\n",
+        labels.len(),
+        labels
+            .iter()
+            .map(|s| format!("{:?}", s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    out.push_str("        let mut x = menu_area.x;\n");
+    out.push_str("        for (i, lab) in labels.iter().enumerate() {\n");
+    out.push_str("            if i == open {\n");
+    out.push_str("                break;\n");
+    out.push_str("            }\n");
+    out.push_str("            x = x.saturating_add(lab.len() as u16);\n");
+    out.push_str("        }\n");
+    out.push_str("        match open {\n");
+    for (mi, g) in menu.menus.iter().enumerate() {
+        out.push_str(&format!("            {} => {{\n", mi));
+        let texts: Vec<String> = g
+            .items
+            .iter()
+            .map(|it| match it {
+                MenuEntry::Separator => "────────".to_string(),
+                MenuEntry::Item { label, .. } => format!(" {label}"),
+            })
+            .collect();
+        out.push_str(&format!(
+            "                let items: [&str; {}] = [{}];\n",
+            texts.len(),
+            texts
+                .iter()
+                .map(|s| format!("{:?}", s))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        out.push_str(
+            "                let width = items.iter().map(|s| s.len()).max().unwrap_or(10).max(14) as u16 + 4;\n",
+        );
+        out.push_str("                let height = items.len() as u16 + 2;\n");
+        out.push_str("                let rect = Rect {\n");
+        out.push_str("                    x,\n");
+        out.push_str("                    y: menu_area.y.saturating_add(1),\n");
+        out.push_str(
+            "                    width: width.min(menu_area.width.saturating_sub(x.saturating_sub(menu_area.x))),\n",
+        );
+        out.push_str("                    height,\n");
+        out.push_str("                };\n");
+        out.push_str("                frame.render_widget(Clear, rect);\n");
+        out.push_str("                let block = Block::bordered().style(menu_style);\n");
+        out.push_str("                let inner = block.inner(rect);\n");
+        out.push_str("                frame.render_widget(block, rect);\n");
+        out.push_str("                for (i, label) in items.iter().enumerate() {\n");
+        out.push_str(
+            "                    let style = if i == state.menu_sel { \
+             menu_style.add_modifier(ratatui::style::Modifier::REVERSED) } else { menu_style };\n",
+        );
+        out.push_str("                    let row = Rect {\n");
+        out.push_str("                        x: inner.x,\n");
+        out.push_str("                        y: inner.y.saturating_add(i as u16),\n");
+        out.push_str("                        width: inner.width,\n");
+        out.push_str("                        height: 1,\n");
+        out.push_str("                    };\n");
+        out.push_str("                    frame.render_widget(Paragraph::new(*label).style(style), row);\n");
+        out.push_str("                }\n");
+        out.push_str("            }\n");
+    }
+    out.push_str("            _ => {}\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+}
+
+fn emit_menu_open_keys(
+    sc: &Screen,
+    events: &HashMap<String, &GuiEvent>,
+    async_by_name: &HashMap<String, &AwaitSplit>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+    dummy: &mut Diagnostics,
+    out: &mut String,
+) {
+    let Some(menu) = &sc.menu else { return };
+    out.push_str("                    match key.code {\n");
+    out.push_str("                        KeyCode::Esc | KeyCode::F(10) => state.menu_close(),\n");
+    out.push_str("                        KeyCode::Left => state.menu_next(-1),\n");
+    out.push_str("                        KeyCode::Right => state.menu_next(1),\n");
+    out.push_str("                        KeyCode::Up => state.menu_move_sel(-1),\n");
+    out.push_str("                        KeyCode::Down => state.menu_move_sel(1),\n");
+    out.push_str("                        KeyCode::Enter => {\n");
+    out.push_str("                            if let Some(m) = state.menu_open {\n");
+    out.push_str("                                let i = state.menu_sel;\n");
+    out.push_str("                                state.menu_close();\n");
+    out.push_str("                                match (m, i) {\n");
+    for (mi, g) in menu.menus.iter().enumerate() {
+        for (ii, it) in g.items.iter().enumerate() {
+            if let MenuEntry::Item { handler, .. } = it {
+                out.push_str(&format!(
+                    "                                    ({}, {}) => {{\n",
+                    mi, ii
+                ));
+                emit_menu_handler(
+                    handler, events, async_by_name, fields, field_ty, t, dummy, 10, out,
+                );
+                out.push_str("                                    }\n");
+            }
+        }
+    }
+    out.push_str("                                    _ => {}\n");
+    out.push_str("                                }\n");
+    out.push_str("                            }\n");
+    out.push_str("                        }\n");
+    out.push_str(
+        "                        KeyCode::Char(c) => match (state.menu_open, c.to_ascii_lowercase()) {\n",
+    );
+    let mut seen_item: HashSet<(usize, char)> = HashSet::new();
+    for (mi, g) in menu.menus.iter().enumerate() {
+        for it in &g.items {
+            if let MenuEntry::Item { label, handler } = it {
+                let Some(ch) = accel_char(label) else { continue };
+                if !seen_item.insert((mi, ch)) {
+                    continue;
+                }
+                out.push_str(&format!(
+                    "                            (Some({}), {:?}) => {{\n",
+                    mi, ch
+                ));
+                out.push_str("                                state.menu_close();\n");
+                emit_menu_handler(
+                    handler, events, async_by_name, fields, field_ty, t, dummy, 8, out,
+                );
+                out.push_str("                            }\n");
+            }
+        }
+    }
+    let mut seen_menu: HashSet<char> = HashSet::new();
+    for (mi, g) in menu.menus.iter().enumerate() {
+        let Some(ch) = accel_char(&g.title) else { continue };
+        if !seen_menu.insert(ch) {
+            continue;
+        }
+        out.push_str(&format!(
+            "                            (_, {:?}) => state.menu_activate({}),\n",
+            ch, mi
+        ));
+    }
+    out.push_str("                            _ => {}\n");
+    out.push_str("                        }\n");
+    out.push_str("                        _ => {}\n");
+    out.push_str("                    }\n");
+}
+
+fn emit_menu_alt_activate(sc: &Screen, out: &mut String, indent: usize) {
+    let Some(menu) = &sc.menu else { return };
+    let pad = "    ".repeat(indent);
+    out.push_str(&format!("{}match c.to_ascii_lowercase() {{\n", pad));
+    let mut seen: HashSet<char> = HashSet::new();
+    for (i, g) in menu.menus.iter().enumerate() {
+        let Some(ch) = accel_char(&g.title) else { continue };
+        if !seen.insert(ch) {
+            continue;
+        }
+        out.push_str(&format!(
+            "{}    {:?} => state.menu_activate({}),\n",
+            pad, ch, i
+        ));
+    }
+    out.push_str(&format!("{}    _ => {{}}\n", pad));
+    out.push_str(&format!("{}}}\n", pad));
+}
+
+fn emit_menu_handler(
+    handler: &str,
+    events: &HashMap<String, &GuiEvent>,
+    async_by_name: &HashMap<String, &AwaitSplit>,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &surface::Tables,
+    dummy: &mut Diagnostics,
+    indent: usize,
+    out: &mut String,
+) {
+    if handler.eq_ignore_ascii_case("Quit") {
+        let pad = "    ".repeat(indent);
+        out.push_str(&format!("{}break;\n", pad));
+    } else if let Some(ev) = events.get(&handler.to_ascii_lowercase()) {
+        emit_event_run(
+            ev,
+            async_by_name.get(&handler.to_ascii_lowercase()).copied(),
+            indent,
+            fields,
+            field_ty,
+            t,
+            out,
+            dummy,
+        );
+    }
+}
+
 /// A key spec → the matching `KeyCode` pattern.
 fn key_pattern(key: &str) -> String {
     // A single character → `KeyCode::Char('x')`.
@@ -1469,6 +2727,18 @@ fn key_pattern(key: &str) -> String {
         "tab" => "KeyCode::Tab".to_string(),
         "space" => "KeyCode::Char(' ')".to_string(),
         "backspace" => "KeyCode::Backspace".to_string(),
+        "f1" => "KeyCode::F(1)".to_string(),
+        "f2" => "KeyCode::F(2)".to_string(),
+        "f3" => "KeyCode::F(3)".to_string(),
+        "f4" => "KeyCode::F(4)".to_string(),
+        "f5" => "KeyCode::F(5)".to_string(),
+        "f6" => "KeyCode::F(6)".to_string(),
+        "f7" => "KeyCode::F(7)".to_string(),
+        "f8" => "KeyCode::F(8)".to_string(),
+        "f9" => "KeyCode::F(9)".to_string(),
+        "f10" => "KeyCode::F(10)".to_string(),
+        "f11" => "KeyCode::F(11)".to_string(),
+        "f12" => "KeyCode::F(12)".to_string(),
         // Fallback: treat the first char as the key.
         _ => format!("KeyCode::Char({:?})", chars.first().copied().unwrap_or(' ')),
     }
@@ -1484,3 +2754,307 @@ fn text_content(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> 
         _ => format!("format!(\"{{}}\", {})", render_expr(&rewritten, None)),
     }
 }
+
+/// A tab title as an owned `String` expression (literals get `.to_string()`).
+fn tab_title_string(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>) -> String {
+    let c = text_content(e, fields, enums);
+    if matches!(e.kind, ExprKind::Str(_)) {
+        format!("{c}.to_string()")
+    } else {
+        c
+    }
+}
+
+/// Nested-loop path prompt emitted into a Screen program that calls
+/// `GetOpenFilename` / `GetSaveAsFilename`. Copied from TIDE's Open / Save As
+/// (Tab completes, Enter opens or browses, Esc returns `""`).
+const FILE_DIALOG_MOD: &str = r#"
+mod file_dialog {
+    use std::path::{Path, PathBuf};
+    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use ratatui::layout::Rect;
+    use ratatui::style::{Modifier, Style};
+    use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+
+    #[derive(Default)]
+    struct PathTabState {
+        candidates: Vec<String>,
+        index: usize,
+    }
+
+    pub fn prompt<B, F>(
+        terminal: &mut ratatui::Terminal<B>,
+        title: &str,
+        initial: &str,
+        save: bool,
+        mut draw: F,
+    ) -> std::io::Result<String>
+    where
+        B: ratatui::backend::Backend,
+        F: FnMut(&mut ratatui::Frame),
+    {
+        let mut input = initial.to_string();
+        let mut hint = String::new();
+        let mut tab: Option<PathTabState> = None;
+        let hints = if save {
+            "Tab=complete  Enter=save / enter folder  Esc=Cancel"
+        } else {
+            "Tab=complete  Enter=open file / enter folder  Esc=Cancel"
+        };
+        loop {
+            terminal.draw(|frame| {
+                draw(frame);
+                overlay(frame, title, &input, save, hints, &hint);
+            })?;
+            let Event::Key(key) = event::read()? else { continue };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Esc => return Ok(String::new()),
+                KeyCode::Enter => {
+                    tab = None;
+                    if let Some(dir) = path_enter_dir(&input) {
+                        hint = format!(" In {dir}  (Tab lists, Enter continues)");
+                        input = dir;
+                    } else if save {
+                        return Ok(input.trim().to_string());
+                    } else {
+                        let path = PathBuf::from(input.trim());
+                        if path.is_file() {
+                            return Ok(input.trim().to_string());
+                        }
+                        hint = " No such file".into();
+                    }
+                }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    let reverse = matches!(key.code, KeyCode::BackTab)
+                        || key.modifiers.contains(KeyModifiers::SHIFT);
+                    let (next, msg) = path_tab_complete(&input, &mut tab, reverse);
+                    input = next;
+                    if !msg.is_empty() {
+                        hint = msg;
+                    }
+                }
+                KeyCode::Backspace => {
+                    tab = None;
+                    input.pop();
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    tab = None;
+                    input.push(c);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn overlay(frame: &mut ratatui::Frame, title: &str, input: &str, save: bool, hints: &str, hint: &str) {
+        let area = frame.area();
+        let width = 56u16.min(area.width.saturating_sub(4));
+        let height = 10u16.min(area.height.saturating_sub(4));
+        let rect = Rect {
+            x: area.x + (area.width.saturating_sub(width)) / 2,
+            y: area.y + (area.height.saturating_sub(height)) / 2,
+            width,
+            height,
+        };
+        frame.render_widget(Clear, rect);
+        let style = Style::new()
+            .bg(ratatui::style::Color::Cyan)
+            .fg(ratatui::style::Color::Black);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(Style::default().fg(ratatui::style::Color::Black))
+            .style(style);
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+        let kind = if save { "File name" } else { "File or folder" };
+        let body = format!("{kind}\n\n [{input}_]\n\n{hints}{hint}");
+        frame.render_widget(
+            Paragraph::new(body).style(style.add_modifier(Modifier::BOLD)),
+            inner,
+        );
+    }
+
+    fn path_enter_dir(input: &str) -> Option<String> {
+        let trimmed = input.trim();
+        let path = if trimmed.is_empty() {
+            PathBuf::from(".")
+        } else {
+            PathBuf::from(trimmed)
+        };
+        if !path.is_dir() {
+            return None;
+        }
+        let normalized = normalize_path_components(&path);
+        let mut s = normalized.to_string_lossy().into_owned();
+        if s.is_empty() {
+            s.push('.');
+        }
+        let sep = preferred_sep(trimmed);
+        if !s.ends_with('/') && !s.ends_with('\\') {
+            s.push(sep);
+        }
+        Some(s)
+    }
+
+    fn preferred_sep(input: &str) -> char {
+        if input.contains('\\') && !input.contains('/') {
+            '\\'
+        } else {
+            '/'
+        }
+    }
+
+    fn normalize_path_components(path: &Path) -> PathBuf {
+        use std::path::Component;
+        let mut out = PathBuf::new();
+        for c in path.components() {
+            match c {
+                Component::Prefix(_) | Component::RootDir => out.push(c.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !out.pop() {
+                        out.push("..");
+                    }
+                }
+                Component::Normal(s) => out.push(s),
+            }
+        }
+        out
+    }
+
+    fn path_tab_complete(
+        input: &str,
+        state: &mut Option<PathTabState>,
+        reverse: bool,
+    ) -> (String, String) {
+        if let Some(st) = state.as_mut() {
+            if st.candidates.get(st.index).map(String::as_str) == Some(input) {
+                let n = st.candidates.len();
+                let unique_dir = n == 1 && (input.ends_with('/') || input.ends_with('\\'));
+                if !unique_dir && n > 0 {
+                    st.index = if reverse {
+                        if st.index == 0 { n - 1 } else { st.index - 1 }
+                    } else {
+                        (st.index + 1) % n
+                    };
+                    let msg = if n > 1 {
+                        format!(" {}/{} matches", st.index + 1, n)
+                    } else {
+                        String::new()
+                    };
+                    return (st.candidates[st.index].clone(), msg);
+                }
+                *state = None;
+            }
+        }
+        let candidates = list_path_completions(input);
+        if candidates.is_empty() {
+            *state = None;
+            return (input.to_string(), " No matches".into());
+        }
+        let msg = if candidates.len() > 1 {
+            format!(" 1/{} matches — Tab to cycle", candidates.len())
+        } else {
+            String::new()
+        };
+        let result = candidates[0].clone();
+        *state = if candidates.len() == 1 && (result.ends_with('/') || result.ends_with('\\')) {
+            None
+        } else {
+            Some(PathTabState { candidates, index: 0 })
+        };
+        (result, msg)
+    }
+
+    fn list_path_completions(input: &str) -> Vec<String> {
+        let trimmed = input.trim_start();
+        let lead_ws_len = input.len() - trimmed.len();
+        let lead_ws = &input[..lead_ws_len];
+        let (dir, partial, prefix) = split_path_prefix(trimmed);
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let partial_lower = partial.to_ascii_lowercase();
+        let sep = preferred_sep(if prefix.is_empty() { trimmed } else { &prefix });
+        let mut children: Vec<(String, bool)> = Vec::new();
+        for ent in rd.flatten() {
+            let name = ent.file_name();
+            let name = name.to_string_lossy();
+            if name == "." || name == ".." {
+                continue;
+            }
+            if !partial_lower.is_empty() && !name.to_ascii_lowercase().starts_with(&partial_lower) {
+                continue;
+            }
+            let is_dir = ent.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            children.push((name.into_owned(), is_dir));
+        }
+        children.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+        let mut out: Vec<String> = Vec::new();
+        for (name, is_dir) in children {
+            let mut s = String::new();
+            s.push_str(lead_ws);
+            s.push_str(&prefix);
+            s.push_str(&name);
+            if is_dir {
+                s.push(sep);
+            }
+            out.push(s);
+        }
+        let want_parent = partial_lower.is_empty()
+            || "..".starts_with(partial_lower.as_str())
+            || partial_lower == ".";
+        if want_parent {
+            if let Some(up) = parent_completion(lead_ws, &prefix, &dir, sep) {
+                out.push(up);
+            }
+        }
+        out
+    }
+
+    fn parent_completion(lead_ws: &str, prefix: &str, dir: &Path, sep: char) -> Option<String> {
+        if let Ok(canon) = std::fs::canonicalize(dir) {
+            if canon.parent().is_none() {
+                return None;
+            }
+        }
+        let mut s = String::new();
+        s.push_str(lead_ws);
+        s.push_str(prefix);
+        s.push_str("..");
+        s.push(sep);
+        Some(s)
+    }
+
+    fn split_path_prefix(input: &str) -> (PathBuf, String, String) {
+        if input.is_empty() {
+            return (PathBuf::from("."), String::new(), String::new());
+        }
+        if input.ends_with('/') || input.ends_with('\\') {
+            return (PathBuf::from(input), String::new(), input.to_string());
+        }
+        let path = Path::new(input);
+        match path.file_name() {
+            Some(name) if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) => {
+                let parent = path.parent().unwrap();
+                let mut prefix = parent.to_string_lossy().into_owned();
+                if !prefix.ends_with('/') && !prefix.ends_with('\\') {
+                    prefix.push(preferred_sep(input));
+                }
+                (parent.to_path_buf(), name.to_string_lossy().into_owned(), prefix)
+            }
+            Some(name) => (
+                PathBuf::from("."),
+                name.to_string_lossy().into_owned(),
+                String::new(),
+            ),
+            None => (PathBuf::from("."), String::new(), String::new()),
+        }
+    }
+}
+"#;
+

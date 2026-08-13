@@ -15,6 +15,7 @@ fn curve() -> Vec<Point> {
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::text::{Line, Span};
 use ratatui::Frame;
 
 struct Plot {
@@ -31,10 +32,11 @@ impl Default for Plot {
 }
 
 fn view(state: &Plot, frame: &mut Frame) {
-    let block = Block::bordered().title("y = x² / 10");
     let area = frame.area();
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
+    let block = Block::bordered().title("y = x² / 10");
+    let inner = block.inner(chunks_status[0]);
+    frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(inner);
     frame.render_widget(Paragraph::new(" An X/Y line chart of computed points — q to quit"), chunks_0[0]);
     let pts_1_0: Vec<(f64, f64)> = state.curve.iter().map(|p| (p.x as f64, p.y as f64)).collect();
@@ -49,6 +51,7 @@ fn view(state: &Plot, frame: &mut Frame) {
         .x_axis(ratatui::widgets::Axis::default().bounds([xlo_1, xhi_1]).labels(vec![format!("{:.1}", xlo_1), format!("{:.1}", xhi_1)]))
         .y_axis(ratatui::widgets::Axis::default().bounds([ylo_1, yhi_1]).labels(vec![format!("{:.1}", ylo_1), format!("{:.1}", yhi_1)]));
     frame.render_widget(chart_1, chunks_0[1]);
+    frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), Span::styled(" q ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Quit  ")])).style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)), chunks_status[1]);
 }
 
 fn main() -> std::io::Result<()> {

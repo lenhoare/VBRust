@@ -1,0 +1,16 @@
+[package]
+name = "tide_design"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Structural TUI Screen designer for VBR — sibling to TIDE"
+
+[[bin]]
+name = "tide_design"
+path = "src/main.rs"
+
+[dependencies]
+vbr = { path = ".." }
+ratatui = "0.29"
+crossterm = "0.28"
+unicode-width = "0.2"

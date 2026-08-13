@@ -161,9 +161,14 @@ pub struct GodotEvent {
 pub struct Screen {
     pub name: String,
     pub title: Option<String>,
+    /// Optional status-line text (left side of the bottom bar). A string or
+    /// an expression over state — `Status log`, `Status count & " items"`.
+    pub status: Option<Expr>,
+    /// Optional top menu bar (Screen chrome, not a View widget).
+    pub menu: Option<ScreenMenu>,
     pub state: Vec<StateField>,
     pub view: ViewNode,
-    /// Key→handler bindings (`On Key "+" Increment`).
+    /// Key→handler bindings (`On Key "+" Increment ["inc"]`).
     pub keys: Vec<KeyBinding>,
     /// Timer bindings (`Every 1000 Tick`) — run a handler on an interval.
     pub timers: Vec<Timer>,
@@ -181,6 +186,27 @@ pub struct Timer {
     pub handler: String,
 }
 
+/// A Screen-level menu bar: one or more named dropdowns. Lives next to `View`,
+/// not inside it — chrome, like `Title` and `Status`.
+#[derive(Debug, Clone)]
+pub struct ScreenMenu {
+    pub menus: Vec<MenuGroup>,
+}
+
+/// One top-level menu (`Menu "File"` … `End Menu`) and its items.
+#[derive(Debug, Clone)]
+pub struct MenuGroup {
+    pub title: String,
+    pub items: Vec<MenuEntry>,
+}
+
+/// A dropdown row: a command (`Item "Quit" Quit`) or a `Separator`.
+#[derive(Debug, Clone)]
+pub enum MenuEntry {
+    Item { label: String, handler: String },
+    Separator,
+}
+
 /// One `On Key <key> <handler>` binding. `key` is a single character (`"+"`,
 /// `"q"`) or a named key (`Up`, `Enter`, `Esc`); `handler` is an event name, or
 /// the built-in `Quit` (exits the loop).
@@ -188,6 +214,9 @@ pub struct Timer {
 pub struct KeyBinding {
     pub key: String,
     pub handler: String,
+    /// Optional status-bar caption (`On Key "q" Quit "quit"`). Defaults to the
+    /// handler name when omitted.
+    pub label: Option<String>,
 }
 
 /// A `Canvas Name … Draw … End Draw … End Canvas` definition — imperative 2-D
@@ -302,6 +331,14 @@ pub enum ViewNode {
         spacing: Option<u16>,
         padding: Option<u16>,
     },
+    /// A titled, bordered panel (ratatui `Block`) wrapping children. TUI-only.
+    /// `Frame "Customers"` … `End Frame` — optional title expression.
+    Frame {
+        title: Option<Expr>,
+        children: Vec<ViewNode>,
+        spacing: Option<u16>,
+        padding: Option<u16>,
+    },
     /// A blank gap (Iced `Space`): `Space Height 20` / `Space Width 10`.
     Space {
         horizontal: bool,
@@ -339,6 +376,20 @@ pub enum ViewNode {
         scatter: bool,
         x_bounds: Option<(Expr, Expr)>,
         y_bounds: Option<(Expr, Expr)>,
+    },
+    /// A tab bar plus pages (ratatui `Tabs`). `field` is an `Integer` index
+    /// (0 = first tab). Left/Right (and Enter) cycle when the bar is focused;
+    /// digit keys 1–9 jump. TUI-only.
+    Tabs {
+        field: String,
+        tabs: Vec<TabPane>,
+        on_change: Option<String>,
+    },
+    /// A multi-line editor (tui-textarea) bound to a `String` state field.
+    /// Enter inserts a newline; Tab leaves (when anything else is focusable).
+    /// TUI-only — a Window uses `TextArea` instead.
+    Memo {
+        field: String,
     },
     /// A single-line text input bound to a `String` state field (ratatui, TUI).
     /// Printable keys type into it, Backspace deletes; `on_submit` fires on Enter.
@@ -439,6 +490,14 @@ pub enum ViewNode {
         branches: Vec<(Expr, Vec<ViewNode>)>,
         else_body: Option<Vec<ViewNode>>,
     },
+}
+
+/// One page of a `Tabs` widget: the title on the bar and the body shown when
+/// that tab is selected.
+#[derive(Debug, Clone)]
+pub struct TabPane {
+    pub title: Expr,
+    pub children: Vec<ViewNode>,
 }
 
 /// One arm of a view `Match`: a pattern (raw Rust, as in a statement `Match`)

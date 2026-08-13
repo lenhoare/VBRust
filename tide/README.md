@@ -55,8 +55,9 @@ cargo run -p tide-editor --example minimal -- path/to.txt
 
 Not blocking day-to-day use — park these until the TP core feels finished:
 
-- Visual **Form / Screen designer**
 - Packaging / getting-started for distributing `tide`
+
+Screen layout work lives in the sibling app **[`tide_design/`](../tide_design/)** (structural TUI Screen designer).
 
 ## Layout
 

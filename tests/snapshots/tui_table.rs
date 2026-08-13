@@ -15,6 +15,7 @@ fn roster() -> Vec<Person> {
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::text::{Line, Span};
 use ratatui::Frame;
 
 struct People {
@@ -36,10 +37,11 @@ impl Default for People {
 }
 
 fn view(state: &mut People, frame: &mut Frame) {
-    let block = Block::bordered().title("People — Up/Down, Enter, q to quit");
     let area = frame.area();
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
+    let block = Block::bordered().title("People — Up/Down, Enter, q to quit");
+    let inner = block.inner(chunks_status[0]);
+    frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(Paragraph::new(" Up/Down to move, Enter to select, q to quit"), chunks_0[0]);
     let rows_1: Vec<ratatui::widgets::Row> = state.people.iter().map(|row| ratatui::widgets::Row::new(vec![row.name.clone(), row.age.to_string(), row.city.clone()])).collect();
@@ -48,6 +50,7 @@ fn view(state: &mut People, frame: &mut Frame) {
         .row_highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)).highlight_symbol("» ");
     frame.render_stateful_widget(table_1, chunks_0[1], &mut state.people_state);
     frame.render_widget(Paragraph::new(format!(" {}", state.status)), chunks_0[2]);
+    frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), Span::styled(" q ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Quit  "), Span::styled(" Up/Down ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" move  "), Span::styled(" Enter ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" ok  ")])).style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)), chunks_status[1]);
 }
 
 fn main() -> std::io::Result<()> {

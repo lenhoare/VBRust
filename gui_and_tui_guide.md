@@ -237,21 +237,39 @@ a terminal.
 There is no clicking, so a `Screen` binds keys to events with `On Key`:
 
 ```vb
-On Key "+" Increment
-On Key "-" Decrement
-On Key "q" Quit
+On Key "+" Increment "inc"
+On Key "-" Decrement "dec"
+On Key "q" Quit "quit"
 ```
 
-`Quit` is built in and exits. Named keys — `Up`, `Down`, `Enter`, `Esc`, `Tab`,
-`Space`, `Backspace` — are written without quotes (`On Key Esc Quit`); a plain
-character goes in quotes.
+`Quit` is built in and exits. An optional string is the caption on the bottom
+**status bar** (`"inc"`, `"quit"`); without it the handler name is used. Named
+keys — `Up`, `Down`, `Enter`, `Esc`, `Tab`, `Space`, `Backspace` — are written
+without quotes (`On Key Esc Quit`); a plain character goes in quotes.
+
+`Status <expr>` (Screen-only) puts live text on the left of that same bar —
+`Status log`, `Status count & " items"`. Tab / Enter / Up-Down / Left-Right show up on the
+bar by themselves when those keys are wired as built-ins.
+
+A **menu bar** sits on the Screen next to `View` (not inside the Column): `Menu` /
+`Menu "File"` / `Item "Quit" Quit` / `End Menu`. **F10** opens it; Alt+letter,
+arrows, Enter, Esc. Example: `examples/tui_menu.vbr`.
+
+`GetOpenFilename()` / `GetSaveAsFilename()` (optional starting path) pop that
+same TIDE Open / Save As prompt over the Screen — Tab completes, Enter opens or
+saves, Esc returns `""`. Call them from an event, then `FileSystem.Read` /
+`Write`. Example: `examples/tui_file.vbr`.
 
 ### Widgets, including data-viz
 
 A screen has text, a single-line `Input` (fires `On Submit` on Enter), a
-selectable `List` and `Table` (fire `On Select`), and — because dashboards are a
-natural terminal job — first-class charts: `Gauge`, `Sparkline`, `BarChart`, and a
-full XY `Chart`. A dashboard is just the usual `Column` of them:
+selectable `List` and `Table` (fire `On Select`), a `Memo` (multi-line `String`
+editor — Enter is a newline, quit with Esc), titled `Frame` panels, `Tabs`
+(Left/Right to switch, 0-based `Integer` index), `Space`
+gaps, `Button` / `Checkbox` / `Radio` (Tab to focus, Enter or Space to fire —
+the same syntax as a Window), and — because dashboards are a natural terminal
+job — first-class charts: `Gauge`, `Sparkline`, `BarChart`, and a full XY
+`Chart`. A dashboard is just the usual `Column` of them:
 
 ```vb
 View
@@ -275,7 +293,8 @@ laying out pixels.
 When more than one input/list/table is on screen, **Tab** moves focus between
 them, and the focused widget gets the relevant keys: an `Input` takes typing and
 Backspace; a `List`/`Table` moves its highlight with Up/Down and activates with
-Enter. Here a note-taker wires an input to a list:
+Enter; `Tabs` switches panes with Left/Right (the index is 0-based). Here a
+note-taker wires an input to a list:
 
 ```vb
 Input entry

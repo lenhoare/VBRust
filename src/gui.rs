@@ -52,6 +52,23 @@ pub fn emit_gui_program(
         }
     });
 
+    if program
+        .functions
+        .iter()
+        .any(|f| crate::transpiler::uses_file_dialog(&f.body))
+        || program.windows.iter().any(|w| {
+            w.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
+                || w.subs.iter().any(|s| crate::transpiler::uses_file_dialog(&s.body))
+        })
+    {
+        diags.error_once(
+            "tui-file-dialog-window",
+            "GetOpenFilename / GetSaveAsFilename are Screen-only (they pop a terminal path \
+             prompt). A Window has no terminal overlay — use a Screen, or pick the path \
+             another way.",
+        );
+    }
+
     // Every non-event stdlib namespace the program names: declared types +
     // `State` inits + call receivers in the helper functions (emit_shared_items
     // above already ran note_builtins on them). Read from the marks so a
@@ -504,6 +521,14 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::Row { children, spacing, padding } => {
             return render_container("row", children, ctx, indent, as_element, *spacing, *padding)
         }
+        ViewNode::Frame { children, spacing, padding, .. } => {
+            // TUI-only; validate_view rejects it. Render children so the tree still walks.
+            return render_container("column", children, ctx, indent, as_element, *spacing, *padding)
+        }
+        ViewNode::Tabs { tabs, .. } => {
+            let children: Vec<ViewNode> = tabs.iter().flat_map(|p| p.children.clone()).collect();
+            return render_container("column", &children, ctx, indent, as_element, None, None)
+        }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
         // Layout size constraints are a TUI concept; the GUI ignores them.
@@ -643,11 +668,13 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
         | ViewNode::BarChart { .. }
-        | ViewNode::Chart { .. } => {
+        | ViewNode::Chart { .. }
+        | ViewNode::Memo { .. } => {
             "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink)".to_string()
         }
         // Containers/conditionals/constrained returned early above.
-        ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Match { .. }
+        ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Frame { .. } | ViewNode::Tabs { .. }
+        | ViewNode::Match { .. }
         | ViewNode::If { .. } | ViewNode::Constrained { .. } => {
             unreachable!()
         }
@@ -816,11 +843,29 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
         | ViewNode::BarChart { .. }
-        | ViewNode::Chart { .. } => diags.error_once(
+        | ViewNode::Chart { .. }
+        | ViewNode::Memo { .. } => diags.error_once(
             "tui-widget-in-window",
             "That's a Screen (TUI) widget — it isn't available in a Window (GUI). In a GUI use \
-             `TextInput` for text entry and `ProgressBar`/`Canvas` for charts.",
+             `TextInput` for text entry, `TextArea` for multi-line edit, and `ProgressBar`/`Canvas` \
+             for charts.",
         ),
+        ViewNode::Frame { children, .. } => {
+            diags.error_once(
+                "tui-widget-in-window",
+                "A Frame is a Screen (TUI) panel — it isn't available in a Window. In a GUI use \
+                 `Column`/`Row` (and a window title) instead.",
+            );
+            children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        ViewNode::Tabs { tabs, .. } => {
+            diags.error_once(
+                "tui-widget-in-window",
+                "Tabs is a Screen (TUI) widget — it isn't available in a Window.",
+            );
+            tabs.iter()
+                .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, diags)));
+        }
         ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
@@ -940,6 +985,13 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
             ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
             }
+            ViewNode::Frame { children, .. } => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
+            }
             ViewNode::Match { arms, .. } => {
                 for a in arms {
                     a.body.iter().for_each(|c| walk(c, out));
@@ -976,7 +1028,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
         | ViewNode::BarChart { .. }
-        | ViewNode::Chart { .. } => {}
+        | ViewNode::Chart { .. }
+        | ViewNode::Memo { .. } => {}
         ViewNode::Column { children, .. } => {
             add(used, "column");
             children.iter().for_each(|c| collect_widgets(c, used));
@@ -984,6 +1037,13 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Row { children, .. } => {
             add(used, "row");
             children.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::Frame { children, .. } => {
+            children.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::Tabs { tabs, .. } => {
+            tabs.iter()
+                .for_each(|p| p.children.iter().for_each(|c| collect_widgets(c, used)));
         }
         // `Space`/`Image`/`Canvas` use fully-qualified paths, so no import needed.
         ViewNode::Space { .. } | ViewNode::Image { .. } | ViewNode::Canvas { .. } => {}
@@ -1105,6 +1165,13 @@ fn collect_canvases(node: &ViewNode) -> Vec<String> {
             }
             ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Frame { children, .. } => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
             }
             ViewNode::Match { arms, .. } => {
                 for a in arms {

@@ -5,11 +5,22 @@
 //!    (Rust requires it; VB never made you think about it);
 //!  * identifier renaming to snake_case, consistently at declaration and use.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::resolver::{self, FnTable};
+
+/// Set while a Screen event body is being emitted so `GetOpenFilename` /
+/// `GetSaveAsFilename` can close over `terminal` and `view`.
+pub(crate) struct FileDialogCtx {
+    pub view_arg: String,
+}
+
+thread_local! {
+    pub(crate) static FILE_DIALOG_CTX: RefCell<Option<FileDialogCtx>> = RefCell::new(None);
+}
 
 /// CLI stand-in for VB's InputBox: print the prompt, read a line, return it.
 /// The `Log <expr>` sink: a timestamped line appended to `vbr.log` in the working
@@ -306,6 +317,15 @@ pub fn transpile_module(
         program, &fns, &methods, &consts, &module_set, interfaces, &enum_set, &structs, diags,
         &mut out,
     );
+
+    if diags.has_mark("tui-file-dialog") {
+        diags.error_once(
+            "tui-file-dialog-plain",
+            "GetOpenFilename / GetSaveAsFilename are Screen-only — they pop a path prompt \
+             over the live terminal. Put them in a Screen event, then FileSystem.Read / Write \
+             the path they return (empty string means cancelled).",
+        );
+    }
 
     add_sibling_type_uses(out, &type_providers, &private_types, diags)
 }
@@ -1897,6 +1917,15 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                          reads a line from the keyboard, returning it as a String.",
                     );
                 }
+                "getopenfilename" | "getsaveasfilename" => {
+                    diags.mark("tui-file-dialog");
+                    diags.note(
+                        "builtin-file-dialog",
+                        "GetOpenFilename / GetSaveAsFilename pop a path prompt on a Screen \
+                         (Tab completes, Enter opens or saves, Esc cancels and returns \"\"). \
+                         Call them from a Screen event, then FileSystem.Read / Write the path.",
+                    );
+                }
                 "rnd" => diags.error_once(
                     "builtin-rnd",
                     "Rnd() is not built in — Rust keeps randomness in the `rand` crate so it \
@@ -1918,6 +1947,91 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             }
         }
         _ => {}
+    }
+}
+
+/// True when a statement list names `GetOpenFilename` / `GetSaveAsFilename`.
+pub(crate) fn uses_file_dialog(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_uses_file_dialog)
+}
+
+fn stmt_uses_file_dialog(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Set { value: e, .. }
+        | Stmt::Assign { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. }
+        | Stmt::Return(Some(e))
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Expr(e)
+        | Stmt::Assert(e) => expr_uses_file_dialog(e),
+        Stmt::If {
+            branches,
+            else_body,
+        } => {
+            branches.iter().any(|(c, b)| expr_uses_file_dialog(c) || uses_file_dialog(b))
+                || else_body.as_ref().is_some_and(|b| uses_file_dialog(b))
+        }
+        Stmt::For {
+            from, to, step, body, ..
+        } => {
+            expr_uses_file_dialog(from)
+                || expr_uses_file_dialog(to)
+                || step.as_ref().is_some_and(expr_uses_file_dialog)
+                || uses_file_dialog(body)
+        }
+        Stmt::ForEach { iter, body, .. } => expr_uses_file_dialog(iter) || uses_file_dialog(body),
+        Stmt::DoLoop { cond, body } => {
+            let in_cond = match cond {
+                Some(
+                    DoCond::PreWhile(c)
+                    | DoCond::PreUntil(c)
+                    | DoCond::PostWhile(c)
+                    | DoCond::PostUntil(c),
+                ) => expr_uses_file_dialog(c),
+                None => false,
+            };
+            in_cond || uses_file_dialog(body)
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            expr_uses_file_dialog(scrutinee)
+                || arms.iter().any(|a| {
+                    a.guard.as_ref().is_some_and(expr_uses_file_dialog) || uses_file_dialog(&a.body)
+                })
+        }
+        _ => false,
+    }
+}
+
+fn expr_uses_file_dialog(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Call { name, args } => {
+            matches!(
+                name.to_ascii_lowercase().as_str(),
+                "getopenfilename" | "getsaveasfilename"
+            ) || args.iter().any(expr_uses_file_dialog)
+        }
+        ExprKind::Binary { lhs, rhs, .. } => {
+            expr_uses_file_dialog(lhs) || expr_uses_file_dialog(rhs)
+        }
+        ExprKind::MethodCall { recv, args, .. } => {
+            expr_uses_file_dialog(recv) || args.iter().any(expr_uses_file_dialog)
+        }
+        ExprKind::Try(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::Field(inner, _)
+        | ExprKind::TupleIndex(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Not(inner)
+        | ExprKind::Closure { body: inner, .. } => expr_uses_file_dialog(inner),
+        ExprKind::Index(inner, idx) => expr_uses_file_dialog(inner) || expr_uses_file_dialog(idx),
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_uses_file_dialog(v)),
+        ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_uses_file_dialog),
+        _ => false,
     }
 }
 
@@ -2538,6 +2652,10 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("cint", 1) => Some(format!("{}.trim().parse::<i32>().map_err(|e| e.to_string())", r(0))),
         // InputBox → a generated helper that prompts and reads a line.
         ("inputbox", 1) => Some(format!("input_box({})", r(0))),
+        ("getopenfilename", 0) => Some(lower_file_dialog(" Open file ", "\"\"", false)),
+        ("getopenfilename", 1) => Some(lower_file_dialog(" Open file ", &r(0), false)),
+        ("getsaveasfilename", 0) => Some(lower_file_dialog(" Save as ", "\"\"", true)),
+        ("getsaveasfilename", 1) => Some(lower_file_dialog(" Save as ", &r(0), true)),
         // Mid is 1-indexed in VB; Rust slices are 0-indexed, so shift by one.
         ("mid", 3) => Some(render_mid(&args[0], &args[1], Some(&args[2]))),
         ("mid", 2) => Some(render_mid(&args[0], &args[1], None)),
@@ -2553,6 +2671,16 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("exp", 1) => Some(math0(&args[0], "exp")),
         _ => None,
     }
+}
+
+fn lower_file_dialog(title: &str, initial: &str, save: bool) -> String {
+    FILE_DIALOG_CTX.with(|c| match &*c.borrow() {
+        Some(ctx) => format!(
+            "file_dialog::prompt(&mut terminal, {title:?}, &({initial}).to_string(), {save}, |frame| view({}, frame))?",
+            ctx.view_arg
+        ),
+        None => "String::new()".into(),
+    })
 }
 
 /// `recv.method()` for a string builtin: parenthesise the receiver if needed.

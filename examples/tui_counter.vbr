@@ -5,18 +5,18 @@ Screen Counter
         Dim count As Integer = 0
     End State
 
+    Status "Count: " & count
+
     View
         Column
             Text "A VBR terminal app"
             Text "Count: " & count
-            Text ""
-            Text "Press + / - to change, q to quit"
         End Column
     End View
 
-    On Key "+" Increment
-    On Key "-" Decrement
-    On Key "q" Quit
+    On Key "+" Increment "inc"
+    On Key "-" Decrement "dec"
+    On Key "q" Quit "quit"
 
     Event Increment
         count += 1

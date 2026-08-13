@@ -700,6 +700,17 @@ impl<'a> Parser<'a> {
                     self.expect_kw_ident("View")?;
                     self.eat(&Tok::Newline);
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Menu") => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!(
+                            "A Menu bar is Screen-only (terminal chrome). Put it on a Screen next to \
+                             View, not in a {kind}."
+                        ),
+                    );
+                    return None;
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Event") => {
                     self.advance();
                     let ev_name = self.expect_ident("for the event name")?;
@@ -789,6 +800,8 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Newline, "after the screen name")?;
 
         let mut title = None;
+        let mut status = None;
+        let mut menu = None;
         let mut state = Vec::new();
         let mut view = None;
         let mut keys = Vec::new();
@@ -816,6 +829,25 @@ impl<'a> Parser<'a> {
                     title = Some(self.expect_string("after `Title`")?);
                     self.eat(&Tok::Newline);
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Status") => {
+                    // `Status <expr>` — left side of the bottom hotkey bar.
+                    self.advance();
+                    status = Some(self.parse_expr()?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Menu") => {
+                    // Screen chrome — a top bar of dropdowns, sibling to View.
+                    if menu.is_some() {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            "A Screen has one `Menu` block (the bar). Put more dropdowns inside it.",
+                        );
+                        return None;
+                    }
+                    self.advance();
+                    menu = Some(self.parse_screen_menu()?);
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("State") => {
                     self.advance();
                     self.expect(&Tok::Newline, "after `State`")?;
@@ -836,8 +868,14 @@ impl<'a> Parser<'a> {
                     self.expect_kw_ident("Key")?;
                     let key = self.parse_key_spec()?;
                     let handler = self.expect_ident("for the key's handler event")?;
+                    let label = if let Tok::Str(s) = self.peek().clone() {
+                        self.advance();
+                        Some(s)
+                    } else {
+                        None
+                    };
                     self.eat(&Tok::Newline);
-                    keys.push(KeyBinding { key, handler });
+                    keys.push(KeyBinding { key, handler, label });
                 }
                 // `Every 1000 Handler` — a timer binding (interval in ms).
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Every") => {
@@ -870,7 +908,7 @@ impl<'a> Parser<'a> {
                         self.span(),
                         self.line(),
                         format!(
-                            "Unexpected {:?} inside a Screen — expected Title, State, View, \
+                            "Unexpected {:?} inside a Screen — expected Title, Status, Menu, State, View, \
                              `On Key`, `Every`, Event, Sub, or `End Screen`.",
                             other
                         ),
@@ -887,7 +925,111 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        Some(Screen { name, title, state, view, keys, timers, events, subs })
+        Some(Screen { name, title, status, menu, state, view, keys, timers, events, subs })
+    }
+
+    /// `Menu` … `Menu "File"` … `Item "Quit" Quit` … `End Menu` … `End Menu`.
+    /// The opening `Menu` token has already been consumed.
+    fn parse_screen_menu(&mut self) -> Option<ScreenMenu> {
+        self.eat(&Tok::Newline);
+        let mut menus = Vec::new();
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident("Menu")?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Comment(_) => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Menu") => {
+                    self.advance();
+                    menus.push(self.parse_menu_group()?);
+                }
+                other => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!(
+                            "Inside `Menu` expected `Menu \"title\"` or `End Menu`, found {:?}.",
+                            other
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+        if menus.is_empty() {
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                "A Menu bar needs at least one dropdown — `Menu \"File\"` … `End Menu`.",
+            );
+            return None;
+        }
+        Some(ScreenMenu { menus })
+    }
+
+    /// `Menu "File"` … `Item` / `Separator` … `End Menu`. Opening `Menu` eaten.
+    fn parse_menu_group(&mut self) -> Option<MenuGroup> {
+        let title = self.expect_string("for the menu title — `Menu \"File\"`")?;
+        self.eat(&Tok::Newline);
+        let mut items = Vec::new();
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident("Menu")?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Comment(_) => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Item") => {
+                    self.advance();
+                    let label = self.expect_string("for the item label — `Item \"Quit\" Quit`")?;
+                    let handler = self.expect_ident("for the item's event (or `Quit`)")?;
+                    self.eat(&Tok::Newline);
+                    items.push(MenuEntry::Item { label, handler });
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Separator") => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                    items.push(MenuEntry::Separator);
+                }
+                other => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!(
+                            "Inside a dropdown expected `Item \"label\" Event`, `Separator`, or \
+                             `End Menu`, found {:?}.",
+                            other
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+        if !items.iter().any(|i| matches!(i, MenuEntry::Item { .. })) {
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                format!(
+                    "Menu \"{}\" needs at least one `Item \"label\" Event`.",
+                    title
+                ),
+            );
+            return None;
+        }
+        Some(MenuGroup { title, items })
     }
 
     /// `Node2D "Player" … End Node2D` — a Godot node class. The opening token is
@@ -1303,6 +1445,98 @@ impl<'a> Parser<'a> {
                 let (children, spacing, padding) = self.parse_container_body("Row")?;
                 Some(ViewNode::Row { children, spacing, padding })
             }
+            "frame" => {
+                // `Frame ["title"]` … `End Frame` — a bordered panel (Screen).
+                self.advance();
+                let title = if matches!(self.peek(), Tok::Newline) {
+                    None
+                } else {
+                    Some(self.parse_expr()?)
+                };
+                self.eat(&Tok::Newline);
+                let (children, spacing, padding) = self.parse_container_body("Frame")?;
+                Some(ViewNode::Frame {
+                    title,
+                    children,
+                    spacing,
+                    padding,
+                })
+            }
+            "tabs" => {
+                // `Tabs field` … `Tab "title"` … `End Tab` … `End Tabs`.
+                self.advance();
+                let field = self.expect_ident("for the Tabs index field")?;
+                self.eat(&Tok::Newline);
+                let mut on_change = None;
+                let mut tabs = Vec::new();
+                loop {
+                    self.skip_newlines();
+                    match self.peek().clone() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect_kw_ident("Change")?;
+                            on_change = Some(self.expect_ident("for the change event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Tabs")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("tab") => {
+                            self.advance();
+                            let title = self.parse_expr()?;
+                            self.eat(&Tok::Newline);
+                            let (children, _, _) = self.parse_container_body("Tab")?;
+                            tabs.push(TabPane { title, children });
+                        }
+                        other => {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                format!(
+                                    "Inside Tabs expected `Tab <title>`, `On Change <event>`, or \
+                                     `End Tabs`, found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                if tabs.is_empty() {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "A Tabs widget needs at least one `Tab` pane.",
+                    );
+                    return None;
+                }
+                Some(ViewNode::Tabs {
+                    field,
+                    tabs,
+                    on_change,
+                })
+            }
+            "tab" => {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    "`Tab` belongs inside `Tabs` — wrap it: Tabs field / Tab \"title\" / … / \
+                     End Tab / End Tabs.",
+                );
+                None
+            }
+            "menu" => {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    "A Menu belongs on the Screen next to View, not inside the View — \
+                     Menu / Menu \"File\" / Item \"Quit\" Quit / End Menu / End Menu.",
+                );
+                None
+            }
             "space" => {
                 // `Space Height 20` / `Space Width 10` — a blank gap.
                 self.advance();
@@ -1474,6 +1708,35 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Some(ViewNode::Input { field, on_submit })
+            }
+            "memo" => {
+                // `Memo field` … `End Memo` — a multi-line String editor (Screen).
+                self.advance();
+                let field = self.expect_ident("for the Memo's bound String field")?;
+                self.eat(&Tok::Newline);
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Memo")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                format!(
+                                    "Inside a Memo expected `End Memo`, found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                Some(ViewNode::Memo { field })
             }
             "list" => {
                 // `List field` + optional `On Select <Event>` — a selectable list.
@@ -1856,9 +2119,9 @@ impl<'a> Parser<'a> {
                     self.span(),
                     self.line(),
                     format!(
-                        "Unknown widget `{}` (have: Column, Row, Text, Button, TextInput, \
+                        "Unknown widget `{}` (have: Column, Row, Frame, Tabs, Space, Text, Button, TextInput, \
                          Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         Input, List, Table, Gauge, Sparkline, BarChart, Chart, Match, If).",
+                         Input, Memo, List, Table, Gauge, Sparkline, BarChart, Chart, Match, If).",
                         other
                     ),
                 );

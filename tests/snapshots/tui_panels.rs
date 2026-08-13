@@ -16,6 +16,7 @@ fn rightitems() -> Vec<String> {
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::text::{Line, Span};
 use ratatui::Frame;
 
 struct Panels {
@@ -44,10 +45,11 @@ impl Default for Panels {
 }
 
 fn view(state: &mut Panels, frame: &mut Frame) {
-    let block = Block::bordered().title("Two Lists — Tab to switch");
     let area = frame.area();
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
+    let block = Block::bordered().title("Two Lists — Tab to switch");
+    let inner = block.inner(chunks_status[0]);
+    frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(Paragraph::new(" Tab switches list, Up/Down move, Enter picks, q quits"), chunks_0[0]);
     let chunks_1 = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).spacing(2).split(chunks_0[1]);
@@ -58,6 +60,7 @@ fn view(state: &mut Panels, frame: &mut Frame) {
     let list_3 = ratatui::widgets::List::new(items_3).highlight_symbol("» ").highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));
     frame.render_stateful_widget(list_3, chunks_1[1], &mut state.right_state);
     frame.render_widget(Paragraph::new(format!(" Last pick: {}", state.log)), chunks_0[2]);
+    frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), Span::styled(" q ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Quit  "), Span::styled(" Tab ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" focus  "), Span::styled(" Up/Down ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" move  "), Span::styled(" Enter ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" ok  ")])).style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)), chunks_status[1]);
 }
 
 fn main() -> std::io::Result<()> {
@@ -72,6 +75,9 @@ fn main() -> std::io::Result<()> {
                     KeyCode::Char('q') => {
                         break;
                     }
+                    KeyCode::Tab => {
+                        state.focus_index = (state.focus_index + 1) % 2;
+                    }
                     KeyCode::Down => {
                         match state.focus_index {
                             0 => state.left_state.select_next(),
@@ -85,9 +91,6 @@ fn main() -> std::io::Result<()> {
                             1 => state.right_state.select_previous(),
                             _ => {}
                         }
-                    }
-                    KeyCode::Tab => {
-                        state.focus_index = (state.focus_index + 1) % 2;
                     }
                     KeyCode::Enter => {
                         match state.focus_index {

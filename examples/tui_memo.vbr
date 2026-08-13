@@ -1,0 +1,19 @@
+Screen Scratch
+    Title "Memo"
+    Status "chars " & notes.Len()
+
+    State
+        Dim notes As String = "Type here. Enter makes a new line."
+    End State
+
+    View
+        Memo notes
+        End Memo
+    End View
+
+    On Key Esc Quit "quit"
+End Screen
+
+Function Main()
+    Scratch.Run
+End Function

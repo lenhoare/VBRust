@@ -57,6 +57,22 @@ pub fn emit_web_program(
     let t = surface::build_tables(program, modules, interfaces);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
+    if program
+        .functions
+        .iter()
+        .any(|f| crate::transpiler::uses_file_dialog(&f.body))
+        || program.pages.iter().any(|p| {
+            p.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
+                || p.subs.iter().any(|s| crate::transpiler::uses_file_dialog(&s.body))
+        })
+    {
+        diags.error_once(
+            "tui-file-dialog-page",
+            "GetOpenFilename / GetSaveAsFilename are Screen-only (they pop a terminal path \
+             prompt). A Page runs in the browser — there's no file dialog there.",
+        );
+    }
+
     for p in &program.pages {
         out.push_str(&emit_page(p, &t, &program.functions, diags));
         out.push('\n');
@@ -354,8 +370,12 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             }
         }
         ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
-        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } | ViewNode::Frame { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        ViewNode::Tabs { tabs, .. } => {
+            tabs.iter()
+                .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, diags)));
         }
         ViewNode::Match { arms, .. } => {
             for a in arms {
@@ -393,6 +413,33 @@ fn render_node(
         }
         ViewNode::Row { children, spacing, padding } => {
             render_flex("row", children, *spacing, *padding, None, ctx, indent, out, diags);
+        }
+        ViewNode::Frame { title, children, spacing, padding } => {
+            let cap = title
+                .as_ref()
+                .map(|t| text_content(t, ctx))
+                .unwrap_or_else(|| "\"\"".into());
+            out.push_str(&format!(
+                "{}<fieldset class=\"vbr-frame\">\n",
+                pad
+            ));
+            if title.is_some() {
+                out.push_str(&format!("{}    <legend>{{ {} }}</legend>\n", pad, cap));
+            }
+            let mut inner = String::new();
+            render_flex(
+                "column",
+                children,
+                *spacing,
+                *padding,
+                None,
+                ctx,
+                indent + 1,
+                &mut inner,
+                diags,
+            );
+            out.push_str(&inner);
+            out.push_str(&format!("{}</fieldset>\n", pad));
         }
         ViewNode::Text(e) => {
             out.push_str(&format!("{}<p class=\"vbr-text\">{{ {} }}</p>\n", pad, text_content(e, ctx)));
@@ -579,7 +626,7 @@ fn render_node(
                 "page-widget",
                 format!(
                     "That widget isn't supported in a Page yet ({}). So far a Page supports \
-                     Column, Row, Text, Button, TextInput, Checkbox, Slider, ProgressBar, \
+                     Column, Row, Frame, Text, Button, TextInput, Checkbox, Slider, ProgressBar, \
                      Image, Match, and If.",
                     web_node_name(other)
                 ),
@@ -682,6 +729,8 @@ fn web_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Sparkline { .. } => "Sparkline",
         ViewNode::BarChart { .. } => "BarChart",
         ViewNode::Chart { .. } => "Chart",
+        ViewNode::Tabs { .. } => "Tabs",
+        ViewNode::Memo { .. } => "Memo",
         _ => "widget",
     }
 }
@@ -725,8 +774,12 @@ pub fn page_assets(program: &Program) -> Vec<String> {
             {
                 out.push(s.clone());
             }
-            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } | ViewNode::Frame { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
             }
             ViewNode::Constrained { child, .. } => walk(child, out),
             ViewNode::Match { arms, .. } => {
@@ -769,7 +822,9 @@ fn theme_css(name: &str) -> Option<String> {
          cursor: pointer;\n}}\n\
          .vbr-textinput {{\n  padding: 6px 8px;\n  border: 1px solid var(--vbr-primary);\n  \
          border-radius: 4px;\n  background: transparent;\n  color: var(--vbr-text);\n}}\n\
-         .vbr-checkbox, .vbr-slider, .vbr-progressbar {{\n  accent-color: var(--vbr-primary);\n}}\n"
+         .vbr-checkbox, .vbr-slider, .vbr-progressbar {{\n  accent-color: var(--vbr-primary);\n}}\n\
+         .vbr-frame {{\n  border: 1px solid var(--vbr-primary);\n  border-radius: 4px;\n  \
+         padding: 8px;\n  margin: 0;\n}}\n"
     ))
 }
 

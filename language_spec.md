@@ -434,6 +434,14 @@ shadowed and warn as unused. The counter therefore doesn't exist after the loop
 `Debug.Print expr` → `println!`. `MsgBox` / `InputBox` are lowered to terminal
 output and prompted input (no GUI), as built-ins — not part of the stdlib crate.
 
+On a **`Screen`**, `GetOpenFilename()` / `GetSaveAsFilename()` (optional initial
+path) pop TIDE's path prompt over the live UI: Tab completes, Enter opens a file
+or enters a folder (Save As returns even a new name), Esc cancels and returns
+`""`. Call them from a Screen **event**, then `FileSystem.Read` / `Write` the
+path. Not a View widget, not `FileSystem.*` — the VBA `Application.GetOpenFilename`
+cheat. Timers and async pause while the prompt is open. Browser Screens return
+`""` for now.
+
 ### Logging
 `Log expr` writes a timestamped, level-tagged line to **`vbr.log`** in the working
 directory (for a project run, `build/vbr.log`) via a small std-only sink emitted

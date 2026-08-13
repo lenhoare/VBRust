@@ -1,0 +1,64 @@
+' A Screen using Frame panels (titled borders) and Space gaps.
+Screen Framed
+    Title "Frames"
+
+    State
+        Dim left As Vec<String> = LeftItems()
+        Dim right As Vec<String> = RightItems()
+        Dim log As String = "(nothing picked yet)"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " Tab switches list, Enter picks, q quits"
+            Space Height 1
+            Fill
+            Row
+                Spacing 1
+                Fill
+                Frame "Left"
+                    List left
+                        On Select PickLeft
+                    End List
+                End Frame
+                Fill
+                Frame "Right"
+                    List right
+                        On Select PickRight
+                    End List
+                End Frame
+            End Row
+            Length 1
+            Text " Last pick: " & log
+        End Column
+    End View
+
+    On Key "q" Quit
+
+    Event PickLeft(item As String)
+        log = "left / " & item
+    End Event
+
+    Event PickRight(item As String)
+        log = "right / " & item
+    End Event
+End Screen
+
+Function LeftItems() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("Alpha")
+    v.Push("Beta")
+    Return v
+End Function
+
+Function RightItems() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("One")
+    v.Push("Two")
+    Return v
+End Function
+
+Function Main()
+    Framed.Run
+End Function

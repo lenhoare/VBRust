@@ -48,6 +48,10 @@ const GUARDED: &[&str] = &[
     // collector recurses into Match/If, so the widget's `<field>_state` is
     // declared, inited, and key-wired even when it isn't top-level.
     "tui_list_tabs",
+    // Screen-level menu bar (F10 / Alt+letter, dropdown overlay, key steal).
+    "tui_menu",
+    // GetOpenFilename / GetSaveAsFilename nested-loop path prompt + FileSystem.
+    "tui_file",
     // Shell: run-and-capture in Main plus a background Process behind a
     // Screen (fallible Shell.Start in State, IsRunning/Kill from events).
     "shell",

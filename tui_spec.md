@@ -88,15 +88,74 @@ Terminal input is keyboard-driven. There are three ways an event fires:
 - **Keymap** — `On Key <key> <Event>` binds a key.
 - **Timer** — `Every <ms> <Event>` fires on an interval (§6).
 - **Focus** — the focused widget receives built-in keys (§5): a `List`/`Table`
-  navigates with Up/Down and activates with Enter; an `Input` types.
+  navigates with Up/Down and activates with Enter; an `Input` types; `Tabs`
+  switches with Left/Right.
 
-`Quit` is a built-in handler that exits: `On Key "q" Quit`.
+`Quit` is a built-in handler that exits: `On Key "q" Quit`. An optional string
+after the handler is the **hotkey label** on the bottom status bar
+(`On Key "q" Quit "quit"`). Omit it and the handler name is used.
 
 > **Early-out in an event.** A `Screen` event lowers to a function that returns
 > `std::io::Result<()>`, so a bare `Return` on its own is a type error (rustc:
 > "`return;` in a function whose return type is not `()`"). To leave an event
 > early, structure the logic with `If … Else` so it falls through, or guard the
 > rest — `If Not won Then … End If` — rather than `If won Then Return`.
+
+### 2.4 Status line
+
+A Screen draws a cyan bar along the bottom of the terminal (Turbo Vision style):
+reversed key caps, then the label. `On Key` bindings appear automatically;
+Tab / Enter / Up-Down / Left-Right are added when those built-ins apply. `Status <expr>`
+puts live text on the left of the same bar:
+
+```vb
+Status "Count: " & count
+On Key "+" Increment "inc"
+On Key "-" Decrement "dec"
+On Key "q" Quit "quit"
+```
+
+`Status` is Screen-only. A screen with no keys, no focusable widgets, no menu bar,
+and no `Status` line has no bar (the view keeps the full height).
+
+### 2.5 Menu bar
+
+A Screen may declare a **menu bar** next to `View` — chrome, like `Title` and
+`Status`, not a widget inside the Column. One-level dropdowns (no nested
+submenus in v1):
+
+```vb
+Screen App
+    Title "App"
+    Menu
+        Menu "File"
+            Item "Beep" Beep
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Help"
+            Item "About" About
+        End Menu
+    End Menu
+
+    View
+        Text "F10 opens the menu"
+    End View
+End Screen
+```
+
+**F10** opens the first menu; **Alt+letter** opens the dropdown whose title
+starts with that letter. Left/Right switch menus, Up/Down move (skipping
+separators), Enter fires the item's Event (or built-in `Quit`), Esc / F10
+closes. A letter while open matches the first letter of an item, or of another
+menu title. While the menu is open it owns the keyboard (same steal as a Memo).
+
+The bar is a Length(1) row above the titled view; the dropdown overlays the
+body. Screen-only — a Window or a `Menu` inside `View` gets a teaching error.
+In the browser the bar draws but isn't interactive yet (`tui-web-menu`).
+
+Example: `examples/tui_menu.vbr`. In tide_design, **F4** switches the Menu page
+(the view tree stays on View).
 
 Event bodies are ordinary VBR — the same resolution pass a function body gets
 (stdlib methods, string/numeric coercions, iterator chains, teaching
@@ -105,6 +164,34 @@ state fields inside `For`/`For Each`/`Do` bodies, `Match` arms, and `If`
 branches all rewrite to `state.field` (`examples/tui_life.vbr`). This is shared
 with the GUI backend (`src/surface.rs`); a `Screen` event and a `Window` event
 lower identically. *(BUILT — 2026-07-04.)*
+
+### 2.6 File dialogs
+
+`GetOpenFilename()` / `GetSaveAsFilename()` (optional initial path) pop a path
+prompt over the live Screen — the same Open / Save As box TIDE uses, as a
+function, like VBA's `Application.GetOpenFilename`. Not a View widget.
+
+```vb
+Event OpenFile
+    Dim path As String = GetOpenFilename()
+    If path <> "" Then
+        Match FileSystem.Read(path)
+            Ok(text) => notes = text
+            Err(e) => notes = "Could not read: " & e
+        End Match
+    End If
+End Event
+```
+
+Tab completes (cycle matches; a unique directory then lists children; `../`
+climbs). Enter on a folder browses in; Enter on a file returns it (Save As
+returns even a name that doesn't exist yet). Esc cancels and returns `""`.
+Call them from a Screen **event** only (they need the live terminal). Timers
+and async pause while the prompt is open. Screen-only — a Window or a helper
+`Function` / Screen `Sub` gets a teaching error. In the browser they return
+`""` (`tui-web-file-dialog`).
+
+Example: `examples/tui_file.vbr`.
 
 **Multi-file projects.** A `Screen` joins a project like any other entry: put
 the UI in `main.vbr` and the logic in sibling modules, and call them qualified
@@ -145,8 +232,9 @@ Size constraints:
 | `Min N`     | `Min(N)`             | at least N                       |
 
 `Spacing N` (gap between children) and `Padding N` (margin) also apply. Sensible
-defaults when unsized: containers/conditionals/scrollables/charts `Fill`, an
-`Input` is 3 rows, `Text` is 1 row. A titled border frames the whole screen.
+defaults when unsized: containers, conditionals, scrollables, charts, and `Tabs`
+`Fill`; an `Input` is 3 rows, `Text` is 1 row. A titled border frames the whole
+screen. Nested **`Frame`** widgets add titled panels inside the view (see §4).
 
 ---
 
@@ -154,6 +242,50 @@ defaults when unsized: containers/conditionals/scrollables/charts `Fill`, an
 
 ### Text
 `Text <expr>` — a line of text (`Paragraph`). Concatenate with `&`.
+
+### Frame  *(titled panel)*
+`Frame ["title"]` … `End Frame` — a bordered box (ratatui `Block`) wrapping
+children. The title is optional (`Frame` alone is just a border). Several
+children stack as a Column; `Spacing` / `Padding` / size lines work as in
+`Column`/`Row`.
+
+```vb
+Frame "Customers"
+    List people
+        On Select Open
+    End List
+End Frame
+```
+
+### Space  *(gap)*
+`Space Height N` / `Space Width N` — a blank gap of N rows or columns.
+
+### Button  *(push)*
+`Button "label"` … `End Button` — a `[ label ]` control. **Enter** or **Space**
+fires `On Click` (optional). Same syntax as a Window button.
+
+```vb
+Button "Save"
+    On Click Saved
+End Button
+```
+
+### Checkbox  *(boolean)*
+`Checkbox "label", field` … `End Checkbox` — `[x]` / `[ ]` bound to a `Boolean`.
+Enter/Space toggles the field, then fires `On Toggle` (optional) with the new
+value — so the same `Event Toggled(value As Boolean)` / `field = value` body
+works on a Window and a Screen.
+
+### Radio  *(one of a set)*
+`Radio "label", field, option` … `End Radio` — `(*)` / `( )`. Each Radio offers
+one option; the bound field (an enum or integer) holds the selection. Enter/Space
+assigns `option` into the field, then fires `On Select` (required, as in a Window).
+
+```vb
+Radio "Small", choice, Size.Small
+    On Select Pick
+End Radio
+```
 
 ### Input  *(text entry)*
 `Input <field>` bound to a `String` state field, with optional `On Submit`:
@@ -166,6 +298,20 @@ End Input
 The focused input receives typed characters and Backspace; Enter fires
 `On Submit`, which gets the typed text as a parameter
 (`Event Search(text As String)`).
+
+### Memo  *(multi-line edit)*
+`Memo <field>` bound to a `String` — a multi-line editor (tui-textarea). Enter
+inserts a newline; arrows move the caret; Tab leaves when anything else is
+focusable. Quit with `Esc` (a `"q"` binding would steal the letter). Screen-only
+— a Window uses `TextArea` (a different backend buffer).
+
+```vb
+Memo notes
+End Memo
+```
+
+The typed text *is* the string (`notes`, `notes.Len()`). Hidden editor state
+holds the caret, like a List's hidden cursor. Example: `examples/tui_memo.vbr`.
 
 ### List  *(selectable)*
 `List <field>` over a `Vec<String>`, optional `On Select`:
@@ -207,38 +353,68 @@ End Table
   End Chart
   ```
 
+### Tabs  *(tab bar + pages)*
+`Tabs <field>` … `Tab <title>` … `End Tab` … `End Tabs` — a tab bar (ratatui
+`Tabs`) plus one page per `Tab`. `field` is an **`Integer` index, 0-based**
+(first tab = 0). The bar is **focusable**: **Left/Right** cycle (wrapping),
+**Enter** advances, and digit keys **1–9** jump (1 = first tab). Optional
+`On Change <Event>` fires with the new index.
+
+```vb
+Tabs tab
+    Tab "Overview"
+        Text "Welcome"
+    End Tab
+    Tab "Details"
+        List items
+            On Select Pick
+        End List
+    End Tab
+End Tabs
+```
+
+Layout is a one-row bar plus a Fill body (several children in a pane stack as a
+Column). Size lines work inside a `Tab` the same as in `Column`. `Tab` is only
+valid inside `Tabs`. Screen-only — a Window gets a teaching error.
+
+A **focusable** widget (`List`/`Input`/`Table`/…) may live inside a pane; its
+selection/typing state is wired up even when that pane is hidden. Example:
+`examples/tui_tabs.vbr`, `examples/tui_list_tabs.vbr`.
+
 ### Match / If in the view
 Show different widgets by condition — identical to the GUI:
 
 ```vb
-Match tab
+Match mode
     1 => Text "Overview"
     _ => Text "Settings"
 End Match
 ```
 
-A **focusable** widget (`List`/`Input`/`Table`) may live inside a `Match` arm or
-an `If` branch, not only at the top level — its selection/typing state and its
-built-in keys are wired up wherever it appears. So a per-tab list (a different
-`List` shown in each arm) works, and each arm's list keeps its own selection.
-Example: `examples/tui_list_tabs.vbr`.
+A **focusable** widget may also live inside a `Match` arm or an `If` branch.
+`Tabs` is the usual way to switch pages; `Match` remains for arbitrary
+conditions.
 
 ---
 
 ## 5. Focus
 
-`Input`, `List`, and `Table` are **focusable**. With more than one on screen,
-**Tab** cycles focus, and the focused widget gets the relevant built-in keys:
+`Input`, `List`, `Table`, `Button`, `Checkbox`, `Radio`, `Tabs`, and `Memo` are **focusable**.
+With more than one on screen, **Tab** cycles focus, and the focused widget gets
+the relevant built-in keys:
 
 - **Input** — printable keys type, Backspace deletes, Enter submits.
+- **Memo** — printable keys type, Enter is a newline, arrows move the caret.
 - **List/Table** — Up/Down move the selection, Enter selects.
+- **Button / Checkbox / Radio** — Enter or Space activates (click / toggle / pick).
+- **Tabs** — Left/Right cycle (wrap), Enter advances, 1–9 jump to a pane.
 
 Your own `On Key` bindings take precedence, so a globally-bound character key
-can't also be typed into an input — with inputs, quit/act via `Esc` or a named
+can't also be typed into an input or memo — quit/act via `Esc` or a named
 key.
 
 Named keys for `On Key`: `Up`, `Down`, `Left`, `Right`, `Enter`, `Esc`, `Tab`,
-`Space`, `Backspace`; otherwise a single character in quotes (`"q"`, `"+"`).
+`Space`, `Backspace`, `F1`–`F12`; otherwise a single character in quotes (`"q"`, `"+"`).
 
 ---
 
@@ -374,8 +550,10 @@ widget set including focus/Input/List/Table, `Every` timers, and async
 ## Examples
 
 `examples/tui_counter.vbr` (keymap), `tui_layout.vbr` (dashboard layout),
-`tui_list.vbr` / `tui_panels.vbr` (list + focus), `tui_table.vbr`,
-`tui_input.vbr` (input + list), `tui_tabs.vbr` (Match/If), `tui_dashboard.vbr`
+`tui_list.vbr` / `tui_panels.vbr` (list + focus), `tui_frame.vbr` (titled panels),
+`tui_table.vbr`,
+`tui_input.vbr` (input + list), `tui_memo.vbr` (multi-line edit), `tui_menu.vbr` (menu bar), `tui_controls.vbr` (Button / Checkbox / Radio),
+`tui_tabs.vbr` (Tabs widget), `tui_list_tabs.vbr` (lists in panes), `tui_dashboard.vbr`
 (Gauge/Sparkline/BarChart), `tui_chart.vbr` / `tui_multichart.vbr` (XY charts),
 `tui_fetch.vbr` (async), `tui_monitor.vbr` (timers + async), `tui_pulse.vbr`
 (timer-driven animation, terminal + browser).

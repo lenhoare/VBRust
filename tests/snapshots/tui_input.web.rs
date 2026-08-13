@@ -7,6 +7,7 @@ fn seed() -> Vec<String> {
 
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::text::{Line, Span};
 use ratatui::Frame;
 
 struct Notes {
@@ -33,10 +34,11 @@ impl Default for Notes {
 }
 
 fn view(state: &mut Notes, frame: &mut Frame) {
-    let block = Block::bordered().title("Notes");
     let area = frame.area();
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
+    let block = Block::bordered().title("Notes");
+    let inner = block.inner(chunks_status[0]);
+    frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(3), Constraint::Fill(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(Paragraph::new(" Tab: switch • type in the box • Enter: add/select • Esc: quit"), chunks_0[0]);
     frame.render_widget(Paragraph::new(state.entry.as_str()).block(Block::bordered().title("entry")), chunks_0[1]);
@@ -45,6 +47,7 @@ fn view(state: &mut Notes, frame: &mut Frame) {
     let list_1 = ratatui::widgets::List::new(items_1).highlight_symbol("» ").highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));
     frame.render_stateful_widget(list_1, chunks_0[2], &mut state.notes_state);
     frame.render_widget(Paragraph::new(format!(" {}", state.status)), chunks_0[3]);
+    frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), Span::styled(" Esc ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Quit  "), Span::styled(" Tab ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" focus  "), Span::styled(" Up/Down ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" move  "), Span::styled(" Enter ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" ok  ")])).style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)), chunks_status[1]);
 }
 
 fn main() -> std::io::Result<()> {
@@ -99,7 +102,9 @@ fn main() -> std::io::Result<()> {
                 }
                 KeyCode::Char(c) => {
                     match state.focus_index {
-                        0 => { state.entry.push(c); }
+                        0 => {
+                            state.entry.push(c);
+                        }
                         _ => {}
                     }
                 }

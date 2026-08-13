@@ -524,7 +524,8 @@ pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
 fn builtin_return(name: &str) -> Option<Type> {
     Some(match name.to_ascii_lowercase().as_str() {
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "val" => Type::Double,
-        "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "left" | "right" | "mid" | "trim" => {
+        "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "left" | "right" | "mid" | "trim"
+        | "getopenfilename" | "getsaveasfilename" => {
             Type::Text
         }
         "len" => Type::Long,

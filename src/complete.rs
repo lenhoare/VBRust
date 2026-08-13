@@ -312,6 +312,13 @@ fn bare_completions(
             kind: CompletionKind::Keyword,
         });
     }
+    for (label, detail) in BUILTINS {
+        out.push(Completion {
+            label: (*label).to_string(),
+            detail: (*detail).to_string(),
+            kind: CompletionKind::Function,
+        });
+    }
     out
 }
 
@@ -406,6 +413,12 @@ const KEYWORDS: &[&str] = &[
     "Next", "Do", "While", "Until", "Loop", "Match", "Return", "Exit", "Continue", "Function",
     "Sub", "Const", "Type", "Enum", "True", "False", "Not", "And", "Or", "Await", "Log", "Test",
     "Assert",
+];
+
+const BUILTINS: &[(&str, &str)] = &[
+    ("InputBox", "InputBox(prompt) As String — read a line from the keyboard"),
+    ("GetOpenFilename", "GetOpenFilename([initial]) As String — Screen path prompt; \"\" if cancelled"),
+    ("GetSaveAsFilename", "GetSaveAsFilename([initial]) As String — Screen save-as prompt; \"\" if cancelled"),
 ];
 
 const STRING_METHODS: &[(&str, &str)] = &[

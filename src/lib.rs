@@ -282,8 +282,8 @@ fn compile_with(
     // An inline `Python` block runs via pyo3 (real CPython) — pull it in only when
     // one is actually used, so nothing else pays for it. Detected from the emitted
     // marker, like the other conditional deps (image/canvas/spawn_blocking).
-    if rust.contains("pyo3::Python::with_gil") {
-        dependencies.push(("pyo3".to_string(), "0.23".to_string()));
+    if rust.contains("tui_textarea::") {
+        dependencies.push(("tui-textarea".to_string(), "0.7".to_string()));
     }
     let stdlib_used = transpiler::stdlib_used(&diags);
     let line_map = diags.take_line_map();

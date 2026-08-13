@@ -1,0 +1,20 @@
+' VBR Screen template — structure only. Open in tide_design.
+Screen Notes
+    Title "Notes"
+
+    Menu
+        Menu "File"
+            Item "Quit" Quit
+        End Menu
+    End Menu
+
+    View
+        Column
+            Length 1
+            Text "Scratch pad"
+            Fill
+            Memo notes
+            End Memo
+        End Column
+    End View
+End Screen

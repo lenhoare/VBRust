@@ -1,55 +1,40 @@
 Screen Tabs
     Title "Tabs"
+    Status "tab " & tab
 
     State
-        Dim tab As Integer = 1
+        Dim tab As Integer = 0
         Dim busy As Boolean = False
     End State
 
     View
-        Column
-            Length 1
-            Text " 1/2/3 switch tab • b toggles busy • q quits"
-            Length 1
-            If busy Then
-                Text " ● working…"
-            Else
-                Text " ○ idle"
-            End If
-            Fill
-            Match tab
-                1 =>
-                    Column
-                        Text "── Overview ──"
-                        Text "Welcome to tab one."
-                    End Column
-                2 =>
-                    Column
-                        Text "── Details ──"
-                        Text "Tab two has the details."
-                    End Column
-                _ =>
-                    Text "── Settings (tab 3) ──"
-            End Match
-        End Column
+        Tabs tab
+            Tab "Overview"
+                Column
+                    Text "Welcome to tab one."
+                    If busy Then
+                        Text " ● working…"
+                    Else
+                        Text " ○ idle"
+                    End If
+                End Column
+            End Tab
+            Tab "Details"
+                Text "Tab two has the details."
+            End Tab
+            Tab "Settings"
+                Checkbox "Busy", busy
+                    On Toggle Toggled
+                End Checkbox
+            End Tab
+        End Tabs
     End View
 
-    On Key "1" One
-    On Key "2" Two
-    On Key "3" Three
-    On Key "b" ToggleBusy
-    On Key "q" Quit
+    On Key "q" Quit "quit"
+    On Key "b" ToggleBusy "busy"
 
-    Event One
-        tab = 1
-    End Event
-
-    Event Two
-        tab = 2
-    End Event
-
-    Event Three
-        tab = 3
+    Event Toggled(value As Boolean)
+        busy = value
     End Event
 
     Event ToggleBusy
