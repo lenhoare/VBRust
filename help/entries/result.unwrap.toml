@@ -5,6 +5,8 @@ kind = "method"
 parent = "result"
 anchor = "m/Result.Unwrap"
 
+caution = ["unwrap-training-wheels"]
+
 summary = "The Ok value — but crashes on Err."
 
 returns = "T — the Ok value. Stops the program on an Err, so prefer the ? operator, Unwrap_Or, or Match unless you are certain it succeeded."

@@ -711,7 +711,7 @@ fn emit_tests(
         // normal function was fine.
         let passed_by_ref = resolver::resolve_body(
             &mut body, &[], fns, methods, consts, modules, interfaces, enums, structs, None, None,
-            None, false, diags,
+            None, None, diags,
         );
         elide_for_counter_dims(&mut body);
         let mut mutated = HashSet::new();
@@ -748,9 +748,30 @@ pub(crate) fn emit_fn(
     }
     params.extend(func.params.iter().map(render_param));
 
-    let ret = match &func.ret {
-        Some(t) => format!(" -> {}", decltype_rust(t)),
-        None => String::new(),
+    // `Main` is the one function that can use `?` without an explicit fallible
+    // return: Rust's `main` may itself return a `Result`. A declared fallible
+    // return on `Main` doesn't map to a valid `fn main`, so steer it to the
+    // plain form instead of emitting Rust that won't compile.
+    let is_main = name == "main";
+    if is_main && matches!(func.ret, Some(DeclType::Result(..)) | Some(DeclType::Option(_))) {
+        diags.error(
+            func.line,
+            "`Main` can't declare a fallible return type. Write a plain `Function Main()` and use \
+             `?` inside — VBR gives `main` a `Result` return (and the closing `Ok`) for you, so \
+             propagation just works.",
+        );
+    }
+    // A plain `Main` whose body propagates with `?` becomes
+    // `fn main() -> Result<(), String>`, with `Ok(())` appended below.
+    let main_fallible = is_main && func.ret.is_none() && body_has_try(&func.body);
+
+    let ret = if main_fallible {
+        " -> Result<(), String>".to_string()
+    } else {
+        match &func.ret {
+            Some(t) => format!(" -> {}", decltype_rust(t)),
+            None => String::new(),
+        }
     };
     // Only a plain return type drives literal coercion of the tail expression;
     // an Ok/Some/tuple wrapper carries its own type.
@@ -791,11 +812,17 @@ pub(crate) fn emit_fn(
 
     // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
     // `as` casts for numeric coercions) and tells us which locals were lent.
-    // `?` is only valid when this function can itself fail (returns Result/Option).
-    let can_propagate = matches!(
-        func.ret,
-        Some(DeclType::Result(..)) | Some(DeclType::Option(_))
-    );
+    // `?` is only valid when this function can itself fail (returns Result/Option,
+    // or is the auto-fallible `Main`), and must propagate that same shape.
+    let ret_shape = if main_fallible {
+        Some(resolver::FailShape::Result)
+    } else {
+        match &func.ret {
+            Some(DeclType::Result(..)) => Some(resolver::FailShape::Result),
+            Some(DeclType::Option(_)) => Some(resolver::FailShape::Option),
+            _ => None,
+        }
+    };
     let passed_by_ref = resolver::resolve_body(
         &mut body,
         &func.params,
@@ -809,7 +836,7 @@ pub(crate) fn emit_fn(
         func.receiver.as_deref(),
         tail_expected,
         ret_inner,
-        can_propagate,
+        ret_shape,
         diags,
     );
 
@@ -823,6 +850,10 @@ pub(crate) fn emit_fn(
     mutated.extend(passed_by_ref);
 
     emit_fn_body(&body, &mutated, &byref, tail_expected, diags, out, base_indent + 1);
+    // The closing `Ok(())` that makes an auto-fallible `Main` type-check.
+    if main_fallible {
+        out.push_str(&format!("{}    Ok(())\n", pad));
+    }
     out.push_str(&format!("{}}}\n", pad));
 }
 
@@ -1855,12 +1886,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                 }
             }
             if method.eq_ignore_ascii_case("unwrap") {
-                diags.warn_once_global(
-                    "unwrap-training-wheels",
-                    ".unwrap() works, but it's training wheels — it crashes the program if the \
-                     value is an error or None. Prefer the `?` operator to propagate, or \
-                     `Match` over Ok/Err (Some/None) to handle both outcomes.",
-                );
+                diags.caution_warn("unwrap-training-wheels");
             }
             if method.eq_ignore_ascii_case("insert") {
                 diags.note(
@@ -1904,11 +1930,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     "InStr becomes Rust's .find(), which returns an Option: Some(pos) when \
                      found, None when not. You handle both instead of checking for 0.",
                 ),
-                "val" => diags.note(
-                    "builtin-val",
-                    "Val becomes Rust's .parse(), which returns a Result: parsing can fail, \
-                     so you handle the error rather than getting a silent 0.",
-                ),
+                "val" => diags.caution_note("val-lenient"),
                 "inputbox" => {
                     diags.mark("input_box");
                     diags.note(
@@ -2033,6 +2055,75 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
         ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_uses_file_dialog),
         _ => false,
     }
+}
+
+/// Does this expression contain a `?` anywhere? Used to decide whether the
+/// entry `Main` needs a fallible `fn main() -> Result<(), String>` signature so
+/// propagation works in the one function every program has.
+fn expr_has_try(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Try(_) => true,
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+            expr_has_try(lhs) || expr_has_try(rhs)
+        }
+        ExprKind::MethodCall { recv, args, .. } => {
+            expr_has_try(recv) || args.iter().any(expr_has_try)
+        }
+        ExprKind::Call { args, .. } => args.iter().any(expr_has_try),
+        ExprKind::Await(inner)
+        | ExprKind::Field(inner, _)
+        | ExprKind::TupleIndex(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Not(inner)
+        | ExprKind::Closure { body: inner, .. } => expr_has_try(inner),
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_try(v)),
+        ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_has_try),
+        _ => false,
+    }
+}
+
+/// Does a statement body use `?` anywhere? Walks the console statement forms
+/// (a `Main` never contains GUI/TUI surface statements).
+fn body_has_try(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Set { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. }
+        | Stmt::Return(Some(e))
+        | Stmt::Expr(e)
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Assert(e) => expr_has_try(e),
+        Stmt::Assign { target, value, .. } => expr_has_try(target) || expr_has_try(value),
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(c, b)| expr_has_try(c) || body_has_try(b))
+                || else_body.as_deref().is_some_and(body_has_try)
+        }
+        Stmt::For { from, to, step, body, .. } => {
+            expr_has_try(from)
+                || expr_has_try(to)
+                || step.as_ref().is_some_and(expr_has_try)
+                || body_has_try(body)
+        }
+        Stmt::ForEach { iter, body, .. } => expr_has_try(iter) || body_has_try(body),
+        Stmt::DoLoop { cond, body } => {
+            cond.as_ref().is_some_and(|c| {
+                let (DoCond::PreWhile(e) | DoCond::PreUntil(e) | DoCond::PostWhile(e)
+                | DoCond::PostUntil(e)) = c;
+                expr_has_try(e)
+            }) || body_has_try(body)
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            expr_has_try(scrutinee)
+                || arms.iter().any(|a| {
+                    a.guard.as_ref().is_some_and(expr_has_try) || body_has_try(&a.body)
+                })
+        }
+        _ => false,
+    })
 }
 
 pub(crate) fn is_mutating_method(m: &str) -> bool {

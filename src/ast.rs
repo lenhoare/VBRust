@@ -17,6 +17,10 @@ pub enum Type {
     Boolean,  // bool
     Byte,     // u8
     Text,     // String — unknown size, ownership rules apply
+    /// Not a VB-facing type — an internal target so a cast can render `as usize`
+    /// (e.g. a `Long` index into `xs.Get(i)`, which Rust's `.get` needs in
+    /// `usize`). Never produced by the parser; only synthesized by later passes.
+    Usize,
 }
 
 impl Type {
@@ -31,6 +35,7 @@ impl Type {
             Type::Boolean => "bool",
             Type::Byte => "u8",
             Type::Text => "String",
+            Type::Usize => "usize",
         }
     }
 
@@ -56,6 +61,7 @@ impl Type {
             Type::Boolean => "Boolean",
             Type::Byte => "Byte",
             Type::Text => "String",
+            Type::Usize => "usize",
         }
     }
 }

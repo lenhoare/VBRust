@@ -420,7 +420,9 @@ fn num_of_type(t: Type) -> Option<NumTy> {
         Type::Byte => NumTy::U8,
         Type::Single => NumTy::F32,
         Type::Double => NumTy::F64,
-        Type::Boolean | Type::Text => return None,
+        // `Usize` is an internal cast target, not a VB numeric — it never takes
+        // part in widening, so it has no `NumTy`.
+        Type::Boolean | Type::Text | Type::Usize => return None,
     })
 }
 
@@ -542,7 +544,7 @@ pub fn resolve_body(
     receiver: Option<&str>,
     ret_coerce: Option<Type>,
     ret_inner: Option<Type>,
-    can_propagate: bool,
+    ret_shape: Option<FailShape>,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
     // Only ByRef *primitive* params are dereferenced — struct/collection field
@@ -588,7 +590,7 @@ pub fn resolve_body(
         consts,
         ret_coerce,
         ret_inner,
-        can_propagate,
+        ret_shape,
         diags,
         env: &mut env,
         passed: &mut passed,
@@ -636,7 +638,7 @@ pub fn resolve_event_body(
         consts,
         ret_coerce: None,
         ret_inner: None,
-        can_propagate: false,
+        ret_shape: None,
         diags,
         env: &mut env,
         passed: &mut passed,
@@ -720,9 +722,10 @@ struct Ctx<'a> {
     /// the payload of a returned `Ok(x)`/`Some(x)` (so `Ok(a / b)` in a
     /// `Result<Long>` narrows the float quotient to `i64`).
     ret_inner: Option<Type>,
-    /// Whether the enclosing function returns `Result`/`Option` — i.e. whether
-    /// `?` is allowed here.
-    can_propagate: bool,
+    /// The fallible shape the enclosing function returns (`Result`/`Option`),
+    /// or `None` if it can't fail — i.e. whether `?` is allowed here, and which
+    /// shape it must propagate.
+    ret_shape: Option<FailShape>,
     diags: &'a mut Diagnostics,
     /// The one typed environment: emitted (snake_case) name → what we know.
     env: &'a mut HashMap<String, Binding>,
@@ -1244,6 +1247,89 @@ fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
     None
 }
 
+/// Which fallible box a value is — `Result` (carries an error) or `Option`
+/// (may be empty). `?` propagates the *same* shape as the enclosing function
+/// returns, so the two must match; this lets us catch a mismatch in VB terms
+/// instead of letting rustc reject the generated `?`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FailShape {
+    Result,
+    Option,
+}
+
+fn decl_shape(dt: &DeclType) -> Option<FailShape> {
+    match dt {
+        DeclType::Result(..) => Some(FailShape::Result),
+        DeclType::Option(_) => Some(FailShape::Option),
+        _ => None,
+    }
+}
+
+/// The failure shape of the value `?` is applied to, for the producers we can
+/// name (stdlib calls, collection reads, user functions, the fallible
+/// conversions). `None` when we can't tell — then we stay quiet and let rustc
+/// be the backstop rather than risk a false positive.
+fn try_operand_shape(e: &Expr, ctx: &Ctx) -> Option<FailShape> {
+    match &e.kind {
+        ExprKind::Call { name, .. } => {
+            if let Some(ret) = ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
+                return decl_shape(ret);
+            }
+            if let Some(rest) = name.strip_prefix("crate::") {
+                if let Some((module, func)) = rest.split_once("::") {
+                    return ctx
+                        .interfaces
+                        .get(module)
+                        .and_then(|i| i.fns.get(func))
+                        .and_then(|s| s.ret.as_ref())
+                        .and_then(decl_shape);
+                }
+            }
+            match name.to_ascii_lowercase().as_str() {
+                "instr" | "some" | "none" => Some(FailShape::Option),
+                "cdbl" | "clng" | "cint" | "ok" | "err" => Some(FailShape::Result),
+                _ => None,
+            }
+        }
+        ExprKind::MethodCall { recv, method, .. } => {
+            let m = snake(method);
+            if let ExprKind::Ident(n) = &recv.kind {
+                // A stdlib namespace call — `FileSystem.Read(...)`, `Http.Get(...)`.
+                if stdlib_type(n).is_some() {
+                    return crate::types::stdlib_return(&n.to_ascii_lowercase(), &m)
+                        .as_ref()
+                        .and_then(decl_shape);
+                }
+                // A method on a stdlib wrapper instance — `doc.GetString(...)`.
+                if let Some(DeclType::Named(t)) = ctx.binding(n).and_then(|b| b.ty.as_ref()) {
+                    if stdlib_type(t).is_some() {
+                        return crate::types::stdlib_instance_return(&t.to_ascii_lowercase(), &m)
+                            .as_ref()
+                            .and_then(decl_shape);
+                    }
+                }
+                // A collection read in place — `get`/`first`/`last` return an Option.
+                if matches!(m.as_str(), "get" | "first" | "last")
+                    && collection_element(ctx, n, &m).is_some()
+                {
+                    return Some(FailShape::Option);
+                }
+                // `.Pop()` off a Vec/array is an Option too.
+                if m == "pop"
+                    && matches!(
+                        ctx.binding(n).and_then(|b| b.ty.as_ref()),
+                        Some(DeclType::Vec(_) | DeclType::Array(..))
+                    )
+                {
+                    return Some(FailShape::Option);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
     // Every identifier use is a hover opportunity: record what it is before
     // any rewrite below changes its kind (const ref, deref, string constant).
@@ -1539,6 +1625,32 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     None
                 }
             };
+            // `xs.Get(i)` on a Vec/array takes a `usize`, but the index is
+            // usually a `Long` — cast it, exactly as `xs[i]` does. (A `HashMap`'s
+            // `.Get(key)` is left alone: its key isn't an index.)
+            if snake(method) == "get" {
+                if let ExprKind::Ident(r) = &(&**recv).kind {
+                    let is_seq = matches!(
+                        ctx.binding(r).and_then(|b| b.ty.as_ref()),
+                        Some(DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..))
+                    );
+                    if is_seq {
+                        if let Some(idx) = args.first_mut() {
+                            // A literal (`xs.Get(0)`) already coerces to usize;
+                            // only a variable/expression index needs the cast.
+                            let needs_cast = !matches!(
+                                &idx.kind,
+                                ExprKind::Int(_) | ExprKind::Cast(_, Type::Usize)
+                            );
+                            if needs_cast {
+                                let inner =
+                                    std::mem::replace(&mut idx.kind, ExprKind::Int(0)).at(idx.span);
+                                idx.kind = ExprKind::Cast(Box::new(inner), Type::Usize);
+                            }
+                        }
+                    }
+                }
+            }
             // `.Clone()` on a ByVal String parameter (a `&str`) yields a `&str`,
             // not an owned String — use `.to_string()` so it fits a String slot.
             if method.eq_ignore_ascii_case("clone") {
@@ -1801,17 +1913,43 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             resolve_expr(body, ctx);
         }
         ExprKind::Try(inner) => {
+            // Read the operand's failure shape *before* resolution rewrites it
+            // (e.g. `xs.First()` gains a `.copied()` wrapper below).
+            let operand = try_operand_shape(inner, ctx);
             resolve_expr(inner, ctx);
-            // `?` returns the error to the caller on failure, so the enclosing
-            // function must itself be able to fail (return Result / Option).
-            if !ctx.can_propagate {
-                ctx.diags.error_once(
+            match ctx.ret_shape {
+                // `?` returns the error to the caller on failure, so the enclosing
+                // function must itself be able to fail (return Result / Option).
+                None => ctx.diags.error_once(
                     "try-needs-result",
                     "`?` can only be used in a function that returns `Result` (or `Option`). \
                      It hands the error back to the caller on failure, so this function's \
                      signature must allow failure: declare it `As Result<T>`, or handle the \
                      error here with `Match` over `Ok`/`Err`.",
-                );
+                ),
+                // The function can fail, but `?` must propagate the *same* shape it
+                // returns — an `Option`'s `?` in a `Result` function (or vice versa)
+                // is a rustc error, so catch it here in VB terms instead.
+                Some(fn_shape) => {
+                    if let Some(op_shape) = operand {
+                        if op_shape != fn_shape {
+                            let msg = match (fn_shape, op_shape) {
+                                (FailShape::Result, FailShape::Option) =>
+                                    "`?` here is inside a function that returns `Result`, but this \
+                                     value is an `Option` — it can be empty, but carries no error. \
+                                     Give the empty case a reason first with `.Ok_Or(\"…\")` (turns \
+                                     None into an Err), or declare this function `As Option<T>`.",
+                                (FailShape::Option, FailShape::Result) =>
+                                    "`?` here is inside a function that returns `Option`, but this \
+                                     value is a `Result` — it carries an error you'd be dropping. \
+                                     Use `.Ok()` to turn it into an Option first, or declare this \
+                                     function `As Result<T>`.",
+                                _ => unreachable!(),
+                            };
+                            ctx.diags.error_once("try-shape-mismatch", msg);
+                        }
+                    }
+                }
             }
         }
         ExprKind::Tuple(elems) | ExprKind::List(elems) => {

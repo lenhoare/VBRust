@@ -26,6 +26,40 @@ impl Level {
     }
 }
 
+/// A teaching *caution* — a "this works, but prefer…" note shown both as a
+/// compile-time diagnostic AND as a callout in the help docs. Holding the text
+/// in one place is the whole point: the note you see while coding and the note
+/// in the reference can never drift apart. The docs render `summary` as the
+/// callout heading and `body` as its text; the compiler emits `body`.
+pub struct Caution {
+    pub key: &'static str,
+    pub summary: &'static str,
+    pub body: &'static str,
+}
+
+pub const CAUTIONS: &[Caution] = &[
+    Caution {
+        key: "val-lenient",
+        summary: "Lenient — never fails",
+        body: "`Val` returns 0 for text it can't read as a number, so it never fails and never \
+               tells you the input was bad. Handy for tidy input, but not a validator: when a bad \
+               value should be caught, use `CDbl` / `CLng` / `CInt`, which return a `Result` you \
+               handle with `?` or `Match`.",
+    },
+    Caution {
+        key: "unwrap-training-wheels",
+        summary: "Training wheels — prefer ? or Match",
+        body: ".unwrap() works, but it's training wheels — it crashes the program if the value is \
+               an error or None. Prefer the `?` operator to propagate, or `Match` over Ok/Err \
+               (Some/None) to handle both outcomes.",
+    },
+];
+
+/// The caution registered under `key`, if any.
+pub fn caution(key: &str) -> Option<&'static Caution> {
+    CAUTIONS.iter().find(|c| c.key == key)
+}
+
 /// One identifier occurrence the resolver understood: where it is, what it's
 /// called, its declared type (`None` for constants and opaque Rust handles),
 /// and the display line hover shows. Hover reads `display`; completion reads
@@ -163,6 +197,20 @@ impl Diagnostics {
                 line: None,
                 span: None,
             });
+        }
+    }
+
+    /// Emit a registered [`Caution`]'s text as a one-time note.
+    pub fn caution_note(&mut self, key: &str) {
+        if let Some(c) = caution(key) {
+            self.note(key, c.body);
+        }
+    }
+
+    /// Emit a registered [`Caution`]'s text as a one-time warning.
+    pub fn caution_warn(&mut self, key: &str) {
+        if let Some(c) = caution(key) {
+            self.warn_once_global(key, c.body);
         }
     }
 

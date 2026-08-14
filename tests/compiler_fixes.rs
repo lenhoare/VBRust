@@ -94,6 +94,83 @@ fn datetime_argument_is_borrowed() {
 }
 
 #[test]
+fn try_on_option_in_result_fn_is_a_vb_error() {
+    // `?` must propagate the same shape the function returns. An Option's `?`
+    // inside a `Result` function is a rustc error — we catch it in VB terms.
+    let c = vbr::compile(
+        "Function First(ByVal xs As Vec<Long>) As Result<Long>\n\
+        \x20   Dim v As Long = xs.First()?\n\
+        \x20   Return Ok(v)\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "shape mismatch should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(joined.contains("Ok_Or"), "should suggest .Ok_Or: {joined}");
+}
+
+#[test]
+fn matching_try_shapes_are_accepted() {
+    // Option's `?` in an Option function is fine (and compiles to `.copied()?`).
+    let rust = packed(&rust_of(
+        "Function Head(ByVal xs As Vec<Long>) As Option<Long>\n\
+        \x20   Dim v As Long = xs.First()?\n\
+        \x20   Return Some(v)\n\
+        End Function\n",
+    ));
+    assert!(rust.contains(".first().copied()?"), "option ? passes through: {rust}");
+}
+
+#[test]
+fn main_using_try_becomes_fallible() {
+    // A plain `Main` that propagates with `?` gets a Result return and a closing
+    // Ok(()), so `?` works in the one function every program has.
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim v As Long = Parse(\"5\")?\n\
+        \x20   Debug.Print v\n\
+        End Function\n\
+        Function Parse(ByVal s As String) As Result<Long>\n\
+        \x20   Return Ok(CLng(s)?)\n\
+        End Function\n",
+    );
+    assert!(rust.contains("fn main() -> Result<(), String>"), "main is fallible: {rust}");
+    assert!(packed(&rust).contains("Ok(())"), "main closes with Ok(()): {rust}");
+}
+
+#[test]
+fn main_declared_fallible_is_rejected() {
+    // Declaring a fallible return on Main doesn't map to a valid `fn main` — we
+    // steer to the plain form instead of emitting Rust that won't compile.
+    let c = vbr::compile(
+        "Function Main() As Result<Long>\n\
+        \x20   Return Ok(0)\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Main As Result should error: {:?}", c.diagnostics);
+    assert!(
+        c.diagnostics.join("\n").contains("can't declare a fallible return"),
+        "message steers to plain Main: {:?}",
+        c.diagnostics
+    );
+}
+
+#[test]
+fn vec_get_casts_a_variable_index_to_usize() {
+    // `.Get(i)` on a Vec takes a usize, but the index is usually a Long — cast
+    // it, just as `xs[i]` does. A literal index already coerces, so it's left be.
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [10, 20, 30]\n\
+        \x20   Dim i As Long = 1\n\
+        \x20   Debug.Print xs.Get(i).Unwrap_Or(-1)\n\
+        \x20   Debug.Print xs.Get(0).Unwrap_Or(-1)\n\
+        End Function\n",
+    ));
+    assert!(rust.contains("get(iasusize)"), "variable index cast to usize: {rust}");
+    assert!(rust.contains("get(0)"), "literal index not needlessly cast: {rust}");
+}
+
+#[test]
 fn match_arm_accepts_trailing_comment() {
     // The single-line arm form used to reject a trailing `' comment`.
     let src = "Function Main()\n\

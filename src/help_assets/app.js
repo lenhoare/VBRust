@@ -55,8 +55,13 @@
     countEl.textContent = n + ' / ' + entries.length;
   }
 
+  // Escape HTML, then promote `code` spans (backticks) to <code> — so remarks
+  // and cautions render inline code the way the rest of the reference does.
+  function inl(s) {
+    return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
   function paras(s) {
-    return s.split(/\n\n+/).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('');
+    return s.split(/\n\n+/).map(function (p) { return '<p>' + inl(p) + '</p>'; }).join('');
   }
 
   // The member id a signature points at, e.g. parent "vec" + ".Push(item)" -> "vec.push".
@@ -108,11 +113,59 @@
     document.body.removeChild(ta);
   }
 
+  var WELCOME =
+    '<div class="welcome">'
+    + '<h1>VBR Help</h1>'
+    + '<p class="summary">VBR is a modern dialect of Visual Basic that compiles to clean, '
+    +   'idiomatic Rust. You write in the familiar <code>Sub</code>/<code>Function</code>, '
+    +   '<code>Dim … As</code>, <code>If … Then</code> shape of VB6 and VBA — and out comes '
+    +   'real Rust you can read, run, and learn from.</p>'
+    + '<p>It is built as a teaching bridge: every keyword, type and example in this reference '
+    +   'shows the VB you write alongside the Rust it becomes. Nothing here is a mock-up — each '
+    +   'example is compiled, and the generated Rust is printed beneath it.</p>'
+    + '<p>Pick a topic on the left (tap <b>☰</b> on a phone), or press <kbd>/</kbd> to search.</p>'
+
+    + '<h2>How VBR differs from VB</h2>'
+    + '<p>If you know VB6 or VBA most of this will feel like home. A handful of things are '
+    +   'deliberately different — usually because VBR leans on Rust’s type system instead of '
+    +   'the old runtime.</p>'
+    + '<table class="members"><tbody>'
+    + row('Static types, no <code>Variant</code>',
+          'Every <code>Dim</code> has a real type the compiler checks. Alongside the VB types '
+        + 'you get Rust ones — <code>Vec&lt;T&gt;</code>, <code>HashMap&lt;K, V&gt;</code>, '
+        + '<code>Option&lt;T&gt;</code>, <code>Result&lt;T&gt;</code>.')
+    + row('<code>Match … End Match</code>',
+          'Replaces <code>Select Case</code>. Arms are <code>pattern =&gt; body</code> and can '
+        + 'match on the <i>shape</i> of data, not just equality.')
+    + row('<code>Is</code> binds patterns',
+          '<code>If total Is Some(v) Then …</code> unwraps an <code>Option</code>/'
+        + '<code>Result</code> inline — VB’s <code>Is</code> now does Rust’s <i>if-let</i>.')
+    + row('Errors are values',
+          'Fallible work returns a <code>Result</code> you handle explicitly (<code>.Unwrap</code>, '
+        + 'match, or propagate) — there is no <code>On Error GoTo</code>.')
+    + row('Methods keep their Rust names',
+          'A method <i>is</i> its Rust name: <code>Is_Empty</code>, <code>Unwrap_Or</code>, '
+        + '<code>Contains_Key</code>. Letters are case-insensitive; the underscores are literal.')
+    + row('Enums carry data',
+          '<code>Enum</code> defines sum types like Rust’s — a case can hold values, not just a '
+        + 'number — so you can model shapes VB’s constant enums never could.')
+    + row('Strings &amp; text',
+          'Quotes are still doubled VB-style (<code>""</code>), with no backslash escapes; '
+        + '<code>Text … End Text</code> holds multi-line blocks verbatim.')
+    + row('A batteries-included stdlib',
+          'Namespaces cover real work — <code>FileSystem</code>, <code>Http</code>, '
+        + '<code>Json</code>, <code>DateTime</code>, <code>Regex</code>, <code>Database</code>, '
+        + '<code>DataFrame</code>, <code>Shell</code>.')
+    + '</tbody></table>'
+    + '</div>';
+
+  function row(sig, desc) {
+    return '<tr><td class="msig">' + sig + '</td><td class="mdesc">' + desc + '</td></tr>';
+  }
+
   function renderEntry(e) {
     if (!e) {
-      contentEl.innerHTML = '<div class="welcome"><h1>VBR Help</h1>'
-        + '<p>Pick a topic on the left, or press <kbd>/</kbd> to search.</p>'
-        + '<p>Every example is real code that transpiles — the generated Rust is shown beneath it.</p></div>';
+      contentEl.innerHTML = WELCOME;
       return;
     }
     var h = '';
@@ -126,6 +179,13 @@
     h += '<h1>' + esc(e.title) + ' <span class="k k-' + esc(e.kind) + '">' + esc(e.kind) + '</span></h1>';
     if (e.summary) h += '<p class="summary">' + esc(e.summary) + '</p>';
     if (e.has_syntax) h += '<h2>Syntax</h2>' + code('syntax', e.syntax_html);
+    if (e.cautions && e.cautions.length) {
+      e.cautions.forEach(function (c) {
+        h += '<div class="caution"><div class="caution-head">'
+          + '<span class="caution-tag">⚠ Caution</span> ' + esc(c.summary) + '</div>'
+          + '<div class="caution-body">' + inl(c.body) + '</div></div>';
+      });
+    }
     if (e.replaces) {
       h += '<div class="replaces"><span class="rep-tag">⇄ Replaces</span>'
         + '<span class="rep-body">VB\'s <b>' + esc(e.replaces) + '</b></span></div>';
@@ -161,9 +221,33 @@
     contentEl.scrollTop = 0;
   }
 
+  function isMobile() { return window.innerWidth <= 820; }
+
   function route() {
-    renderEntry(byAnchor[location.hash.slice(1).toLowerCase()]);
+    var e = byAnchor[location.hash.slice(1).toLowerCase()];
+    renderEntry(e);
     renderList(searchEl.value);
+    // On a phone the list is a drawer that closes once you've chosen —
+    // you read the article full-screen; the ☰ button reopens the list.
+    if (isMobile()) document.body.classList.add('nav-collapsed');
+  }
+
+  var brand = document.getElementById('brand');
+  if (brand) {
+    brand.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      searchEl.value = '';
+      if (location.hash) location.hash = '';   // triggers route() via hashchange
+      else route();                            // already home — just re-render
+      if (isMobile()) document.body.classList.add('nav-collapsed');
+    });
+  }
+
+  var navToggle = document.getElementById('navtoggle');
+  if (navToggle) {
+    navToggle.addEventListener('click', function () {
+      document.body.classList.toggle('nav-collapsed');
+    });
   }
 
   contentEl.addEventListener('click', function (ev) {
@@ -173,7 +257,11 @@
     if (pre) copyText(pre.textContent, btn);
   });
 
-  searchEl.addEventListener('input', function () { renderList(searchEl.value); });
+  searchEl.addEventListener('input', function () {
+    // Typing a query means "show me the list" — reveal it on mobile.
+    if (isMobile()) document.body.classList.remove('nav-collapsed');
+    renderList(searchEl.value);
+  });
   searchEl.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Enter') return;
     // Enter jumps straight to the first match (sidebar order).
@@ -195,26 +283,31 @@
   (function () {
     var nav = listEl, drag = document.getElementById('drag');
     if (!drag) return;
-    var MIN = 180, MAX = 560;
+    var MIN = 96, MAX = 560;
+    // On a phone the sidebar defaults to a third of the width (CSS); only
+    // restore a pixel width the user chose on a wide screen.
     try {
       var saved = parseInt(localStorage.getItem('vbr_help_navw'), 10);
-      if (saved >= MIN && saved <= MAX) nav.style.width = saved + 'px';
+      if (window.innerWidth > 640 && saved >= MIN && saved <= MAX) nav.style.width = saved + 'px';
     } catch (e) {}
     function onMove(ev) {
       var w = Math.max(MIN, Math.min(MAX, ev.clientX - nav.getBoundingClientRect().left));
       nav.style.width = w + 'px';
     }
-    function onUp() {
+    function onUp(ev) {
       document.body.classList.remove('dragging');
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      try { drag.releasePointerCapture(ev.pointerId); } catch (e) {}
       try { localStorage.setItem('vbr_help_navw', parseInt(nav.style.width, 10)); } catch (e) {}
     }
-    drag.addEventListener('mousedown', function (ev) {
+    // Pointer Events cover mouse, touch and pen with one path.
+    drag.addEventListener('pointerdown', function (ev) {
       ev.preventDefault();
+      try { drag.setPointerCapture(ev.pointerId); } catch (e) {}
       document.body.classList.add('dragging');
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
     });
   })();
 

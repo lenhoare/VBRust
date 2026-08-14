@@ -1,6 +1,12 @@
 ' MEANT to fail — `?` propagates a failure to the caller, so it's only allowed
-' in a function that returns Result/Option. Main returns nothing.
+' in a function that can itself fail (returns Result/Option). `Report` returns
+' nothing, so it can't propagate. (`Main` is the one exception: use `?` there
+' and VBR gives it a Result return for you.)
 Function Main()
+    Report()
+End Function
+
+Function Report()
     Dim x As Long = MightFail()?
     Debug.Print x
 End Function

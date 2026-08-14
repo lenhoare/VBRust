@@ -5,6 +5,8 @@ kind = "method"
 parent = "option"
 anchor = "m/Option.Unwrap"
 
+caution = ["unwrap-training-wheels"]
+
 summary = "The value inside — but crashes on None."
 
 returns = "T — the contained value. Stops the program if the option is None, so reach for Unwrap_Or, Is Some, or Match unless you are certain there is a value."
