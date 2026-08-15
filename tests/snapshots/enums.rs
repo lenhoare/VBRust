@@ -15,7 +15,7 @@ impl std::fmt::Display for Suit {
     }
 }
 
-fn color(s: &Suit) -> Result<String, String> {
+fn color(s: Suit) -> Result<String, String> {
     match s {
         Suit :: Hearts => {
             return Ok("red".to_string());
@@ -34,8 +34,8 @@ fn color(s: &Suit) -> Result<String, String> {
 
 fn vbr_main() -> Result<(), String> {
     let s: Suit = Suit::Spades;
-    println!("Spades are {}", color(&s)?);
-    println!("Hearts are {}", color(&Suit::Hearts)?);
+    println!("Spades are {}", color(s)?);
+    println!("Hearts are {}", color(Suit::Hearts)?);
     if s == Suit::Spades {
         println!("yes, spades");
     }

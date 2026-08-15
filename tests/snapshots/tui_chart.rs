@@ -22,12 +22,12 @@ struct Plot {
     curve: Vec<Point>,
 }
 
-impl Default for Plot {
-    fn default() -> Self {
+impl Plot {
+    fn init() -> Result<Plot, String> {
         let curve = curve()?;
-        Plot {
+        Ok(Plot {
             curve,
-        }
+        })
     }
 }
 
@@ -56,7 +56,13 @@ fn view(state: &Plot, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let state = Plot::default();
+    let state = match Plot::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&state, frame))?;

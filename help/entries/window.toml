@@ -1,0 +1,79 @@
+id = "window"
+title = "Window"
+category = "Surfaces"
+kind = "keyword"
+anchor = "kw/Window"
+
+syntax = """
+Window <Name>
+    Title "<title>"
+    Theme <Name>
+
+    State
+        Dim <name> As <Type> = <init>
+    End State
+
+    View
+        Column
+            Text <expr>
+            Button "<label>"
+                On Click <Event>
+            End Button
+        End Column
+    End View
+
+    Event <Event>
+        ...
+    End Event
+End Window
+"""
+
+replaces = "Form"
+
+summary = "A desktop GUI — buttons, sliders, text. State is the truth; the view is derived from it."
+
+remarks = """
+A `Window` is a pixel desktop app (Iced). The shape is always the same: `State` holds the data, `View` describes the widgets from that data, `Event` handlers change the state — then the view redraws. There is no hidden control object to poke.
+
+Everyday widgets: `Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`. Layout is `Column` / `Row` with `Spacing` and `Padding`. Bind a control to a state field (`Slider 0..=100, volume`) and handle `On Click` / `On Change` / `On Input` / `On Toggle`.
+
+Need a drawing *and* buttons? Put a `Canvas` in the View. Need only a drawing? Use a `Sketch` instead.
+
+`Theme Dracula` (or `NightOwl`, `Nord`, …) restyles the whole window. Launch it from `Function Main()` with `<Name>.Run`. A program is one kind of surface — don't mix a Window with a Screen or a Page.
+"""
+
+example = """
+Window Counter
+    Title "Counter"
+
+    State
+        Dim count As Long = 0
+    End State
+
+    View
+        Column
+            Text "Count: " & count
+            Button "+"
+                On Click Increment
+            End Button
+            Button "-"
+                On Click Decrement
+            End Button
+        End Column
+    End View
+
+    Event Increment
+        count += 1
+    End Event
+
+    Event Decrement
+        count -= 1
+    End Event
+End Window
+
+Function Main()
+    Counter.Run
+End Function
+"""
+
+see_also = ["screen", "page", "sketch", "theme", "await"]

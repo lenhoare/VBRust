@@ -32,7 +32,7 @@ End Sketch
 summary = "A desktop window that is a drawing — charts, pictures, animations. No buttons."
 
 remarks = """
-A `Sketch` is a pixel window. There is no `View` and there are no widgets: the sketch *is* the canvas. `Draw` paints the whole picture from `State` on every frame (`Fill`, `Stroke`, `Text`, `Circle`, `Rect`, `Line`).
+A `Sketch` is a pixel window. There is no `View` and there are no widgets: the sketch *is* the canvas. `Draw` paints the whole picture from `State` on every frame (`Fill`, `Stroke`, `Text`, `Circle`, `Rect`, `Line`). Draw is ordinary Bust: mixed integer/float arithmetic widens, and a helper Function you call from Draw is the same Function you'd call from anywhere else.
 
 `Set Pixel x, y, Color.Red` writes one pixel. Inside a Draw that uses it, `width` and `height` are the live canvas size in pixels — loop `For y = 0 To height - 1`. Unwritten pixels stay transparent so `Background` shows through. Pixels flush before a later `Fill`/`Stroke`, so you can plot a field and stroke axes on top.
 
@@ -61,4 +61,4 @@ Function Main()
 End Function
 """
 
-see_also = ["theme", "await"]
+see_also = ["window", "theme", "await"]

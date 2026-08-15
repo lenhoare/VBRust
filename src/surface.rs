@@ -200,39 +200,55 @@ pub(crate) fn surface_std_imports(events: &[GuiEvent], helpers: &[Function]) -> 
     out
 }
 
-/// True when a `State` field initialiser is a *fallible* call — one returning a
-/// `Result` that the generated `init()` unwraps with `?`: a known stdlib
-/// constructor (`Database.Open`, `Json.Parse`, …), one of the program's own
-/// functions whose declared return type is a `Result`, or a sibling module's
-/// public function returning one (`Life.LoadDb()`).
+/// True when a `State` field initialiser can fail. Ordinary Bust functions are
+/// always `Result` internally, so any user/module call is fallible — not only
+/// those declared `As Result<T>`. Stdlib constructors that return `Result`
+/// (`Database.Open`, `FileSystem.Read`, …) stay on the list too.
 pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
     match &e.kind {
-        ExprKind::MethodCall { recv, method, .. } => {
-            let ExprKind::Ident(r) = &(&**recv).kind else { return false };
-            if let Some(canon) = stdlib_type(r) {
-                return matches!(
-                    (canon, rust_name(method).as_str()),
-                    ("Database", "open")
-                        | ("Json", "parse")
-                        | ("DateTime", "parse")
-                        | ("FileSystem", "read")
-                        | ("FileSystem", "read_lines")
-                        | ("Shell", "run")
-                        | ("Shell", "start")
-                );
-            }
-            matches!(
-                t.interfaces
-                    .get(&rust_name(r))
-                    .and_then(|i| i.fns.get(&rust_name(method)))
-                    .and_then(|s| s.ret.as_ref()),
-                Some(DeclType::Result(..))
-            )
+        ExprKind::Call { name, args } => {
+            t.fns.contains_key(&rust_name(name)) || args.iter().any(|a| fallible_init(a, t))
         }
-        ExprKind::Call { name, .. } => matches!(
-            t.fns.get(&rust_name(name)).and_then(|s| s.ret.as_ref()),
-            Some(DeclType::Result(..))
-        ),
+        ExprKind::MethodCall { recv, method, args } => {
+            let m = rust_name(method);
+            let stdlib_fail = match &recv.kind {
+                ExprKind::Ident(r) => {
+                    if let Some(canon) = stdlib_type(r) {
+                        matches!(
+                            (canon, m.as_str()),
+                            ("Database", "open")
+                                | ("Json", "parse")
+                                | ("DateTime", "parse")
+                                | ("FileSystem", "read")
+                                | ("FileSystem", "read_lines")
+                                | ("Shell", "run")
+                                | ("Shell", "start")
+                        )
+                    } else {
+                        t.interfaces
+                            .get(&rust_name(r))
+                            .is_some_and(|i| i.fns.contains_key(&m))
+                    }
+                }
+                _ => false,
+            };
+            stdlib_fail
+                || fallible_init(recv, t)
+                || args.iter().any(|a| fallible_init(a, t))
+        }
+        ExprKind::Binary { lhs, rhs, .. } => fallible_init(lhs, t) || fallible_init(rhs, t),
+        ExprKind::Field(inner, _)
+        | ExprKind::Index(inner, _)
+        | ExprKind::Try(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Not(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::Raw(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Deref(inner) => fallible_init(inner, t),
+        ExprKind::List(xs) | ExprKind::Tuple(xs) => xs.iter().any(|x| fallible_init(x, t)),
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| fallible_init(v, t)),
         _ => false,
     }
 }
@@ -380,7 +396,7 @@ pub(crate) fn emit_event_stmts(
     out: &mut String,
 ) {
     let mut body: Vec<Stmt> = stmts.to_vec();
-    resolver::resolve_event_body(
+    let passed_by_ref = resolver::resolve_event_body(
         &mut body, params, field_ty, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces,
         &t.enums, &t.structs, diags,
     );
@@ -388,9 +404,11 @@ pub(crate) fn emit_event_stmts(
     // drop the dead `let`, exactly as in a plain function body.
     crate::transpiler::elide_for_counter_dims(&mut body);
     // A local reassigned or mutated in place (`headers.insert(…)`) needs
-    // `let mut`, exactly as in a plain function body.
+    // `let mut`, exactly as in a plain function body. Locals lent as `&mut`
+    // (ByRef args) join that set — `collect_mutated` can't see those.
     let mut mutated: HashSet<String> = HashSet::new();
     crate::transpiler::collect_mutated(&body, &mut mutated);
+    mutated.extend(passed_by_ref);
     let empty: HashSet<String> = HashSet::new();
     for stmt in body {
         // The rewrite turns state fields into `recv.field` and a call to an
@@ -462,7 +480,11 @@ pub(crate) fn emit_subs(
     }
     out.push_str(&format!("impl {} {{\n", ty));
     for s in subs {
-        let params: Vec<String> = s.params.iter().map(crate::transpiler::render_param).collect();
+        let params: Vec<String> = s
+            .params
+            .iter()
+            .map(|p| crate::transpiler::render_param_ty(p, Some(&t.enums)))
+            .collect();
         let sep = if params.is_empty() { "" } else { ", " };
         out.push_str(&format!(
             "    fn {}(&mut self{}{}) -> Result<(), String> {{\n",
@@ -516,6 +538,7 @@ pub(crate) fn render_init(
             name_span: crate::span::Span::none(),
             ty: ty.clone(),
             init: Some(e.clone()),
+            deferred: false,
             line: 0,
         }];
         // `prior` are the earlier `State` fields, seeded like state so a later
@@ -565,13 +588,12 @@ pub(crate) fn emit_state_lets(
     let mut prior: HashMap<String, DeclType> = HashMap::new();
     let mut names = Vec::new();
     for f in state {
-        let mut init = match override_init(f) {
+        let init = match override_init(f) {
             Some(s) => s,
             None => render_init(f.init.as_ref(), &f.ty, t, &prior, diags),
         };
-        if f.init.as_ref().map_or(false, |e| fallible_init(e, t)) {
-            init.push('?');
-        }
+        // `?` comes from the resolver's auto-try inside `render_init`. `fallible_init`
+        // only chooses `init()` vs `Default` — pushing another `?` here made `??`.
         let name = rust_name(&f.name);
         out.push_str(&format!("{}let {} = {};\n", pad, name, init));
         prior.insert(name.clone(), f.ty.clone());
@@ -1318,11 +1340,12 @@ pub(crate) fn rewrite_stmt(
             line,
             if_let,
         },
-        Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim {
+        Stmt::Dim { name, name_span, ty, init, deferred, line } => Stmt::Dim {
             name,
             name_span,
             ty,
             init: init.map(re),
+            deferred,
             line,
         },
         Stmt::For { var, from, to, step, body } => Stmt::For {

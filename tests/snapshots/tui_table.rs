@@ -24,15 +24,15 @@ struct People {
     people_state: ratatui::widgets::TableState,
 }
 
-impl Default for People {
-    fn default() -> Self {
+impl People {
+    fn init() -> Result<People, String> {
         let people = roster()?;
         let status = "(select a row)".to_string();
-        People {
+        Ok(People {
             people,
             status,
             people_state: ratatui::widgets::TableState::default().with_selected(Some(0)),
-        }
+        })
     }
 }
 
@@ -55,7 +55,13 @@ fn view(state: &mut People, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let mut state = People::default();
+    let mut state = match People::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&mut state, frame))?;

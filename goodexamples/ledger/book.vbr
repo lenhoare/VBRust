@@ -1,0 +1,141 @@
+' A cashbook in memory, persisted as one `date | amount | memo` line per entry.
+
+Public Type Entry
+    Public When As String
+    Public Memo As String
+    Public Amount As Double
+End Type
+
+Public Function Entry.Describe() As String
+    Return Me.When & "  " & FormatAmount(Me.Amount) & "  " & Me.Memo
+End Function
+
+Public Type Book
+    Public Items As Vec<Entry>
+End Type
+
+Public Function Record(ByRef b As Book, ByVal memo As String, ByVal amount As Double)
+    Dim text As String = Trim(memo)
+    If text = "" Then
+        RaiseError "memo is empty — try: add coffee 3.50"
+    End If
+    Dim e As Entry = Entry { when: Stamp(), memo: text, amount: amount }
+    b.Items.Push(e)
+End Function
+
+Public Function Book.Count() As Long
+    Return Me.Items.Len()
+End Function
+
+Public Function Book.Balance() As Double
+    Dim total As Double = 0.0
+    For Each e In Me.Items
+        total = total + e.Amount
+    Next
+    Return total
+End Function
+
+Public Function Book.Dump() As String
+    If Me.Items.Len() = 0 Then
+        Return "(no entries yet)"
+    End If
+    Dim out As String = ""
+    For Each e In Me.Items
+        out = out & e.Describe() & Chr(10)
+    Next
+    Return out
+End Function
+
+Public Function Book.Totals() As String
+    Dim sums As HashMap<String, Double>
+    For Each e In Me.Items
+        Dim cat As String = Money.CategoryOf(e.Memo)
+        If sums.get(cat) Is Some(sofar) Then
+            sums.Insert(cat, sofar + e.Amount)
+        Else
+            sums.Insert(cat, e.Amount)
+        End If
+    Next
+    Dim out As String = ""
+    For Each cat, n In sums
+        out = out & "  " & cat & ": " & FormatAmount(n) & Chr(10)
+    Next
+    If out = "" Then
+        Return "(nothing to total)"
+    End If
+    Return out
+End Function
+
+Public Function Load(ByVal path As String) As Book
+    Dim items As Vec<Entry>
+    Dim there As Boolean = FileSystem.Exists(path)
+    If Not there Then
+        Return Book { items: items }
+    End If
+    Dim lines As Vec<String> = FileSystem.Read_Lines(path)
+    Dim i As Long
+    For i = 0 To lines.Len() - 1
+        Dim line As String = Trim(lines[i])
+        If line = "" Then
+            Continue
+        End If
+        If TryEntry(line) Is Some(e) Then
+            items.Push(e)
+        End If
+    Next
+    Return Book { items: items }
+End Function
+
+Function TryEntry(ByVal line As String) As Option<Entry>
+    Dim e As Entry = ParseLine(line) Handle err
+        Debug.Print "  skipping bad line: " & err
+        Return None
+    End Handle
+    Return Some(e)
+End Function
+
+Public Function Book.Save(ByVal path As String)
+    Dim body As String = ""
+    For Each e In Me.Items
+        body = body & e.When & "|" & e.Amount & "|" & e.Memo & Chr(10)
+    Next
+    FileSystem.Write(path, body)
+End Function
+
+Function ParseLine(ByVal line As String) As Entry
+    Dim parts As Vec<String> = SplitBars(line)
+    If parts.Len() < 3 Then
+        RaiseError "want date|amount|memo"
+    End If
+    Dim amount As Double = Money.ParseAmount(parts[1])
+    Return Entry { when: parts[0], memo: Money.JoinFrom(parts, 2, parts.Len() - 1), amount: amount }
+End Function
+
+Function SplitBars(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = "|" Then
+            out.Push(cur)
+            cur = ""
+        Else
+            cur = cur & ch
+        End If
+    Next
+    out.Push(cur)
+    Return out
+End Function
+
+Function Stamp() As String
+    Dim n As DateTime = DateTime.Now()
+    Return n.Format("%Y-%m-%d %H:%M")
+End Function
+
+Function FormatAmount(ByVal n As Double) As String
+    If n > 0 Then
+        Return "+" & n
+    End If
+    Return "" & n
+End Function

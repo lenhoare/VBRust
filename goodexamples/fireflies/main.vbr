@@ -1,0 +1,33 @@
+' Fireflies in a dark field. Every 16ms they drift; Draw is just the picture.
+' Run:  vbr runproject goodexamples/fireflies
+
+Sketch Night
+    Title "Fireflies"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim bugs As Vec<Bug> = Swarm.Hatch()
+    End State
+
+    Every 16 Tick
+
+    Draw
+        Dim i As Long
+        For i = 0 To bugs.Len() - 1
+            Dim b As Bug = bugs[i]
+            Dim glow As Long = 140 + (b.Hue Mod 80)
+            Fill Circle(Int(b.X), Int(b.Y), 4), Color(glow, glow, 40 + (b.Hue Mod 80))
+            Fill Circle(Int(b.X), Int(b.Y), 2), Color(255, 255, 180)
+        Next
+        Text "fireflies", 16, 20, Color.Gray
+    End Draw
+
+    Event Tick
+        Swarm.Drift(bugs)
+    End Event
+End Sketch
+
+Function Main()
+    Night.Run
+End Function

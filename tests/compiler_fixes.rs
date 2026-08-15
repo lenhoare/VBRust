@@ -187,3 +187,131 @@ fn match_arm_accepts_trailing_comment() {
     let c = vbr::compile(src);
     assert!(!c.has_errors, "match arm comment should parse: {:?}", c.diagnostics);
 }
+
+#[test]
+fn dim_named_handle_is_not_empty_init() {
+    let rust = rust_of(
+        "Public Type Entry\n    Public N As Long\nEnd Type\n\
+         Function Parse() As Entry\n    Return Entry { n: 1 }\nEnd Function\n\
+         Function Main()\n\
+         \x20   Dim e As Entry = Parse() Handle err\n\
+         \x20       Return\n\
+         \x20   End Handle\n\
+         \x20   Debug.Print e.N\n\
+         End Function\n",
+    );
+    assert!(!rust.contains("Entry = ;"), "Handle Dim must not emit empty init:\n{rust}");
+    assert!(rust.contains("= match"), "Handle Dim assigns from match:\n{rust}");
+}
+
+#[test]
+fn assign_from_vec_string_clones() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim lines As Vec<String> = [\"a\", \"b\"]\n\
+        \x20   Dim s As String = \"\"\n\
+        \x20   s = lines[0]\n\
+        End Function\n",
+    ));
+    assert!(rust.contains(".clone()"), "indexing a Vec<String> into a String clones: {rust}");
+}
+
+#[test]
+fn field_push_marks_outer_mut() {
+    let rust = packed(&rust_of(
+        "Public Type Book\n    Public Items As Vec<Long>\nEnd Type\n\
+         Function Main()\n\
+         \x20   Dim b As Book = Book { items: [] }\n\
+         \x20   b.Items.Push(1)\n\
+         End Function\n",
+    ));
+    assert!(rust.contains("letmutb"), "b.Items.Push must mark b mut: {rust}");
+}
+
+#[test]
+fn byval_enum_compares_by_value() {
+    let rust = packed(&rust_of(
+        "Public Enum Lane\n    Inbox\n    Doing\nEnd Enum\n\
+         Function Check(ByVal lane As Lane) As Boolean\n\
+         \x20   If lane = Lane.Doing Then\n\
+         \x20       Return True\n\
+         \x20   End If\n\
+         \x20   Return False\n\
+         End Function\n\
+         Function Main()\n\
+         \x20   Debug.Print Check(Lane.Inbox)\n\
+         End Function\n",
+    ));
+    assert!(
+        rust.contains("lane:Lane") && !rust.contains("lane:&Lane"),
+        "ByVal enum is passed by value: {rust}"
+    );
+}
+
+#[test]
+fn double_field_widens_int_literal() {
+    let rust = packed(&rust_of(
+        "Public Type Bug\n    Public X As Double\nEnd Type\n\
+         Function Main()\n\
+         \x20   Dim b As Bug = Bug { x: 1.0 }\n\
+         \x20   b.X = 8\n\
+         End Function\n",
+    ));
+    assert!(
+        rust.contains("b.x=8.0") || rust.contains("b.x=8.0f64") || rust.contains("=8.0"),
+        "int literal into Double field becomes 8.0: {rust}"
+    );
+}
+
+#[test]
+fn method_byval_string_borrows_owned_local() {
+    let rust = packed(&rust_of(
+        "Public Type Book\n    Public N As Long\nEnd Type\n\
+         Public Function Book.Save(ByVal path As String)\n\
+         End Function\n\
+         Function Main()\n\
+         \x20   Dim b As Book = Book { n: 0 }\n\
+         \x20   Dim path As String = \"ledger.txt\"\n\
+         \x20   b.Save(path)\n\
+         End Function\n",
+    ));
+    assert!(
+        rust.contains("save(&path)") || rust.contains(".save(&path)"),
+        "ByVal String method arg must borrow: {rust}"
+    );
+}
+
+#[test]
+fn state_user_fn_uses_init_not_default() {
+    let rust = rust_of(
+        "Function Seed() As Vec<Long>\n    Return [1, 2, 3]\nEnd Function\n\
+         Screen App\n    State\n        Dim xs As Vec<Long> = Seed()\n    End State\n\
+         View\n        Column\n            Text \"hi\"\n        End Column\n    End View\n\
+         End Screen\n\
+         Function Main()\n    App.Run\nEnd Function\n",
+    );
+    assert!(rust.contains("fn init()"), "fallible State init must use init():\n{rust}");
+    assert!(
+        !rust.contains("fn default()"),
+        "must not emit Default with ? :\n{rust}"
+    );
+    assert!(rust.contains("seed()?"), "Seed() is unwrapped in init():\n{rust}");
+}
+
+#[test]
+fn dim_vec_handle_is_not_dummy_empty() {
+    let rust = rust_of(
+        "Function Load() As Vec<String>\n    Return [\"a\"]\nEnd Function\n\
+         Function Main()\n\
+         \x20   Dim lines As Vec<String> = Load() Handle err\n\
+         \x20       Return\n\
+         \x20   End Handle\n\
+         \x20   Debug.Print lines.Len()\n\
+         End Function\n",
+    );
+    assert!(
+        !packed(&rust).contains("Vec<String>=Vec::new()"),
+        "Handle Dim of a Vec must not emit a dummy empty init:\n{rust}"
+    );
+    assert!(rust.contains("= match"), "Handle Dim assigns from match:\n{rust}");
+}

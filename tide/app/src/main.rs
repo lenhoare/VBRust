@@ -20,13 +20,12 @@ use crossterm::execute;
 use ratatui::layout::Rect;
 use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
-use tide_editor::{
-    is_ctrl, Document, EditorView, Key, KeyEvent, KeyMods, KeywordHighlighter,
-};
+use tide_editor::{is_ctrl, Document, EditorView, Key, KeyEvent, KeyMods, KeywordHighlighter};
 
 use files::{
-    default_untitled, detect_project, display_name, list_units, open_path, path_enter_dir,
-    path_tab_complete, project_entry, project_title, resolve_save_path, save_document, unit_label,
+    default_untitled, detect_project, display_cwd, display_name, initial_dialog_cwd, is_parent_nav,
+    list_units, open_path, path_enter_dir, path_tab_complete, project_entry, project_title,
+    resolve_in_cwd, resolve_save_path, save_document, unit_label,
 };
 use ui::{
     editor_text_area, hit_editor, hit_rust, hit_watch, rust_inner_rect, rust_text_area,
@@ -148,9 +147,9 @@ fn rust_highlighter() -> KeywordHighlighter {
     KeywordHighlighter::new([
         "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
         "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
-        "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true",
-        "type", "unsafe", "use", "where", "while", "i32", "i64", "u32", "u64", "usize", "bool",
-        "String", "str", "Vec", "Option", "Result", "Some", "None", "Ok", "Err", "Box",
+        "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
+        "true", "type", "unsafe", "use", "where", "while", "i32", "i64", "u32", "u64", "usize",
+        "bool", "String", "str", "Vec", "Option", "Result", "Some", "None", "Ok", "Err", "Box",
     ])
     .with_line_comment("//")
 }
@@ -267,74 +266,72 @@ fn event_loop(
                 }
 
                 let menu_hit = ui::hit_test_menu(frame_area, &ui.menu, mouse.column, mouse.row);
-                let in_editor = hit_editor(frame_area, watch_vis, rust_vis, mouse.column, mouse.row);
+                let in_editor =
+                    hit_editor(frame_area, watch_vis, rust_vis, mouse.column, mouse.row);
                 let in_rust = hit_rust(frame_area, watch_vis, rust_vis, mouse.column, mouse.row);
                 let editor_area = vbr_inner_rect(frame_area, watch_vis, rust_vis);
                 let rust_area = rust_inner_rect(frame_area, watch_vis, rust_vis);
                 let watch_row = hit_watch(frame_area, watch_vis, mouse.column, mouse.row);
 
                 match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        match menu_hit {
-                            MenuHit::Top(id) => {
-                                view.mouse_up();
-                                rust_view.mouse_up();
-                                if ui.menu.open == Some(id) {
-                                    ui.menu.close();
-                                } else {
-                                    ui.menu.activate(id);
-                                }
-                            }
-                            MenuHit::Item(cmd) => {
-                                view.mouse_up();
-                                rust_view.mouse_up();
+                    MouseEventKind::Down(MouseButton::Left) => match menu_hit {
+                        MenuHit::Top(id) => {
+                            view.mouse_up();
+                            rust_view.mouse_up();
+                            if ui.menu.open == Some(id) {
                                 ui.menu.close();
-                                if dispatch(terminal, cmd, doc, view, rust_doc, rust_view, ui)? {
-                                    return Ok(());
-                                }
+                            } else {
+                                ui.menu.activate(id);
                             }
-                            MenuHit::Dismiss => {
-                                view.mouse_up();
-                                rust_view.mouse_up();
-                                ui.menu.close();
-                            }
-                            MenuHit::None if ui.menu.open.is_some() => {
-                                view.mouse_up();
-                                rust_view.mouse_up();
-                                ui.menu.close();
-                            }
-                            MenuHit::None if watch_row.is_some() => {
-                                view.mouse_up();
-                                rust_view.mouse_up();
-                                let row = watch_row.unwrap();
-                                if row < ui.diagnostics.len() {
-                                    ui.watch_selected = row;
-                                    ui.focus = Focus::Watch;
-                                    jump_to_selected(doc, view, ui);
-                                }
-                            }
-                            MenuHit::None if in_rust => {
-                                view.mouse_up();
-                                ui.focus = Focus::Rust;
-                                if let Some(area) = rust_area {
-                                    rust_view.mouse_down(rust_doc, area, mouse.column, mouse.row);
-                                }
-                            }
-                            MenuHit::None if in_editor => {
-                                rust_view.mouse_up();
-                                ui.focus = Focus::Editor;
-                                view.mouse_down(doc, editor_area, mouse.column, mouse.row);
-                            }
-                            MenuHit::None => {}
                         }
-                    }
+                        MenuHit::Item(cmd) => {
+                            view.mouse_up();
+                            rust_view.mouse_up();
+                            ui.menu.close();
+                            if dispatch(terminal, cmd, doc, view, rust_doc, rust_view, ui)? {
+                                return Ok(());
+                            }
+                        }
+                        MenuHit::Dismiss => {
+                            view.mouse_up();
+                            rust_view.mouse_up();
+                            ui.menu.close();
+                        }
+                        MenuHit::None if ui.menu.open.is_some() => {
+                            view.mouse_up();
+                            rust_view.mouse_up();
+                            ui.menu.close();
+                        }
+                        MenuHit::None if watch_row.is_some() => {
+                            view.mouse_up();
+                            rust_view.mouse_up();
+                            let row = watch_row.unwrap();
+                            if row < ui.diagnostics.len() {
+                                ui.watch_selected = row;
+                                ui.focus = Focus::Watch;
+                                jump_to_selected(doc, view, ui);
+                            }
+                        }
+                        MenuHit::None if in_rust => {
+                            view.mouse_up();
+                            ui.focus = Focus::Rust;
+                            if let Some(area) = rust_area {
+                                rust_view.mouse_down(rust_doc, area, mouse.column, mouse.row);
+                            }
+                        }
+                        MenuHit::None if in_editor => {
+                            rust_view.mouse_up();
+                            ui.focus = Focus::Editor;
+                            view.mouse_down(doc, editor_area, mouse.column, mouse.row);
+                        }
+                        MenuHit::None => {}
+                    },
                     MouseEventKind::Drag(MouseButton::Left) => {
                         if ui.menu.open.is_some() {
                             if let MenuHit::Item(cmd) = menu_hit {
                                 if let Some(id) = ui.menu.open {
-                                    if let Some(idx) = ui::MenuBar::items(id)
-                                        .iter()
-                                        .position(|(_, c)| *c == cmd)
+                                    if let Some(idx) =
+                                        ui::MenuBar::items(id).iter().position(|(_, c)| *c == cmd)
                                     {
                                         ui.menu.selected = idx;
                                     }
@@ -495,11 +492,12 @@ fn event_loop(
                 if is_ctrl(&ev, 'o') {
                     ui.dialog = Some(Dialog::Open {
                         input: String::new(),
+                        cwd: dialog_cwd(doc, ui),
                     });
                     continue;
                 }
                 if is_ctrl(&ev, 'p') {
-                    open_project_dialog(ui);
+                    open_project_dialog(doc, ui);
                     continue;
                 }
                 if is_ctrl(&ev, 'u') {
@@ -544,8 +542,7 @@ fn event_loop(
                     continue;
                 }
 
-                let copying = (ev.mods.ctrl
-                    && matches!(ev.key, Key::Char('c') | Key::Char('C')))
+                let copying = (ev.mods.ctrl && matches!(ev.key, Key::Char('c') | Key::Char('C')))
                     || matches!(ev.key, Key::Char('\u{3}'));
                 let changed = view.handle_key(doc, &ev);
                 if copying {
@@ -754,22 +751,36 @@ fn handle_dialog(
             }
             _ => {}
         },
-        Dialog::Open { mut input } => match key.code {
+        Dialog::Open { mut input, cwd } => match key.code {
             KeyCode::Esc => {
                 ui.path_tab = None;
                 ui.dialog = None;
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char('\n') | KeyCode::Char('\r') => {
                 ui.path_tab = None;
-                let path = PathBuf::from(input.trim());
-                if let Some(dir) = path_enter_dir(&input) {
-                    // Browse into the folder; keep the dialog open.
-                    ui.message = format!(" In {}  (Tab lists, Enter opens a file)", dir);
-                    ui.dialog = Some(Dialog::Open { input: dir });
+                let path = resolve_in_cwd(&cwd, &input);
+                // `../` from Tab, or any existing folder: stay in the dialog and cd.
+                // (A parent folder with several .vbr files looks like a project;
+                // treating that as Open closed the dialog instead of going up.)
+                if let Some(dir) = path_enter_dir(&input, &cwd) {
+                    ui.message =
+                        format!(" In {}  (Tab lists, Enter opens a file)", display_cwd(&dir));
+                    ui.dialog = Some(Dialog::Open {
+                        input: String::new(),
+                        cwd: dir,
+                    });
+                } else if is_parent_nav(&input) {
+                    ui.message = " Cannot go up from here.".into();
+                    ui.dialog = Some(Dialog::Open { input, cwd });
+                } else if input.trim().is_empty() {
+                    ui.dialog = Some(Dialog::Open { input, cwd });
+                } else if path.is_dir() {
+                    ui.message = format!(" {} is a folder — Tab to enter it.", path.display());
+                    ui.dialog = Some(Dialog::Open { input, cwd });
                 } else {
-                    ui.dialog = None;
                     match open_path(&path) {
                         Ok(d) => {
+                            ui.dialog = None;
                             attach_project_for_doc(&d, ui);
                             *doc = d;
                             *view = EditorView::new();
@@ -778,88 +789,94 @@ fn handle_dialog(
                             clear_rust_pane(rust_doc, rust_view, ui);
                             ui.message = format!(" Opened {}.", display_name(doc));
                         }
-                        Err(e) => ui.message = e,
+                        Err(e) => {
+                            ui.message = e;
+                            ui.dialog = Some(Dialog::Open { input, cwd });
+                        }
                     }
                 }
             }
             KeyCode::Tab | KeyCode::BackTab => {
                 let reverse = matches!(key.code, KeyCode::BackTab)
                     || key.modifiers.contains(KeyModifiers::SHIFT);
-                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, false);
+                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, false, &cwd);
                 input = next;
                 if !msg.is_empty() {
                     ui.message = msg;
                 }
-                ui.dialog = Some(Dialog::Open { input });
+                ui.dialog = Some(Dialog::Open { input, cwd });
             }
             KeyCode::Backspace => {
                 ui.path_tab = None;
                 input.pop();
-                ui.dialog = Some(Dialog::Open { input });
+                ui.dialog = Some(Dialog::Open { input, cwd });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ui.path_tab = None;
                 input.push(c);
-                ui.dialog = Some(Dialog::Open { input });
+                ui.dialog = Some(Dialog::Open { input, cwd });
             }
             _ => {}
         },
-        Dialog::OpenProject { mut input } => match key.code {
+        Dialog::OpenProject { mut input, cwd } => match key.code {
             KeyCode::Esc => {
                 ui.path_tab = None;
                 ui.dialog = None;
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char('\n') | KeyCode::Char('\r') => {
                 ui.path_tab = None;
-                let path = PathBuf::from(input.trim());
-                // Browse into folders that aren't (yet) a project; open when they are.
-                if files::is_project_dir(&path) {
-                    ui.dialog = None;
-                    match open_project_into(&path, ui) {
-                        Ok(d) => {
-                            *doc = d;
-                            *view = EditorView::new();
-                            ui.clear_diagnostics();
-                            ui.find.clear_matches();
-                            clear_rust_pane(rust_doc, rust_view, ui);
-                            ui.message = format!(
-                                " Project {} — {} unit(s). Ctrl+U to switch.",
-                                ui.project_dir
-                                    .as_ref()
-                                    .map(|p| project_title(p))
-                                    .unwrap_or_default(),
-                                ui.units.len()
-                            );
-                        }
-                        Err(e) => ui.message = e,
+                let path = resolve_in_cwd(&cwd, &input);
+                if is_parent_nav(&input) {
+                    if let Some(dir) = path_enter_dir(&input, &cwd) {
+                        ui.message =
+                            format!(" In {}  (Enter opens a project folder)", display_cwd(&dir));
+                        ui.dialog = Some(Dialog::OpenProject {
+                            input: String::new(),
+                            cwd: dir,
+                        });
+                    } else {
+                        ui.message = " Cannot go up from here.".into();
+                        ui.dialog = Some(Dialog::OpenProject { input, cwd });
                     }
-                } else if let Some(dir) = path_enter_dir(&input) {
-                    ui.message = format!(" In {}  (Enter opens a project folder)", dir);
-                    ui.dialog = Some(Dialog::OpenProject { input: dir });
+                } else if files::is_project_dir(&path) {
+                    if let Err(e) = apply_opened_project(&path, doc, view, rust_doc, rust_view, ui)
+                    {
+                        ui.message = e;
+                        ui.dialog = Some(Dialog::OpenProject { input, cwd });
+                    }
+                } else if let Some(dir) = path_enter_dir(&input, &cwd) {
+                    ui.message =
+                        format!(" In {}  (Enter opens a project folder)", display_cwd(&dir));
+                    ui.dialog = Some(Dialog::OpenProject {
+                        input: String::new(),
+                        cwd: dir,
+                    });
+                } else if input.trim().is_empty() {
+                    ui.dialog = Some(Dialog::OpenProject { input, cwd });
                 } else {
-                    ui.dialog = None;
                     ui.message = format!(" Not a project folder: {}", path.display());
+                    ui.dialog = Some(Dialog::OpenProject { input, cwd });
                 }
             }
             KeyCode::Tab | KeyCode::BackTab => {
                 let reverse = matches!(key.code, KeyCode::BackTab)
                     || key.modifiers.contains(KeyModifiers::SHIFT);
-                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, true);
+                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, true, &cwd);
                 input = next;
                 if !msg.is_empty() {
                     ui.message = msg;
                 }
-                ui.dialog = Some(Dialog::OpenProject { input });
+                ui.dialog = Some(Dialog::OpenProject { input, cwd });
             }
             KeyCode::Backspace => {
                 ui.path_tab = None;
                 input.pop();
-                ui.dialog = Some(Dialog::OpenProject { input });
+                ui.dialog = Some(Dialog::OpenProject { input, cwd });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ui.path_tab = None;
                 input.push(c);
-                ui.dialog = Some(Dialog::OpenProject { input });
+                ui.dialog = Some(Dialog::OpenProject { input, cwd });
             }
             _ => {}
         },
@@ -889,47 +906,53 @@ fn handle_dialog(
             }
             _ => {}
         },
-        Dialog::SaveAs { mut input } => match key.code {
+        Dialog::SaveAs { mut input, cwd } => match key.code {
             KeyCode::Esc => {
                 ui.path_tab = None;
                 ui.dialog = None;
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char('\n') | KeyCode::Char('\r') => {
                 ui.path_tab = None;
-                if let Some(dir) = path_enter_dir(&input) {
-                    ui.message = format!(" In {}  (type a name, Enter saves)", dir);
-                    ui.dialog = Some(Dialog::SaveAs { input: dir });
+                if let Some(dir) = path_enter_dir(&input, &cwd) {
+                    ui.message = format!(" In {}  (type a name, Enter saves)", display_cwd(&dir));
+                    ui.dialog = Some(Dialog::SaveAs {
+                        input: String::new(),
+                        cwd: dir,
+                    });
                 } else {
-                    ui.dialog = None;
-                    let path = resolve_save_path(&input);
+                    let path = resolve_save_path(&cwd, &input);
                     match save_document(doc, Some(&path)) {
                         Ok(()) => {
+                            ui.dialog = None;
                             attach_project_for_doc(doc, ui);
                             ui.message = format!(" Saved {}.", display_name(doc));
                         }
-                        Err(e) => ui.message = e,
+                        Err(e) => {
+                            ui.message = e;
+                            ui.dialog = Some(Dialog::SaveAs { input, cwd });
+                        }
                     }
                 }
             }
             KeyCode::Tab | KeyCode::BackTab => {
                 let reverse = matches!(key.code, KeyCode::BackTab)
                     || key.modifiers.contains(KeyModifiers::SHIFT);
-                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, false);
+                let (next, msg) = path_tab_complete(&input, &mut ui.path_tab, reverse, false, &cwd);
                 input = next;
                 if !msg.is_empty() {
                     ui.message = msg;
                 }
-                ui.dialog = Some(Dialog::SaveAs { input });
+                ui.dialog = Some(Dialog::SaveAs { input, cwd });
             }
             KeyCode::Backspace => {
                 ui.path_tab = None;
                 input.pop();
-                ui.dialog = Some(Dialog::SaveAs { input });
+                ui.dialog = Some(Dialog::SaveAs { input, cwd });
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ui.path_tab = None;
                 input.push(c);
-                ui.dialog = Some(Dialog::SaveAs { input });
+                ui.dialog = Some(Dialog::SaveAs { input, cwd });
             }
             _ => {}
         },
@@ -965,17 +988,14 @@ fn dispatch(
         MenuCmd::File(FileCmd::Open) => {
             ui.dialog = Some(Dialog::Open {
                 input: String::new(),
+                cwd: dialog_cwd(doc, ui),
             });
         }
-        MenuCmd::File(FileCmd::OpenProject) => open_project_dialog(ui),
+        MenuCmd::File(FileCmd::OpenProject) => open_project_dialog(doc, ui),
         MenuCmd::File(FileCmd::Units) => open_units_dialog(doc, ui),
         MenuCmd::File(FileCmd::Save) => do_save(doc, ui, false),
         MenuCmd::File(FileCmd::SaveAs) => {
-            let initial = doc
-                .path()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default();
-            ui.dialog = Some(Dialog::SaveAs { input: initial });
+            ui.dialog = Some(save_as_dialog(doc, ui));
         }
         MenuCmd::File(FileCmd::Quit) => {
             if doc.is_dirty() {
@@ -1017,13 +1037,25 @@ fn dispatch(
     Ok(false)
 }
 
-fn open_project_dialog(ui: &mut UiState) {
-    let initial = ui
-        .project_dir
-        .as_ref()
-        .map(|p| p.display().to_string())
+fn dialog_cwd(doc: &Document, ui: &UiState) -> PathBuf {
+    initial_dialog_cwd(doc.path(), ui.project_dir.as_deref())
+}
+
+fn save_as_dialog(doc: &Document, ui: &UiState) -> Dialog {
+    let cwd = dialog_cwd(doc, ui);
+    let input = doc
+        .path()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    ui.dialog = Some(Dialog::OpenProject { input: initial });
+    Dialog::SaveAs { input, cwd }
+}
+
+fn open_project_dialog(doc: &Document, ui: &mut UiState) {
+    ui.dialog = Some(Dialog::OpenProject {
+        input: String::new(),
+        cwd: dialog_cwd(doc, ui),
+    });
 }
 
 fn open_units_dialog(doc: &Document, ui: &mut UiState) {
@@ -1039,6 +1071,32 @@ fn open_units_dialog(doc: &Document, ui: &mut UiState) {
     }
     let selected = ui.current_unit_index(doc).unwrap_or(0);
     ui.dialog = Some(Dialog::Units { selected });
+}
+
+fn apply_opened_project(
+    path: &PathBuf,
+    doc: &mut Document,
+    view: &mut EditorView,
+    rust_doc: &mut Document,
+    rust_view: &mut EditorView,
+    ui: &mut UiState,
+) -> Result<(), String> {
+    let d = open_project_into(path, ui)?;
+    ui.dialog = None;
+    *doc = d;
+    *view = EditorView::new();
+    ui.clear_diagnostics();
+    ui.find.clear_matches();
+    clear_rust_pane(rust_doc, rust_view, ui);
+    ui.message = format!(
+        " Project {} — {} unit(s). Ctrl+U to switch.",
+        ui.project_dir
+            .as_ref()
+            .map(|p| project_title(p))
+            .unwrap_or_default(),
+        ui.units.len()
+    );
+    Ok(())
 }
 
 fn open_project_into(dir: &PathBuf, ui: &mut UiState) -> Result<Document, String> {
@@ -1130,11 +1188,7 @@ fn find_status(find: &find::FindState) -> String {
     if find.matches.is_empty() || find.current == usize::MAX {
         " No match.".into()
     } else {
-        format!(
-            " Match {} of {}.",
-            find.current + 1,
-            find.matches.len()
-        )
+        format!(" Match {} of {}.", find.current + 1, find.matches.len())
     }
 }
 
@@ -1153,11 +1207,7 @@ fn apply_replace_one(doc: &mut Document, view: &mut EditorView, ui: &mut UiState
 
 fn do_save(doc: &mut Document, ui: &mut UiState, force_as: bool) {
     if force_as || doc.path().is_none() {
-        let initial = doc
-            .path()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
-        ui.dialog = Some(Dialog::SaveAs { input: initial });
+        ui.dialog = Some(save_as_dialog(doc, ui));
         return;
     }
     match save_document(doc, None) {
@@ -1231,9 +1281,7 @@ fn try_run(
 
     if doc.path().is_none() || doc.is_dirty() {
         if doc.path().is_none() {
-            ui.dialog = Some(Dialog::SaveAs {
-                input: String::new(),
-            });
+            ui.dialog = Some(save_as_dialog(doc, ui));
             ui.message = " Save the file before Run.".into();
             return Ok(());
         }
@@ -1250,7 +1298,6 @@ fn try_run(
     ui.message = format!(" {msg}");
     Ok(())
 }
-
 
 fn mark_rust_stale(ui: &mut UiState) {
     if ui.show_rust || !ui.line_map.is_empty() {
@@ -1312,9 +1359,7 @@ fn toggle_rust_pane(
         } else {
             ""
         };
-        ui.message = format!(
-            " Rust pane on{map_note} — Tab focus, Ctrl+C copy, F4 hide."
-        );
+        ui.message = format!(" Rust pane on{map_note} — Tab focus, Ctrl+C copy, F4 hide.");
     } else {
         if ui.focus == Focus::Rust {
             ui.focus = Focus::Editor;
@@ -1362,9 +1407,11 @@ fn sync_panes(
                     view.goto(doc, v0, cc.min(doc.line_len(v0)));
                 }
             }
-            if let Some((s, e)) =
-                compile::rust_span_for_vbr(&ui.line_map, view.cursor_position(doc).0 + 1, rust_lines)
-            {
+            if let Some((s, e)) = compile::rust_span_for_vbr(
+                &ui.line_map,
+                view.cursor_position(doc).0 + 1,
+                rust_lines,
+            ) {
                 compile::rust_map_decorations(s, e, style)
             } else {
                 compile::rust_map_decorations(rline, rline, style)

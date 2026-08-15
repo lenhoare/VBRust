@@ -120,7 +120,11 @@ fn select_match(doc: &Document, view: &mut EditorView, find: &mut FindState, idx
 
 /// If the current selection is the current find hit, replace it; then find next.
 /// If nothing selected as a hit, just find next (TP: first Enter finds).
-pub fn replace_one(doc: &mut Document, view: &mut EditorView, find: &mut FindState) -> ReplaceResult {
+pub fn replace_one(
+    doc: &mut Document,
+    view: &mut EditorView,
+    find: &mut FindState,
+) -> ReplaceResult {
     refresh_matches(doc, find);
     if find.query.is_empty() {
         return ReplaceResult::EmptyQuery;
@@ -186,7 +190,11 @@ pub fn replace_all(doc: &mut Document, view: &mut EditorView, find: &mut FindSta
         view.select_range(doc, s, e);
         find.current = 0;
     } else {
-        view.select_range(doc, view.cursor.min(doc.len_chars()), view.cursor.min(doc.len_chars()));
+        view.select_range(
+            doc,
+            view.cursor.min(doc.len_chars()),
+            view.cursor.min(doc.len_chars()),
+        );
         find.current = usize::MAX;
     }
     count
@@ -245,16 +253,16 @@ fn push_range_deco(
     let (_, end_col_excl) = doc.char_to_position(end);
 
     if line0 == line1 {
-        out.push(Decoration::new(line0, col0, end_col_excl.max(col0 + 1), style));
+        out.push(Decoration::new(
+            line0,
+            col0,
+            end_col_excl.max(col0 + 1),
+            style,
+        ));
         return;
     }
     // Multi-line match: decorate each line piece
-    out.push(Decoration::new(
-        line0,
-        col0,
-        doc.line_len(line0),
-        style,
-    ));
+    out.push(Decoration::new(line0, col0, doc.line_len(line0), style));
     for line in (line0 + 1)..line1 {
         out.push(Decoration::new(line, 0, doc.line_len(line), style));
     }

@@ -36,16 +36,16 @@ struct Dash {
     sales: Vec<Bar>,
 }
 
-impl Default for Dash {
-    fn default() -> Self {
+impl Dash {
+    fn init() -> Result<Dash, String> {
         let cpu = 62;
         let history = history()?;
         let sales = sales()?;
-        Dash {
+        Ok(Dash {
             cpu,
             history,
             sales,
-        }
+        })
     }
 }
 
@@ -67,7 +67,13 @@ fn view(state: &Dash, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let state = Dash::default();
+    let state = match Dash::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&state, frame))?;

@@ -1,7 +1,7 @@
 //! Turbo Pascal–style chrome: menu bar, editor, message line, status, dialogs.
 
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -81,7 +81,10 @@ impl MenuBar {
             MenuId::File => &[
                 ("New           Ctrl+N", MenuCmd::File(FileCmd::New)),
                 ("Open file...  Ctrl+O", MenuCmd::File(FileCmd::Open)),
-                ("Open project... Ctrl+P", MenuCmd::File(FileCmd::OpenProject)),
+                (
+                    "Open project... Ctrl+P",
+                    MenuCmd::File(FileCmd::OpenProject),
+                ),
                 ("Units...      Ctrl+U", MenuCmd::File(FileCmd::Units)),
                 ("Save          Ctrl+S", MenuCmd::File(FileCmd::Save)),
                 ("Save as...", MenuCmd::File(FileCmd::SaveAs)),
@@ -163,10 +166,21 @@ impl MenuBar {
 
 #[derive(Debug, Clone)]
 pub enum Dialog {
-    Open { input: String },
-    OpenProject { input: String },
-    Units { selected: usize },
-    SaveAs { input: String },
+    Open {
+        input: String,
+        cwd: std::path::PathBuf,
+    },
+    OpenProject {
+        input: String,
+        cwd: std::path::PathBuf,
+    },
+    Units {
+        selected: usize,
+    },
+    SaveAs {
+        input: String,
+        cwd: std::path::PathBuf,
+    },
     ConfirmQuit,
     Help,
     About,
@@ -403,7 +417,10 @@ fn draw_menu(f: &mut Frame, area: Rect, menu: &MenuBar) {
         let text = label.to_string();
         spans.push(Span::styled(text, style));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)).style(TpTheme::menu()), area);
+    f.render_widget(
+        Paragraph::new(Line::from(spans)).style(TpTheme::menu()),
+        area,
+    );
 }
 
 fn draw_dropdown(f: &mut Frame, menu_area: Rect, menu: &MenuBar, id: MenuId) {
@@ -483,7 +500,11 @@ pub fn dropdown_rect(menu_area: Rect, id: MenuId) -> Rect {
     Rect {
         x,
         y: menu_area.y + 1,
-        width: width.min(menu_area.width.saturating_sub(x.saturating_sub(menu_area.x))),
+        width: width.min(
+            menu_area
+                .width
+                .saturating_sub(x.saturating_sub(menu_area.x)),
+        ),
         height,
     }
 }
@@ -525,7 +546,7 @@ pub fn hit_test_menu(frame: Rect, menu: &MenuBar, column: u16, row: u16) -> Menu
             && row >= drop.y
             && row < drop.y + drop.height
         {
-            // Inside border: item rows are inner.y .. 
+            // Inside border: item rows are inner.y ..
             if row > drop.y && row < drop.y + drop.height - 1 {
                 let idx = (row - drop.y - 1) as usize;
                 if let Some((_, cmd)) = MenuBar::items(id).get(idx) {
@@ -553,11 +574,7 @@ fn draw_editor(
 ) {
     let (title, pane_style, border) = if is_rust {
         let stale_mark = if stale { " stale" } else { "" };
-        let focus_hint = if show_cursor {
-            "  Ctrl+C copy"
-        } else {
-            ""
-        };
+        let focus_hint = if show_cursor { "  Ctrl+C copy" } else { "" };
         (
             format!(" Rust{stale_mark}{focus_hint} "),
             TpTheme::rust_pane(),
@@ -651,10 +668,7 @@ fn truncate(s: &str, width: usize) -> String {
 }
 
 fn draw_message(f: &mut Frame, area: Rect, message: &str) {
-    f.render_widget(
-        Paragraph::new(message).style(TpTheme::menu()),
-        area,
-    );
+    f.render_widget(Paragraph::new(message).style(TpTheme::menu()), area);
 }
 
 fn draw_status(f: &mut Frame, area: Rect, doc: &Document, view: &EditorView, ui: &UiState) {
@@ -688,52 +702,31 @@ fn draw_status(f: &mut Frame, area: Rect, doc: &Document, view: &EditorView, ui:
     let right = format!(" {focus}  Ln {}, Col {} ", line + 1, col + 1);
     let mid_w = area.width.saturating_sub((left.len() + right.len()) as u16);
     let mid = " ".repeat(mid_w as usize);
-    let line = Line::from(vec![
-        Span::raw(left),
-        Span::raw(mid),
-        Span::raw(right),
-    ]);
+    let line = Line::from(vec![Span::raw(left), Span::raw(mid), Span::raw(right)]);
     f.render_widget(Paragraph::new(line).style(TpTheme::status()), area);
 }
 
 fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
-    // Units dialog is list-shaped — draw separately.
-    if let Dialog::Units { selected } = dialog {
-        // Caller must pass units via a side channel — we only have Dialog here.
-        // Drawn from draw() with ui.units — see draw_units_dialog.
-        let _ = (area, selected);
+    if matches!(dialog, Dialog::Units { .. }) {
+        return;
     }
 
-    let (title, body) = match dialog {
-        Dialog::Open { input } => (
-            " Open file ",
-            format!(
-                "File or folder\n\n [{input}_]\n\n\
-                 Tab=complete  Enter=open file / enter folder  Esc=Cancel"
-            ),
-        ),
-        Dialog::OpenProject { input } => (
-            " Open project ",
-            format!(
-                "Project folder (with main.vbr or several .vbr files)\n\n\
-                 [{input}_]\n\n\
-                 Tab=complete  Enter=open project / enter folder  Esc=Cancel"
-            ),
-        ),
-        Dialog::Units { .. } => {
-            // Handled in draw_units_dialog from draw().
-            return;
+    if let Some((title, lines, height)) = path_dialog_content(dialog) {
+        render_dialog_box(f, area, title, Paragraph::new(lines), height);
+        return;
+    }
+
+    let (title, body, height) = match dialog {
+        Dialog::Open { .. }
+        | Dialog::OpenProject { .. }
+        | Dialog::SaveAs { .. }
+        | Dialog::Units { .. } => {
+            unreachable!("path/units dialogs drawn above")
         }
-        Dialog::SaveAs { input } => (
-            " Save as ",
-            format!(
-                "File name\n\n [{input}_]\n\n\
-                 Tab=complete  Enter=save / enter folder  Esc=Cancel"
-            ),
-        ),
         Dialog::ConfirmQuit => (
             " Quit ",
             "File not saved. Quit anyway?\n\n Y = Yes   N / Esc = No".into(),
+            10u16,
         ),
         Dialog::Help => (
             " Keys ",
@@ -748,6 +741,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
              Tab  cycle panes    Enter jump to error\n\
              Mouse: menus + drag to select text"
                 .into(),
+            12u16,
         ),
         Dialog::About => (
             " About ",
@@ -756,6 +750,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
              \n\
              Esc to close"
                 .into(),
+            10u16,
         ),
         Dialog::Find {
             input,
@@ -769,6 +764,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
                      Case sensitive: {cs}  (Ctrl+C toggles)\n\
                      Enter=Find  Esc=Cancel"
                 ),
+                11u16,
             )
         }
         Dialog::Replace {
@@ -791,15 +787,62 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
                      Case sensitive: {cs}  (Ctrl+C toggles)\n\
                      Tab=field  Enter=Replace/Find next  Ctrl+A=All  Esc=Close"
                 ),
+                12u16,
             )
         }
     };
 
-    let height = match dialog {
-        Dialog::Help | Dialog::Replace { .. } => 12u16,
-        Dialog::Find { .. } | Dialog::OpenProject { .. } => 11u16,
-        _ => 10u16,
+    render_dialog_box(
+        f,
+        area,
+        title,
+        Paragraph::new(body).style(TpTheme::dialog().add_modifier(Modifier::BOLD)),
+        height,
+    );
+}
+
+fn path_dialog_content(dialog: &Dialog) -> Option<(&'static str, Vec<Line<'_>>, u16)> {
+    let (title, kind, hints, input, cwd) = match dialog {
+        Dialog::Open { input, cwd } => (
+            " Open file ",
+            "File or folder",
+            "Tab=complete  Enter=open file / enter folder  Esc=Cancel",
+            input.as_str(),
+            cwd,
+        ),
+        Dialog::OpenProject { input, cwd } => (
+            " Open project ",
+            "Project folder (main.vbr or several .vbr files)",
+            "Tab=complete  Enter=open project / enter folder  Esc=Cancel",
+            input.as_str(),
+            cwd,
+        ),
+        Dialog::SaveAs { input, cwd } => (
+            " Save as ",
+            "File name",
+            "Tab=complete  Enter=save / enter folder  Esc=Cancel",
+            input.as_str(),
+            cwd,
+        ),
+        _ => return None,
     };
+    let bold = TpTheme::dialog().add_modifier(Modifier::BOLD);
+    let grey = Style::default().bg(TpTheme::DIALOG_BG).fg(Color::DarkGray);
+    Some((
+        title,
+        vec![
+            Line::from(Span::styled(kind, bold)),
+            Line::from(""),
+            Line::from(Span::styled(files::display_cwd(cwd), grey)),
+            Line::from(Span::styled(format!(" [{input}_]"), bold)),
+            Line::from(""),
+            Line::from(Span::styled(hints, bold)),
+        ],
+        12,
+    ))
+}
+
+fn render_dialog_box(f: &mut Frame, area: Rect, title: &str, body: Paragraph, height: u16) {
     let width = 56u16.min(area.width.saturating_sub(4));
     let height = height.min(area.height.saturating_sub(4));
     let x = area.x + (area.width.saturating_sub(width)) / 2;
@@ -818,10 +861,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
         .style(TpTheme::dialog());
     let inner = block.inner(rect);
     f.render_widget(block, rect);
-    f.render_widget(
-        Paragraph::new(body).style(TpTheme::dialog().add_modifier(Modifier::BOLD)),
-        inner,
-    );
+    f.render_widget(body, inner);
 }
 
 pub fn draw_units_dialog(f: &mut Frame, area: Rect, units: &[std::path::PathBuf], selected: usize) {
@@ -883,12 +923,20 @@ pub fn draw_units_dialog(f: &mut Frame, area: Rect, units: &[std::path::PathBuf]
 }
 
 /// Viewport size for scrolling (inside editor border).
-pub fn editor_text_area(frame_area: Rect, watch_visible: bool, rust_visible: bool) -> (usize, usize) {
+pub fn editor_text_area(
+    frame_area: Rect,
+    watch_visible: bool,
+    rust_visible: bool,
+) -> (usize, usize) {
     let inner = vbr_inner_rect(frame_area, watch_visible, rust_visible);
     (inner.height.max(1) as usize, inner.width.max(1) as usize)
 }
 
-pub fn rust_text_area(frame_area: Rect, watch_visible: bool, rust_visible: bool) -> Option<(usize, usize)> {
+pub fn rust_text_area(
+    frame_area: Rect,
+    watch_visible: bool,
+    rust_visible: bool,
+) -> Option<(usize, usize)> {
     let inner = rust_inner_rect(frame_area, watch_visible, rust_visible)?;
     Some((inner.height.max(1) as usize, inner.width.max(1) as usize))
 }
@@ -905,7 +953,8 @@ fn split_editor_panes(area: Rect, rust_visible: bool) -> EditorPanes {
             rust: None,
         };
     }
-    let parts = Layout::vertical([Constraint::Percentage(58), Constraint::Percentage(42)]).split(area);
+    let parts =
+        Layout::vertical([Constraint::Percentage(58), Constraint::Percentage(42)]).split(area);
     EditorPanes {
         vbr: parts[0],
         rust: Some(parts[1]),
@@ -981,12 +1030,24 @@ pub fn watch_inner_rect(frame: Rect, watch_visible: bool) -> Option<Rect> {
     Some(inset_border(area))
 }
 
-pub fn hit_editor(frame: Rect, watch_visible: bool, rust_visible: bool, column: u16, row: u16) -> bool {
+pub fn hit_editor(
+    frame: Rect,
+    watch_visible: bool,
+    rust_visible: bool,
+    column: u16,
+    row: u16,
+) -> bool {
     let r = vbr_inner_rect(frame, watch_visible, rust_visible);
     column >= r.x && column < r.x + r.width && row >= r.y && row < r.y + r.height
 }
 
-pub fn hit_rust(frame: Rect, watch_visible: bool, rust_visible: bool, column: u16, row: u16) -> bool {
+pub fn hit_rust(
+    frame: Rect,
+    watch_visible: bool,
+    rust_visible: bool,
+    column: u16,
+    row: u16,
+) -> bool {
     let Some(r) = rust_inner_rect(frame, watch_visible, rust_visible) else {
         return false;
     };

@@ -1,0 +1,1 @@
+ℹ VB converts between number types silently; Rust wants it spelled out, so Bust inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float to an integer) can lose data.

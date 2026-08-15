@@ -18,18 +18,18 @@ struct Notes {
     focus_index: usize,
 }
 
-impl Default for Notes {
-    fn default() -> Self {
+impl Notes {
+    fn init() -> Result<Notes, String> {
         let entry = "".to_string();
         let notes = seed()?;
         let status = "type a note, Enter to add".to_string();
-        Notes {
+        Ok(Notes {
             entry,
             notes,
             status,
             notes_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             focus_index: 0,
-        }
+        })
     }
 }
 
@@ -52,7 +52,13 @@ fn view(state: &mut Notes, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let mut state = Notes::default();
+    let mut state = match Notes::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&mut state, frame))?;

@@ -21,14 +21,14 @@ struct Chart {
     seed: i32,
 }
 
-impl Default for Chart {
-    fn default() -> Self {
+impl Chart {
+    fn init() -> Result<Chart, String> {
         let bars = makebars(3)?;
         let seed = 3;
-        Chart {
+        Ok(Chart {
             bars,
             seed,
-        }
+        })
     }
 }
 
@@ -80,9 +80,15 @@ impl<Message> iced::widget::canvas::Program<Message> for PlotCanvas {
         {
             let frame = &mut frame;
             let _ = &frame;
-            frame.stroke(&iced::widget::canvas::Path::line(iced::Point::new((10) as f32, (180) as f32), iced::Point::new((330) as f32, (180) as f32)), iced::widget::canvas::Stroke::default().with_color(iced::Color::from_rgb8(128, 128, 128)).with_width((1) as f32));
-            for b in &self.bars {
-                frame.fill(&iced::widget::canvas::Path::rectangle(iced::Point::new((b.x) as f32, (180 - b.h) as f32), iced::Size::new((18) as f32, (b.h) as f32)), iced::Color::from_rgb8(0, 0, 128));
+            let __vbr_draw: Result<(), String> = (|| {
+                frame.stroke(&iced::widget::canvas::Path::line(iced::Point::new((10) as f32, (180) as f32), iced::Point::new((330) as f32, (180) as f32)), iced::widget::canvas::Stroke::default().with_color(iced::Color::from_rgb8(128, 128, 128)).with_width((1) as f32));
+                for b in &self.bars {
+                    frame.fill(&iced::widget::canvas::Path::rectangle(iced::Point::new(((*b).x) as f32, (180 - (*b).h) as f32), iced::Size::new((18) as f32, ((*b).h) as f32)), iced::Color::from_rgb8(0, 0, 128));
+                }
+                Ok(())
+            })();
+            if let Err(__e) = __vbr_draw {
+                eprintln!("Error: {}", __e);
             }
         }
         vec![frame.into_geometry()]
@@ -90,5 +96,12 @@ impl<Message> iced::widget::canvas::Program<Message> for PlotCanvas {
 }
 
 fn main() -> iced::Result {
-    iced::run("Bar Chart", update, view)
+    iced::application("Bar Chart", update, view)
+        .run_with(|| match Chart::init() {
+            Ok(state) => (state, iced::Task::none()),
+            Err(message) => {
+                eprintln!("could not start: {}", message);
+                std::process::exit(1);
+            }
+        })
 }

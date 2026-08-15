@@ -21,7 +21,7 @@ impl std::fmt::Display for Shape {
     }
 }
 
-fn describe(s: &Shape) -> Result<String, String> {
+fn describe(s: Shape) -> Result<String, String> {
     match s {
         Shape :: Dot ( p ) => {
             return Ok(format!("dot at {},{}", p.x, p.y));
@@ -39,13 +39,13 @@ fn describe(s: &Shape) -> Result<String, String> {
 }
 
 fn vbr_main() -> Result<(), String> {
-    println!("{}", describe(&Shape::Dot(Point { x: 1.0, y: 2.0 }))?);
-    println!("{}", describe(&Shape::Segment(Point { x: 1.0, y: 2.0 }, Point { x: 5.0, y: 6.0 }))?);
+    println!("{}", describe(Shape::Dot(Point { x: 1.0, y: 2.0 }))?);
+    println!("{}", describe(Shape::Segment(Point { x: 1.0, y: 2.0 }, Point { x: 5.0, y: 6.0 }))?);
     let mut cloud: Vec<Point> = Vec::new();
     cloud.push(Point { x: 1.0, y: 2.0 });
     cloud.push(Point { x: 5.0, y: 6.0 });
-    println!("{}", describe(&Shape::Blob(cloud))?);
-    println!("{}", describe(&Shape::Empty)?);
+    println!("{}", describe(Shape::Blob(cloud))?);
+    println!("{}", describe(Shape::Empty)?);
     Ok(())
 }
 

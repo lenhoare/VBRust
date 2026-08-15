@@ -1,7 +1,6 @@
 ' 13 — Conway's Game of Life, entry point: a Window (Iced GUI).
 ' The grid is 20x15; live cells are computed into state rects by the
-' events, and the Canvas Draw block only renders them (canvas bodies
-' don't run the resolver — see notes).
+' events, and the Canvas Draw block only renders them.
 '
 ' Window features exercised: Button row, Text status, Canvas with a Draw
 ' block over a state Vec, state-machine events calling the logic module.

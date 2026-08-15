@@ -1,6 +1,4 @@
 ' The Mandelbrot set, one pixel at a time.
-' Mapping onto the complex plane needs a float cast; Draw doesn't insert `as`,
-' so those two lines are a tiny Rust hatch. The loop and Set Pixel are Bust.
 Sketch Mandelbrot
     Title "Mandelbrot"
     Size 640, 480
@@ -13,12 +11,8 @@ Sketch Mandelbrot
     Draw
         For y = 0 To height - 1
             For x = 0 To width - 1
-                Dim cre As Double = Rust
-                    -2.2 + (x as f64) * 3.0 / (width as f64)
-                End Rust
-                Dim cim As Double = Rust
-                    -1.2 + (y as f64) * 2.4 / (height as f64)
-                End Rust
+                Dim cre As Double = -2.2 + x * 3.0 / width
+                Dim cim As Double = -1.2 + y * 2.4 / height
                 Dim zr As Double = 0.0
                 Dim zi As Double = 0.0
                 Dim n As Integer = 0

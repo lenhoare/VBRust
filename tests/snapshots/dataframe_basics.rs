@@ -20,7 +20,7 @@ fn vbr_main() -> Result<(), String> {
     df = df.select(&["name", "band", "total"]);
     df.print();
     let names: Vec<String> = df.column("name");
-    println!("first kept: {}", names[0]);
+    println!("first kept: {}", names[0].clone());
     df.write_csv("out.csv");
     println!("wrote out.csv");
     Ok(())

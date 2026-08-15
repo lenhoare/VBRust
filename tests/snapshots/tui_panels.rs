@@ -28,19 +28,19 @@ struct Panels {
     focus_index: usize,
 }
 
-impl Default for Panels {
-    fn default() -> Self {
+impl Panels {
+    fn init() -> Result<Panels, String> {
         let left = leftitems()?;
         let right = rightitems()?;
         let log = "(nothing picked yet)".to_string();
-        Panels {
+        Ok(Panels {
             left,
             right,
             log,
             left_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             right_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
             focus_index: 0,
-        }
+        })
     }
 }
 
@@ -65,7 +65,13 @@ fn view(state: &mut Panels, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let mut state = Panels::default();
+    let mut state = match Panels::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&mut state, frame))?;

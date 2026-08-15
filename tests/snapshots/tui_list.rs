@@ -18,15 +18,15 @@ struct Menu {
     fruits_state: ratatui::widgets::ListState,
 }
 
-impl Default for Menu {
-    fn default() -> Self {
+impl Menu {
+    fn init() -> Result<Menu, String> {
         let fruits = fruits()?;
         let choice = "(none yet)".to_string();
-        Menu {
+        Ok(Menu {
             fruits,
             choice,
             fruits_state: ratatui::widgets::ListState::default().with_selected(Some(0)),
-        }
+        })
     }
 }
 
@@ -47,7 +47,13 @@ fn view(state: &mut Menu, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let mut state = Menu::default();
+    let mut state = match Menu::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&mut state, frame))?;

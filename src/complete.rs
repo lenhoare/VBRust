@@ -412,7 +412,8 @@ const KEYWORDS: &[&str] = &[
     "Dim", "Set", "If", "Then", "ElseIf", "Else", "End", "For", "Each", "In", "To", "Step",
     "Next", "Do", "While", "Until", "Loop", "Match", "Return", "Exit", "Continue", "Function",
     "Sub", "Const", "Type", "Enum", "True", "False", "Not", "And", "Or", "Await", "Log", "Test",
-    "Assert", "Handle", "RaiseError", "Raw", "Theme", "Rust", "Python", "Sketch",
+    "Assert", "Handle", "RaiseError", "Raw", "Theme", "Rust", "Python",
+    "Window", "Screen", "Page", "Sketch",
 ];
 
 const BUILTINS: &[(&str, &str)] = &[

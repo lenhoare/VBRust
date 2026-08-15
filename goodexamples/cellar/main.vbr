@@ -1,0 +1,120 @@
+' Find the stairs. Arrows or wasd to walk, q to quit.
+' Walking into a wall RaiseError's; Apply Handles it into the status line.
+' Run:  vbr runproject goodexamples/cellar
+
+Screen Cellar
+    Title "Cellar"
+    Status status
+
+    State
+        Dim map As Vec<String> = Maze.Blueprint()
+        Dim px As Long = Maze.StartX()
+        Dim py As Long = Maze.StartY()
+        Dim r0 As String = "###############"
+        Dim r1 As String = "#@............#"
+        Dim r2 As String = "#.######.######"
+        Dim r3 As String = "#.#....#......#"
+        Dim r4 As String = "#.#.##.#.####.#"
+        Dim r5 As String = "#.#.#..#....#.#"
+        Dim r6 As String = "#...#.###.#.#.#"
+        Dim r7 As String = "#.###.....#..E#"
+        Dim r8 As String = "###############"
+        Dim status As String = "find E — arrows or wasd · q quits"
+        Dim escaped As Boolean = False
+    End State
+
+    View
+        Column
+            Spacing 0
+            Text r0
+            Text r1
+            Text r2
+            Text r3
+            Text r4
+            Text r5
+            Text r6
+            Text r7
+            Text r8
+            Length 1
+            Text " lantern cellar"
+        End Column
+    End View
+
+    On Key Up North
+    On Key Down South
+    On Key Left West
+    On Key Right East
+    On Key "w" North
+    On Key "s" South
+    On Key "a" West
+    On Key "d" East
+    On Key "q" Quit
+
+    Event North
+        Dim lines As Vec<String> = Maze.Apply(map, px, py, 0, -1, status, escaped) Handle err
+            status = err
+            Return
+        End Handle
+        r0 = lines[0]
+        r1 = lines[1]
+        r2 = lines[2]
+        r3 = lines[3]
+        r4 = lines[4]
+        r5 = lines[5]
+        r6 = lines[6]
+        r7 = lines[7]
+        r8 = lines[8]
+    End Event
+
+    Event South
+        Dim lines As Vec<String> = Maze.Apply(map, px, py, 0, 1, status, escaped) Handle err
+            status = err
+            Return
+        End Handle
+        r0 = lines[0]
+        r1 = lines[1]
+        r2 = lines[2]
+        r3 = lines[3]
+        r4 = lines[4]
+        r5 = lines[5]
+        r6 = lines[6]
+        r7 = lines[7]
+        r8 = lines[8]
+    End Event
+
+    Event West
+        Dim lines As Vec<String> = Maze.Apply(map, px, py, -1, 0, status, escaped) Handle err
+            status = err
+            Return
+        End Handle
+        r0 = lines[0]
+        r1 = lines[1]
+        r2 = lines[2]
+        r3 = lines[3]
+        r4 = lines[4]
+        r5 = lines[5]
+        r6 = lines[6]
+        r7 = lines[7]
+        r8 = lines[8]
+    End Event
+
+    Event East
+        Dim lines As Vec<String> = Maze.Apply(map, px, py, 1, 0, status, escaped) Handle err
+            status = err
+            Return
+        End Handle
+        r0 = lines[0]
+        r1 = lines[1]
+        r2 = lines[2]
+        r3 = lines[3]
+        r4 = lines[4]
+        r5 = lines[5]
+        r6 = lines[6]
+        r7 = lines[7]
+        r8 = lines[8]
+    End Event
+End Screen
+
+Function Main()
+    Cellar.Run
+End Function

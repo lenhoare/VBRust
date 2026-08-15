@@ -276,7 +276,7 @@ pub enum DrawCmd {
     Pixel { x: Expr, y: Expr, color: Expr },
     /// A call to a paint function — *not* produced by the parser; the canvas
     /// codegen rewrites a plain call to a paint function into this so the shared
-    /// `frame` is threaded through (`draw_grid(frame, …)`).
+    /// `frame` is threaded through (`draw_grid(frame, …)?`).
     Paint { name: String, args: Vec<Expr> },
 }
 
@@ -686,6 +686,10 @@ pub enum Stmt {
         name_span: Span,
         ty: DeclType,
         init: Option<Expr>,
+        /// `Dim x As T = F() Handle` strips the initialiser and assigns in the
+        /// Handle. The binding must be declared uninitialised — never `= Vec::new()`
+        /// or `= ;` — because the Handle is the real first write.
+        deferred: bool,
         line: usize,
     },
     /// `Set a = b` / `Set Mut a = b` — borrow instead of copy.

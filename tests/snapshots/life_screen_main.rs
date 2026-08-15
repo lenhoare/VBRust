@@ -21,18 +21,18 @@ struct LifeLab {
     status: String,
 }
 
-impl Default for LifeLab {
-    fn default() -> Self {
+impl LifeLab {
+    fn init() -> Result<LifeLab, String> {
         let grid = crate::life::newgrid()?;
         let rule = crate::life::classicrule()?;
         let living = 0;
         let status = "ready".to_string();
-        LifeLab {
+        Ok(LifeLab {
             grid,
             rule,
             living,
             status,
-        }
+        })
     }
 }
 
@@ -52,7 +52,13 @@ fn view(state: &LifeLab, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let mut state = LifeLab::default();
+    let mut state = match LifeLab::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&state, frame))?;

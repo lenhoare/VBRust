@@ -3035,6 +3035,7 @@ impl<'a> Parser<'a> {
                         }
                         .at(span),
                     ),
+                    deferred: false,
                     line,
                 });
             }
@@ -3127,6 +3128,7 @@ impl<'a> Parser<'a> {
                     name_span,
                     ty,
                     init: None,
+                    deferred: true,
                     line,
                 });
             }
@@ -3135,6 +3137,7 @@ impl<'a> Parser<'a> {
                 name_span,
                 ty,
                 init: Some(call),
+                deferred: false,
                 line,
             });
         }
@@ -3143,6 +3146,7 @@ impl<'a> Parser<'a> {
             name_span,
             ty,
             init: None,
+            deferred: false,
             line,
         })
     }

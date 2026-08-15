@@ -13,8 +13,8 @@ unit-tested; the Window renders from state.
 - `Canvas Board Width 400 Height 300` with a `Draw` block — grid lines via
   `Stroke Line`, live cells via `Fill Rect` iterated with `For Each` over a
   state `Vec<CellRect>` (the documented data-driven drawing pattern)
-- State as `Vec<Long>` grid + precomputed `Vec<CellRect>`; canvas bodies
-  don't run the resolver, so all grid maths happens in the events
+- State as `Vec<Long>` grid + precomputed `Vec<CellRect>`; grid maths
+  happens in the events so Draw only paints
 - A state field's initialiser can't read a sibling field — `rects` is
   built from a fresh identical seed instead (see notes.md Quirk 47)
 

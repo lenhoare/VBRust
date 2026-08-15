@@ -402,7 +402,7 @@ impl Rw<'_> {
             // `Dim h As T = Spawn("res://…")` (load + instantiate) → a typed
             // `Gd<T>` handle. Kept a real `Dim` (not an inline-Rust block) so `h`
             // is visible afterwards; the type is rewritten to `Gd<T>`.
-            Stmt::Dim { name, name_span, ty, init: Some(init), line }
+            Stmt::Dim { name, name_span, ty, init: Some(init), line, .. }
                 if handle_init(&init).is_some() =>
             {
                 let (kind, path_expr) = handle_init(&init).unwrap();
@@ -419,6 +419,7 @@ impl Rw<'_> {
                     name_span,
                     ty: DeclType::Named(format!("Gd<{}>", t)),
                     init: Some(inline(rhs)),
+                    deferred: false,
                     line,
                 }
             }
@@ -444,11 +445,12 @@ impl Rw<'_> {
                 value: self.expr(value),
                 op,
             },
-            Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim {
+            Stmt::Dim { name, name_span, ty, init, deferred, line } => Stmt::Dim {
                 name,
                 name_span,
                 ty,
                 init: init.map(|e| self.expr(e)),
+                deferred,
                 line,
             },
             // `Emit Sig(a, b)` → hoist the args, then emit — `self.signals()` borrows

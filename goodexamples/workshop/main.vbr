@@ -1,0 +1,99 @@
+' A tiny workshop board. Tab to the list, Enter to pick, 1/2/3 to move lanes.
+' Run:  vbr runproject goodexamples/workshop
+
+Screen Shop
+    Title "Workshop"
+    Status status
+
+    State
+        Dim jobs As Vec<Job> = StarterJobs()
+        Dim labels As Vec<String> = StarterLabels()
+        Dim entry As String = ""
+        Dim picked As String = ""
+        Dim status As String = "type a job, Enter to add · pick a row · 1 inbox  2 doing  3 done"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " Tab between box and list · Esc quits"
+            Length 3
+            Input entry
+                On Submit AddJob
+            End Input
+            Fill
+            List labels
+                On Select Choose
+            End List
+            Length 1
+            Text " selected: " & picked
+        End Column
+    End View
+
+    On Key "1" ToInbox
+    On Key "2" ToDoing
+    On Key "3" ToDone
+    On Key Esc Quit
+
+    Event AddJob(text As String)
+        Board.AddJob(jobs, text) Handle err
+            status = err
+            Return
+        End Handle
+        labels = Board.Labels(jobs)
+        entry = ""
+        status = "added to inbox"
+    End Event
+
+    Event Choose(item As String)
+        picked = item
+        status = "picked — 1/2/3 moves it"
+    End Event
+
+    Event ToInbox
+        Board.SetLane(jobs, picked, Lane.Inbox) Handle err
+            status = err
+            Return
+        End Handle
+        labels = Board.Labels(jobs)
+        picked = ""
+        status = "moved to inbox"
+    End Event
+
+    Event ToDoing
+        Board.SetLane(jobs, picked, Lane.Doing) Handle err
+            status = err
+            Return
+        End Handle
+        labels = Board.Labels(jobs)
+        picked = ""
+        status = "moved to doing"
+    End Event
+
+    Event ToDone
+        Board.SetLane(jobs, picked, Lane.Done) Handle err
+            status = err
+            Return
+        End Handle
+        labels = Board.Labels(jobs)
+        picked = ""
+        status = "moved to done"
+    End Event
+End Screen
+
+Function StarterJobs() As Vec<Job>
+    Dim jobs As Vec<Job>
+    jobs.Push(Job { title: "sharpen chisels", stage: Lane.Inbox })
+    jobs.Push(Job { title: "glue the chair", stage: Lane.Doing })
+    jobs.Push(Job { title: "oil the lathe", stage: Lane.Done })
+    Return jobs
+End Function
+
+Function StarterLabels() As Vec<String>
+    Dim jobs As Vec<Job> = StarterJobs()
+    Return Board.Labels(jobs)
+End Function
+
+Function Main()
+    Shop.Run
+End Function

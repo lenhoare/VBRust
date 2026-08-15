@@ -42,16 +42,62 @@ pub fn display_name(doc: &Document) -> String {
         .unwrap_or_else(|| "NONAME.Bust".into())
 }
 
-pub fn resolve_save_path(input: &str) -> PathBuf {
+pub fn resolve_save_path(cwd: &Path, input: &str) -> PathBuf {
     let p = input.trim();
     if p.is_empty() {
-        return PathBuf::from("NONAME.Bust");
+        return cwd.join("NONAME.Bust");
     }
     let mut path = PathBuf::from(p);
+    if !path.is_absolute() {
+        path = cwd.join(path);
+    }
     if path.extension().is_none() {
         path.set_extension("vbr");
     }
     path
+}
+
+/// Directory the Open / Save dialogs start in: the current file's folder, else
+/// the project, else the process working directory.
+pub fn initial_dialog_cwd(doc_path: Option<&Path>, project_dir: Option<&Path>) -> PathBuf {
+    if let Some(p) = doc_path {
+        if let Some(parent) = p.parent() {
+            if !parent.as_os_str().is_empty() {
+                return canonicalize_dir(parent);
+            }
+        }
+    }
+    if let Some(d) = project_dir {
+        return canonicalize_dir(d);
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+pub fn display_cwd(cwd: &Path) -> String {
+    let s = cwd.display().to_string();
+    if s.is_empty() {
+        ".".into()
+    } else {
+        s
+    }
+}
+
+/// Resolve a typed path against the dialog's working directory.
+pub fn resolve_in_cwd(cwd: &Path, input: &str) -> PathBuf {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return cwd.to_path_buf();
+    }
+    let p = PathBuf::from(trimmed);
+    if p.is_absolute() {
+        p
+    } else {
+        cwd.join(p)
+    }
+}
+
+fn canonicalize_dir(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| normalize_path_components(p))
 }
 
 /// List `.vbr` units in a directory (sorted, `main.vbr` first).
@@ -96,13 +142,10 @@ pub fn is_project_dir(dir: &Path) -> bool {
     let Ok(units) = list_units(dir) else {
         return false;
     };
-    units
-        .iter()
-        .any(|p| {
-            p.file_name()
-                .is_some_and(|n| n.eq_ignore_ascii_case("main.vbr"))
-        })
-        || units.len() > 1
+    units.iter().any(|p| {
+        p.file_name()
+            .is_some_and(|n| n.eq_ignore_ascii_case("main.vbr"))
+    }) || units.len() > 1
 }
 
 /// If `path` is a file, return its parent when that parent looks like a project.
@@ -147,28 +190,34 @@ pub struct PathTabState {
     index: usize,
 }
 
-/// If `input` names an existing directory, return it with a trailing separator
-/// (components like `..` normalized). Used when Enter browses into a folder.
-pub fn path_enter_dir(input: &str) -> Option<String> {
+/// True when the text box is a parent-directory climb (`..`, `../`, `foo/..`).
+/// Enter on these must change directory, never open a file or project.
+pub fn is_parent_nav(input: &str) -> bool {
+    use std::path::Component;
+    let t = input.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let t = t.trim_end_matches(['/', '\\']);
+    Path::new(t)
+        .components()
+        .next_back()
+        .is_some_and(|c| matches!(c, Component::ParentDir))
+}
+
+/// If `input` names an existing directory (absolute, or relative to `cwd`),
+/// return that directory. Used when Enter browses into a folder. Empty input
+/// is not a browse — the dialog is already in `cwd`.
+pub fn path_enter_dir(input: &str, cwd: &Path) -> Option<PathBuf> {
     let trimmed = input.trim();
-    let path = if trimmed.is_empty() {
-        PathBuf::from(".")
-    } else {
-        PathBuf::from(trimmed)
-    };
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = resolve_in_cwd(cwd, trimmed);
     if !path.is_dir() {
         return None;
     }
-    let normalized = normalize_path_components(&path);
-    let mut s = normalized.to_string_lossy().into_owned();
-    if s.is_empty() {
-        s.push('.');
-    }
-    let sep = preferred_sep(trimmed);
-    if !s.ends_with('/') && !s.ends_with('\\') {
-        s.push(sep);
-    }
-    Some(s)
+    Some(canonicalize_dir(&path))
 }
 
 fn preferred_sep(input: &str) -> char {
@@ -207,6 +256,7 @@ pub fn path_tab_complete(
     state: &mut Option<PathTabState>,
     reverse: bool,
     dirs_only: bool,
+    cwd: &Path,
 ) -> (String, String) {
     // Continue an active cycle when the box still shows that completion.
     if let Some(st) = state.as_mut() {
@@ -236,7 +286,7 @@ pub fn path_tab_complete(
         }
     }
 
-    let candidates = list_path_completions(input, dirs_only);
+    let candidates = list_path_completions(input, dirs_only, cwd);
     if candidates.is_empty() {
         *state = None;
         return (input.to_string(), " No matches".into());
@@ -259,13 +309,13 @@ pub fn path_tab_complete(
     (result, msg)
 }
 
-fn list_path_completions(input: &str, dirs_only: bool) -> Vec<String> {
+fn list_path_completions(input: &str, dirs_only: bool, cwd: &Path) -> Vec<String> {
     let raw = input;
     let trimmed = raw.trim_start();
     let lead_ws_len = raw.len() - trimmed.len();
     let lead_ws = &raw[..lead_ws_len];
 
-    let (dir, partial, prefix) = split_path_prefix(trimmed);
+    let (dir, partial, prefix) = split_path_prefix(trimmed, cwd);
     let Ok(rd) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -331,15 +381,19 @@ fn parent_completion(lead_ws: &str, prefix: &str, dir: &Path, sep: char) -> Opti
     Some(s)
 }
 
-/// Split typed path into `(directory to list, partial name, display prefix for that dir)`.
-fn split_path_prefix(input: &str) -> (PathBuf, String, String) {
+fn split_path_prefix(input: &str, cwd: &Path) -> (PathBuf, String, String) {
     if input.is_empty() {
-        return (PathBuf::from("."), String::new(), String::new());
+        return (cwd.to_path_buf(), String::new(), String::new());
     }
 
     let ends_with_sep = input.ends_with('/') || input.ends_with('\\');
     if ends_with_sep {
         let dir = PathBuf::from(input);
+        let dir = if dir.is_absolute() {
+            dir
+        } else {
+            cwd.join(&dir)
+        };
         return (dir, String::new(), input.to_string());
     }
 
@@ -347,6 +401,11 @@ fn split_path_prefix(input: &str) -> (PathBuf, String, String) {
     match path.file_name() {
         Some(name) if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) => {
             let parent = path.parent().unwrap();
+            let list_dir = if parent.is_absolute() {
+                parent.to_path_buf()
+            } else {
+                cwd.join(parent)
+            };
             let mut prefix = parent.to_string_lossy().into_owned();
             if !prefix.ends_with('/') && !prefix.ends_with('\\') {
                 let sep = if input.contains('\\') && !input.contains('/') {
@@ -356,13 +415,17 @@ fn split_path_prefix(input: &str) -> (PathBuf, String, String) {
                 };
                 prefix.push(sep);
             }
-            (parent.to_path_buf(), name.to_string_lossy().into_owned(), prefix)
+            (list_dir, name.to_string_lossy().into_owned(), prefix)
         }
         Some(name) => {
-            // Bare name in cwd, or a single-component relative path.
-            (PathBuf::from("."), name.to_string_lossy().into_owned(), String::new())
+            // Bare name in the dialog cwd.
+            (
+                cwd.to_path_buf(),
+                name.to_string_lossy().into_owned(),
+                String::new(),
+            )
         }
-        None => (PathBuf::from("."), String::new(), String::new()),
+        None => (cwd.to_path_buf(), String::new(), String::new()),
     }
 }
 
@@ -382,15 +445,19 @@ mod tests {
 
         let prefix = format!("{}/al", dir.display());
         let mut state = None;
-        let (a, msg) = path_tab_complete(&prefix, &mut state, false, false);
+        let cwd = Path::new(".");
+        let (a, msg) = path_tab_complete(&prefix, &mut state, false, false, cwd);
         assert!(msg.contains("matches"), "{msg}");
-        assert!(a.contains("algae") || a.contains("alpha") || a.contains("alpine"), "{a}");
+        assert!(
+            a.contains("algae") || a.contains("alpha") || a.contains("alpine"),
+            "{a}"
+        );
 
-        let (b, _) = path_tab_complete(&a, &mut state, false, false);
+        let (b, _) = path_tab_complete(&a, &mut state, false, false, cwd);
         assert_ne!(a, b);
 
-        let (c, _) = path_tab_complete(&b, &mut state, false, false);
-        let (d, _) = path_tab_complete(&c, &mut state, false, false);
+        let (c, _) = path_tab_complete(&b, &mut state, false, false, cwd);
+        let (d, _) = path_tab_complete(&c, &mut state, false, false, cwd);
         // three matches → third Tab wraps to first
         assert_eq!(d, a);
 
@@ -403,15 +470,24 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("sub")).unwrap();
 
-        let entered = path_enter_dir(&format!("{}/sub", dir.display())).unwrap();
-        assert!(entered.ends_with('/'), "{entered}");
-        assert!(entered.contains("sub"), "{entered}");
+        let entered = path_enter_dir(&format!("{}/sub", dir.display()), Path::new(".")).unwrap();
+        assert!(entered.ends_with("sub"), "{}", entered.display());
 
-        let up = path_enter_dir(&format!("{}/sub/../", dir.display())).unwrap();
-        assert!(!up.contains("sub"), "{up}");
-        assert!(up.ends_with('/'), "{up}");
+        let up = path_enter_dir("..", &dir.join("sub")).unwrap();
+        assert_eq!(up, canonicalize_dir(&dir));
 
-        assert!(path_enter_dir("/no/such/tide_path_xyz").is_none());
+        let up_slash = path_enter_dir("../", &dir.join("sub")).unwrap();
+        assert_eq!(up_slash, canonicalize_dir(&dir));
+
+        assert!(is_parent_nav(".."));
+        assert!(is_parent_nav("../"));
+        assert!(is_parent_nav("foo/.."));
+        assert!(!is_parent_nav(""));
+        assert!(!is_parent_nav("examples"));
+        assert!(!is_parent_nav("examples/"));
+
+        assert!(path_enter_dir("/no/such/tide_path_xyz", Path::new(".")).is_none());
+        assert!(path_enter_dir("", &dir).is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -424,14 +500,18 @@ mod tests {
 
         let input = format!("{}/", dir.display());
         let mut state = None;
-        let (first, msg) = path_tab_complete(&input, &mut state, false, false);
-        assert!(msg.contains("matches") || first.ends_with("a.vbr") || first.ends_with("../"), "{first} {msg}");
+        let cwd = Path::new(".");
+        let (first, msg) = path_tab_complete(&input, &mut state, false, false, cwd);
+        assert!(
+            msg.contains("matches") || first.ends_with("a.vbr") || first.ends_with("../"),
+            "{first} {msg}"
+        );
 
         // Cycle until we see ../
         let mut cur = first;
         let mut saw_up = cur.ends_with("../");
         for _ in 0..8 {
-            let (n, _) = path_tab_complete(&cur, &mut state, false, false);
+            let (n, _) = path_tab_complete(&cur, &mut state, false, false, cwd);
             if n.ends_with("../") {
                 saw_up = true;
                 break;

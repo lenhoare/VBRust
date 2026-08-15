@@ -1,0 +1,56 @@
+' Amounts and command-line splitting. RaiseError on junk — the caller Handles it.
+
+Public Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function
+
+Public Function JoinFrom(ByVal words As Vec<String>, ByVal startAt As Long, ByVal endAt As Long) As String
+    If endAt < startAt Then
+        RaiseError "nothing to join"
+    End If
+    Dim out As String = words[startAt].Clone()
+    Dim i As Long
+    For i = startAt + 1 To endAt
+        out = out & " " & words[i]
+    Next
+    Return out
+End Function
+
+' Val is lenient (garbage becomes 0). We still refuse a blank, and we refuse
+' a zero that didn't look like a zero.
+Public Function ParseAmount(ByVal text As String) As Double
+    Dim t As String = Trim(text)
+    If t = "" Then
+        RaiseError "enter an amount, e.g. 12.50 or -4"
+    End If
+    Dim n As Double = Val(t)
+    If n = 0 And t <> "0" And t <> "0.0" And t <> "-0" Then
+        RaiseError "not a number: " & t
+    End If
+    Return n
+End Function
+
+Public Function CategoryOf(ByVal memo As String) As String
+    Dim words As Vec<String> = SplitSpaces(memo)
+    If words.Len() = 0 Then
+        Return "misc"
+    End If
+    Return LCase(words[0])
+End Function

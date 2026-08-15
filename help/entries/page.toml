@@ -1,0 +1,77 @@
+id = "page"
+title = "Page"
+category = "Surfaces"
+kind = "keyword"
+anchor = "kw/Page"
+
+syntax = """
+Page <Name>
+    Title "<title>"
+    Theme <Name>
+
+    State
+        Dim <name> As <Type> = <init>
+    End State
+
+    View
+        Column
+            Text <expr>
+            Button "<label>"
+                On Click <Event>
+            End Button
+        End Column
+    End View
+
+    Event <Event>
+        ...
+    End Event
+End Page
+"""
+
+summary = "A browser app — the same State / View / Events as a Window, compiled to WebAssembly."
+
+remarks = """
+A `Page` is a web app (Yew, in the browser). You write the same blocks as a Window: `State`, `View`, `Event`. The view becomes real HTML (`<p>`, `<button>`, flexbox `<div>`s), not a canvas. Run it with `vbr runweb` — you get a URL.
+
+Widgets that carry over: `Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`. Layout is `Column` / `Row` with `Spacing`, `Padding`, `Length` / `Fill`. `Match` and `If` in the view pick which markup to show.
+
+`Theme Dracula` becomes CSS variables (`--vbr-background`, `--vbr-text`, `--vbr-primary`). A `Css` block can override it. `Await Http.Get` in an event uses the browser's fetch.
+
+Launch with `<Name>.Run` inside `Function Main()`. A program is one kind of surface — don't mix a Page with a Window, Screen, or Sketch.
+"""
+
+example = """
+Page Counter
+    Title "Counter"
+
+    State
+        Dim count As Integer = 0
+    End State
+
+    View
+        Column
+            Text "Count: " & count
+            Button "+"
+                On Click Increment
+            End Button
+            Button "-"
+                On Click Decrement
+            End Button
+        End Column
+    End View
+
+    Event Increment
+        count += 1
+    End Event
+
+    Event Decrement
+        count -= 1
+    End Event
+End Page
+
+Function Main()
+    Counter.Run
+End Function
+"""
+
+see_also = ["window", "screen", "sketch", "theme", "await"]

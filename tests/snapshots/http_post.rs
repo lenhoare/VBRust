@@ -12,6 +12,7 @@ fn vbr_main() -> Result<(), String> {
     let mut headers: HashMap<String, String> = HashMap::new();
     headers.insert("Authorization".to_string(), format!("Bearer {}", key));
     headers.insert("Content-Type".to_string(), "application/json".to_string());
+    #[allow(unused_mut)]
     let mut reply: String;
     reply = match Http::post("https://api.example.com/v1/complete", &body, headers) {
         Ok(__vbr_ok) => __vbr_ok,

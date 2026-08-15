@@ -1,0 +1,61 @@
+' Pocket cashbook. Errors propagate until Handle — a bad command prints and
+' the loop keeps going. Run:  vbr runproject goodexamples/ledger
+
+Function Main()
+    Dim path As String = "ledger.txt"
+    Dim book As Book = Book.Load(path) Handle err
+        Debug.Print "could not read " & path & ": " & err
+        Return
+    End Handle
+
+    Debug.Print "Ledger — " & book.Count() & " entries, balance " & book.Balance()
+    Debug.Print "commands: add <memo> <amount> | list | totals | save | quit"
+    Debug.Print ""
+
+    Do
+        Dim line As String = Trim(InputBox("> "))
+        If line = "" Then
+            Continue
+        End If
+        Dim words As Vec<String> = Money.SplitSpaces(line)
+        Dim cmd As String = LCase(words[0])
+        If cmd = "q" Or cmd = "quit" Then
+            book.Save(path) Handle err
+                Debug.Print "could not save: " & err
+            End Handle
+            Debug.Print "bye. balance " & book.Balance()
+            Return
+        End If
+        Dispatch(book, words) Handle err
+            Debug.Print "  ! " & err
+        End Handle
+    Loop
+End Function
+
+Function Dispatch(ByRef book As Book, ByVal words As Vec<String>)
+    Dim cmd As String = LCase(words[0])
+    If cmd = "add" Or cmd = "in" Then
+        DoAdd(book, words)
+    ElseIf cmd = "list" Or cmd = "ls" Then
+        Debug.Print book.Dump()
+    ElseIf cmd = "totals" Or cmd = "sum" Then
+        Debug.Print book.Totals()
+    ElseIf cmd = "save" Then
+        book.Save("ledger.txt")
+        Debug.Print "saved."
+    ElseIf cmd = "help" Or cmd = "?" Then
+        Debug.Print "add <memo> <amount>   list   totals   save   quit"
+    Else
+        RaiseError "unknown command '" & cmd & "' — try help"
+    End If
+End Function
+
+Function DoAdd(ByRef book As Book, ByVal words As Vec<String>)
+    If words.Len() < 3 Then
+        RaiseError "usage: add coffee 3.50"
+    End If
+    Dim amount As Double = Money.ParseAmount(words[words.Len() - 1])
+    Dim memo As String = Money.JoinFrom(words, 1, words.Len() - 2)
+    Book.Record(book, memo, amount)
+    Debug.Print "  recorded. balance " & book.Balance()
+End Function

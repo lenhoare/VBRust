@@ -39,7 +39,7 @@ struct Ideas {
 
 impl Ideas {
     fn init() -> Result<Ideas, String> {
-        let db = Database::open("ideas.db")??;
+        let db = Database::open("ideas.db")?;
         let status = "a = add an idea, q = quit".to_string();
         let count = 0;
         Ok(Ideas {

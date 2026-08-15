@@ -111,8 +111,7 @@ Public Type CellRect
 End Type
 
 ' The live cells as (x, y) rects — computed in an event and stored in
-' state, so the Canvas Draw block only renders (canvas bodies don't run
-' the resolver, so all the grid maths happens here instead).
+' state, so the Canvas Draw block only renders.
 Public Function LiveRects(ByVal grid As Vec<Long>, ByVal cols As Long) As Vec<CellRect>
     Dim out As Vec<CellRect>
     Dim i As Long = 0

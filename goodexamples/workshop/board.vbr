@@ -1,0 +1,63 @@
+' Jobs on a three-lane board. RaiseError if you try to move nothing.
+' Module is `board` so it doesn't clash with a `jobs` state field.
+
+Public Enum Lane
+    Inbox
+    Doing
+    Done
+End Enum
+
+Public Type Job
+    Public Title As String
+    Public Stage As Lane
+End Type
+
+Public Function LaneName(ByVal l As Lane) As String
+    Match l
+        Lane.Inbox => Return "inbox"
+        Lane.Doing => Return "doing"
+        Lane.Done => Return "done"
+    End Match
+End Function
+
+Public Function LabelOf(ByVal j As Job) As String
+    Return "[" & LaneName(j.Stage) & "]  " & j.Title
+End Function
+
+Public Function Labels(ByVal jobs As Vec<Job>) As Vec<String>
+    Dim out As Vec<String>
+    For Each j In jobs
+        out.Push(LabelOf(j))
+    Next
+    Return out
+End Function
+
+Public Function AddJob(ByRef jobs As Vec<Job>, ByVal title As String)
+    Dim t As String = Trim(title)
+    If t = "" Then
+        RaiseError "type a job first"
+    End If
+    jobs.Push(Job { title: t, stage: Lane.Inbox })
+End Function
+
+Public Function SetLane(ByRef jobs As Vec<Job>, ByVal label As String, ByVal lane As Lane)
+    If Trim(label) = "" Then
+        RaiseError "select a job in the list first"
+    End If
+    Dim i As Long
+    For i = 0 To jobs.Len() - 1
+        If LabelOf(jobs[i]) = label Then
+            Dim j As Job = jobs[i]
+            If lane = Lane.Inbox Then
+                j.Stage = Lane.Inbox
+            ElseIf lane = Lane.Doing Then
+                j.Stage = Lane.Doing
+            Else
+                j.Stage = Lane.Done
+            End If
+            jobs[i] = j
+            Return
+        End If
+    Next
+    RaiseError "that job is not on the board"
+End Function

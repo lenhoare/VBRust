@@ -1,0 +1,57 @@
+' A handful of bugs. Step bounces them; Draw paints them.
+
+Public Const WIDTH As Double = 640.0
+Public Const HEIGHT As Double = 480.0
+
+Public Type Bug
+    Public X As Double
+    Public Y As Double
+    Public Vx As Double
+    Public Vy As Double
+    Public Hue As Long
+End Type
+
+Public Function Hatch() As Vec<Bug>
+    Dim bugs As Vec<Bug>
+    Dim i As Long
+    For i = 0 To 23
+        Dim b As Bug = Bug {
+            x: 40.0 + i * 24.0,
+            y: 60.0 + (i Mod 6) * 55.0,
+            vx: 1.4 - (i Mod 5) * 0.6,
+            vy: 0.8 + (i Mod 3) * 0.5,
+            hue: (i * 11) Mod 256
+        }
+        If b.Vx = 0 Then
+            b.Vx = 1.1
+        End If
+        bugs.Push(b)
+    Next
+    Return bugs
+End Function
+
+Public Function Drift(ByRef bugs As Vec<Bug>)
+    Dim i As Long
+    For i = 0 To bugs.Len() - 1
+        Dim b As Bug = bugs[i]
+        b.X = b.X + b.Vx
+        b.Y = b.Y + b.Vy
+        If b.X < 8.0 Then
+            b.X = 8.0
+            b.Vx = Abs(b.Vx)
+        End If
+        If b.X > WIDTH - 8.0 Then
+            b.X = WIDTH - 8.0
+            b.Vx = -Abs(b.Vx)
+        End If
+        If b.Y < 8.0 Then
+            b.Y = 8.0
+            b.Vy = Abs(b.Vy)
+        End If
+        If b.Y > HEIGHT - 8.0 Then
+            b.Y = HEIGHT - 8.0
+            b.Vy = -Abs(b.Vy)
+        End If
+        bugs[i] = b
+    Next
+End Function

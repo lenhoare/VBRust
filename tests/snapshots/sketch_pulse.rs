@@ -76,8 +76,14 @@ impl<Message> iced::widget::canvas::Program<Message> for PulseCanvas {
             let frame = &mut frame;
             let _ = &frame;
             frame.fill(&iced::widget::canvas::Path::rectangle(iced::Point::ORIGIN, bounds.size()), iced::Color::from_rgb8(0, 0, 0));
-            frame.fill(&iced::widget::canvas::Path::circle(iced::Point::new((320) as f32, (240) as f32), (self.radius) as f32), iced::Color::from_rgb8(0, 255, 255));
-            frame.fill_text(iced::widget::canvas::Text { content: format!("{}", format!("radius = {}", self.radius)), position: iced::Point::new((16) as f32, (20) as f32), color: iced::Color::from_rgb8(255, 255, 255), ..Default::default() });
+            let __vbr_draw: Result<(), String> = (|| {
+                frame.fill(&iced::widget::canvas::Path::circle(iced::Point::new((320) as f32, (240) as f32), (self.radius) as f32), iced::Color::from_rgb8(0, 255, 255));
+                frame.fill_text(iced::widget::canvas::Text { content: format!("{}", format!("radius = {}", self.radius)), position: iced::Point::new((16) as f32, (20) as f32), color: iced::Color::from_rgb8(255, 255, 255), ..Default::default() });
+                Ok(())
+            })();
+            if let Err(__e) = __vbr_draw {
+                eprintln!("Error: {}", __e);
+            }
         }
         vec![frame.into_geometry()]
     }

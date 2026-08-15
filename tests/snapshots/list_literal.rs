@@ -14,7 +14,7 @@ fn total(xs: &Vec<i64>) -> Result<i64, String> {
 
 fn vbr_main() -> Result<(), String> {
     let names: Vec<String> = vec!["alice".to_string(), "bob".to_string(), "carol".to_string()];
-    println!("first = {}, of {}", names[0], names.len());
+    println!("first = {}, of {}", names[0].clone(), names.len());
     // A list literal passed straight into a function (the common case for, e.g.,
     // query parameters).
     println!("total = {}", total(&vec![10, 20, 30])?);

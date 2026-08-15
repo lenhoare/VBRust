@@ -11,7 +11,7 @@ use crate::surface::{
     self, analyze_events, coerce_state_strings, event_stdlib_imports, launched, match_scrutinee,
     rewrite_expr, rewrite_expr_with, state_maps, AwaitSplit,
 };
-use crate::transpiler::{collect_mutated, collect_stmt_idents, decltype_rust, emit_stmt, render_expr, rust_name};
+use crate::transpiler::{collect_mutated, collect_stmt_idents, decltype_rust, elide_for_counter_dims, emit_stmt, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs to know about a window's state: the field names
@@ -45,7 +45,7 @@ pub fn emit_gui_program(
     let paint_fns = paint_fn_set(program);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |f, diags, out| {
         if paint_fns.contains(&rust_name(&f.name)) {
-            emit_paint_fn(f, &t.enums, &paint_fns, diags, out);
+            emit_paint_fn(f, &t, &paint_fns, diags, out);
             true
         } else {
             false
@@ -182,7 +182,6 @@ fn emit_sketch(
     let ty = &s.name;
     let t_local = surface::with_subs(t, &s.subs);
     let t = &t_local;
-    let enums = &t.enums;
     let (fields, field_ty) = state_maps(&s.state);
 
     for tm in &s.timers {
@@ -404,7 +403,7 @@ fn emit_sketch(
         name: s.name.clone(),
         body: s.draw.clone(),
     };
-    emit_canvas_program(&cv, &snap, Some(&bg), &fields, &field_ty, enums, paint_fns, diags, &mut out);
+    emit_canvas_program(&cv, &snap, Some(&bg), &fields, &field_ty, t, paint_fns, diags, &mut out);
 
     out
 }
@@ -707,7 +706,7 @@ fn emit_window(
             canvas_snaps.get(cname),
         ) {
             out.push('\n');
-            emit_canvas_program(cv, snap, None, &fields, &field_ty, enums, paint_fns, diags, &mut out);
+            emit_canvas_program(cv, snap, None, &fields, &field_ty, t, paint_fns, diags, &mut out);
         }
     }
 
@@ -725,11 +724,12 @@ fn emit_canvas_program(
     background: Option<&str>,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
-    enums: &HashSet<String>,
+    t: &surface::Tables,
     paint_fns: &HashSet<String>,
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
+    let enums = &t.enums;
     let struct_name = format!("{}Canvas", cv.name);
     // The snapshot struct: a copy of just the state the drawing reads.
     if snap.is_empty() {
@@ -775,22 +775,49 @@ fn emit_canvas_program(
         out.push_str("            let height = ph as i32;\n");
         out.push_str("            let _ = (width, height);\n");
     }
-    let empty_byref: HashSet<String> = HashSet::new();
-    let rewritten: Vec<Stmt> = cv
-        .body
-        .iter()
+    // Draw is the same language as an Event: resolve first (coercions, `?` on
+    // helpers), then rewrite state fields to `self.field`. Iced's `draw` is not
+    // a `Result`, so the body runs in a catching closure — a failed helper
+    // prints and the last picture stays up.
+    let mut env_ty = field_ty.clone();
+    if pixels {
+        env_ty.insert("width".to_string(), DeclType::Plain(Type::Integer));
+        env_ty.insert("height".to_string(), DeclType::Plain(Type::Integer));
+    }
+    let mut body = cv.body.clone();
+    let passed_by_ref = crate::resolver::resolve_event_body(
+        &mut body, &[], &env_ty, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces,
+        enums, &t.structs, diags,
+    );
+    elide_for_counter_dims(&mut body);
+    let mut rewrite_fields = fields.clone();
+    if pixels {
+        // The injected canvas-size locals, not a State field of the same name.
+        rewrite_fields.remove("width");
+        rewrite_fields.remove("height");
+    }
+    let rewritten: Vec<Stmt> = body
+        .into_iter()
         .map(|stmt| {
-            let mut s = rewrite_canvas_stmt(stmt.clone(), fields, enums, paint_fns);
+            let mut s = rewrite_canvas_stmt(stmt, &rewrite_fields, enums, paint_fns);
             coerce_state_strings(&mut s, "self", field_ty);
             s
         })
         .collect();
     let mut mutated = HashSet::new();
     collect_mutated(&rewritten, &mut mutated);
+    mutated.extend(passed_by_ref);
+    let empty_byref: HashSet<String> = HashSet::new();
     let emit_body = |diags: &mut Diagnostics, out: &mut String| {
+        out.push_str("            let __vbr_draw: Result<(), String> = (|| {\n");
         for stmt in &rewritten {
-            emit_stmt(stmt, &mutated, &empty_byref, 3, diags, out);
+            emit_stmt(stmt, &mutated, &empty_byref, 4, diags, out);
         }
+        out.push_str("                Ok(())\n");
+        out.push_str("            })();\n");
+        out.push_str("            if let Err(__e) = __vbr_draw {\n");
+        out.push_str("                eprintln!(\"Error: {}\", __e);\n");
+        out.push_str("            }\n");
     };
     if pixels {
         crate::transpiler::with_pixel_flush(|| emit_body(diags, out));
@@ -807,9 +834,10 @@ fn emit_canvas_program(
 
 /// Emit a paint function: an ordinary function that draws, so it gains a leading
 /// `frame: &mut Frame` and its draw verbs / nested paint calls lower against it.
+/// Same resolver as a Function; returns `Result` so Draw can `?` it.
 fn emit_paint_fn(
     func: &Function,
-    enums: &HashSet<String>,
+    t: &surface::Tables,
     paint_fns: &HashSet<String>,
     diags: &mut Diagnostics,
     out: &mut String,
@@ -820,7 +848,7 @@ fn emit_paint_fn(
     for p in &func.params {
         params.push(render_paint_param(p));
     }
-    out.push_str(&format!("{}fn {}({}) {{\n", vis, name, params.join(", ")));
+    out.push_str(&format!("{}fn {}({}) -> Result<(), String> {{\n", vis, name, params.join(", ")));
     if body_has_pixel(&func.body) {
         diags.error_once(
             "pixel-in-paint",
@@ -829,13 +857,42 @@ fn emit_paint_fn(
              normal Function and `Set Pixel` in Draw.",
         );
     }
-    let empty: HashSet<String> = HashSet::new();
-    // Paint functions read no window state (they take values as params); only the
-    // paint-call and enum rewrites apply.
-    for stmt in &func.body {
-        let rewritten = rewrite_canvas_stmt(stmt.clone(), &empty, enums, paint_fns);
-        emit_stmt(&rewritten, &empty, &empty, 1, diags, out);
+    let mut body = func.body.clone();
+    let passed_by_ref = crate::resolver::resolve_body(
+        &mut body,
+        &func.params,
+        &t.fns,
+        &t.methods,
+        &t.consts,
+        &t.modules,
+        &t.interfaces,
+        &t.enums,
+        &t.structs,
+        None,
+        None,
+        None,
+        Some(crate::resolver::FailShape::Result),
+        diags,
+    );
+    elide_for_counter_dims(&mut body);
+    let empty_fields: HashSet<String> = HashSet::new();
+    let rewritten: Vec<Stmt> = body
+        .into_iter()
+        .map(|stmt| rewrite_canvas_stmt(stmt, &empty_fields, &t.enums, paint_fns))
+        .collect();
+    let mut mutated = HashSet::new();
+    collect_mutated(&rewritten, &mut mutated);
+    mutated.extend(passed_by_ref);
+    let byref: HashSet<String> = func
+        .params
+        .iter()
+        .filter(|p| p.mode == ParamMode::ByRef)
+        .map(|p| rust_name(&p.name))
+        .collect();
+    for stmt in &rewritten {
+        emit_stmt(stmt, &mutated, &byref, 1, diags, out);
     }
+    out.push_str("    Ok(())\n");
     out.push_str("}\n");
 }
 
@@ -1579,15 +1636,39 @@ fn rewrite_canvas_stmt(
     let re = |e: Expr| rewrite_expr_with(e, "self", fields, enums);
     let rec = |s: Stmt| rewrite_canvas_stmt(s, fields, enums, paint_fns);
     match s {
-        Stmt::Expr(Expr { kind: ExprKind::Call { name, args }, .. }) if paint_fns.contains(&rust_name(&name)) => {
-            Stmt::Draw(DrawCmd::Paint { name, args: args.into_iter().map(re).collect() })
+        Stmt::Expr(e) => {
+            // Resolver wraps fallible calls in `?`. A paint function is rewritten
+            // to `Paint` (which already emits `?`); peel that wrapper so the call
+            // still matches. Any other `?` stays — Draw's catching closure is the
+            // `Result` context.
+            let is_paint = {
+                let call = match &e.kind {
+                    ExprKind::Try(inner) => inner.as_ref(),
+                    _ => &e,
+                };
+                matches!(&call.kind, ExprKind::Call { name, .. } if paint_fns.contains(&rust_name(name)))
+            };
+            if is_paint {
+                let inner = match e.kind {
+                    ExprKind::Try(inner) => *inner,
+                    kind => Expr { kind, span: e.span },
+                };
+                let ExprKind::Call { name, args } = inner.kind else {
+                    unreachable!("is_paint implies Call")
+                };
+                Stmt::Draw(DrawCmd::Paint {
+                    name,
+                    args: args.into_iter().map(re).collect(),
+                })
+            } else {
+                Stmt::Expr(re(e))
+            }
         }
         Stmt::Draw(cmd) => Stmt::Draw(rewrite_draw_cmd(cmd, fields, enums)),
-        Stmt::Expr(e) => Stmt::Expr(re(e)),
         Stmt::Print(e) => Stmt::Print(re(e)),
         Stmt::Log(level, e) => Stmt::Log(level, re(e)),
         Stmt::Assign { target, value, op } => Stmt::Assign { target: re(target), value: re(value), op },
-        Stmt::Dim { name, name_span, ty, init, line } => Stmt::Dim { name, name_span, ty, init: init.map(re), line },
+        Stmt::Dim { name, name_span, ty, init, deferred, line } => Stmt::Dim { name, name_span, ty, init: init.map(re), deferred, line },
         Stmt::If { branches, else_body } => Stmt::If {
             branches: branches
                 .into_iter()

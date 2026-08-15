@@ -39,10 +39,16 @@ impl<Message> iced::widget::canvas::Program<Message> for GradientCanvas {
             let width = pw as i32;
             let height = ph as i32;
             let _ = (width, height);
-            for y in 0..=height - 1 {
-                for x in 0..=width - 1 {
-                    { let __px = (x) as i32; let __py = (y) as i32; if __px >= 0 && __py >= 0 && (__px as u32) < pw && (__py as u32) < ph { let __i = ((__py as u32 * pw + __px as u32) * 4) as usize; let __c = iced::Color::from_rgb8((x * 255 / width) as u8, (y * 255 / height) as u8, (80) as u8); pix[__i] = (__c.r * 255.0) as u8; pix[__i + 1] = (__c.g * 255.0) as u8; pix[__i + 2] = (__c.b * 255.0) as u8; pix[__i + 3] = 255; pix_dirty = true; } }
+            let __vbr_draw: Result<(), String> = (|| {
+                for y in 0..=height - 1 {
+                    for x in 0..=width - 1 {
+                        { let __px = (x) as i32; let __py = (y) as i32; if __px >= 0 && __py >= 0 && (__px as u32) < pw && (__py as u32) < ph { let __i = ((__py as u32 * pw + __px as u32) * 4) as usize; let __c = iced::Color::from_rgb8((((x * 255) as f64) / (width as f64)) as u8, (((y * 255) as f64) / (height as f64)) as u8, (80) as u8); pix[__i] = (__c.r * 255.0) as u8; pix[__i + 1] = (__c.g * 255.0) as u8; pix[__i + 2] = (__c.b * 255.0) as u8; pix[__i + 3] = 255; pix_dirty = true; } }
+                    }
                 }
+                Ok(())
+            })();
+            if let Err(__e) = __vbr_draw {
+                eprintln!("Error: {}", __e);
             }
             if pix_dirty { let __h = iced::widget::image::Handle::from_rgba(pw, ph, pix); frame.draw_image(iced::Rectangle::new(iced::Point::ORIGIN, bounds.size()), iced::widget::canvas::Image::new(__h).filter_method(iced::widget::image::FilterMethod::Nearest).snap(true)); }
         }

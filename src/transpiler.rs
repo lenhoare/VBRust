@@ -548,7 +548,7 @@ pub(crate) fn emit_impl(
         first = false;
         let mutates = methods
             .get(&(recv.to_string(), rust_name(&f.name)))
-            .copied()
+            .map(|m| m.mutates)
             .unwrap_or(false);
         let self_param = if mutates { "&mut self" } else { "&self" };
         emit_fn(
@@ -776,7 +776,7 @@ pub(crate) fn emit_fn(
     if let Some(sp) = self_param {
         params.push(sp.to_string());
     }
-    params.extend(func.params.iter().map(render_param));
+    params.extend(func.params.iter().map(|p| render_param_ty(p, Some(enums))));
 
     let is_main = name == "main";
     if is_main && func.ret.is_some() {
@@ -871,7 +871,7 @@ pub(crate) fn emit_fn(
     }
 }
 
-pub(crate) fn render_param(p: &Param) -> String {
+pub(crate) fn render_param_ty(p: &Param, enums: Option<&HashSet<String>>) -> String {
     let ty = match (&p.mode, &p.ty) {
         // ByVal String borrows as a read-only &str.
         (ParamMode::ByVal, DeclType::Plain(Type::Text)) => "&str".to_string(),
@@ -881,6 +881,12 @@ pub(crate) fn render_param(p: &Param) -> String {
         // ByVal Result/Option: taken by value (owned) — they carry an outcome to
         // consume, not a container to read through a borrow.
         (ParamMode::ByVal, dt @ (DeclType::Result(..) | DeclType::Option(_))) => decltype_rust(dt),
+        // ByVal enum: Copy, pass by value (so `lane = Lane.Doing` type-checks).
+        (ParamMode::ByVal, DeclType::Named(n))
+            if enums.map(|e| e.contains(n)).unwrap_or(false) =>
+        {
+            n.clone()
+        }
         // ByVal struct/collection (incl. Vec/HashMap): immutable borrow.
         (ParamMode::ByVal, dt) => format!("&{}", decltype_rust(dt)),
         // ByRef: a mutable borrow of whatever it is.
@@ -1360,9 +1366,21 @@ pub(crate) fn emit_stmt(
             name_span: _,
             ty,
             init,
+            deferred,
             line,
         } => {
             let var = rust_name(name);
+            // `Dim x As T = F() Handle` — the Handle is the first write. Emit a
+            // bare binding so collections don't get a dummy `Vec::new()` (and
+            // named types don't get `= ;`).
+            if *deferred && init.is_none() {
+                let kw = let_kw(mutated.contains(&var));
+                if mutated.contains(&var) {
+                    out.push_str(&format!("{}#[allow(unused_mut)]\n", pad));
+                }
+                out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, decltype_rust(ty)));
+                return;
+            }
             // `Dim x As T = Rust … End Rust` — the block's value, typed by `As T`.
             if let Some(Expr { kind: ExprKind::InlineRust(raw), .. }) = init {
                 let kw = let_kw(mutated.contains(&var));
@@ -1435,14 +1453,28 @@ pub(crate) fn emit_stmt(
                         pad, kw, var, t.rust(), c, r, d, c, r
                     ));
                 }
-                // A struct value (always fully initialised at the Dim).
+                // A named type. `Dim x As T = F() Handle` leaves `init` empty and
+                // assigns in the Handle — emit an uninitialised binding, never `= ;`.
                 DeclType::Named(n) => {
                     let kw = let_kw(mutated.contains(&var));
-                    let value = init
-                        .as_ref()
-                        .map(|e| render_expr(e, None))
-                        .unwrap_or_default();
-                    out.push_str(&format!("{}{} {}: {} = {};\n", pad, kw, var, n, value));
+                    match init {
+                        Some(e) => {
+                            out.push_str(&format!(
+                                "{}{} {}: {} = {};\n",
+                                pad,
+                                kw,
+                                var,
+                                n,
+                                render_expr(e, None)
+                            ));
+                        }
+                        None => {
+                            if mutated.contains(&var) {
+                                out.push_str(&format!("{}#[allow(unused_mut)]\n", pad));
+                            }
+                            out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, n));
+                        }
+                    }
                 }
                 DeclType::Tuple(_) => {
                     let kw = let_kw(mutated.contains(&var));
@@ -1947,7 +1979,7 @@ pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String 
         DrawCmd::Paint { name, args } => {
             let mut a = vec!["frame".to_string()];
             a.extend(args.iter().map(|e| render_expr(e, None)));
-            format!("{}({});", rust_name(name), a.join(", "))
+            format!("{}({})?;", rust_name(name), a.join(", "))
         }
     };
     format!("{flush}{body}")
@@ -2345,8 +2377,8 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
     match &e.kind {
         ExprKind::MethodCall { recv, method, args } => {
             if is_mutating_method(&rust_name(method)) {
-                if let ExprKind::Ident(v) = &(&**recv).kind {
-                    set.insert(rust_name(v));
+                if let Some(root) = lvalue_root(recv) {
+                    set.insert(root);
                 }
             }
             mark_mutating_calls(recv, set);

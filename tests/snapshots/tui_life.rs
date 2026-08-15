@@ -28,16 +28,16 @@ struct Life {
     ticks: i64,
 }
 
-impl Default for Life {
-    fn default() -> Self {
+impl Life {
+    fn init() -> Result<Life, String> {
         let grid = seedgrid()?;
         let living = countlive(&seedgrid()?)?;
         let ticks = 0;
-        Life {
+        Ok(Life {
             grid,
             living,
             ticks,
-        }
+        })
     }
 }
 
@@ -57,7 +57,13 @@ fn view(state: &Life, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let mut state = Life::default();
+    let mut state = match Life::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&state, frame))?;

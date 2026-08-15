@@ -32,14 +32,14 @@ struct MultiChart {
     quad: Vec<Point>,
 }
 
-impl Default for MultiChart {
-    fn default() -> Self {
+impl MultiChart {
+    fn init() -> Result<MultiChart, String> {
         let linear = linear()?;
         let quad = quadratic()?;
-        MultiChart {
+        Ok(MultiChart {
             linear,
             quad,
-        }
+        })
     }
 }
 
@@ -68,7 +68,13 @@ fn view(state: &MultiChart, frame: &mut Frame) {
 
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
-    let state = MultiChart::default();
+    let state = match MultiChart::init() {
+        Ok(state) => state,
+        Err(message) => {
+            eprintln!("could not start: {}", message);
+            std::process::exit(1);
+        }
+    };
     let mut terminal = ratatui::init();
     loop {
         terminal.draw(|frame| view(&state, frame))?;

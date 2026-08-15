@@ -459,6 +459,7 @@ fn main() -> std::io::Result<()> {
                                             let __vbr_event: Result<(), String> = (|| {
                                                 let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
                                                 if picked != "" {
+                                                    #[allow(unused_mut)]
                                                     let mut text: String;
                                                     text = match FileSystem::read(&picked) {
                                                         Ok(__vbr_ok) => __vbr_ok,
@@ -509,6 +510,7 @@ fn main() -> std::io::Result<()> {
                                     let __vbr_event: Result<(), String> = (|| {
                                         let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
                                         if picked != "" {
+                                            #[allow(unused_mut)]
                                             let mut text: String;
                                             text = match FileSystem::read(&picked) {
                                                 Ok(__vbr_ok) => __vbr_ok,

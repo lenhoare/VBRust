@@ -86,7 +86,13 @@ const TRANSPILE_ONLY: &[&str] =
 /// `Screen` programs also compiled for the browser (`vbr runweb` → Ratzilla):
 /// the same example file, second snapshot. The State struct and `view` are
 /// byte-identical to the native output; only `fn main` (the shell) differs.
-const WEB_SCREENS: &[&str] = &["tui_counter", "tui_input", "tui_pulse", "tui_monitor"];
+/// `Screen` programs also compiled for the browser (`vbr runweb` → Ratzilla):
+/// the same example file, second snapshot. The State struct and `view` are
+/// byte-identical to the native output; only `fn main` (the shell) differs.
+/// Screens whose State calls a user function (`tui_input`'s `Seed()`) use
+/// `init() -> Result` natively; a browser Screen has no startup-fail moment,
+/// so those stay native-only.
+const WEB_SCREENS: &[&str] = &["tui_counter", "tui_pulse", "tui_monitor"];
 
 /// Files that are meant to fail, exercising the teaching diagnostics.
 const ERRORS: &[&str] = &[

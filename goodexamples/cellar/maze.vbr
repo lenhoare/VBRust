@@ -1,0 +1,96 @@
+' A compact cellar map. `#` wall, `.` floor, `E` the stairs out.
+' TryStep fails with RaiseError on a wall — the Screen Handles it as a bump.
+
+Public Const COLS As Long = 15
+Public Const ROWS As Long = 9
+
+Public Enum Foot
+    Moved
+    Blocked
+    Out
+End Enum
+
+Public Function Blueprint() As Vec<String>
+    Dim rows As Vec<String>
+    rows.Push("###############")
+    rows.Push("#.............#")
+    rows.Push("#.######.######")
+    rows.Push("#.#....#......#")
+    rows.Push("#.#.##.#.####.#")
+    rows.Push("#.#.#..#....#.#")
+    rows.Push("#...#.###.#.#.#")
+    rows.Push("#.###.....#..E#")
+    rows.Push("###############")
+    Return rows
+End Function
+
+Public Function StartX() As Long
+    Return 1
+End Function
+
+Public Function StartY() As Long
+    Return 1
+End Function
+
+Public Function Cell(ByVal map As Vec<String>, ByVal x As Long, ByVal y As Long) As String
+    If y < 0 Or y >= map.Len() Then
+        Return "#"
+    End If
+    Dim row As String = map[y]
+    If x < 0 Or x >= Len(row) Then
+        Return "#"
+    End If
+    Return Mid(row, x + 1, 1)
+End Function
+
+Public Function TryStep(ByVal map As Vec<String>, ByRef x As Long, ByRef y As Long, ByVal dx As Long, ByVal dy As Long) As Foot
+    Dim nx As Long = x + dx
+    Dim ny As Long = y + dy
+    Dim ch As String = Cell(map, nx, ny)
+    If ch = "#" Then
+        RaiseError "the lantern shows a wall"
+    End If
+    x = nx
+    y = ny
+    If ch = "E" Then
+        Return Foot.Out
+    End If
+    Return Foot.Moved
+End Function
+
+Public Function Apply(ByVal map As Vec<String>, ByRef x As Long, ByRef y As Long, ByVal dx As Long, ByVal dy As Long, ByRef status As String, ByRef escaped As Boolean) As Vec<String>
+    If escaped Then
+        status = "you already found the stairs — q to leave"
+        Return Paint(map, x, y)
+    End If
+    Dim foot As Foot = TryStep(map, x, y, dx, dy)
+    If foot = Foot.Out Then
+        escaped = True
+        status = "stairs! daylight. q to leave"
+    Else
+        status = "the lantern swings"
+    End If
+    Return Paint(map, x, y)
+End Function
+
+Public Function Paint(ByVal map As Vec<String>, ByVal x As Long, ByVal y As Long) As Vec<String>
+    Dim out As Vec<String>
+    Dim r As Long
+    For r = 0 To map.Len() - 1
+        Dim row As String = map[r]
+        If r = y Then
+            Dim left As String = ""
+            If x > 0 Then
+                left = Left(row, x)
+            End If
+            Dim right As String = ""
+            If x + 1 < Len(row) Then
+                right = Mid(row, x + 2, Len(row) - x - 1)
+            End If
+            out.Push(left & "@" & right)
+        Else
+            out.Push(row)
+        End If
+    Next
+    Return out
+End Function

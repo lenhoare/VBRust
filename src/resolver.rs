@@ -53,8 +53,9 @@ pub struct ModuleInterface {
     /// Public `Enum` names (the resolver only needs the name — variants ride
     /// along in `Match` patterns and `Name.Variant` paths).
     pub enums: HashSet<String>,
-    /// Public methods on public `Type`s, with their `&mut self`-ness — so a
-    /// cross-module `r.Grow()` knows to borrow the receiver mutably.
+    /// Public methods on public `Type`s — `&mut self`-ness plus the parameter
+    /// signature, so `book.Save(path)` borrows a `String` as `&str` the same
+    /// way a free `Save(path)` would.
     pub methods: MethodTable,
     /// Private function names (Rust-cased), for the visibility diagnostic.
     pub private_fns: HashSet<String>,
@@ -129,7 +130,15 @@ pub fn module_interface(program: &Program) -> ModuleInterface {
             f.receiver
                 .as_ref()
                 .filter(|recv| structs.contains_key(*recv))
-                .map(|recv| ((recv.clone(), snake(&f.name)), method_mutates_self(&f.body)))
+                .map(|recv| {
+                    (
+                        (recv.clone(), snake(&f.name)),
+                        MethodInfo {
+                            mutates: method_mutates_self(&f.body),
+                            sig: fn_sig(f),
+                        },
+                    )
+                })
         })
         .collect();
     ModuleInterface {
@@ -163,9 +172,11 @@ pub fn merge_sibling_types(
         for (name, fields) in &iface.structs {
             if !local.contains(name) && !structs.contains_key(name) {
                 structs.insert(name.clone(), fields.clone());
-                for ((recv, meth), mutates) in &iface.methods {
+                for ((recv, meth), info) in &iface.methods {
                     if recv == name {
-                        methods.entry((recv.clone(), meth.clone())).or_insert(*mutates);
+                        methods
+                            .entry((recv.clone(), meth.clone()))
+                            .or_insert_with(|| info.clone());
                     }
                 }
             }
@@ -214,8 +225,15 @@ pub fn sibling_type_providers(
     (public, private)
 }
 
-/// `(struct name, method snake name)` → does it take `&mut self`?
-pub type MethodTable = HashMap<(String, String), bool>;
+/// `(struct name, method snake name)` → `&mut self`? plus the method's
+/// parameter signature (so call-site borrows/casts match a free function).
+#[derive(Clone)]
+pub struct MethodInfo {
+    pub mutates: bool,
+    pub sig: FnSig,
+}
+
+pub type MethodTable = HashMap<(String, String), MethodInfo>;
 
 /// Struct name → (field snake name → field type). Lets `infer` see through a
 /// `p.field` access, so field values get the same coercions variables do.
@@ -251,17 +269,32 @@ pub fn build_const_map(program: &Program) -> ConstMap {
         .collect()
 }
 
-/// Map each method to whether it mutates `self` (assigns to a `Me` field).
+/// Map each method to whether it mutates `self` (assigns to a `Me` field) and
+/// to its parameter signature.
 pub fn build_method_table(program: &Program) -> MethodTable {
     program
         .functions
         .iter()
         .filter_map(|f| {
-            f.receiver
-                .as_ref()
-                .map(|recv| ((recv.clone(), snake(&f.name)), method_mutates_self(&f.body)))
+            f.receiver.as_ref().map(|recv| {
+                (
+                    (recv.clone(), snake(&f.name)),
+                    MethodInfo {
+                        mutates: method_mutates_self(&f.body),
+                        sig: fn_sig(f),
+                    },
+                )
+            })
         })
         .collect()
+}
+
+fn fn_sig(f: &Function) -> FnSig {
+    FnSig {
+        modes: f.params.iter().map(|p| p.mode).collect(),
+        param_types: f.params.iter().map(|p| p.ty.clone()).collect(),
+        ret: f.ret.clone(),
+    }
 }
 
 /// Does this method body mutate `Me` — assign to one of its fields, or call a
@@ -316,16 +349,7 @@ pub fn build_fn_table(program: &Program) -> FnTable {
     program
         .functions
         .iter()
-        .map(|f| {
-            (
-                snake(&f.name),
-                FnSig {
-                    modes: f.params.iter().map(|p| p.mode).collect(),
-                    param_types: f.params.iter().map(|p| p.ty.clone()).collect(),
-                    ret: f.ret.clone(),
-                },
-            )
-        })
+        .map(|f| (snake(&f.name), fn_sig(f)))
         .collect()
 }
 
@@ -623,7 +647,7 @@ pub fn resolve_event_body(
     enums: &HashSet<String>,
     structs: &StructTable,
     diags: &mut Diagnostics,
-) {
+) -> HashSet<String> {
     let mut env: HashMap<String, Binding> = HashMap::new();
     for p in params {
         env.insert(snake(&p.name), Binding { ty: Some(p.ty.clone()), borrowed: false, byref: false, decl_span: Span::none() });
@@ -650,6 +674,8 @@ pub fn resolve_event_body(
         no_auto_try: false,
     };
     resolve_stmts(stmts, &mut ctx);
+    drop(ctx);
+    passed
 }
 
 /// Fix a call's arguments up against the callee's signature: `&mut` for a
@@ -684,6 +710,9 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
             }
             // ByVal: borrow an unknown-size type, or adapt a numeric argument.
             Some(ParamMode::ByVal) => match sig.param_types.get(i) {
+                // Enums are Copy — pass by value, same as a Long. Borrowing
+                // would make `lane = Lane.Doing` a `&Lane == Lane` type error.
+                Some(DeclType::Named(n)) if ctx.enums.contains(n) => {}
                 // Unknown-size types borrow immutably (`&arg`).
                 Some(DeclType::Named(_) | DeclType::Vec(_) | DeclType::Map(..)) => {
                     let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
@@ -848,27 +877,10 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 } else if let Some(e) = init {
                     resolve_expr(e, ctx);
                 }
-                // Indexing *moves* the element out of a collection (E0507), so
-                // a `Dim` from an index clones non-Copy elements: Strings,
-                // nested collections, and user structs (they derive Clone).
-                // Numbers and Booleans are Copy — no clone needed.
+                // Indexing *moves* a String/struct/collection element. Clone it
+                // in any rvalue (a Dim, a nested struct field, a call arg…).
                 if let Some(e) = init {
-                    if matches!(&mut e.kind, ExprKind::Index(..)) {
-                        let cloneable = match infer(e, ctx) {
-                            VType::Decl(DeclType::Plain(Type::Text)) => true,
-                            VType::Decl(DeclType::Vec(_) | DeclType::Map(..)) => true,
-                            VType::Decl(DeclType::Named(n)) => ctx.structs.contains_key(&n),
-                            _ => false,
-                        };
-                        if cloneable {
-                            let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
-                            e.kind = ExprKind::MethodCall {
-                                recv: Box::new(inner),
-                                method: "clone".to_string(),
-                                args: Vec::new(),
-                            };
-                        }
-                    }
+                    clone_rvalue_indexes(e, ctx);
                 }
                 ctx.bind_at(name, ty.clone(), *name_span);
                 // The declaration itself hovers like a use (`Dim total As Long`).
@@ -908,10 +920,14 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         );
                     }
                 }
-                // Coerce based on the target variable's type (plain Ident targets only).
+                // Coerce based on the target's type — a plain Ident, or a
+                // field/index (`b.X = 8` into a Double field).
                 let target_ty = match &(&*target).kind {
                     ExprKind::Ident(name) => ctx.scalar_of(name),
-                    _ => None,
+                    _ => match infer(target, ctx) {
+                        VType::Decl(DeclType::Plain(t)) => Some(t),
+                        _ => None,
+                    },
                 };
                 // A plain Ident target is dereferenced by the emitter (if ByRef);
                 // resolve other targets (e.g. field accesses).
@@ -919,6 +935,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_expr(target, ctx);
                 }
                 resolve_expr(value, ctx);
+                clone_rvalue_indexes(value, ctx);
                 if let Some(ty) = target_ty {
                     maybe_cast(value, ty, ctx);
                     // Assigning a `&str` (a literal like `""`, a param, Mid…) to a
@@ -928,14 +945,22 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     }
                 }
             }
-            Stmt::Set { value, .. } => resolve_expr(value, ctx),
-            Stmt::Print(e) => resolve_expr(e, ctx),
-            // `Log <expr>` — resolve the logged expression like `Print`'s.
-            Stmt::Log(_, e) => resolve_expr(e, ctx),
-            // `Assert <expr>` — resolve the asserted expression like any other
-            // (coercions, stdlib calls, comparisons). Its `=`/`<>` shape is read
-            // by the emitter to pick assert_eq!/assert_ne!/assert!.
-            Stmt::Assert(e) => resolve_expr(e, ctx),
+            Stmt::Set { value, .. } => {
+                resolve_expr(value, ctx);
+                clone_rvalue_indexes(value, ctx);
+            }
+            Stmt::Print(e) => {
+                resolve_expr(e, ctx);
+                clone_rvalue_indexes(e, ctx);
+            }
+            Stmt::Log(_, e) => {
+                resolve_expr(e, ctx);
+                clone_rvalue_indexes(e, ctx);
+            }
+            Stmt::Assert(e) => {
+                resolve_expr(e, ctx);
+                clone_rvalue_indexes(e, ctx);
+            }
             Stmt::Return(Some(e)) => {
                 resolve_expr(e, ctx);
                 match ctx.ret_coerce {
@@ -958,10 +983,11 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         }
                     }
                 }
-                clone_if_moved_index(e, ctx);
+                clone_rvalue_indexes(e, ctx);
             }
             Stmt::Expr(e) => {
                 resolve_expr(e, ctx);
+                clone_rvalue_indexes(e, ctx);
                 // A bare call that yields an Option must not be discarded.
                 // Results propagate automatically (implicit `?`).
                 if let Some(kind) = ignored_result(e, ctx) {
@@ -975,13 +1001,13 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     );
                 }
             }
-            // Draw commands only appear in canvas bodies, which the GUI codegen
-            // rewrites/renders directly (they never reach the resolver); a
-            // LineMark is bookkeeping for the emitter, nothing to resolve.
-            Stmt::Return(None) | Stmt::Comment(_) | Stmt::Draw(_) | Stmt::LineMark(_) => {}
+            Stmt::Draw(cmd) => resolve_draw_cmd(cmd, ctx),
+            // A LineMark is bookkeeping for the emitter, nothing to resolve.
+            Stmt::Return(None) | Stmt::Comment(_) | Stmt::LineMark(_) => {}
             Stmt::If { branches, else_body } => {
                 for (cond, body) in branches {
                     resolve_expr(cond, ctx);
+                    clone_rvalue_indexes(cond, ctx);
                     resolve_stmts(body, ctx);
                 }
                 if let Some(body) = else_body {
@@ -990,9 +1016,12 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::For { var, from, to, step, body } => {
                 resolve_expr(from, ctx);
+                clone_rvalue_indexes(from, ctx);
                 resolve_expr(to, ctx);
+                clone_rvalue_indexes(to, ctx);
                 if let Some(s) = step {
                     resolve_expr(s, ctx);
+                    clone_rvalue_indexes(s, ctx);
                 }
                 // The loop variable's type is what Rust infers from the range
                 // bounds: `For i = 1 To 10` → `i32`, but `For i = 1 To count`
@@ -1021,7 +1050,10 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 resolve_stmts(body, ctx);
             }
             Stmt::Break | Stmt::Continue => {}
-            Stmt::RaiseError(e) => resolve_expr(e, ctx),
+            Stmt::RaiseError(e) => {
+                resolve_expr(e, ctx);
+                clone_rvalue_indexes(e, ctx);
+            }
             Stmt::HandleErr {
                 target,
                 call,
@@ -1039,6 +1071,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 let saved = ctx.no_auto_try;
                 ctx.no_auto_try = true;
                 resolve_expr(call, ctx);
+                clone_rvalue_indexes(call, ctx);
                 ctx.no_auto_try = saved;
                 if let Some(nested) = first_nested_fallible(call, ctx) {
                     ctx.diags.error_once(
@@ -1056,6 +1089,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             Stmt::Destroy { .. } => {}
             Stmt::ForEach { var1, var2, iter, body } => {
                 resolve_expr(iter, ctx);
+                clone_rvalue_indexes(iter, ctx);
                 // A ByVal collection param is already `&Vec`; reborrow it (`&*p`)
                 // so the emitter's `&` doesn't produce a `&&Vec` double-borrow.
                 if let ExprKind::Ident(n) = &(&*iter).kind {
@@ -1096,6 +1130,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Match { scrutinee, arms, .. } => {
                 resolve_expr(scrutinee, ctx);
+                clone_rvalue_indexes(scrutinee, ctx);
                 // An *owned* `String` scrutinee matched against `"…"` (`&str`)
                 // literal patterns won't unify — Rust matches a `String` only
                 // against `String` patterns. Lower it through `.as_str()` so the
@@ -1123,6 +1158,56 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_stmts(&mut arm.body, ctx);
                 }
             }
+        }
+    }
+}
+
+fn resolve_draw_cmd(cmd: &mut DrawCmd, ctx: &mut Ctx) {
+    match cmd {
+        DrawCmd::Fill { shape, color } => {
+            resolve_shape(shape, ctx);
+            resolve_expr(color, ctx);
+        }
+        DrawCmd::Stroke { shape, color, width } => {
+            resolve_shape(shape, ctx);
+            resolve_expr(color, ctx);
+            if let Some(w) = width {
+                resolve_expr(w, ctx);
+            }
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            resolve_expr(text, ctx);
+            resolve_expr(x, ctx);
+            resolve_expr(y, ctx);
+            if let Some(c) = color {
+                resolve_expr(c, ctx);
+            }
+        }
+        DrawCmd::Pixel { x, y, color } => {
+            resolve_expr(x, ctx);
+            resolve_expr(y, ctx);
+            resolve_expr(color, ctx);
+        }
+        DrawCmd::Paint { args, .. } => {
+            for a in args {
+                resolve_expr(a, ctx);
+            }
+        }
+    }
+}
+
+fn resolve_shape(shape: &mut Shape, ctx: &mut Ctx) {
+    match shape {
+        Shape::Circle(a, b, c) => {
+            resolve_expr(a, ctx);
+            resolve_expr(b, ctx);
+            resolve_expr(c, ctx);
+        }
+        Shape::Rect(a, b, c, d) | Shape::Line(a, b, c, d) => {
+            resolve_expr(a, ctx);
+            resolve_expr(b, ctx);
+            resolve_expr(c, ctx);
+            resolve_expr(d, ctx);
         }
     }
 }
@@ -1878,8 +1963,11 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             if let Some(v) = recv_var {
                 if let Some(struct_name) = ctx.struct_of(&v) {
                     let key = (struct_name.to_string(), snake(method));
-                    if ctx.methods.get(&key) == Some(&true) {
+                    if ctx.methods.get(&key).map(|m| m.mutates) == Some(true) {
                         ctx.passed.insert(v);
+                    }
+                    if let Some(sig) = ctx.methods.get(&key).map(|m| m.sig.clone()) {
+                        apply_fn_sig(&sig, args, ctx);
                     }
                 }
             }
@@ -1900,16 +1988,23 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
             }
             // `Utils.DoThing(x)` on a project module → `crate::utils::do_thing(x)`.
+            // A local of the same name still shadows *methods* on that local
+            // (`bitmap.Push` is the Vec). But `Book.Load` is a module function
+            // even when a local `book` exists — look at the module's public
+            // surface, not the binding.
             let qualified = match &(&**recv).kind {
-                // `Module.func(...)` is a cross-module call — but a *local
-                // variable* of the same name as a module shadows it (VB scoping),
-                // so `bitmap.Push(...)` with a local `bitmap` is a method call, not
-                // a call into module `bitmap`. Only treat it as qualified when no
-                // local binding claims the name.
-                ExprKind::Ident(m)
-                    if ctx.modules.contains(&snake(m)) && ctx.binding(m).is_none() =>
-                {
-                    Some(snake(m))
+                ExprKind::Ident(m) if ctx.modules.contains(&snake(m)) => {
+                    let module = snake(m);
+                    let is_mod_fn = ctx
+                        .interfaces
+                        .get(&module)
+                        .map(|i| i.fns.contains_key(&snake(method)))
+                        .unwrap_or(false);
+                    if is_mod_fn || ctx.binding(m).is_none() {
+                        Some(module)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
@@ -2712,25 +2807,78 @@ fn mcall(recv: Expr, method: &str, args: Vec<Expr>) -> Expr {
     ExprKind::MethodCall { recv: Box::new(recv), method: method.to_string(), args }.at(span)
 }
 
+fn clone_rvalue_indexes(e: &mut Expr, ctx: &Ctx) {
+    match &mut e.kind {
+        ExprKind::Binary { lhs, rhs, .. } => {
+            clone_rvalue_indexes(lhs, ctx);
+            clone_rvalue_indexes(rhs, ctx);
+        }
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                clone_rvalue_indexes(a, ctx);
+            }
+        }
+        ExprKind::MethodCall { recv, method, args } => {
+            // `parts[0].Clone()` is already a clone — don't wrap the index
+            // again or the lowering becomes `.clone().clone()`.
+            if method.eq_ignore_ascii_case("clone") {
+                if let ExprKind::Index(inner, idx) = &mut recv.kind {
+                    clone_rvalue_indexes(inner, ctx);
+                    clone_rvalue_indexes(idx, ctx);
+                } else {
+                    clone_rvalue_indexes(recv, ctx);
+                }
+            } else {
+                clone_rvalue_indexes(recv, ctx);
+            }
+            for a in args {
+                clone_rvalue_indexes(a, ctx);
+            }
+        }
+        ExprKind::Field(inner, _)
+        | ExprKind::Try(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Not(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::Raw(inner)
+        | ExprKind::Closure { body: inner, .. } => clone_rvalue_indexes(inner, ctx),
+        ExprKind::Index(inner, idx) => {
+            clone_rvalue_indexes(inner, ctx);
+            clone_rvalue_indexes(idx, ctx);
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, v) in fields {
+                clone_rvalue_indexes(v, ctx);
+            }
+        }
+        ExprKind::List(items) | ExprKind::Tuple(items) => {
+            for i in items {
+                clone_rvalue_indexes(i, ctx);
+            }
+        }
+        ExprKind::TupleIndex(inner, _) => clone_rvalue_indexes(inner, ctx),
+        _ => {}
+    }
+    clone_if_moved_index(e, ctx);
+}
+
 /// `Return coll[i]` can't *move* a non-Copy element out of an index (Rust:
 /// "cannot move out of index of `Vec<String>`") — clone it. A numeric/bool
 /// element is `Copy` and moves out fine, so those are left alone. Applies to a
-/// `Vec`/array element that is a String, a struct, or a nested collection.
+/// `Vec`/array element that is a String, a user struct, or a nested collection.
 fn clone_if_moved_index(e: &mut Expr, ctx: &Ctx) {
     if !matches!(e.kind, ExprKind::Index(..)) {
         return;
     }
-    let non_copy = matches!(
-        infer(e, ctx),
-        VType::Decl(
-            DeclType::Plain(Type::Text)
-                | DeclType::Named(_)
-                | DeclType::Vec(_)
-                | DeclType::Map(..)
-                | DeclType::Array(..)
-                | DeclType::Array2D(..)
-        )
-    );
+    let non_copy = match infer(e, ctx) {
+        VType::Decl(DeclType::Plain(Type::Text) | DeclType::Vec(_) | DeclType::Map(..)
+            | DeclType::Array(..) | DeclType::Array2D(..)) => true,
+        VType::Decl(DeclType::Named(n)) => ctx.structs.contains_key(&n),
+        _ => false,
+    };
     if non_copy {
         let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
         *e = mcall(inner, "clone", vec![]);

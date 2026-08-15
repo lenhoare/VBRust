@@ -1,0 +1,70 @@
+' Read a voyage log, skip corrupt lines, print a watch officer's summary.
+' Run:  vbr runproject goodexamples/starlog
+
+Function Main()
+    Dim path As String = "voyage.log"
+    Dim there As Boolean = FileSystem.Exists(path)
+    If Not there Then
+        Dim sample As String = Voyage.SampleVoyage()
+        FileSystem.Write(path, sample) Handle err
+            Debug.Print "could not write sample log: " & err
+            Return
+        End Handle
+        Debug.Print "wrote a sample voyage to " & path
+        Debug.Print ""
+    End If
+
+    Dim lines As Vec<String> = FileSystem.Read_Lines(path) Handle err
+        Debug.Print "could not read " & path & ": " & err
+        Return
+    End Handle
+
+    Dim info As Long = 0
+    Dim warn As Long = 0
+    Dim alert As Long = 0
+    Dim skipped As Long = 0
+    Dim lastAlert As Option<String> = None
+
+    Dim i As Long
+    For i = 0 To lines.Len() - 1
+        Dim raw As String = Trim(lines[i])
+        If raw = "" Then
+            Continue
+        End If
+        If TryLine(raw) Is Some(entry) Then
+            Debug.Print "  " & entry.Stamp & "  " & Voyage.LevelName(entry.Sev) & "  " & entry.Text
+            If entry.Sev = Level.Info Then
+                info = info + 1
+            ElseIf entry.Sev = Level.Warn Then
+                warn = warn + 1
+            ElseIf entry.Sev = Level.Alert Then
+                alert = alert + 1
+                lastAlert = Some(entry.Text)
+            Else
+                skipped = skipped + 1
+            End If
+        Else
+            skipped = skipped + 1
+        End If
+    Next
+
+    Debug.Print ""
+    Debug.Print "watch report"
+    Debug.Print "  info  " & info
+    Debug.Print "  warn  " & warn
+    Debug.Print "  alert " & alert
+    Debug.Print "  skip  " & skipped
+    If lastAlert Is Some(msg) Then
+        Debug.Print "  last alert: " & msg
+    Else
+        Debug.Print "  last alert: none"
+    End If
+End Function
+
+Function TryLine(ByVal raw As String) As Option<Line>
+    Dim entry As Line = Voyage.ParseLine(raw) Handle err
+        Debug.Print "  skip: " & err & "  [" & raw & "]"
+        Return None
+    End Handle
+    Return Some(entry)
+End Function

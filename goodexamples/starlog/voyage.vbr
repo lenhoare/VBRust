@@ -1,0 +1,84 @@
+' Parse a starship log. Broken lines RaiseError; Main Handles them and keeps
+' reading. `Log` is a reserved logging verb, so this module is `voyage`.
+
+Public Enum Level
+    Info
+    Warn
+    Alert
+    Noise
+End Enum
+
+Public Type Line
+    Public Stamp As String
+    Public Sev As Level
+    Public Text As String
+End Type
+
+Public Function LevelName(ByVal s As Level) As String
+    Match s
+        Level.Info => Return "INFO"
+        Level.Warn => Return "WARN"
+        Level.Alert => Return "ALERT"
+        Level.Noise => Return "?"
+    End Match
+End Function
+
+Public Function ParseLevel(ByVal raw As String) As Level
+    Match UCase(Trim(raw))
+        "INFO" | "INF" => Return Level.Info
+        "WARN" | "WARNING" => Return Level.Warn
+        "ALERT" | "ERR" | "ERROR" => Return Level.Alert
+        _ => Return Level.Noise
+    End Match
+End Function
+
+' `1042.7 | INFO | left spacedock`
+Public Function ParseLine(ByVal raw As String) As Line
+    Dim line As String = Trim(raw)
+    If line = "" Then
+        RaiseError "empty line"
+    End If
+    Dim parts As Vec<String> = SplitBars(line)
+    If parts.Len() < 3 Then
+        RaiseError "expected stardate | level | message"
+    End If
+    Return Line { stamp: parts[0], sev: ParseLevel(parts[1]), text: JoinRest(parts) }
+End Function
+
+Public Function SampleVoyage() As String
+    Dim s As String = "1042.7 | INFO | left spacedock" & Chr(10)
+    s = s & "1043.1 | INFO | course laid in for Vega" & Chr(10)
+    s = s & "1048.0 | WARN | uncharted debris field" & Chr(10)
+    s = s & "1048.4 | ALERT | hull microfracture on deck 7" & Chr(10)
+    s = s & "1049.2 | INFO | debris field cleared" & Chr(10)
+    s = s & "1051.0 | WARN | coffee replicator offline" & Chr(10)
+    s = s & "this line is junk" & Chr(10)
+    s = s & "1055.6 | INFO | made orbit"
+    Return s
+End Function
+
+Function SplitBars(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = "|" Then
+            out.Push(Trim(cur))
+            cur = ""
+        Else
+            cur = cur & ch
+        End If
+    Next
+    out.Push(Trim(cur))
+    Return out
+End Function
+
+Function JoinRest(ByVal parts As Vec<String>) As String
+    Dim out As String = parts[2]
+    Dim i As Long
+    For i = 3 To parts.Len() - 1
+        out = out & " | " & parts[i]
+    Next
+    Return out
+End Function

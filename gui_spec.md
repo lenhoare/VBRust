@@ -649,10 +649,11 @@ Canvas Plot
 End Canvas
 ```
 
-> Note: canvas bodies don't run the resolver, so iterate with **`For Each`**
-> (which borrows correctly) rather than iterator adapters (`.map`/`.filter`)
-> or `.Count()`-style index loops. Compute heavy data in an *event* (off-thread
-> with `Await` if slow) and store it in state; keep `Draw` to rendering.
+> Draw (and paint functions) run the same resolver as a Function: integer/float
+> widening, `For Each` borrows, helpers `?`. Iced's `draw` is not a `Result`, so
+> a failed helper is printed and the last picture stays up — the same catch as
+> an Event. Heavy work still belongs in an event (off-thread with `Await` if
+> slow); keep `Draw` to rendering. Iterate collections with **`For Each`**.
 
 **Drawing verbs** (valid in a `Draw` block or a paint function):
 
