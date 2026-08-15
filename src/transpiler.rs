@@ -381,7 +381,7 @@ pub(crate) fn add_sibling_type_uses(
             continue;
         }
         if let [one] = mods.as_slice() {
-            uses.push(format!("use crate::{}::{};\n", one, name));
+            uses.push(sibling_type_use(one, name));
         } else {
             ambiguous_type_error(name, mods, diags);
         }
@@ -391,9 +391,9 @@ pub(crate) fn add_sibling_type_uses(
             diags.error_once(
                 &format!("private-type-{}-{}", module, name),
                 format!(
-                    "The type '{}' is Private to '{}.vbr'. Declare it `Public Type {}` \
+                    "The type '{}' is Private to '{}'. Declare it `Public Type {}` \
                      (or `Public Enum {}`) to use it from another file.",
-                    name, module, name, name
+                    name, module_vbr_label(module), name, name
                 ),
             );
         }
@@ -425,6 +425,24 @@ pub(crate) fn add_sibling_type_uses(
     format!("{}{}{}", &rust[..insert_at], block, &rust[insert_at..])
 }
 
+/// `use crate::module::Name;` — or `use crate::Name;` when the type lives on
+/// the crate root (`main.vbr`), which is not a `mod`.
+fn sibling_type_use(module: &str, name: &str) -> String {
+    if module == resolver::CRATE_ROOT {
+        format!("use crate::{};\n", name)
+    } else {
+        format!("use crate::{}::{};\n", module, name)
+    }
+}
+
+fn module_vbr_label(module: &str) -> String {
+    if module == resolver::CRATE_ROOT {
+        "main.vbr".into()
+    } else {
+        format!("{}.vbr", module)
+    }
+}
+
 fn ambiguous_type_error(name: &str, mods: &[String], diags: &mut Diagnostics) {
     diags.error_once(
         &format!("ambiguous-type-{}", name),
@@ -432,7 +450,7 @@ fn ambiguous_type_error(name: &str, mods: &[String], diags: &mut Diagnostics) {
             "The type '{}' is Public in more than one file ({}) — Bust can't tell \
              which one you mean. Rename one of them.",
             name,
-            mods.iter().map(|m| format!("'{}.vbr'", m)).collect::<Vec<_>>().join(" and "),
+            mods.iter().map(|m| format!("'{}'", module_vbr_label(m))).collect::<Vec<_>>().join(" and "),
         ),
     );
 }
@@ -750,7 +768,10 @@ fn emit_tests(
             name
         ));
         emit_block(&body, &mutated, &empty, 2, diags, out);
-        out.push_str("        Ok(())\n    }\n");
+        if !body_never_returns(&body) {
+            out.push_str("        Ok(())\n");
+        }
+        out.push_str("    }\n");
     }
     out.push_str("}\n");
 }
@@ -930,7 +951,11 @@ fn emit_fn_body(
     for stmt in stmts {
         emit_stmt(stmt, mutated, byref, indent, diags, out);
     }
-    if unit {
+    // Unit functions (`Main`, `Function Foo()` with no `As`) need a success
+    // value, but not when the last real statement already never falls through
+    // — rustc marks a trailing `Ok(())` unreachable after `RaiseError`, a
+    // tail `Return`, or a bare `Do … Loop` with no `Exit Do`.
+    if unit && !body_never_returns(stmts) {
         out.push_str(&format!("{}Ok(())\n", pad));
     }
 }
@@ -1232,6 +1257,48 @@ fn body_diverges(stmts: &[Stmt]) -> bool {
         Some(Stmt::HandleErr { body, .. }) => body_diverges(body),
         _ => false,
     }
+}
+
+/// The function (or event, or test) never falls through to a trailing success
+/// value. Unlike [`body_diverges`] this is for the *function tail*: a `Handle`
+/// whose error arm returns still continues on success, so it does not count,
+/// and a function-level `Exit For`/`Continue` is not a reason to drop `Ok(())`.
+pub(crate) fn body_never_returns(stmts: &[Stmt]) -> bool {
+    let last = stmts
+        .iter()
+        .rev()
+        .find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_)));
+    match last {
+        Some(Stmt::Return(_) | Stmt::RaiseError(_)) => true,
+        Some(Stmt::If { branches, else_body }) => {
+            else_body.as_ref().is_some_and(|e| body_never_returns(e))
+                && branches.iter().all(|(_, b)| body_never_returns(b))
+        }
+        Some(Stmt::Match { arms, .. }) => {
+            !arms.is_empty() && arms.iter().all(|a| body_never_returns(&a.body))
+        }
+        // Bare `Do … Loop` is `loop { }` — it only falls through if an `Exit Do`
+        // in *this* loop (not a nested For/Do) can fire.
+        Some(Stmt::DoLoop { cond: None, body }) => !loop_has_break(body),
+        _ => false,
+    }
+}
+
+/// `Exit Do` / `Exit For` that would leave *this* loop. Nested loops absorb
+/// their own `Break`s, so an inner `Exit For` does not make an outer infinite
+/// `Do` fall through.
+fn loop_has_break(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Break => true,
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| loop_has_break(b))
+                || else_body.as_ref().is_some_and(|e| loop_has_break(e))
+        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| loop_has_break(&a.body)),
+        Stmt::HandleErr { body, .. } => loop_has_break(body),
+        Stmt::For { .. } | Stmt::ForEach { .. } | Stmt::DoLoop { .. } => false,
+        _ => false,
+    })
 }
 
 fn emit_handle_err(

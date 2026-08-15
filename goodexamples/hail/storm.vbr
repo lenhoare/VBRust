@@ -1,0 +1,65 @@
+' A squall of hail. Seed lays the stones; Fall bounces them. No Rnd — the
+' velocities are clockwork from the index.
+
+Public Const WIDTH As Double = 800.0
+Public Const HEIGHT As Double = 480.0
+Public Const COUNT As Long = 320
+
+Public Type Stone
+    Public X As Double
+    Public Y As Double
+    Public Vx As Double
+    Public Vy As Double
+    Public R As Long
+    Public Shade As Long
+End Type
+
+Public Function Seed() As Vec<Stone>
+    Dim stones As Vec<Stone>
+    Dim i As Long
+    For i = 0 To COUNT - 1
+        Dim col As Long = i Mod 20
+        Dim row As Long = Int(i / 20.0)
+        Dim vx As Double = 2.4 - (i Mod 7) * 0.7
+        Dim vy As Double = 1.6 + (i Mod 5) * 0.5
+        If vx = 0.0 Then
+            vx = 1.8
+        End If
+        Dim s As Stone = Stone {
+            x: 16.0 + col * 38.0,
+            y: 16.0 + row * 28.0,
+            vx: vx,
+            vy: vy,
+            r: 2 + (i Mod 3),
+            shade: 160 + (i Mod 80)
+        }
+        stones.Push(s)
+    Next
+    Return stones
+End Function
+
+Public Function Fall(ByRef stones As Vec<Stone>)
+    Dim i As Long
+    For i = 0 To stones.Len() - 1
+        Dim s As Stone = stones[i]
+        s.X = s.X + s.Vx
+        s.Y = s.Y + s.Vy
+        If s.X < 6.0 Then
+            s.X = 6.0
+            s.Vx = Abs(s.Vx)
+        End If
+        If s.X > WIDTH - 6.0 Then
+            s.X = WIDTH - 6.0
+            s.Vx = -Abs(s.Vx)
+        End If
+        If s.Y < 6.0 Then
+            s.Y = 6.0
+            s.Vy = Abs(s.Vy)
+        End If
+        If s.Y > HEIGHT - 6.0 Then
+            s.Y = HEIGHT - 6.0
+            s.Vy = -Abs(s.Vy)
+        End If
+        stones[i] = s
+    Next
+End Function

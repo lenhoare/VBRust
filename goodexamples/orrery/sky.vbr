@@ -1,0 +1,57 @@
+' Clockwork planets. Planet(t, i) is the i-th body; Moon rides with the Earth.
+
+Public Type Body
+    Public X As Long
+    Public Y As Long
+    Public Orbit As Long
+    Public Size As Long
+    Public Cr As Long
+    Public Cg As Long
+    Public Cb As Long
+End Type
+
+Public Type Peg
+    Public X As Long
+    Public Y As Long
+End Type
+
+Public Const CX As Double = 320.0
+Public Const CY As Double = 250.0
+
+Public Function Advance(ByVal t As Double) As Double
+    Return t + 0.025
+End Function
+
+Public Function Place(ByVal t As Double, ByVal orbit As Double, ByVal speed As Double, ByVal size As Long, ByVal cr As Long, ByVal cg As Long, ByVal cb As Long) As Body
+    Dim a As Double = t * speed
+    Dim x As Long = Int(CX + Cos(a) * orbit)
+    Dim y As Long = Int(CY + Sin(a) * orbit)
+    Dim ring As Long = Int(orbit)
+    Return Body {
+        x: x,
+        y: y,
+        orbit: ring,
+        size: size,
+        cr: cr,
+        cg: cg,
+        cb: cb
+    }
+End Function
+
+Public Function Planet(ByVal t As Double, ByVal i As Long) As Body
+    Match i
+        0 => Return Place(t, 48.0, 4.15, 5, 180, 180, 190)
+        1 => Return Place(t, 82.0, 1.62, 8, 220, 160, 70)
+        2 => Return Place(t, 118.0, 1.0, 8, 70, 140, 220)
+        3 => Return Place(t, 158.0, 0.53, 6, 210, 80, 50)
+        4 => Return Place(t, 210.0, 0.084, 16, 210, 170, 90)
+        _ => RaiseError "no planet " & i
+    End Match
+End Function
+
+Public Function Moon(ByVal t As Double, ByVal earth As Body) As Peg
+    Dim a As Double = t * 13.0
+    Dim x As Long = Int(earth.X + Cos(a) * 16.0)
+    Dim y As Long = Int(earth.Y + Sin(a) * 16.0)
+    Return Peg { x: x, y: y }
+End Function

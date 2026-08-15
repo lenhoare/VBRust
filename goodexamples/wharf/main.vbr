@@ -1,0 +1,59 @@
+' A tidal wharf. Tab to the radios, space surges a berth, q quits.
+' Run:  vbr runproject goodexamples/wharf
+
+Screen Quay
+    Title "Wharf"
+    Status status
+
+    State
+        Dim berths As Vec<Berth> = Dock.Open()
+        Dim tide As Tide = Tide.Flood
+        Dim status As String = "tab to a radio · space surges a berth · q quits"
+    End State
+
+    View
+        Column
+            Length 1
+            Radio "flood", tide, Tide.Flood
+                On Select SetTide
+            End Radio
+            Length 1
+            Radio "slack", tide, Tide.Slack
+                On Select SetTide
+            End Radio
+            Length 1
+            Radio "ebb", tide, Tide.Ebb
+                On Select SetTide
+            End Radio
+            Length 1
+            Match tide
+                Tide.Flood => Text " flood — lines taut"
+                Tide.Slack => Text " slack water"
+                Tide.Ebb => Text " ebb — hulls drop"
+            End Match
+            Fill
+            BarChart berths
+        End Column
+    End View
+
+    On Key " " Surge
+    On Key "q" Quit
+    On Key Esc Quit
+
+    Event SetTide(value As Tide)
+        tide = value
+        status = Dock.TideName(tide)
+    End Event
+
+    Event Surge
+        Dock.Surge(berths, tide) Handle err
+            status = err
+            Return
+        End Handle
+        status = "surged on " & Dock.TideName(tide)
+    End Event
+End Screen
+
+Function Main()
+    Quay.Run
+End Function

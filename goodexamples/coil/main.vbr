@@ -1,0 +1,32 @@
+' A pen traces a hypotrochoid. Draw paints a ribbon of the last 480 points.
+' Run:  vbr runproject goodexamples/coil
+
+Sketch Knot
+    Title "Coil"
+    Size 640, 480
+    Background Color(12, 10, 22)
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Draw
+        Dim i As Long
+        For i = 0 To 479
+            Dim p As Peg = Reel.At(t - i * 0.05)
+            Dim fade As Long = 255 - Int(i / 2.0)
+            Fill Circle(p.X, p.Y, 2), Color(fade, 70 + (i Mod 50), 210)
+        Next
+        Text "coil", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = Reel.Advance(t)
+    End Event
+End Sketch
+
+Function Main()
+    Knot.Run
+End Function

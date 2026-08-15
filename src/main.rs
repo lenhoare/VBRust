@@ -1314,6 +1314,12 @@ fn generate_godot_sources(
             interfaces.insert(n.clone(), vbr::module_interface(&source));
         }
     }
+    if let Ok(source) = fs::read_to_string(entry) {
+        interfaces.insert(
+            vbr::resolver::CRATE_ROOT.to_string(),
+            vbr::module_interface(&source),
+        );
+    }
 
     let src = rust_dir.join("src");
     if let Err(e) = fs::create_dir_all(&src) {
@@ -1765,6 +1771,15 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
         if let Ok(source) = fs::read_to_string(file) {
             interfaces.insert(name.clone(), vbr::module_interface(&source));
         }
+    }
+    // Public Types/Enums on the entry (`main.vbr`) are crate-root items, not a
+    // `mod main`. Harvest them under a sentinel so a sibling can `use crate::Name;`
+    // — they must not join `module_names` (that would emit `mod main;`).
+    if let Ok(source) = fs::read_to_string(entry) {
+        interfaces.insert(
+            vbr::resolver::CRATE_ROOT.to_string(),
+            vbr::module_interface(&source),
+        );
     }
     // A graduated module (`life.rs` beside `life.vbr.graduated`) keeps its Bust
     // interface: the retired file records how Bust callers treat its arguments

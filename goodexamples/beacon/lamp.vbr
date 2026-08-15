@@ -1,0 +1,151 @@
+' A lighthouse keep. Sky is an enum; a gale is just another watch, counted
+' separately. `Log` is the logging verb, so the file of watches is `Keep`.
+
+Public Enum Sky
+    Clear
+    Haze
+    Gale
+End Enum
+
+Public Type Watch
+    Public Hour As String
+    Public Sky As Sky
+    Public Note As String
+End Type
+
+Public Type Keep
+    Public Items As Vec<Watch>
+End Type
+
+Public Function SkyName(ByVal s As Sky) As String
+    Match s
+        Sky.Clear => Return "clear"
+        Sky.Haze => Return "haze"
+        Sky.Gale => Return "gale"
+    End Match
+End Function
+
+Public Function ParseSky(ByVal raw As String) As Sky
+    Match LCase(Trim(raw))
+        "clear" | "fair" => Return Sky.Clear
+        "haze" | "fog" | "mist" => Return Sky.Haze
+        "gale" | "storm" => Return Sky.Gale
+        _ => RaiseError "sky is clear, haze, or gale — not '" & raw & "'"
+    End Match
+End Function
+
+Public Function Keep.Count() As Long
+    Return Me.Items.Len()
+End Function
+
+Public Function Keep.Gales() As Long
+    Dim n As Long = 0
+    For Each w In Me.Items
+        If w.Sky = Sky.Gale Then
+            n = n + 1
+        End If
+    Next
+    Return n
+End Function
+
+Public Function Keep.Dump() As String
+    If Me.Items.Len() = 0 Then
+        Return "(no watches yet)"
+    End If
+    Dim out As String = ""
+    For Each w In Me.Items
+        out = out & "  " & w.Hour & "  " & SkyName(w.Sky) & "  " & w.Note & Chr(10)
+    Next
+    Return out
+End Function
+
+Public Function LastGale(ByVal k As Keep) As Option<Watch>
+    Dim found As Option<Watch> = None
+    For Each w In k.Items
+        If w.Sky = Sky.Gale Then
+            found = Some(w)
+        End If
+    Next
+    Return found
+End Function
+
+Public Function Record(ByRef k As Keep, ByVal hour As String, ByVal skyRaw As String, ByVal note As String)
+    Dim h As String = Trim(hour)
+    Dim n As String = Trim(note)
+    If h = "" Then
+        RaiseError "the watch needs an hour — try: watch 04 gale lamp trimmed"
+    End If
+    If n = "" Then
+        RaiseError "the watch needs a note"
+    End If
+    Dim s As Sky = ParseSky(skyRaw)
+    k.Items.Push(Watch { hour: h, sky: s, note: n })
+End Function
+
+Public Function Load(ByVal path As String) As Keep
+    Dim items As Vec<Watch>
+    If Not FileSystem.Exists(path) Then
+        Return Keep { items: SampleWatches() }
+    End If
+    Dim lines As Vec<String> = FileSystem.Read_Lines(path)
+    Dim i As Long
+    For i = 0 To lines.Len() - 1
+        Dim line As String = Trim(lines[i])
+        If line = "" Then
+            Continue
+        End If
+        If TryWatch(line) Is Some(w) Then
+            items.Push(w)
+        End If
+    Next
+    Return Keep { items: items }
+End Function
+
+Function TryWatch(ByVal line As String) As Option<Watch>
+    Dim w As Watch = ParseWatch(line) Handle err
+        Debug.Print "  skip: " & err & "  [" & line & "]"
+        Return None
+    End Handle
+    Return Some(w)
+End Function
+
+Function ParseWatch(ByVal line As String) As Watch
+    Dim parts As Vec<String> = SplitBars(line)
+    If parts.Len() < 3 Then
+        RaiseError "want hour | sky | note"
+    End If
+    Return Watch { hour: parts[0], sky: ParseSky(parts[1]), note: parts[2] }
+End Function
+
+Function SampleWatches() As Vec<Watch>
+    Dim items As Vec<Watch>
+    items.Push(Watch { hour: "00", sky: Sky.Clear, note: "lamp trimmed" })
+    items.Push(Watch { hour: "04", sky: Sky.Haze, note: "fog rolling in" })
+    items.Push(Watch { hour: "08", sky: Sky.Gale, note: "glass dropping" })
+    Return items
+End Function
+
+Public Function Keep.Save(ByVal path As String)
+    Dim body As String = ""
+    For Each w In Me.Items
+        body = body & w.Hour & " | " & SkyName(w.Sky) & " | " & w.Note & Chr(10)
+    Next
+    FileSystem.Write(path, body)
+End Function
+
+Function SplitBars(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = "|" Then
+            out.Push(Trim(cur))
+            cur = ""
+        Else
+            cur = cur & ch
+        End If
+    Next
+    out.Push(Trim(cur))
+    Return out
+End Function

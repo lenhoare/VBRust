@@ -1,0 +1,22 @@
+' A still sunflower. Draw places each floret; there is no timer.
+' Run:  vbr runproject goodexamples/bloom
+
+Sketch Head
+    Title "Bloom"
+    Size 640, 480
+    Background Color(18, 22, 16)
+
+    Draw
+        Fill Circle(320, 250, 28), Color(40, 24, 8)
+        Dim i As Long
+        For i = 0 To 419
+            Dim p As Peg = Floret.At(i)
+            Fill Circle(p.X, p.Y, 5), Color(255, p.Warm, 24)
+        Next
+        Text "bloom", 16, 22, Color.Gray
+    End Draw
+End Sketch
+
+Function Main()
+    Head.Run
+End Function

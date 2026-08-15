@@ -1,0 +1,83 @@
+' A loom. Throwing with no yarn RaiseError's; Handle prints it and you
+' keep weaving. Run:  vbr runproject goodexamples/loom
+
+Function Main()
+    Dim path As String = "loom.txt"
+    Dim loom As Loom = Weave.Load(path) Handle err
+        Debug.Print "could not read " & path & ": " & err
+        Return
+    End Handle
+
+    Debug.Print "Loom — pick " & loom.Pick & " of " & loom.Draft.Len() & ", yarn " & loom.Yarn
+    Debug.Print "commands: throw | show | yarn <n> | save | quit"
+    Debug.Print ""
+
+    Do
+        Dim line As String = Trim(InputBox("> "))
+        If line = "" Then
+            Continue
+        End If
+        Dim words As Vec<String> = SplitSpaces(line)
+        Dim cmd As String = LCase(words[0])
+        If cmd = "q" Or cmd = "quit" Then
+            loom.Save(path) Handle err
+                Debug.Print "could not save: " & err
+            End Handle
+            Debug.Print "beam tied off. pick " & loom.Pick
+            Return
+        End If
+        Dispatch(loom, words) Handle err
+            Debug.Print "  ! " & err
+        End Handle
+    Loop
+End Function
+
+Function Dispatch(ByRef loom As Loom, ByVal words As Vec<String>)
+    Dim cmd As String = LCase(words[0])
+    Match cmd
+        "throw" | "t" | "pick" =>
+            Weave.Throw(loom)
+            Debug.Print "  " & Weave.ShedOf(loom) & "   yarn " & loom.Yarn
+        "show" | "ls" | "draft" =>
+            Debug.Print loom.Dump()
+        "yarn" | "weft" =>
+            DoYarn(loom, words)
+        "save" =>
+            loom.Save("loom.txt")
+            Debug.Print "saved."
+        "help" | "?" =>
+            Debug.Print "throw   show   yarn 40   save   quit"
+        _ =>
+            RaiseError "unknown command '" & cmd & "' — try help"
+    End Match
+End Function
+
+Function DoYarn(ByRef loom As Loom, ByVal words As Vec<String>)
+    If words.Len() < 2 Then
+        RaiseError "usage: yarn 40"
+    End If
+    Dim n As Long = CLng(words[1])
+    Weave.SetYarn(loom, n)
+    Debug.Print "  yarn " & loom.Yarn
+End Function
+
+Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function

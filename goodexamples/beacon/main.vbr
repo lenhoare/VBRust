@@ -1,0 +1,101 @@
+' Keep a lighthouse. A bad watch line RaiseError's; Handle prints it and
+' the loop keeps going. Run:  vbr runproject goodexamples/beacon
+
+Function Main()
+    Dim path As String = "watches.txt"
+    Dim keep As Keep = Lamp.Load(path) Handle err
+        Debug.Print "could not read " & path & ": " & err
+        Return
+    End Handle
+
+    Debug.Print "Beacon — " & keep.Count() & " watches on the slate"
+    If Lamp.LastGale(keep) Is Some(w) Then
+        Debug.Print "last gale: " & w.Hour & "  " & w.Note
+    Else
+        Debug.Print "last gale: none on record"
+    End If
+    Debug.Print "commands: watch <hour> <sky> <note> | list | gales | save | quit"
+    Debug.Print ""
+
+    Do
+        Dim line As String = Trim(InputBox("> "))
+        If line = "" Then
+            Continue
+        End If
+        Dim words As Vec<String> = SplitSpaces(line)
+        Dim cmd As String = LCase(words[0])
+        If cmd = "q" Or cmd = "quit" Then
+            keep.Save(path) Handle err
+                Debug.Print "could not save: " & err
+            End Handle
+            Debug.Print "lamp trimmed. " & keep.Count() & " watches"
+            Return
+        End If
+        Dispatch(keep, words) Handle err
+            Debug.Print "  ! " & err
+        End Handle
+    Loop
+End Function
+
+Function Dispatch(ByRef keep As Keep, ByVal words As Vec<String>)
+    Dim cmd As String = LCase(words[0])
+    Match cmd
+        "watch" =>
+            DoWatch(keep, words)
+        "list" | "ls" =>
+            Debug.Print keep.Dump()
+        "gales" | "gale" =>
+            Debug.Print "  " & keep.Gales() & " gales"
+        "save" =>
+            keep.Save("watches.txt")
+            Debug.Print "saved."
+        "help" | "?" =>
+            Debug.Print "watch 04 gale lamp trimmed   list   gales   save   quit"
+        _ =>
+            RaiseError "unknown command '" & cmd & "' — try help"
+    End Match
+End Function
+
+Function DoWatch(ByRef keep As Keep, ByVal words As Vec<String>)
+    If words.Len() < 4 Then
+        RaiseError "usage: watch 04 gale lamp trimmed"
+    End If
+    Dim hour As String = words[1]
+    Dim sky As String = words[2]
+    Dim note As String = JoinFrom(words, 3, words.Len() - 1)
+    Lamp.Record(keep, hour, sky, note)
+    Debug.Print "  recorded. " & keep.Count() & " watches"
+End Function
+
+Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function
+
+Function JoinFrom(ByVal words As Vec<String>, ByVal startAt As Long, ByVal endAt As Long) As String
+    If endAt < startAt Then
+        RaiseError "usage: watch 04 gale lamp trimmed"
+    End If
+    Dim out As String = words[startAt]
+    Dim i As Long
+    For i = startAt + 1 To endAt
+        out = out & " " & words[i]
+    Next
+    Return out
+End Function

@@ -1,0 +1,23 @@
+' A hypotrochoid. At(t) is where the pen sits; the sketch walks a ribbon of t.
+
+Public Type Peg
+    Public X As Long
+    Public Y As Long
+End Type
+
+Public Const CX As Double = 320.0
+Public Const CY As Double = 250.0
+Public Const BIG As Double = 125.0
+Public Const SMALL As Double = 45.0
+Public Const PEN As Double = 80.0
+
+Public Function Advance(ByVal t As Double) As Double
+    Return t + 0.07
+End Function
+
+Public Function At(ByVal t As Double) As Peg
+    Dim k As Double = (BIG - SMALL) / SMALL
+    Dim x As Long = Int(CX + (BIG - SMALL) * Cos(t) + PEN * Cos(k * t))
+    Dim y As Long = Int(CY + (BIG - SMALL) * Sin(t) - PEN * Sin(k * t))
+    Return Peg { x: x, y: y }
+End Function

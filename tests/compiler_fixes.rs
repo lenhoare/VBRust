@@ -315,3 +315,259 @@ fn dim_vec_handle_is_not_dummy_empty() {
     );
     assert!(rust.contains("= match"), "Handle Dim assigns from match:\n{rust}");
 }
+
+#[test]
+fn foreach_string_field_clones_on_dim() {
+    let rust = packed(&rust_of(
+        "Public Type Crate\n    Public Dest As String\n    Public Kg As Long\nEnd Type\n\
+         Function Totals(ByVal items As Vec<Crate>) As HashMap<String, Long>\n\
+         \x20   Dim sums As HashMap<String, Long>\n\
+         \x20   For Each c In items\n\
+         \x20       Dim dest As String = c.Dest\n\
+         \x20       Dim kg As Long = c.Kg\n\
+         \x20       sums.Insert(dest, kg)\n\
+         \x20   Next\n\
+         \x20   Return sums\n\
+         End Function\n\
+         Function Main()\nEnd Function\n",
+    ));
+    assert!(
+        rust.contains(".dest.clone()"),
+        "For-Each String field used as a value must clone: {rust}"
+    );
+    assert!(
+        !rust.contains(".kg.clone()"),
+        "For-Each Copy field must not clone: {rust}"
+    );
+}
+
+#[test]
+fn foreach_struct_clones_on_push() {
+    let rust = packed(&rust_of(
+        "Public Type Lot\n    Public Kind As String\nEnd Type\n\
+         Function Keep(ByVal kept As Vec<Lot>) As Vec<Lot>\n\
+         \x20   Dim lots As Vec<Lot>\n\
+         \x20   For Each k In kept\n\
+         \x20       lots.Push(k)\n\
+         \x20   Next\n\
+         \x20   Return lots\n\
+         End Function\n\
+         Function Main()\nEnd Function\n",
+    ));
+    assert!(
+        rust.contains("(*k).clone()"),
+        "For-Each struct pushed onto a Vec must clone: {rust}"
+    );
+}
+
+#[test]
+fn foreach_byval_struct_stays_borrowed() {
+    let rust = packed(&rust_of(
+        "Public Type Lot\n    Public Kind As String\nEnd Type\n\
+         Function LabelOf(ByVal lot As Lot) As String\n\
+         \x20   Return lot.Kind\n\
+         End Function\n\
+         Function Labels(ByVal lots As Vec<Lot>) As Vec<String>\n\
+         \x20   Dim rows As Vec<String>\n\
+         \x20   For Each lot In lots\n\
+         \x20       rows.Push(LabelOf(lot))\n\
+         \x20   Next\n\
+         \x20   Return rows\n\
+         End Function\n\
+         Function Main()\nEnd Function\n",
+    ));
+    assert!(
+        rust.contains("labelof(&") || rust.contains("labelof(&*lot)"),
+        "ByVal struct arg must borrow, not clone: {rust}"
+    );
+    assert!(
+        !rust.contains("(*lot).clone()"),
+        "LabelOf(lot) must not clone the loop var: {rust}"
+    );
+}
+
+#[test]
+fn table_accepts_sibling_public_type() {
+    let pit = "Public Type Lot\n    Public Kind As String\n    Public Bags As Long\nEnd Type\n";
+    let main = "\
+Screen Floor\n\
+    State\n\
+        Dim lots As Vec<Lot>\n\
+    End State\n\
+    View\n\
+        Table lots\n\
+        End Table\n\
+    End View\n\
+End Screen\n\
+Function Main()\n    Floor.Run\nEnd Function\n";
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert("pit".into(), vbr::module_interface(pit));
+    let compiled = vbr::compile_module(main, &["pit".into()], &interfaces, true);
+    assert!(
+        !compiled.has_errors,
+        "Table of sibling Type must compile: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.rust.contains("use crate::pit::Lot"),
+        "entry must import the sibling type: {}",
+        compiled.rust
+    );
+    assert!(
+        compiled.rust.contains("row.kind.clone()"),
+        "Table columns come from the sibling struct: {}",
+        compiled.rust
+    );
+}
+
+#[test]
+fn crate_root_type_is_imported_by_sibling() {
+    let entry = "Public Type Lot\n    Public Kind As String\nEnd Type\nFunction Main()\nEnd Function\n";
+    let pit = "Public Function Take(ByVal lot As Lot)\nEnd Function\n";
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert(
+        vbr::resolver::CRATE_ROOT.into(),
+        vbr::module_interface(entry),
+    );
+    let compiled = vbr::compile_module(pit, &["pit".into()], &interfaces, false);
+    assert!(
+        !compiled.has_errors,
+        "sibling using crate-root Type must compile: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.rust.contains("use crate::Lot;"),
+        "sibling must `use crate::Lot`, not `use crate::main::Lot`: {}",
+        compiled.rust
+    );
+    assert!(
+        !compiled.rust.contains("use crate::main::"),
+        "must not invent a `mod main`: {}",
+        compiled.rust
+    );
+}
+
+/// rustc --edition 2021, warning-free. Same bar as the happy-path snapshots.
+fn assert_rustc_clean(tag: &str, rust: &str) {
+    use std::fs;
+    use std::process::Command;
+    let dir = std::env::temp_dir().join(format!("vbr_fix_{tag}"));
+    fs::create_dir_all(&dir).unwrap();
+    let rs = dir.join("out.rs");
+    fs::write(&rs, rust).unwrap();
+    let output = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg("-o")
+        .arg(dir.join("out_bin"))
+        .arg(&rs)
+        .output()
+        .expect("failed to run rustc");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "{tag}: rustc rejected generated Rust:\n{stderr}"
+    );
+    assert!(
+        stderr.trim().is_empty(),
+        "{tag}: rustc emitted warnings:\n{stderr}"
+    );
+}
+
+#[test]
+fn infinite_do_has_no_trailing_ok() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Do\n\
+        \x20       Return\n\
+        \x20   Loop\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(p.contains("loop{"), "bare Do becomes loop: {rust}");
+    assert!(
+        !p.contains("loop{returnOk(());}Ok(())"),
+        "infinite Do must not be followed by unreachable Ok(()): {rust}"
+    );
+    assert_rustc_clean("infinite_do", &rust);
+}
+
+#[test]
+fn raiseerror_last_has_no_trailing_ok() {
+    let rust = rust_of(
+        "Function Fail()\n\
+        \x20   RaiseError \"nope\"\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Fail()\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(
+        !p.contains("returnErr(\"nope\".to_string());Ok(())"),
+        "RaiseError as last stmt must not be followed by Ok(()): {rust}"
+    );
+    // Main calls Fail, so rustc doesn't warn about a dead helper. An empty
+    // Main in other tests still needs the success value — checked there.
+    assert!(p.contains("fail()?"), "Main calls Fail: {rust}");
+    assert_rustc_clean("raiseerror_last", &rust);
+}
+
+#[test]
+fn handle_as_last_stmt_still_has_ok() {
+    // Handle's error arm can return; the success path still falls through.
+    let rust = rust_of(
+        "Function Boom()\n\
+        \x20   RaiseError \"x\"\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Boom() Handle err\n\
+        \x20       Debug.Print err\n\
+        \x20   End Handle\n\
+        End Function\n",
+    );
+    assert!(
+        packed(&rust).contains("Ok(())"),
+        "Handle as last stmt still needs Ok(()) on the success path: {rust}"
+    );
+    assert_rustc_clean("handle_last", &rust);
+}
+
+#[test]
+fn exit_do_still_has_trailing_ok() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Do\n\
+        \x20       Exit Do\n\
+        \x20   Loop\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(
+        p.contains("loop{break;}Ok(())"),
+        "Do that can Exit still needs Ok(()): {rust}"
+    );
+    assert_rustc_clean("exit_do", &rust);
+}
+
+#[test]
+fn if_both_branches_leave_has_no_trailing_ok() {
+    let rust = rust_of(
+        "Function Pick(ByVal ok As Boolean)\n\
+        \x20   If ok Then\n\
+        \x20       Return\n\
+        \x20   Else\n\
+        \x20       RaiseError \"no\"\n\
+        \x20   End If\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Pick(True)\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(
+        !p.contains("}Ok(())}"),
+        "If/Else that both leave must not grow a trailing Ok(()): {rust}"
+    );
+    assert_rustc_clean("if_both_leave", &rust);
+}

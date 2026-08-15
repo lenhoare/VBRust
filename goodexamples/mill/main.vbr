@@ -1,0 +1,36 @@
+' A waterwheel. Draw paints the house and paddles; Tick turns the axle.
+' Run:  vbr runproject goodexamples/mill
+
+Sketch Mill
+    Title "Mill"
+    Size 640, 480
+    Background Color(18, 28, 48)
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 32 Tick
+
+    Draw
+        Fill Rect(0, 300, 640, 180), Color(12, 40, 70)
+        Fill Rect(430, 160, 90, 220), Color(70, 48, 32)
+        Fill Rect(448, 40, 24, 130), Color(50, 34, 24)
+        Dim i As Long
+        For i = 0 To 7
+            Dim p As Peg = Wheel.Paddle(t, i)
+            Stroke Line(240, 220, p.X, p.Y), Color(90, 62, 36), 5
+            Fill Circle(p.X, p.Y, 16), Color(120, 86, 48)
+        Next
+        Fill Circle(240, 220, 22), Color(160, 120, 70)
+        Text "mill", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = Wheel.Advance(t)
+    End Event
+End Sketch
+
+Function Main()
+    Mill.Run
+End Function

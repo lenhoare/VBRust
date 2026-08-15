@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use crate::ast::*;
 use crate::iter;
 use crate::pattern::{self, Pat};
-use crate::transpiler::{convert_returns, rust_name};
+use crate::transpiler::{body_never_returns, convert_returns, rust_name};
 use crate::types::{type_program, TypeTable};
 
 /// The result of emitting Python for one Bust source.
@@ -315,7 +315,7 @@ impl Emitter {
             self.line(indent + 1, "pass");
         } else {
             self.block(&body, indent + 1);
-            if self.wrap_ok && !py_body_ends_with_return(&body) {
+            if self.wrap_ok && !body_never_returns(&body) {
                 self.needs_result = true;
                 self.line(indent + 1, "return Ok(None)");
             }
@@ -1744,13 +1744,6 @@ fn py_float(f: f64) -> String {
     } else {
         format!("{}.0", s)
     }
-}
-
-fn py_body_ends_with_return(stmts: &[Stmt]) -> bool {
-    matches!(
-        stmts.iter().rev().find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))),
-        Some(Stmt::Return(_) | Stmt::RaiseError(_))
-    )
 }
 
 fn py_body_diverges(stmts: &[Stmt]) -> bool {

@@ -69,6 +69,11 @@ pub struct ModuleInterface {
 /// its calls stay name-qualified only, as before.
 pub type ProjectInterfaces = HashMap<String, ModuleInterface>;
 
+/// Sentinel key for Public Types/Enums declared on the crate root (`main.vbr`).
+/// Not a `mod` name — a sibling that mentions one of those types gets
+/// `use crate::Name;`, the same path a Rust crate-root type would use.
+pub const CRATE_ROOT: &str = "<crate>";
+
 /// Harvest a module's interface from its parsed program.
 pub fn module_interface(program: &Program) -> ModuleInterface {
     let mut fns = FnTable::new();
@@ -106,7 +111,7 @@ pub fn module_interface(program: &Program) -> ModuleInterface {
         if s.public {
             structs.insert(
                 s.name.clone(),
-                s.fields.iter().map(|f| (snake(&f.name), f.ty.clone())).collect(),
+                s.fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect(),
             );
         } else {
             private_types.insert(s.name.clone());
@@ -235,9 +240,11 @@ pub struct MethodInfo {
 
 pub type MethodTable = HashMap<(String, String), MethodInfo>;
 
-/// Struct name → (field snake name → field type). Lets `infer` see through a
-/// `p.field` access, so field values get the same coercions variables do.
-pub type StructTable = HashMap<String, HashMap<String, DeclType>>;
+/// Struct name → fields in declaration order `(original name, type)`. Lets
+/// `infer` see through a `p.field` access, and lets a `Table`/`BarChart`/`Chart`
+/// emit columns in the order the Type was written — including a Public Type
+/// that lives in a sibling module.
+pub type StructTable = HashMap<String, Vec<(String, DeclType)>>;
 
 pub fn build_struct_table(program: &Program) -> StructTable {
     program
@@ -248,11 +255,21 @@ pub fn build_struct_table(program: &Program) -> StructTable {
                 s.name.clone(),
                 s.fields
                     .iter()
-                    .map(|f| (snake(&f.name), f.ty.clone()))
+                    .map(|f| (f.name.clone(), f.ty.clone()))
                     .collect(),
             )
         })
         .collect()
+}
+
+/// Look up a field by name (Pascal or snake) on a known struct.
+pub fn struct_field<'a>(structs: &'a StructTable, name: &str, field: &str) -> Option<&'a DeclType> {
+    let want = snake(field);
+    structs
+        .get(name)?
+        .iter()
+        .find(|(n, _)| snake(n) == want)
+        .map(|(_, t)| t)
 }
 
 /// Module-constant original name → (its SCREAMING_SNAKE_CASE Rust name, its
@@ -951,11 +968,13 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Print(e) => {
                 resolve_expr(e, ctx);
-                clone_rvalue_indexes(e, ctx);
+                // `println!("{}", *n)` borrows; don't clone a For-Each String
+                // just to print it. An index still clones (`vec[i]` would move).
+                clone_moved_rvalues(e, ctx, false);
             }
             Stmt::Log(_, e) => {
                 resolve_expr(e, ctx);
-                clone_rvalue_indexes(e, ctx);
+                clone_moved_rvalues(e, ctx, false);
             }
             Stmt::Assert(e) => {
                 resolve_expr(e, ctx);
@@ -2505,10 +2524,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         // `p.field` — the field's declared type, when the receiver is a known
         // struct (including `Me` inside a method).
         ExprKind::Field(recv, field) => match infer(recv, ctx) {
-            VType::Decl(DeclType::Named(s)) => ctx
-                .structs
-                .get(&s)
-                .and_then(|fields| fields.get(&snake(field)))
+            VType::Decl(DeclType::Named(s)) => struct_field(ctx.structs, &s, field)
                 .map_or(VType::Unknown, |t| VType::Decl(t.clone())),
             _ => VType::Unknown,
         },
@@ -2808,14 +2824,27 @@ fn mcall(recv: Expr, method: &str, args: Vec<Expr>) -> Expr {
 }
 
 fn clone_rvalue_indexes(e: &mut Expr, ctx: &Ctx) {
+    clone_moved_rvalues(e, ctx, true);
+}
+
+/// Walk an expression cloning non-Copy values that Rust would refuse to move.
+/// `owned` is whether this node is used as a value (Dim/Assign/call arg/…)
+/// rather than a receiver (`c.Dest`, `v.Push(…)`'s `v`). A For-Each / ByRef
+/// ident is a shared ref — taking a String or struct from it must clone, but
+/// the ident sitting under a field access is not itself an owned rvalue.
+fn clone_moved_rvalues(e: &mut Expr, ctx: &Ctx, owned: bool) {
     match &mut e.kind {
-        ExprKind::Binary { lhs, rhs, .. } => {
-            clone_rvalue_indexes(lhs, ctx);
-            clone_rvalue_indexes(rhs, ctx);
+        ExprKind::Binary { op, lhs, rhs, .. } => {
+            // `&` concat is `format!`, which borrows — don't clone a For-Each
+            // String just to print it into the format. An index still clones
+            // (`vec[i]` would move even under Display).
+            let child_owned = owned && *op != BinOp::Concat;
+            clone_moved_rvalues(lhs, ctx, child_owned);
+            clone_moved_rvalues(rhs, ctx, child_owned);
         }
         ExprKind::Call { args, .. } => {
             for a in args {
-                clone_rvalue_indexes(a, ctx);
+                clone_moved_rvalues(a, ctx, true);
             }
         }
         ExprKind::MethodCall { recv, method, args } => {
@@ -2823,46 +2852,72 @@ fn clone_rvalue_indexes(e: &mut Expr, ctx: &Ctx) {
             // again or the lowering becomes `.clone().clone()`.
             if method.eq_ignore_ascii_case("clone") {
                 if let ExprKind::Index(inner, idx) = &mut recv.kind {
-                    clone_rvalue_indexes(inner, ctx);
-                    clone_rvalue_indexes(idx, ctx);
+                    clone_moved_rvalues(inner, ctx, false);
+                    clone_moved_rvalues(idx, ctx, true);
                 } else {
-                    clone_rvalue_indexes(recv, ctx);
+                    clone_moved_rvalues(recv, ctx, false);
                 }
             } else {
-                clone_rvalue_indexes(recv, ctx);
+                clone_moved_rvalues(recv, ctx, false);
             }
             for a in args {
-                clone_rvalue_indexes(a, ctx);
+                clone_moved_rvalues(a, ctx, true);
             }
         }
-        ExprKind::Field(inner, _)
-        | ExprKind::Try(inner)
+        ExprKind::Field(inner, _) | ExprKind::TupleIndex(inner, _) => {
+            clone_moved_rvalues(inner, ctx, false);
+        }
+        ExprKind::Ref(inner) | ExprKind::MutRef(inner) => {
+            clone_moved_rvalues(inner, ctx, false);
+        }
+        ExprKind::Try(inner)
         | ExprKind::Cast(inner, _)
-        | ExprKind::Deref(inner)
-        | ExprKind::MutRef(inner)
-        | ExprKind::Ref(inner)
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
         | ExprKind::Raw(inner)
-        | ExprKind::Closure { body: inner, .. } => clone_rvalue_indexes(inner, ctx),
+        | ExprKind::Closure { body: inner, .. } => clone_moved_rvalues(inner, ctx, owned),
+        ExprKind::Deref(inner) => clone_moved_rvalues(inner, ctx, false),
         ExprKind::Index(inner, idx) => {
-            clone_rvalue_indexes(inner, ctx);
-            clone_rvalue_indexes(idx, ctx);
+            clone_moved_rvalues(inner, ctx, false);
+            clone_moved_rvalues(idx, ctx, true);
         }
         ExprKind::StructLit { fields, .. } => {
             for (_, v) in fields {
-                clone_rvalue_indexes(v, ctx);
+                clone_moved_rvalues(v, ctx, true);
             }
         }
         ExprKind::List(items) | ExprKind::Tuple(items) => {
             for i in items {
-                clone_rvalue_indexes(i, ctx);
+                clone_moved_rvalues(i, ctx, true);
             }
         }
-        ExprKind::TupleIndex(inner, _) => clone_rvalue_indexes(inner, ctx),
         _ => {}
     }
     clone_if_moved_index(e, ctx);
+    if owned {
+        clone_if_moved_deref_rvalue(e, ctx);
+    }
+}
+
+fn wrap_clone(e: &mut Expr) {
+    let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
+    *e = mcall(inner, "clone", vec![]);
+}
+
+/// A String, user struct, or collection — values Rust will not move out of a
+/// borrow or an index.
+fn needs_owned_clone(e: &Expr, ctx: &Ctx) -> bool {
+    match infer(e, ctx) {
+        VType::Decl(
+            DeclType::Plain(Type::Text)
+            | DeclType::Vec(_)
+            | DeclType::Map(..)
+            | DeclType::Array(..)
+            | DeclType::Array2D(..),
+        ) => true,
+        VType::Decl(DeclType::Named(n)) => ctx.structs.contains_key(&n),
+        _ => false,
+    }
 }
 
 /// `Return coll[i]` can't *move* a non-Copy element out of an index (Rust:
@@ -2873,15 +2928,28 @@ fn clone_if_moved_index(e: &mut Expr, ctx: &Ctx) {
     if !matches!(e.kind, ExprKind::Index(..)) {
         return;
     }
-    let non_copy = match infer(e, ctx) {
-        VType::Decl(DeclType::Plain(Type::Text) | DeclType::Vec(_) | DeclType::Map(..)
-            | DeclType::Array(..) | DeclType::Array2D(..)) => true,
-        VType::Decl(DeclType::Named(n)) => ctx.structs.contains_key(&n),
+    if needs_owned_clone(e, ctx) {
+        wrap_clone(e);
+    }
+}
+
+/// True when `e` is a For-Each / ByRef ident (already a shared ref) or a field
+/// reached through one — `c.Dest`, `(*c).inner.name`.
+fn from_deref_var(e: &Expr, ctx: &Ctx) -> bool {
+    match &e.kind {
+        ExprKind::Ident(n) => ctx.deref.contains(&snake(n)),
+        ExprKind::Deref(inner) | ExprKind::Field(inner, _) => from_deref_var(inner, ctx),
         _ => false,
-    };
-    if non_copy {
-        let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
-        *e = mcall(inner, "clone", vec![]);
+    }
+}
+
+/// `Dim dest = c.Dest` / `lots.Push(k)` can't move a String or struct out of
+/// the shared ref a For-Each (or ByRef) variable is. Clone the rvalue; a Copy
+/// field (`c.Kg`) is left alone. A ByVal struct argument is already wrapped
+/// in `Ref` before this runs, so `LabelOf(lot)` stays `&lot`.
+fn clone_if_moved_deref_rvalue(e: &mut Expr, ctx: &Ctx) {
+    if from_deref_var(e, ctx) && needs_owned_clone(e, ctx) {
+        wrap_clone(e);
     }
 }
 fn lit_of(v: Expr) -> Expr {

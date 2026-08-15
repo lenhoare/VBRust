@@ -140,9 +140,9 @@ pub fn emit_tui_program(
         );
     }
 
-    // Struct definitions by name — a `Table` reads its element struct's fields.
-    let structs: HashMap<String, &StructDef> =
-        program.structs.iter().map(|s| (s.name.clone(), s)).collect();
+    // Struct fields by type name — a `Table` reads columns from the element
+    // struct, including a Public Type declared in a sibling module.
+    let structs = &t.structs;
 
     let file_in_event = program.screens.iter().any(|sc| {
         sc.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
@@ -180,7 +180,7 @@ pub fn emit_tui_program(
     }
 
     for sc in &program.screens {
-        out.push_str(&emit_screen(sc, &t, &structs, &program.functions, web, diags));
+        out.push_str(&emit_screen(sc, &t, structs, &program.functions, web, diags));
         out.push('\n');
     }
     if !web && file_in_event {
@@ -244,7 +244,7 @@ pub fn emit_tui_program(
 fn emit_screen(
     sc: &Screen,
     t: &surface::Tables,
-    structs: &HashMap<String, &StructDef>,
+    structs: &crate::resolver::StructTable,
     helpers: &[Function],
     web: bool,
     diags: &mut Diagnostics,
@@ -639,7 +639,7 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
 fn validate_focusable(
     fo: &Focusable,
     field_ty: &HashMap<String, DeclType>,
-    structs: &HashMap<String, &StructDef>,
+    structs: &crate::resolver::StructTable,
     diags: &mut Diagnostics,
 ) {
     match fo.kind {
@@ -663,7 +663,7 @@ fn validate_focusable(
             let ok = matches!(
                 field_ty.get(&fo.field),
                 Some(DeclType::Vec(inner))
-                    if matches!(&**inner, DeclType::Named(n) if structs.get(n).is_some_and(|sd| !sd.fields.is_empty()))
+                    if matches!(&**inner, DeclType::Named(n) if structs.get(n).is_some_and(|fields| !fields.is_empty()))
             );
             if !ok {
                 diags.error_once(
@@ -833,7 +833,7 @@ fn render_view_node(
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
-    structs: &HashMap<String, &StructDef>,
+    structs: &crate::resolver::StructTable,
     multi: bool,
     web: bool,
     themed: bool,
@@ -1164,9 +1164,9 @@ fn render_view_node(
             let id = *counter;
             *counter += 1;
             // Columns come from the element struct's fields (validated earlier).
-            let cols: &[Field] = match field_ty.get(&f) {
+            let cols: &[(String, DeclType)] = match field_ty.get(&f) {
                 Some(DeclType::Vec(inner)) => match &**inner {
-                    DeclType::Named(n) => structs.get(n).map(|s| s.fields.as_slice()).unwrap_or(&[]),
+                    DeclType::Named(n) => structs.get(n).map(|s| s.as_slice()).unwrap_or(&[]),
                     _ => &[],
                 },
                 _ => &[],
@@ -1174,15 +1174,15 @@ fn render_view_node(
             // Each row: one cell per struct field (owned String).
             let cells: Vec<String> = cols
                 .iter()
-                .map(|c| {
-                    let acc = format!("row.{}", rust_name(&c.name));
-                    match &c.ty {
+                .map(|(name, ty)| {
+                    let acc = format!("row.{}", rust_name(name));
+                    match ty {
                         DeclType::Plain(Type::Text) => format!("{}.clone()", acc),
                         _ => format!("{}.to_string()", acc),
                     }
                 })
                 .collect();
-            let headers: Vec<String> = cols.iter().map(|c| format!("{:?}", c.name)).collect();
+            let headers: Vec<String> = cols.iter().map(|(name, _)| format!("{:?}", name)).collect();
             let widths: Vec<&str> = cols.iter().map(|_| "Constraint::Fill(1)").collect();
             out.push_str(&format!(
                 "{}let rows_{}: Vec<ratatui::widgets::Row> = state.{}.iter()\
@@ -1472,7 +1472,7 @@ fn render_body_nodes(
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
-    structs: &HashMap<String, &StructDef>,
+    structs: &crate::resolver::StructTable,
     multi: bool,
     web: bool,
     themed: bool,
@@ -1530,7 +1530,7 @@ fn child_constraint(node: &ViewNode) -> String {
 fn chart_xy_columns(
     field: &str,
     field_ty: &HashMap<String, DeclType>,
-    structs: &HashMap<String, &StructDef>,
+    structs: &crate::resolver::StructTable,
 ) -> Option<(String, String)> {
     let struct_name = match field_ty.get(field) {
         Some(DeclType::Vec(inner)) => match &**inner {
@@ -1541,10 +1541,9 @@ fn chart_xy_columns(
     };
     let sd = structs.get(struct_name)?;
     let mut nums = sd
-        .fields
         .iter()
-        .filter(|f| matches!(f.ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
-        .map(|f| rust_name(&f.name));
+        .filter(|(_, ty)| matches!(ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
+        .map(|(n, _)| rust_name(n));
     Some((nums.next()?, nums.next()?))
 }
 
@@ -1553,7 +1552,7 @@ fn chart_xy_columns(
 fn barchart_columns(
     field: &str,
     field_ty: &HashMap<String, DeclType>,
-    structs: &HashMap<String, &StructDef>,
+    structs: &crate::resolver::StructTable,
 ) -> Option<(String, String)> {
     let struct_name = match field_ty.get(field) {
         Some(DeclType::Vec(inner)) => match &**inner {
@@ -1564,15 +1563,13 @@ fn barchart_columns(
     };
     let sd = structs.get(struct_name)?;
     let label = sd
-        .fields
         .iter()
-        .find(|f| matches!(f.ty, DeclType::Plain(Type::Text)))
-        .map(|f| rust_name(&f.name))?;
+        .find(|(_, ty)| matches!(ty, DeclType::Plain(Type::Text)))
+        .map(|(n, _)| rust_name(n))?;
     let value = sd
-        .fields
         .iter()
-        .find(|f| matches!(f.ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
-        .map(|f| rust_name(&f.name))?;
+        .find(|(_, ty)| matches!(ty, DeclType::Plain(t) if !matches!(t, Type::Text | Type::Boolean)))
+        .map(|(n, _)| rust_name(n))?;
     Some((label, value))
 }
 

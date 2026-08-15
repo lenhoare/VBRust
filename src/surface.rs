@@ -14,8 +14,8 @@ use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::resolver;
 use crate::transpiler::{
-    decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt, emit_struct,
-    note_builtins, render_expr, rust_name, stdlib_type,
+    body_never_returns, decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt,
+    emit_struct, note_builtins, render_expr, rust_name, stdlib_type,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -435,7 +435,9 @@ pub(crate) fn emit_event_stmts_caught(
     out.push_str(&format!("{}{{\n", pad));
     out.push_str(&format!("{}    let __vbr_event: Result<(), String> = (|| {{\n", pad));
     emit_event_stmts(stmts, params, recv, fields, field_ty, t, indent + 2, diags, out);
-    out.push_str(&format!("{}        Ok(())\n", pad));
+    if !body_never_returns(stmts) {
+        out.push_str(&format!("{}        Ok(())\n", pad));
+    }
     out.push_str(&format!("{}    }})();\n", pad));
     out.push_str(&format!(
         "{}    if let Err(__e) = __vbr_event {{\n        {}eprintln!(\"Error: {{}}\", __e);\n{}    }}\n",
@@ -493,7 +495,9 @@ pub(crate) fn emit_subs(
             params.join(", ")
         ));
         emit_event_stmts(&s.body, &s.params, "self", fields, field_ty, t, 2, diags, out);
-        out.push_str("        Ok(())\n");
+        if !body_never_returns(&s.body) {
+            out.push_str("        Ok(())\n");
+        }
         out.push_str("    }\n");
     }
     out.push_str("}\n\n");

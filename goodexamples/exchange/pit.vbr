@@ -19,14 +19,6 @@ Public Function OpenBoard() As Vec<Lot>
     Return lots
 End Function
 
-Public Function RowLabels(ByVal lots As Vec<Lot>) As Vec<String>
-    Dim rows As Vec<String>
-    For Each lot In lots
-        rows.Push(LabelOf(lot))
-    Next
-    Return rows
-End Function
-
 Public Function ListLot(ByRef lots As Vec<Lot>, ByVal line As String)
     Dim words As Vec<String> = SplitSpaces(line)
     If words.Len() < 3 Then
@@ -47,10 +39,10 @@ Public Function ListLot(ByRef lots As Vec<Lot>, ByVal line As String)
     lots.Push(Lot { kind: kind, bags: bags, bid: bid })
 End Function
 
-Public Function Take(ByRef lots As Vec<Lot>, ByVal label As String)
+Public Function Take(ByRef lots As Vec<Lot>, ByVal lot As Lot)
     Dim i As Long
     For i = 0 To lots.Len() - 1
-        If LabelOf(lots[i]) = label Then
+        If lots[i].Kind = lot.Kind And lots[i].Bags = lot.Bags And lots[i].Bid = lot.Bid Then
             Dim kept As Vec<Lot>
             Dim j As Long
             For j = 0 To lots.Len() - 1
@@ -59,9 +51,8 @@ Public Function Take(ByRef lots As Vec<Lot>, ByVal label As String)
                 End If
             Next
             lots.Clear()
-            Dim k As Long
-            For k = 0 To kept.Len() - 1
-                lots.Push(kept[k])
+            For Each k In kept
+                lots.Push(k)
             Next
             Return
         End If

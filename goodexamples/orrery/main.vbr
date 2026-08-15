@@ -1,0 +1,36 @@
+' A desk orrery. Draw strokes the orbits; Tick turns the years.
+' Run:  vbr runproject goodexamples/orrery
+
+Sketch Desk
+    Title "Orrery"
+    Size 640, 480
+    Background Color(6, 8, 18)
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 24 Tick
+
+    Draw
+        Dim i As Long
+        For i = 0 To 4
+            Dim p As Body = Sky.Planet(t, i)
+            Stroke Circle(320, 250, p.Orbit), Color(28, 32, 58), 1
+            Fill Circle(p.X, p.Y, p.Size), Color(p.Cr, p.Cg, p.Cb)
+        Next
+        Dim earth As Body = Sky.Planet(t, 2)
+        Dim m As Peg = Sky.Moon(t, earth)
+        Fill Circle(m.X, m.Y, 3), Color(200, 200, 210)
+        Fill Circle(320, 250, 18), Color(255, 210, 80)
+        Text "orrery", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = Sky.Advance(t)
+    End Event
+End Sketch
+
+Function Main()
+    Desk.Run
+End Function

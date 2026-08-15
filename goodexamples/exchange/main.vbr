@@ -1,4 +1,4 @@
-' A grain exchange. Tab to the list, Enter to take a lot, type a new listing.
+' A grain exchange. Tab to the table, Enter to take a lot, type a new listing.
 ' Run:  vbr runproject goodexamples/exchange
 
 Screen Floor
@@ -7,7 +7,6 @@ Screen Floor
 
     State
         Dim lots As Vec<Lot> = Pit.OpenBoard()
-        Dim rows As Vec<String> = StarterRows()
         Dim ticket As String = ""
         Dim status As String = "Enter takes a lot · type wheat 12 4.50 to list one"
     End State
@@ -15,15 +14,15 @@ Screen Floor
     View
         Column
             Length 1
-            Text " Tab between box and list · Esc quits"
+            Text " Tab between box and table · Esc quits"
             Length 3
             Input ticket
                 On Submit ListIt
             End Input
             Fill
-            List rows
+            Table lots
                 On Select TakeLot
-            End List
+            End Table
             Length 1
             Text " " & status
         End Column
@@ -36,25 +35,18 @@ Screen Floor
             status = err
             Return
         End Handle
-        rows = Pit.RowLabels(lots)
         ticket = ""
         status = "listed"
     End Event
 
-    Event TakeLot(item As String)
-        Pit.Take(lots, item) Handle err
+    Event TakeLot(lot As Lot)
+        Pit.Take(lots, lot) Handle err
             status = err
             Return
         End Handle
-        rows = Pit.RowLabels(lots)
-        status = "took " & item
+        status = "took " & Pit.LabelOf(lot)
     End Event
 End Screen
-
-Function StarterRows() As Vec<String>
-    Dim lots As Vec<Lot> = Pit.OpenBoard()
-    Return Pit.RowLabels(lots)
-End Function
 
 Function Main()
     Floor.Run

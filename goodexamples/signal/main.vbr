@@ -1,0 +1,36 @@
+' A radio trace. Every tick the wave advances; Chart is the picture.
+' Run:  vbr runproject goodexamples/signal
+
+Screen Rig
+    Title "Signal"
+    Status status
+
+    State
+        Dim phase As Double = 0.0
+        Dim trace As Vec<Sample> = Wave.Sweep(0.0)
+        Dim status As String = "a carrier on the scope · q quits"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " phase " & phase
+            Fill
+            Chart trace
+        End Column
+    End View
+
+    Every 80 Tick
+    On Key "q" Quit
+    On Key Esc Quit
+
+    Event Tick
+        phase = Wave.Advance(phase)
+        trace = Wave.Sweep(phase)
+        status = "phase " & phase
+    End Event
+End Screen
+
+Function Main()
+    Rig.Run
+End Function

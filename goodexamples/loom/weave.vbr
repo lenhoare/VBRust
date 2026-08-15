@@ -1,0 +1,109 @@
+' A floor loom. The draft is a list of sheds; each throw advances the pick
+' and spends one unit of yarn.
+
+Public Type Loom
+    Public Draft As Vec<String>
+    Public Pick As Long
+    Public Yarn As Long
+End Type
+
+Public Function ShedOf(ByVal loom As Loom) As String
+    If loom.Draft.Len() = 0 Then
+        Return "(empty reed)"
+    End If
+    Dim i As Long = loom.Pick
+    If i < 0 Then
+        i = 0
+    End If
+    If i >= loom.Draft.Len() Then
+        i = 0
+    End If
+    Return loom.Draft[i]
+End Function
+
+Public Function Loom.Dump() As String
+    If Me.Draft.Len() = 0 Then
+        Return "(no draft)"
+    End If
+    Dim out As String = ""
+    Dim i As Long
+    For i = 0 To Me.Draft.Len() - 1
+        Dim mark As String = "  "
+        If i = Me.Pick Then
+            mark = "> "
+        End If
+        out = out & mark & Me.Draft[i] & Chr(10)
+    Next
+    Return out
+End Function
+
+Public Function Throw(ByRef loom As Loom)
+    If loom.Draft.Len() = 0 Then
+        RaiseError "no draft on the beam"
+    End If
+    If loom.Yarn <= 0 Then
+        RaiseError "yarn is gone — yarn 40 to respool"
+    End If
+    loom.Yarn = loom.Yarn - 1
+    loom.Pick = loom.Pick + 1
+    If loom.Pick >= loom.Draft.Len() Then
+        loom.Pick = 0
+    End If
+End Function
+
+Public Function SetYarn(ByRef loom As Loom, ByVal n As Long)
+    If n < 0 Then
+        RaiseError "yarn cannot be negative"
+    End If
+    loom.Yarn = n
+End Function
+
+Public Function Load(ByVal path As String) As Loom
+    Dim draft As Vec<String>
+    If Not FileSystem.Exists(path) Then
+        Return Loom { draft: StarterDraft(), pick: 0, yarn: 24 }
+    End If
+    Dim lines As Vec<String> = FileSystem.Read_Lines(path)
+    Dim yarn As Long = 24
+    Dim pick As Long = 0
+    Dim i As Long
+    For i = 0 To lines.Len() - 1
+        Dim line As String = Trim(lines[i])
+        If line = "" Then
+            Continue
+        End If
+        If Left(line, 5) = "yarn " Then
+            yarn = CLng(Mid(line, 6, Len(line)))
+        ElseIf Left(line, 5) = "pick " Then
+            pick = CLng(Mid(line, 6, Len(line)))
+        Else
+            draft.Push(line)
+        End If
+    Next
+    If draft.Len() = 0 Then
+        draft = StarterDraft()
+    End If
+    If pick < 0 Or pick >= draft.Len() Then
+        pick = 0
+    End If
+    Return Loom { draft: draft, pick: pick, yarn: yarn }
+End Function
+
+Function StarterDraft() As Vec<String>
+    Dim d As Vec<String>
+    d.Push("x.x.x.x.")
+    d.Push(".x.x.x.x")
+    d.Push("xx..xx..")
+    d.Push("..xx..xx")
+    Return d
+End Function
+
+Public Function Loom.Save(ByVal path As String)
+    Dim body As String = "yarn " & Me.Yarn & Chr(10)
+    body = body & "pick " & Me.Pick & Chr(10)
+    Dim i As Long
+    For i = 0 To Me.Draft.Len() - 1
+        body = body & Me.Draft[i] & Chr(10)
+    Next
+    FileSystem.Write(path, body)
+End Function

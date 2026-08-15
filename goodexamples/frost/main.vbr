@@ -1,0 +1,27 @@
+' Frost on the pane — a Julia set, one pixel at a time.
+' Run:  vbr runproject goodexamples/frost
+
+Sketch Pane
+    Title "Frost"
+    Size 640, 480
+    Background Color.Black
+
+    Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim zr As Double = Lace.RealAt(x, width)
+                Dim zi As Double = Lace.ImagAt(y, height)
+                Dim n As Long = Lace.Escape(zr, zi)
+                If n < 80 Then
+                    Dim t As Long = (n * 255) / 80
+                    Set Pixel x, y, Color(t / 2, t, 255 - t)
+                End If
+            Next x
+        Next y
+        Text "frost", 16, 22, Color.Gray
+    End Draw
+End Sketch
+
+Function Main()
+    Pane.Run
+End Function

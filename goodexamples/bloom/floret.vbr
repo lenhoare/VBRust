@@ -1,0 +1,16 @@
+' A sunflower head. Each seed sits on the golden spiral — angle 2π/φ².
+
+Public Type Peg
+    Public X As Long
+    Public Y As Long
+    Public Warm As Long
+End Type
+
+Public Function At(ByVal i As Long) As Peg
+    Dim a As Double = i * 3.14159 * (3.0 - Sqr(5.0))
+    Dim r As Double = 8.2 * Sqr(i)
+    Dim x As Long = Int(320.0 + Cos(a) * r)
+    Dim y As Long = Int(250.0 + Sin(a) * r)
+    Dim warm As Long = 90 + (i Mod 140)
+    Return Peg { x: x, y: y, warm: warm }
+End Function

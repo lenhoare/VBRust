@@ -1,0 +1,54 @@
+' Berths on a quay. Tons move with the tide; a dry berth RaiseError's.
+
+Public Enum Tide
+    Flood
+    Slack
+    Ebb
+End Enum
+
+Public Type Berth
+    Public Name As String
+    Public Tons As Long
+End Type
+
+Public Function TideName(ByVal t As Tide) As String
+    Match t
+        Tide.Flood => Return "flood"
+        Tide.Slack => Return "slack"
+        Tide.Ebb => Return "ebb"
+    End Match
+End Function
+
+Public Function Open() As Vec<Berth>
+    Dim v As Vec<Berth>
+    v.Push(Berth { name: "north", tons: 40 })
+    v.Push(Berth { name: "east", tons: 22 })
+    v.Push(Berth { name: "basin", tons: 55 })
+    v.Push(Berth { name: "creek", tons: 12 })
+    Return v
+End Function
+
+Public Function Surge(ByRef berths As Vec<Berth>, ByVal tide As Tide)
+    If berths.Len() = 0 Then
+        RaiseError "no berths on the quay"
+    End If
+    Dim i As Long = 0
+    Dim j As Long
+    For j = 1 To berths.Len() - 1
+        If berths[j].Tons < berths[i].Tons Then
+            i = j
+        End If
+    Next
+    Dim b As Berth = berths[i]
+    If tide = Tide.Ebb Then
+        If b.Tons < 8 Then
+            RaiseError b.Name & " is sitting on the mud"
+        End If
+        b.Tons = b.Tons - 8
+    ElseIf tide = Tide.Flood Then
+        b.Tons = b.Tons + 6
+    Else
+        b.Tons = b.Tons + 1
+    End If
+    berths[i] = b
+End Function

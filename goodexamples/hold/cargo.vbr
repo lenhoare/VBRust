@@ -35,7 +35,7 @@ End Function
 Public Function Hold.ByDest() As String
     Dim sums As HashMap<String, Long>
     For Each c In Me.Items
-        Dim dest As String = c.Dest.Clone()
+        Dim dest As String = c.Dest
         Dim kg As Long = c.Kg
         If sums.get(dest) Is Some(sofar) Then
             sums.Insert(dest, sofar + kg)

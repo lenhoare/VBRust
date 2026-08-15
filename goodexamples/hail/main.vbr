@@ -1,0 +1,42 @@
+' How fast can a Sketch tick? Every 1ms, 320 hailstones, FPS from the
+' wall clock's second. Run:  vbr runproject goodexamples/hail
+
+Sketch Squall
+    Title "Hail"
+    Size 800, 480
+    Background Color(8, 12, 28)
+
+    State
+        Dim stones As Vec<Stone> = Storm.Seed()
+        Dim frames As Long = 0
+        Dim fps As Long = 0
+        Dim sec As String = "-"
+    End State
+
+    Every 1 Tick
+
+    Draw
+        Dim i As Long
+        For i = 0 To stones.Len() - 1
+            Dim s As Stone = stones[i]
+            Fill Circle(Int(s.X), Int(s.Y), s.R), Color(s.Shade, s.Shade, 255)
+        Next
+        Text fps & " fps   320 stones   every 1ms", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        Storm.Fall(stones)
+        frames = frames + 1
+        Dim now As DateTime = DateTime.Now()
+        Dim nowSec As String = now.Format("%S")
+        If nowSec <> sec Then
+            fps = frames
+            frames = 0
+            sec = nowSec
+        End If
+    End Event
+End Sketch
+
+Function Main()
+    Squall.Run
+End Function

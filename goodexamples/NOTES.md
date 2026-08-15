@@ -1,43 +1,28 @@
-# Notes from the second five
+# Notes from the sketch five
 
-Written as ordinary Bust, then compiled. These are the places the source looked right and the compiler disagreed.
+Written as ordinary Bust, then compiled. Sketch Draw *does* run helpers (unlike View).
 
 ## Worked as hoped
 
-- `Dim bay As Hold = Cargo.Load(path) Handle` on a named type.
-- `bay.Save(path)` with `path As String` (ByVal borrows).
-- `Cargo.CAPACITY` from another module.
-- Screen Events calling `Pit.ListLot` / `Oven.Beat` / `Oven.OpenDoor` with Handle.
-- Sketch **Draw** calling `Sea.Height(t, x)` and `Sea.Foam(t, x)` — Draw is a statement list with a Result catch, so module calls are real Bust. View is not.
-- `x * 0.16` with `x As Long` widens in a Function (no `As Double` cast).
-- `On Key " "` for space (same as the countdown project).
+- `Every 1 Tick` — iced asks for a millisecond timer. Hail counts ticks per wall-clock second with `DateTime.Now().Format("%S")` in the Event, so the window itself reports FPS.
+- `Dim stones As Vec<Stone> = Storm.Seed()` in State, `Storm.Fall(stones)` on Tick — sibling type + ByRef, same path as fireflies.
+- Draw `Floret.At(i)` / `Reel.At(t)` / `Sky.Planet(t, i)` / `Lace.Escape(zr, zi)` — helpers from Draw, including once per pixel on frost.
+- `Match i` with `Return Place(...)` in every arm and `RaiseError` on `_` — Planet has no dummy value after the Match.
+- Still `Set Pixel` Julia, then `Text "frost"` on top (pixels flush before Fill/Stroke/Text).
+- Golden-angle bloom (`Sqr`, `Cos`/`Sin` on `i * π * (3 - Sqr(5))`).
+- Hypotrochoid ribbon: Draw walks 480 points behind `t`; Tick only advances `t`.
+- Orrery moon from `Sky.Moon(t, earth)` after a second `Planet(t, 2)` for Earth.
 
-## Sensible Bust that did not behave
+## Had to spell it the mill way
 
-1. **`Table lots` with `Lot` declared in `pit.vbr`.**  
-   `lots As Vec<Lot>` is a Vec of a Public Type, but the Screen checker only looks at structs in the *same file*. Error: `lots isn't a Vec<Struct>`.  
-   Moving `Type Lot` into `main.vbr` made Table parse, then `pit.vbr` failed to compile (`Lot` not in scope — no `use crate::Lot`).  
-   **Workaround:** `List` of string rows, labels rebuilt in Events (`Pit.RowLabels`), same shape as workshop.
+- `Int(...)` in a `Type` literal stays a float (`Peg { x: Int(...) }` → `.floor()` with no `as i64`). `Dim x As Long = Int(...)` then `Peg { x: x }` is what mill already did.
+- Assigning to a `ByVal` parameter (`zr = tmp` inside Julia) — rustc wants `mut`. A `Dim zr As Double = zr0` copy is the local.
 
-2. **`For Each c In Me.Items` then `sums.Insert(c.Dest, …)`.**  
-   `c.Dest` is behind a shared ref; HashMap keys must be owned. Auto-clone covers `vec[i]`, not a For-Each field.  
-   `Dim dest As String = c.Dest` still moved.  
-   **Workaround:** `Dim dest As String = c.Dest.Clone()`.
+## Still a View projection
 
-3. **`For Each k In kept` then `lots.Push(k)`.**  
-   Same hole: the loop variable is a borrow of a struct.  
-   **Workaround:** `lots.Push(kept[j])` — indexing clones.
-
-4. **View helper calls.**  
-   Almost wrote `Text "door " & DoorWord(door)`. That is a user function in View; View does not go through the resolver and is not `Result`.  
-   **Workaround:** a `doorLabel As String` field updated in Events.
-
-## Warnings, not failures
-
-- A `Do … Loop` in `Main` still gets a trailing `Ok(())` rustc marks unreachable.
-- `RaiseError` as the last line of a Function still gets the same trailing `Ok(())`.
+No View on a Sketch. Draw is the picture and it does go through the resolver.
 
 ## Language, not a compiler miss
 
-- No `Rnd()` — tide is two sine waves on a clock.
-- `Log` is still the logging verb / `Ln`; modules stay clear of that name.
+- No `Rnd()` — hail velocities are clockwork from the index; bloom / coil / orrery are `Cos` / `Sin` on a phase.
+- `Log` is still the logging verb.

@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::*;
 use crate::iter;
 use crate::pattern::{self, Pat};
-use crate::transpiler::convert_returns;
+use crate::transpiler::{body_never_returns, convert_returns};
 use crate::types::{type_program, TypeTable};
 
 /// The generated C, plus any constructs that couldn't cross cleanly.
@@ -497,11 +497,13 @@ impl Emitter {
         convert_returns(&mut body, &func.name);
         self.block(&body);
 
-        if is_main {
-            self.line("return 0;");
-        } else if !c_body_ends_with_return(&body) {
-            let ty = result_of(func.ret.as_ref());
-            self.line(&format!("return {};", self.ok_literal(&ty, None)));
+        if !body_never_returns(&body) {
+            if is_main {
+                self.line("return 0;");
+            } else {
+                let ty = result_of(func.ret.as_ref());
+                self.line(&format!("return {};", self.ok_literal(&ty, None)));
+            }
         }
         self.indent -= 1;
         self.line("}");
@@ -2470,13 +2472,6 @@ fn c_type(ty: &DeclType) -> String {
 fn result_of(inner: Option<&DeclType>) -> DeclType {
     let t = inner.cloned().unwrap_or_else(|| DeclType::Tuple(Vec::new()));
     DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)))
-}
-
-fn c_body_ends_with_return(stmts: &[Stmt]) -> bool {
-    matches!(
-        stmts.iter().rev().find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))),
-        Some(Stmt::Return(_) | Stmt::RaiseError(_))
-    )
 }
 
 fn c_body_diverges(stmts: &[Stmt]) -> bool {

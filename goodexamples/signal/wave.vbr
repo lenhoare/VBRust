@@ -1,0 +1,22 @@
+' A carrier. Sweep builds the points the Chart draws; Advance walks the phase.
+' No Rnd — the wave is clockwork.
+
+Public Type Sample
+    Public T As Double
+    Public Amp As Double
+End Type
+
+Public Function Advance(ByVal phase As Double) As Double
+    Return phase + 0.18
+End Function
+
+Public Function Sweep(ByVal phase As Double) As Vec<Sample>
+    Dim out As Vec<Sample>
+    Dim i As Long
+    For i = 0 To 40
+        Dim x As Double = i
+        Dim y As Double = Sin(phase + x * 0.22) * 40.0
+        out.Push(Sample { t: x, amp: y })
+    Next
+    Return out
+End Function

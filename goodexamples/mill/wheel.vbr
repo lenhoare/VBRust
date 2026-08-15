@@ -1,0 +1,17 @@
+' Eight paddles on a wheel. Paddle returns where the i-th one sits at time t.
+
+Public Type Peg
+    Public X As Long
+    Public Y As Long
+End Type
+
+Public Function Advance(ByVal t As Double) As Double
+    Return t + 0.09
+End Function
+
+Public Function Paddle(ByVal t As Double, ByVal i As Long) As Peg
+    Dim a As Double = t + i * 0.785
+    Dim x As Long = Int(240.0 + Cos(a) * 118.0)
+    Dim y As Long = Int(220.0 + Sin(a) * 118.0)
+    Return Peg { x: x, y: y }
+End Function
