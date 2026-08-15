@@ -1,0 +1,52 @@
+id = "gpu-function"
+title = "Gpu Function"
+category = "Surfaces"
+kind = "keyword"
+anchor = "kw/GpuFunction"
+
+syntax = """
+Gpu Function <Name>(ByVal <arg> As Double, ...) As Double
+    Return <expr>
+End Function
+"""
+
+summary = "A helper compiled into a Gpu Draw shader, not into Rust."
+
+remarks = """
+A `Gpu Function` is ordinary Bust that the kernel can call — `Sin`, `Cos`, `Noise`, arithmetic, `If` / `Return`. It is compiled to WGSL and is **not** emitted as Rust, so you can't call it from `Main` or a CPU `Draw`.
+
+Same-file helpers sit next to the Sketch. A helper in another file is `Public Gpu Function` (and `Public Const` numbers it uses); a sibling module that is only GPU helpers is skipped on the Rust side.
+
+Keep kernel locals off reserved GPU names (`u`, `col`, `pos`, `frame`, `mouse`, `size`, …). `Dim u` inside a kernel shadows the uniform struct.
+"""
+
+example = """
+Sketch Pane
+    Title "Wave"
+    Size 320, 240
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim k As Double = Wave(x / width * 8.0, t)
+                Set Pixel x, y, Color(20, 40 + k * 80, 180)
+            Next x
+        Next y
+    End Draw
+End Sketch
+
+Gpu Function Wave(ByVal p As Double, ByVal phase As Double) As Double
+    Return 0.5 + 0.5 * Sin(p + phase)
+End Function
+
+Function Main()
+    Pane.Run
+End Function
+"""
+
+see_also = ["gpu-draw", "sketch", "function", "public"]

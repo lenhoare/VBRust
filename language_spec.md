@@ -758,6 +758,11 @@ The CLI compiles a `.vbr` source through lexer → parser → resolver → trans
 | `transpile <file>` | Write the generated Rust to `<file>.rs` (or `-o`).         |
 | `emit <file>` | Print the generated Rust to stdout.                             |
 
+Surfaces (`Window` / `Screen` / `Page` / `Sketch`) are specified in
+`gui_spec.md`, `tui_spec.md`, and `web_spec.md`. A Sketch may paint with
+`Gpu Draw` (a `For y` / `For x` / `Set Pixel` kernel compiled to a fragment
+shader) as well as CPU `Draw`; helpers in the kernel are `Gpu Function`.
+
 ### Testing (`Test` / `Assert` / `vbr test`)
 
 A `Test "description" … End Test` block is an executable specification; `Assert

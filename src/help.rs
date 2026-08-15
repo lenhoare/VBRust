@@ -171,6 +171,8 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("screen", "Screen", "Surfaces", Keyword, "kw/Screen"),
         item!("page", "Page", "Surfaces", Keyword, "kw/Page"),
         item!("sketch", "Sketch", "Surfaces", Keyword, "kw/Sketch"),
+        item!("gpu-draw", "Gpu Draw", "Surfaces", Keyword, "kw/GpuDraw"),
+        item!("gpu-function", "Gpu Function", "Surfaces", Keyword, "kw/GpuFunction"),
         item!("theme", "Theme", "Surfaces", Keyword, "kw/Theme"),
     ]
 }

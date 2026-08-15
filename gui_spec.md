@@ -762,14 +762,24 @@ End Sketch
 | `Background <color>` | the paper: `Color.Navy` or `Color(r, g, b)`. Default black. |
 | `State` … | same as a Window — `Draw` reads it, events write it |
 | `Every <ms> <Event>` | fire that event on an interval (Screen's timer, on a Sketch) |
-| `Draw` … | `Fill` / `Stroke` / `Text` / `Set Pixel`. `width` and `height` are the live canvas size when you use pixels. |
+| `Draw` … | CPU overlay: `Fill` / `Stroke` / `Text` / `Set Pixel`. `width` and `height` are the live canvas size when you use pixels. |
+| `Gpu Draw` … | the same nested `For y` / `For x` / `Set Pixel` picture, compiled to a fragment shader. CPU `Draw` stacks on top. |
 | `Event` / `Sub` | same as a Window |
 
 `Set Pixel x, y, Color.Red` writes one pixel into a buffer the size of the window (clipped, nearest-neighbour). The buffer is composited in painter's order: a `Fill` after some pixels flushes them first, so overlays sit on top. See `examples/sketch_pixels.vbr` (gradient) and `examples/sketch_mandelbrot.vbr`.
 
-`Theme` is a teaching error — colour the paper with `Background`, not a widget palette. A `View` is a teaching error — for buttons around a drawing, use a `Window` with a `Canvas`.
+**Gpu Draw.** Nested `For y` / `For x` / `Set Pixel` is one WGSL fragment shader, not a CPU walk. Helpers in the kernel are `Gpu Function` (same file, or `Public Gpu Function` in another file). State numbers become uniforms. `mouse_x` / `mouse_y` are uniforms (sketch pixels). `Noise(x, y)` / `Noise(x, y, t)` is 0-to-1 value noise. `Sample(spr, u, v)` or `Sample(frame, u, v)` reads a `Pixels` (or last paper) at pixel coordinates.
 
-See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), and `examples/sketch_mandelbrot.vbr`.
+`Copy` / `Clear` / `Pixels` / last `frame` sit beside that kernel as extra GPU passes:
+
+- `Clear Color.Navy` fills the paper with no pixel loop.
+- `Copy spr, x, y` / dest size / source rect. `ColorKey`, `Blend Add` / `Blend Multiply`. `Copy frame, 3, 1` is last paper, shifted.
+- A kernel after `Copy` only writes the pixels it `Set`s — the rest stay see-through so a smear shows. Kernel-only sketches start opaque black.
+- `Dim spr As Pixels = Pixels.Of(18, 18)` is a GPU texture in State, not a `Vec`. `Into spr` … `End Into` paints it. `Copy … Using mask` samples a second `Pixels` (white keeps, black skips).
+
+Don't name a kernel local `u` (it shadows the uniform struct). `Theme` is a teaching error — colour the paper with `Background`, not a widget palette. A `View` is a teaching error — for buttons around a drawing, use a `Window` with a `Canvas`.
+
+See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), `examples/sketch_mandelbrot.vbr`. GPU showpieces: `goodexamples/plasma`, `goodexamples/frost`, `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`. A forms Window using the everyday widgets is `goodexamples/desk` (`Theme JellyFish`).
 
 ---
 

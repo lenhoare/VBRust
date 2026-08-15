@@ -35,11 +35,11 @@ summary = "A desktop GUI — buttons, sliders, text. State is the truth; the vie
 remarks = """
 A `Window` is a pixel desktop app (Iced). The shape is always the same: `State` holds the data, `View` describes the widgets from that data, `Event` handlers change the state — then the view redraws. There is no hidden control object to poke.
 
-Everyday widgets: `Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`. Layout is `Column` / `Row` with `Spacing` and `Padding`. Bind a control to a state field (`Slider 0..=100, volume`) and handle `On Click` / `On Change` / `On Input` / `On Toggle`.
+Everyday widgets: `Text`, `Button`, `TextInput`, `TextArea`, `Checkbox`, `Toggler`, `Slider`, `ProgressBar`, `Radio`, `Image`. Layout is `Column` / `Row` with `Spacing` and `Padding`. Bind a control to a state field (`Slider 0..=100, volume`) and handle `On Click` / `On Change` / `On Input` / `On Toggle` / `On Select`. A `Match` or `If` in the View picks which widgets show.
 
-Need a drawing *and* buttons? Put a `Canvas` in the View. Need only a drawing? Use a `Sketch` instead.
+Need a drawing *and* buttons? Put a `Canvas` in the View. Need only a drawing? Use a `Sketch` instead — `Gpu Draw` if the picture is a pixel kernel.
 
-`Theme Dracula` (or `NightOwl`, `Nord`, …) restyles the whole window. Launch it from `Function Main()` with `<Name>.Run`. A program is one kind of surface — don't mix a Window with a Screen or a Page.
+`Theme Dracula` (or `NightOwl`, `JellyFish`, `Nord`, …) restyles the whole window. The palette is chosen when the window opens. Launch it from `Function Main()` with `<Name>.Run`. A program is one kind of surface — don't mix a Window with a Screen or a Page.
 """
 
 example = """
@@ -76,4 +76,4 @@ Function Main()
 End Function
 """
 
-see_also = ["screen", "page", "sketch", "theme", "await"]
+see_also = ["screen", "page", "sketch", "gpu-draw", "theme", "await"]

@@ -48,4 +48,8 @@ So it is the software present path at particular buffer sizes, not the planets. 
 - `Into spr` … `End Into` paints that `Pixels` (`Clear` / kernel / `Copy`). `width` / `height` inside are the buffer's size, not the window's.
 - `Copy spr, x, y, Using mask` samples a second `Pixels` (white keeps, black skips — coverage is the mask's RGB, so opaque black punches a hole).
 
-`goodexamples/trails` is Copy + `frame` + a stamp. `goodexamples/badge` paints a `Pixels`, punches it with `Using hole`, and smears. `goodexamples/pond` is `Noise` + `Sample(frame, …)` + `mouse_x` / `mouse_y`.
+`goodexamples/trails` is Copy + `frame` + a stamp. `goodexamples/badge` paints a `Pixels`, punches it with `Using hole`, and smears. `goodexamples/pond` is `Noise` + `Sample(frame, …)` + `mouse_x` / `mouse_y`. `goodexamples/aurora` is Noise curtains (a same-file `Gpu Function`) with the mouse shifting the ribbons. `goodexamples/ember` is `Copy frame` rising plus a heat kernel at the pointer.
+
+## Forms Window
+
+`goodexamples/desk` is the GUI surface with the everyday widgets (`TextInput`, `TextArea`, `Toggler`, `Slider`, `ProgressBar`, `Checkbox`, `Radio`, `Button`, `Match` / `If` in View) under `Theme JellyFish`. Theme is chosen when the window opens — it isn't a live picker.

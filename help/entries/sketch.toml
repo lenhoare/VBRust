@@ -36,6 +36,8 @@ A `Sketch` is a pixel window. There is no `View` and there are no widgets: the s
 
 `Set Pixel x, y, Color.Red` writes one pixel. Inside a Draw that uses it, `width` and `height` are the live canvas size in pixels — loop `For y = 0 To height - 1`. Unwritten pixels stay transparent so `Background` shows through. Pixels flush before a later `Fill`/`Stroke`, so you can plot a field and stroke axes on top.
 
+`Gpu Draw` is the same nested `For y` / `For x` / `Set Pixel` picture, compiled to one fragment shader. Put `Fill` / `Stroke` / `Text` in a CPU `Draw` on top. Helpers that belong in the kernel are `Gpu Function`. `mouse_x` / `mouse_y` are uniforms (sketch pixels). See **Gpu Draw**.
+
 `Background Color.Navy` (or `Color(r, g, b)`) is the paper. Omit it and the paper is black. `Size 800, 600` is the opening window; omit that too and you get 800×600. The canvas fills the window if you resize it.
 
 A still image is a `Draw` with no timer. An animation is `Every 16 Tick` plus an `Event Tick` that updates state — next frame, `Draw` runs again.
@@ -61,4 +63,4 @@ Function Main()
 End Function
 """
 
-see_also = ["window", "theme", "await"]
+see_also = ["window", "gpu-draw", "gpu-function", "theme", "await"]

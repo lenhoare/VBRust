@@ -1,0 +1,71 @@
+id = "gpu-draw"
+title = "Gpu Draw"
+category = "Surfaces"
+kind = "keyword"
+anchor = "kw/GpuDraw"
+
+syntax = """
+Sketch <Name>
+    Size <width>, <height>
+    Background <color>
+
+    State
+        Dim t As Double = 0.0
+        Dim spr As Pixels = Pixels.Of(18, 18)
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Set Pixel x, y, Color(...)
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "<label>", 16, 22, Color.Gray
+    End Draw
+End Sketch
+"""
+
+summary = "A Sketch pixel kernel compiled to a fragment shader. CPU Draw stacks on top."
+
+remarks = """
+`Gpu Draw` is the same nested `For y` / `For x` / `Set Pixel` picture a CPU `Draw` would walk, compiled to one WGSL fragment shader. Put `Fill` / `Stroke` / `Text` in a CPU `Draw` — they overlay the kernel. Helpers that belong in the kernel are `Gpu Function` (same file, or `Public Gpu Function` in another file).
+
+`width` and `height` are the live canvas (or, inside `Into spr`, that buffer's size). State numbers become uniforms (`t`, …). `mouse_x` / `mouse_y` are uniforms too (sketch pixels; last position if the pointer leaves). `Noise(x, y)` / `Noise(x, y, t)` is 0-to-1 value noise. `Sample(spr, u, v)` or `Sample(frame, u, v)` reads a `Pixels` (or last paper) at pixel coordinates.
+
+`Copy`, `Clear`, and `Pixels` sit beside the kernel as extra GPU passes:
+
+- `Clear Color.Navy` fills the paper with no pixel loop.
+- `Copy spr, x, y` / dest size / source rect — whole buffer, dest size, or a source rect. `ColorKey`, `Blend Add` / `Blend Multiply`. `Copy frame, 3, 1` is last paper, shifted.
+- A kernel after `Copy` only writes the pixels it `Set`s — the rest stay see-through so a smear shows. Kernel-only sketches start opaque black.
+- `Dim spr As Pixels = Pixels.Of(18, 18)` is a GPU texture in State (white until you draw into it), not a `Vec`.
+- `Into spr` … `End Into` paints that `Pixels`. `Copy spr, x, y, Using mask` samples a second `Pixels` (white keeps, black skips).
+
+Don't name a kernel local `u` (it shadows the uniform struct). `Theme` is a teaching error on a Sketch — colour the paper with `Background`.
+"""
+
+example = """
+Sketch Pane
+    Title "Glow"
+    Size 320, 240
+    Background Color.Black
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Set Pixel x, y, Color(x * 255 / width, 40, y * 255 / height)
+            Next x
+        Next y
+    End Draw
+End Sketch
+
+Function Main()
+    Pane.Run
+End Function
+"""
+
+see_also = ["sketch", "gpu-function", "window", "theme"]

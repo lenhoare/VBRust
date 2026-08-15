@@ -1,0 +1,46 @@
+' Northern lights: Noise curtains, mouse shifts the ribbons.
+' Run:  vbr runproject goodexamples/aurora
+
+Sketch Pane
+    Title "Aurora"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim nx As Double = x / width
+                Dim ny As Double = y / height
+                Dim mx As Double = mouse_x / width - 0.5
+                Dim glow As Double = Curtain(nx, ny, t, mx)
+                Dim ribbon As Double = 1.0 / (1.0 + Abs(x - mouse_x) * 0.018)
+                Dim k As Double = glow * (0.55 + ribbon * 0.7)
+                Set Pixel x, y, Color(18 + k * 160, 28 + k * 210, 70 + k * 90 + ny * 40)
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "aurora", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.04
+    End Event
+End Sketch
+
+Gpu Function Curtain(ByVal nx As Double, ByVal ny As Double, ByVal t As Double, ByVal mx As Double) As Double
+    Dim n As Double = Noise(nx * 2.2 + mx, ny * 7.0 - t * 0.55, t * 0.25)
+    Dim band As Double = 0.5 + 0.5 * Sin(nx * 9.0 + t * 0.35 + mx * 4.0)
+    Return n * band * (1.15 - ny)
+End Function
+
+Function Main()
+    Pane.Run
+End Function

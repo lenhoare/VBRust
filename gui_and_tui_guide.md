@@ -1,11 +1,13 @@
 # Building Interfaces: Windows and Screens
 
-Bust builds two kinds of interactive program from the *same* set of ideas:
+Bust builds three kinds of interactive program from the *same* set of ideas:
 
 - a **`Window`** — a desktop application with buttons, sliders, and text boxes,
   drawn with [Iced];
 - a **`Screen`** — a keyboard-driven terminal application with lists, tables, and
-  charts, drawn with [ratatui].
+  charts, drawn with [ratatui];
+- a **`Sketch`** — a desktop window that *is* a drawing (`Draw`, or `Gpu Draw`
+  for a pixel kernel on the GPU).
 
 This is a friendly tour. The terse, complete catalogues live in `gui_spec.md` and
 `tui_spec.md`; here we just want to get the *shape* of things into your head. The
@@ -233,7 +235,21 @@ Window Counter
 ```
 
 `NightOwl` and `JellyFish` work here too (custom Iced palettes). The same names
-apply to a `Page`.
+apply to a `Page`. The palette is chosen when the window opens — it isn't a live
+picker. `goodexamples/desk` is a forms Window that uses the everyday widgets
+under `Theme JellyFish`.
+
+### Sketch — a drawing, including the GPU
+
+A `Sketch` is a window that *is* the picture: `Draw`, no buttons. `Gpu Draw` is
+the same nested `For y` / `For x` / `Set Pixel` loop, compiled to a fragment
+shader. CPU `Draw` (`Text`, `Fill`, `Stroke`) stacks on top. Helpers that belong
+in the kernel are `Gpu Function`. `mouse_x` / `mouse_y`, `Noise`, and
+`Sample(frame, u, v)` are legal in the kernel. Theme is a teaching error on a
+Sketch — colour the paper with `Background`.
+
+Showpieces: `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`.
+The catalogue lives in `gui_spec.md` §4.5.
 
 ---
 
@@ -397,6 +413,7 @@ terminal and restores it on exit, so run it in a real terminal, not a pipe.
 Reach for a **`Window`** when you want a conventional desktop app — mouse, themes,
 free-form layout. Reach for a **`Screen`** when you live in the terminal, want
 something keyboard-fast, or are building a dashboard or tool that belongs next to
-your other command-line work. They share a core and can live in the same project,
-so the knowledge transfers completely — learn `State`/`View`/`Event` once, and you
-can build either.
+your other command-line work. Reach for a **`Sketch`** when the program *is* a
+picture — charts, attractors, a GPU kernel. They share a core and can live in the
+same project, so the knowledge transfers completely — learn `State`/`View`/`Event`
+once (or `State`/`Draw`/`Event` on a Sketch), and you can build either.

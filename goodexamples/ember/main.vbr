@@ -1,0 +1,41 @@
+' A hearth: Copy smears last frame upward; the kernel paints heat at the mouse.
+' Run:  vbr runproject goodexamples/ember
+
+Sketch Pane
+    Title "Ember"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        Copy frame, 0, -3
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim dx As Double = x - mouse_x
+                Dim dy As Double = y - mouse_y
+                Dim n As Double = Noise(x * 0.035, y * 0.02 - t * 1.6, t)
+                Dim heat As Double = n / (1.0 + (dx * dx + dy * dy) * 0.00032)
+                If heat > 0.08 Then
+                    Set Pixel x, y, Color(40 + heat * 215, 8 + heat * 90, 4)
+                End If
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "ember", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.06
+    End Event
+End Sketch
+
+Function Main()
+    Pane.Run
+End Function

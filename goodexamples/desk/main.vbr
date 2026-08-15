@@ -1,0 +1,158 @@
+' A forms Window using the everyday GUI controls, restyled with JellyFish.
+' Theme is chosen when the window opens — it isn't a live picker.
+' Run:  vbr runproject goodexamples/desk
+
+Enum Mood
+    Calm
+    Bright
+    Deep
+End Enum
+
+Window Desk
+    Title "Lantern desk"
+    Theme JellyFish
+
+    State
+        Dim guest As String = ""
+        Dim lamp As Boolean = True
+        Dim warmth As Integer = 62
+        Dim remember As Boolean = True
+        Dim mood As Mood = Mood.Calm
+        Dim notes As TextArea = "a note for later…"
+        Dim status As String = "the lamp is lit"
+    End State
+
+    View
+        Column
+            Spacing 14
+            Padding 28
+
+            Text "Lantern desk"
+            Text "Theme JellyFish — pink on deep ocean, set when the window opens."
+
+            Space Height 8
+
+            Row
+                Spacing 28
+                Fill
+                Column
+                    Spacing 10
+                    Text "Guest"
+                    TextInput "your name", guest
+                        On Input Rename
+                    End TextInput
+
+                    Match guest
+                        "" => Text "write a name to sign the book"
+                        _ => Text "hello, " & guest
+                    End Match
+
+                    Space Height 6
+                    Text "Mood"
+                    Radio "Calm", mood, Mood.Calm
+                        On Select PickMood
+                    End Radio
+                    Radio "Bright", mood, Mood.Bright
+                        On Select PickMood
+                    End Radio
+                    Radio "Deep", mood, Mood.Deep
+                        On Select PickMood
+                    End Radio
+
+                    Match mood
+                        Mood.Calm => Text "quiet water, slow glow"
+                        Mood.Bright => Text "the lantern is wide open"
+                        Mood.Deep => Text "further down, cooler light"
+                    End Match
+                End Column
+
+                Fill
+                Column
+                    Spacing 10
+                    Toggler "Lamp", lamp
+                        On Toggle SetLamp
+                    End Toggler
+
+                    If lamp Then
+                        Text "the lamp is lit"
+                    Else
+                        Text "the lamp is out"
+                    End If
+
+                    Text "Warmth: " & warmth
+                    Slider 0..=100, warmth
+                        On Change SetWarmth
+                    End Slider
+                    ProgressBar 0..=100, warmth
+
+                    Checkbox "Remember me next time", remember
+                        On Toggle SetRemember
+                    End Checkbox
+
+                    Space Height 4
+                    Text "Notes"
+                    Fill
+                    TextArea notes
+
+                    Row
+                        Spacing 10
+                        Button "Sign"
+                            On Click Sign
+                        End Button
+                        Button "Clear"
+                            On Click Reset
+                        End Button
+                    End Row
+
+                    Text status
+                End Column
+            End Row
+        End Column
+    End View
+
+    Event Rename(value As String)
+        guest = value
+    End Event
+
+    Event SetLamp(value As Boolean)
+        lamp = value
+        If lamp Then
+            status = "the lamp is lit"
+        Else
+            status = "the lamp is out"
+        End If
+    End Event
+
+    Event SetWarmth(value As Integer)
+        warmth = value
+    End Event
+
+    Event SetRemember(value As Boolean)
+        remember = value
+    End Event
+
+    Event PickMood(value As Mood)
+        mood = value
+    End Event
+
+    Event Sign
+        If guest = "" Then
+            status = "write a name first"
+        Else
+            status = guest & " signed — " & notes.Text().len() & " characters in the note"
+        End If
+    End Event
+
+    Event Reset
+        guest = ""
+        lamp = True
+        warmth = 62
+        remember = True
+        mood = Mood.Calm
+        status = "cleared"
+    End Event
+End Window
+
+Function Main()
+    Desk.Run
+End Function
