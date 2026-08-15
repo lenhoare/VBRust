@@ -7,16 +7,16 @@ anchor = "ns/Json.Object"
 
 summary = "Starts a new, empty JSON object to build up."
 
-returns = "Json — an empty object. Fill it with SetString / SetInt / SetBool / Set, then render it with ToString. (Json.Array() starts an empty array for Push instead.)"
+returns = "Json — an empty object. Fill it with Set_String / Set_Int / Set_Bool / Set, then render it with To_String. (Json.Array() starts an empty array for Push instead.)"
 
 example = """
 Function Main()
     Dim person As Json = Json.Object()
-    person.SetString("name", "Grace")
-    person.SetInt("born", 1906)
+    person.Set_String("name", "Grace")
+    person.Set_Int("born", 1906)
 
-    Debug.Print person.ToString().Unwrap()   ' {"name":"Grace","born":1906}
+    Debug.Print person.To_String()   ' {"name":"Grace","born":1906}
 End Function
 """
 
-see_also = ["json", "json.setstring", "json.push", "json.tostring"]
+see_also = ["json", "json.set_string", "json.push", "json.to_string"]

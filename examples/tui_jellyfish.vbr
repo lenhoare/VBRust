@@ -1,0 +1,35 @@
+' Theme JellyFish — Bust's own bioluminescent palette (pink chrome on deep ocean).
+' Try NightOwl too; every Iced name (Dracula, Nord, …) also works on a Screen.
+Screen Counter
+    Title "JellyFish"
+    Theme JellyFish
+
+    State
+        Dim count As Integer = 0
+    End State
+
+    Status "Count: " & count
+
+    View
+        Column
+            Text "Bioluminescent terminal chrome"
+            Text "Count: " & count
+        End Column
+    End View
+
+    On Key "+" Increment "inc"
+    On Key "-" Decrement "dec"
+    On Key "q" Quit "quit"
+
+    Event Increment
+        count += 1
+    End Event
+
+    Event Decrement
+        count -= 1
+    End Event
+End Screen
+
+Function Main()
+    Counter.Run
+End Function

@@ -10,7 +10,7 @@
 ' Implementation note: we read digits with Mid (VB6-style, 1-based) and track
 ' which positions are already matched with Vec<Boolean> flags, so a matched
 ' digit can't be double-counted as both Fermi and Pico. This keeps the logic
-' pure VBR — no char arrays needed.
+' pure Bust — no char arrays needed.
 
 Public Function GetClue(ByVal secret As String, ByVal guess As String) As String
     Dim fermiCount As Long = 0

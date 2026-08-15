@@ -31,7 +31,15 @@ enum Message {
 fn update(state: &mut Sketch, message: Message) {
     match message {
         Message::Resize(value) => {
-            state.radius = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.radius = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

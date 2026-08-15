@@ -1,4 +1,4 @@
-//! Golden tests for the VBR → Python backend (`vbr::compile_python`).
+//! Golden tests for the Bust → Python backend (`vbr::compile_python`).
 //!
 //! Two guarantees, per the "compile-against-truth" discipline:
 //!   1. the generated Python is locked against a stored snapshot
@@ -142,8 +142,8 @@ fn run_via_rust(name: &str, src: &str) -> String {
 #[test]
 fn inlined_prelude_matches_vbrpy() {
     let src = "\
-Function Maker() As Result<Long>
-    Return Ok(1)
+Function Maker() As Long
+    Return 1
 End Function
 Function Half(ByVal n As Long) As Option<Long>
     Return None
@@ -151,7 +151,7 @@ End Function
 Function Main()
     Dim r As Double = 2.5
     Debug.Print \"\" & Round(r)
-    Dim k As Long = Maker().Unwrap()
+    Dim k As Long = Maker()
     Match Half(4)
         Some(v) => Debug.Print \"\" & v
         None => Debug.Print \"none\"
@@ -167,7 +167,6 @@ End Function
 
     for line in [
         "return \"true\" if x else \"false\"",
-        "raise Exception(f'unwrapped an Err: {x.error}')",
         "_math.floor(x + 0.5) if x >= 0 else _math.ceil(x - 0.5)",
         "    value: object",
         "    error: object",

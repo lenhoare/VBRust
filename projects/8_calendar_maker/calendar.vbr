@@ -30,7 +30,7 @@ End Function
 ' The ISO weekday of the 1st of the month: 1=Mon .. 7=Sun. Uses the
 ' DateTime stdlib: parse the first day and read %u. Deterministic.
 Public Function WeekdayOfFirst(ByVal year As Long, ByVal month As Long) As Long
-    Dim first As DateTime = DateTime.Parse(Pad2(month) & "/01/" & CStr(year) & " 00:00:00", "%m/%d/%Y %H:%M:%S").Unwrap()
+    Dim first As DateTime = DateTime.Parse(Pad2(month) & "/01/" & CStr(year) & " 00:00:00", "%m/%d/%Y %H:%M:%S")
     Return Val(first.Format("%u"))
 End Function
 

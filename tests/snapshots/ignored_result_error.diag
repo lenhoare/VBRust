@@ -1,2 +1,1 @@
-ℹ VBR names are their lowercase self in Rust — e.g. `Risky` becomes `risky`. (Functions and variables lowercase, constants uppercase; shown once.)
-✘ This Result is being thrown away. Handle it: `?` to propagate, `Match` over Ok/Err (or Some/None), or assign it with `Dim`.
+✘ This Option is being thrown away. Handle it: `Match` over Some/None, or assign it with `Dim`.

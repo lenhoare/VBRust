@@ -83,6 +83,9 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("function", "Function", "Procedures", Keyword, "kw/Function"),
         item!("sub", "Sub", "Procedures", Keyword, "kw/Sub"),
         item!("return", "Return", "Procedures", Keyword, "kw/Return"),
+        item!("raiseerror", "RaiseError", "Procedures", Keyword, "kw/RaiseError"),
+        item!("handle", "Handle", "Procedures", Keyword, "kw/Handle"),
+        item!("raw", "Raw", "Procedures", Keyword, "kw/Raw"),
         // Control flow
         item!("if", "If…Then…Else", "Control flow", Keyword, "kw/If"),
         item!("match", "Match", "Control flow", Keyword, "kw/Match"),
@@ -94,6 +97,10 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("continue", "Continue", "Control flow", Keyword, "kw/Continue"),
         item!("with", "With", "Control flow", Keyword, "kw/With"),
         item!("await", "Await", "Control flow", Keyword, "kw/Await"),
+        item!("theme", "Theme", "Surfaces", Keyword, "kw/Theme"),
+        // Escape hatches
+        item!("rust", "Rust … End Rust", "Escape hatches", Keyword, "kw/Rust"),
+        item!("python", "Python … End Python", "Escape hatches", Keyword, "kw/Python"),
         // Custom types
         item!("type", "Type", "Custom types", Keyword, "kw/Type"),
         item!("enum", "Enum", "Custom types", Keyword, "kw/Enum"),
@@ -398,11 +405,17 @@ pub fn build(entries_dir: &Path, out_dir: &Path) -> Result<Report, String> {
     // example that transpiles but isn't valid Rust (a mis-spelled method, say)
     // is caught here rather than shipped.
     // Core examples check with bare rustc (fast); stdlib examples need
-    // `vbr_stdlib`, so they go through a batched `cargo check`.
-    let (stdlib_ex, core_ex): (Vec<(String, String)>, Vec<(String, String)>) = rust_of
+    // `vbr_stdlib`, so they go through a batched `cargo check`. Inline Python
+    // generates pyo3 glue, which needs the project build and a Python install
+    // — transpile only, same as a Window that cannot pass bare rustc.
+    let (stdlib_ex, rest): (Vec<(String, String)>, Vec<(String, String)>) = rust_of
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .partition(|(_, r)| r.contains("vbr_stdlib"));
+    let core_ex: Vec<(String, String)> = rest
+        .into_iter()
+        .filter(|(_, r)| !r.contains("pyo3::"))
+        .collect();
     failures.append(&mut rustc_check_all(&core_ex));
     failures.append(&mut stdlib_check_all(&stdlib_ex));
 
@@ -817,7 +830,7 @@ const APP_JS: &str = include_str!("help_assets/app.js");
 // ---------------------------------------------------------------------------
 // Syntax highlighting — done at build time, so the site stays static.
 //
-// VBR is highlighted by the *compiler's own lexer*, so the colours can never
+// Bust is highlighted by the *compiler's own lexer*, so the colours can never
 // drift from the language. The generated Rust gets a small dedicated scanner.
 // ---------------------------------------------------------------------------
 
@@ -825,7 +838,7 @@ fn esc_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// CSS class for a VBR token, or `None` to emit it uncoloured.
+/// CSS class for a Bust token, or `None` to emit it uncoloured.
 fn vbr_class(t: &crate::lexer::Tok) -> Option<&'static str> {
     use crate::lexer::Tok::*;
     Some(match t {
@@ -842,7 +855,7 @@ fn vbr_class(t: &crate::lexer::Tok) -> Option<&'static str> {
     })
 }
 
-/// Highlight VBR by walking the real token stream and wrapping each token in a
+/// Highlight Bust by walking the real token stream and wrapping each token in a
 /// span, preserving the exact source text (whitespace, comments, layout).
 fn highlight_vbr(src: &str) -> String {
     let toks = crate::lexer::lex(src);

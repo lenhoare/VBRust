@@ -100,36 +100,76 @@ fn main() -> std::io::Result<()> {
                     KeyCode::Enter => {
                         match state.focus_index {
                             0 => {
-                                state.count += 1;
-                                state.log = format!("button → {}", state.count);
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.count += 1;
+                                        state.log = format!("button → {}", state.count);
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             1 => {
                                 state.remember = !state.remember;
                                 let value = state.remember;
-                                state.remember = value;
-                                if state.remember {
-                                    state.log = "checkbox on".to_string();
-                                } else {
-                                    state.log = "checkbox off".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.remember = value;
+                                        if state.remember {
+                                            state.log = "checkbox on".to_string();
+                                        } else {
+                                            state.log = "checkbox off".to_string();
+                                        }
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
                                 }
                             }
                             2 => {
                                 state.choice = Size::Small;
                                 let value = state.choice;
-                                state.choice = value;
-                                state.log = "radio changed".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.choice = value;
+                                        state.log = "radio changed".to_string();
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             3 => {
                                 state.choice = Size::Medium;
                                 let value = state.choice;
-                                state.choice = value;
-                                state.log = "radio changed".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.choice = value;
+                                        state.log = "radio changed".to_string();
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             4 => {
                                 state.choice = Size::Large;
                                 let value = state.choice;
-                                state.choice = value;
-                                state.log = "radio changed".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.choice = value;
+                                        state.log = "radio changed".to_string();
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             _ => {}
                         }
@@ -138,19 +178,35 @@ fn main() -> std::io::Result<()> {
                         match state.focus_index {
                             0 => {
                                 if c == ' ' {
-                                    state.count += 1;
-                                    state.log = format!("button → {}", state.count);
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.count += 1;
+                                            state.log = format!("button → {}", state.count);
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             1 => {
                                 if c == ' ' {
                                     state.remember = !state.remember;
                                     let value = state.remember;
-                                    state.remember = value;
-                                    if state.remember {
-                                        state.log = "checkbox on".to_string();
-                                    } else {
-                                        state.log = "checkbox off".to_string();
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.remember = value;
+                                            if state.remember {
+                                                state.log = "checkbox on".to_string();
+                                            } else {
+                                                state.log = "checkbox off".to_string();
+                                            }
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
                                     }
                                 }
                             }
@@ -158,24 +214,48 @@ fn main() -> std::io::Result<()> {
                                 if c == ' ' {
                                     state.choice = Size::Small;
                                     let value = state.choice;
-                                    state.choice = value;
-                                    state.log = "radio changed".to_string();
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.choice = value;
+                                            state.log = "radio changed".to_string();
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             3 => {
                                 if c == ' ' {
                                     state.choice = Size::Medium;
                                     let value = state.choice;
-                                    state.choice = value;
-                                    state.log = "radio changed".to_string();
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.choice = value;
+                                            state.log = "radio changed".to_string();
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             4 => {
                                 if c == ' ' {
                                     state.choice = Size::Large;
                                     let value = state.choice;
-                                    state.choice = value;
-                                    state.log = "radio changed".to_string();
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.choice = value;
+                                            state.log = "radio changed".to_string();
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             _ => {}

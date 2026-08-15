@@ -1,4 +1,4 @@
-// VS Code integration for VBR. Two features live here:
+// VS Code integration for Bust. Two features live here:
 //
 //  1. The language client — launches the `vbr-lsp` binary over stdio; the server
 //     runs the real compiler and reports diagnostics/hover/completion/defs.
@@ -129,7 +129,7 @@ function emitRust(sourceUri) {
         return;
       }
       const header =
-        "// ── VBR could not produce Rust for this file ──\n" +
+        "// ── Bust could not produce Rust for this file ──\n" +
         "// (transpiler diagnostics below — fix them and the view refreshes)\n\n";
       const detail = (stderr || (err && err.message) || "unknown error").trimEnd();
       resolve(header + detail.split("\n").map((l) => "// " + l).join("\n"));
@@ -137,7 +137,7 @@ function emitRust(sourceUri) {
   });
 }
 
-// ── Running: `.vbr` files, and `.rs` files with embedded VBR ────────────────
+// ── Running: `.vbr` files, and `.rs` files with embedded Bust ────────────────
 
 // Shell-quote a single argument for the integrated terminal. VS Code's default
 // terminal is PowerShell on Windows, POSIX sh elsewhere; both accept single- or
@@ -147,7 +147,7 @@ function quoteArg(a) {
   return `'${a.replace(/'/g, "'\\''")}'`;
 }
 
-// [cmd, args] to invoke the VBR CLI: a prebuilt `vbr` binary if present (fast),
+// [cmd, args] to invoke the Bust CLI: a prebuilt `vbr` binary if present (fast),
 // otherwise `cargo run` from the workspace manifest.
 function vbrCmd(root, subArgs) {
   const bin = vbrBinary(root);
@@ -180,11 +180,11 @@ function terminalCommand(exe, args) {
   return isPowerShell ? "& " + line : line;
 }
 
-// One reused "VBR Run" terminal so successive runs don't pile up panels.
+// One reused "Bust Run" terminal so successive runs don't pile up panels.
 let runTerminal;
 function runInTerminal(exe, args, cwd) {
   if (!runTerminal || runTerminal.exitStatus !== undefined) {
-    runTerminal = vscode.window.createTerminal({ name: "VBR Run", cwd });
+    runTerminal = vscode.window.createTerminal({ name: "Bust Run", cwd });
   }
   runTerminal.show(true);
   runTerminal.sendText(terminalCommand(exe, args));
@@ -194,7 +194,7 @@ function runInTerminal(exe, args, cwd) {
 // run terminal.
 let outputChannel;
 function showErrors(title, body) {
-  if (!outputChannel) outputChannel = vscode.window.createOutputChannel("VBR");
+  if (!outputChannel) outputChannel = vscode.window.createOutputChannel("Bust");
   outputChannel.clear();
   outputChannel.appendLine(title);
   if (body) outputChannel.append(body);
@@ -210,7 +210,7 @@ function runVbrFile(sourceUri) {
   runInTerminal(cmd, args, root);
 }
 
-// Run a `.rs` file that embeds VBR: expand the `/* vbr … */` block(s) with
+// Run a `.rs` file that embeds Bust: expand the `/* vbr … */` block(s) with
 // `vbr embed`, reload the buffer so the regenerated region is visible, then —
 // for a standalone file (has `fn main`) — compile with rustc and run it. Inside
 // a Cargo crate we stop after expanding and defer to cargo's normal build/run.
@@ -218,7 +218,7 @@ function runVbrFile(sourceUri) {
 async function embedAndRunRust(document) {
   const filePath = document.uri.fsPath;
 
-  // Check on click (cheap) — do nothing if there's no VBR to expand.
+  // Check on click (cheap) — do nothing if there's no Bust to expand.
   if (!/\/\*\s*vbr\b/.test(document.getText())) {
     vscode.window.showInformationMessage(
       "No `/* vbr … */` block in this file — nothing to embed."
@@ -235,7 +235,7 @@ async function embedAndRunRust(document) {
 
   const root = rootFor(filePath);
 
-  // 1. Expand embedded VBR.
+  // 1. Expand embedded Bust.
   const [ec, eargs] = vbrCmd(root, ["embed", filePath]);
   const embed = await execAsync(ec, eargs, root);
   // Reload so the regenerated // vbr:gen region shows (also surfaces any in-file
@@ -322,7 +322,7 @@ function activate(context) {
   };
   client = new LanguageClient(
     "vbr-lsp",
-    "VBR Language Server",
+    "Bust Language Server",
     serverOptions,
     clientOptions
   );

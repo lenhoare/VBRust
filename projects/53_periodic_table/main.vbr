@@ -7,10 +7,10 @@
 ' The stdlib program emits a project folder with the vbrpy package — no
 ' pip installs needed (FileSystem is pure Python batteries).
 '
-' FileSystem features exercised: FileSystem.ReadLines (Result), Match on
+' FileSystem features exercised: FileSystem.Read_Lines (Result), Match on
 ' the Result.
 Function Main()
-    Dim lines As Vec<String> = FileSystem.ReadLines("/home/len/dev/vbrprojects/VBRust/projects/53_periodic_table/periodictable.csv").Unwrap()
+    Dim lines As Vec<String> = FileSystem.Read_Lines("/home/len/dev/vbrprojects/VBRust/projects/53_periodic_table/periodictable.csv")
 
     ' Parse all rows, skipping the header.
     Dim elements As Vec<Element>

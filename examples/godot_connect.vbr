@@ -1,4 +1,4 @@
-' Godot signal handlers + connecting in VBR (Godot slice 5).
+' Godot signal handlers + connecting in Bust (Godot slice 5).
 '
 ' Slice 3 declared (`Signal`) and fired (`Emit`) signals; this closes the loop:
 ' `Connect <source>.<Signal> To <Handler>` wires a signal to a handler method

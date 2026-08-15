@@ -3,7 +3,7 @@ name = "tide_design"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Structural TUI Screen designer for VBR — sibling to TIDE"
+description = "Structural TUI Screen designer for Bust — sibling to TIDE"
 
 [[bin]]
 name = "tide_design"

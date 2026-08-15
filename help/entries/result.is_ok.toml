@@ -5,15 +5,19 @@ kind = "property"
 parent = "result"
 anchor = "m/Result.Is_Ok"
 
-summary = "Whether the result is a success."
+summary = "Whether a Raw result is a success."
 
 returns = "Boolean — True for Ok, False for Err."
 
 example = """
+Function Always(n As Long) As Long
+    Return n
+End Function
+
 Function Main()
-    Dim r As Result<Long> = Ok(5)
+    Dim r As Result<Long> = Raw Always(5)
     Debug.Print r.Is_Ok()    ' True
 End Function
 """
 
-see_also = ["result", "result.is_err", "result.unwrap_or"]
+see_also = ["result", "raw", "result.is_err", "result.unwrap_or"]

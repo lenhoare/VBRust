@@ -5,9 +5,9 @@ import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
 import { setupDesigner, resetDesigner, isDesignerDirty } from "./designer";
 
-// Monaco needs a worker for the editor itself; VBR and Rust are both
+// Monaco needs a worker for the editor itself; Bust and Rust are both
 // Monarch-tokenised on the main thread here, so the base editor worker is all
-// we wire up. (Real VBR tokenisation lands in slice 6.)
+// we wire up. (Real Bust tokenisation lands in slice 6.)
 self.MonacoEnvironment = {
   getWorker: () => new editorWorker(),
 };
@@ -67,7 +67,7 @@ interface Project {
   files: FileEntry[];
 }
 
-const SAMPLE = `' Welcome to VBR — type on the left, read the Rust on the right.
+const SAMPLE = `' Welcome to Bust — type on the left, read the Rust on the right.
 Function Main()
     Dim name As String = "world"
     Debug.Print "Hello, " & name & "!"
@@ -317,13 +317,13 @@ targetSelect.addEventListener("change", () => {
 });
 
 async function refresh(): Promise<void> {
-  // Non-VBR files keep the split but blank the output view.
+  // Non-Bust files keep the split but blank the output view.
   if (!isVbrTab(activeTab())) {
     rustView.setValue("");
     const m = editor.getModel();
     if (m) monaco.editor.setModelMarkers(m, "vbr", []);
     const path = activeTab()?.path;
-    diagnosticsEl.innerHTML = `<span class="ok">— ${path ? escapeHtml(basename(path)) : "file"} is not a VBR file —</span>`;
+    diagnosticsEl.innerHTML = `<span class="ok">— ${path ? escapeHtml(basename(path)) : "file"} is not a Bust file —</span>`;
     statusProblems.textContent = "";
     statusTiming.textContent = "";
     return;
@@ -377,7 +377,7 @@ function severityOf(level: Diagnostic["level"]): monaco.MarkerSeverity {
   }
 }
 
-// Paint the diagnostics as inline squiggles on the VBR pane. A diagnostic with
+// Paint the diagnostics as inline squiggles on the Bust pane. A diagnostic with
 // a pinned span underlines exactly that span; a line-only one underlines its
 // whole line; a diagnostic with neither (a top-level teaching note) shows only
 // in the strip below.
@@ -479,10 +479,10 @@ const runBtn = document.getElementById("run") as HTMLButtonElement;
 const consoleEl = document.getElementById("console")!;
 
 async function runProgram(): Promise<void> {
-  // Nothing to run for a lone non-VBR file (a config file, say).
+  // Nothing to run for a lone non-Bust file (a config file, say).
   if (!isProject && !isVbrTab(activeTab())) {
     consoleEl.className = "err";
-    consoleEl.textContent = "This isn't a VBR file — nothing to run.";
+    consoleEl.textContent = "This isn't a Bust file — nothing to run.";
     return;
   }
   // A project runs from the files on disk, so offer to save unsaved tabs first.
@@ -572,7 +572,7 @@ function updateFilename(): void {
   const name = tab?.path ? basename(tab.path) : "untitled";
   const mark = tab?.dirty ? "● " : "";
   statusFile.textContent = mark + name;
-  document.title = `${mark}${name} — VBR IDE`;
+  document.title = `${mark}${name} — Bust IDE`;
 }
 
 async function saveTab(tab: Tab, forceDialog: boolean): Promise<boolean> {
@@ -589,7 +589,7 @@ async function saveTab(tab: Tab, forceDialog: boolean): Promise<boolean> {
   tab.dirty = false;
   if (tab.id === activeId) {
     currentPath = path;
-    void refresh(); // the extension may have changed VBR-ness
+    void refresh(); // the extension may have changed Bust-ness
   }
   renderTabs();
   updateFilename();
@@ -640,7 +640,7 @@ const openFolderBtn = document.getElementById("open-folder") as HTMLButtonElemen
 
 async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
   const content = await invoke<string>("read_file_at", { path });
-  // A file inside a VBR project counts as a project file (Run builds the project).
+  // A file inside a Bust project counts as a project file (Run builds the project).
   openTab(path, content, projectIsVbr && path.toLowerCase().endsWith(".vbr"));
   filetree.querySelectorAll(".tree-item.active").forEach((n) => n.classList.remove("active"));
   el.classList.add("active");
@@ -895,7 +895,7 @@ window.addEventListener("mouseup", () => {
   document.body.classList.remove("resizing");
 });
 
-// Sidebar (folder bar) width, and the designer's surface | VBR split.
+// Sidebar (folder bar) width, and the designer's surface | Bust split.
 const gutterSidebar = document.getElementById("gutter-sidebar")!;
 const sidebarEl2 = document.getElementById("sidebar")!;
 const workspaceEl = document.getElementById("workspace")!;

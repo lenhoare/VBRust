@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Table plus New / Edit / Delete. Classic data-entry CRUD.
 Screen Crud
     Title "Records"

@@ -1,4 +1,4 @@
-' Handling input events in VBR (Godot slice 7).
+' Handling input events in Bust (Godot slice 7).
 '
 ' `On Input(event)` runs on every input event Godot delivers — key presses, mouse
 ' clicks, gamepad. The `event` is an InputEvent object you query; the cleanest

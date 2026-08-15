@@ -1,4 +1,4 @@
-' A 3D node in VBR (Godot slice 9) — a spinning cube.
+' A 3D node in Bust (Godot slice 9) — a spinning cube.
 '
 ' 3D is the same surface as 2D: a different base class (`Node3D`, `CharacterBody3D`,
 ' Camera3D…) and 3-component vectors. The property/method passthrough is identical,

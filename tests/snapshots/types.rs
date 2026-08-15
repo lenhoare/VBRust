@@ -1,6 +1,6 @@
 // Every fixed-size type — these all copy freely
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let small: i32 = 42;
     let count: i64 = 100000;
     let huge: i64 = 9000000000;
@@ -15,4 +15,12 @@ fn main() {
     println!("ratio  = {}", ratio);
     println!("flag   = {}", flag);
     println!("letter = {}", letter);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

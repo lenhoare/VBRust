@@ -1,16 +1,16 @@
 # 55 — Powerball
 
-A lottery analysis tool: reads a generated 1000-ticket pool with a VBR
-**DataFrame**, uses **GroupBy/Agg** to analyse the numbers (powerball
+A lottery analysis tool: reads a generated 1000-ticket pool with a Bust
+**DataFrame**, uses **Group_By/Agg** to analyse the numbers (powerball
 frequency, most common first ball), then runs a win-checking simulation
-in pure VBR against a fixed draw and prints the prize tally. Losing money
+in pure Bust against a fixed draw and prints the prize tally. Losing money
 is the point — the odds are the joke.
 
-## VBR language features tested
+## Bust language features tested
 
-**DataFrame (first use of GroupBy/Agg):**
-- `DataFrame.ReadCsv`, `df.GroupBy(key).Agg(Count(col))`
-- `df.WriteCsv` — the grouped frame is round-tripped through CSV because
+**DataFrame (first use of Group_By/Agg):**
+- `DataFrame.Read_Csv`, `df.Group_By(key).Agg(Count(col))`
+- `df.Write_Csv` — the grouped frame is round-tripped through CSV because
   `Count()` outputs a u32 column that `Column()` can't extract as
   `Vec<Long>` (see notes.md Quirk 38)
 - `df.Column(name)` typed extraction into `Vec<Long>`
@@ -23,7 +23,7 @@ is the point — the odds are the joke.
 
 ## Standard-library features tested
 
-- `DataFrame` — ReadCsv, GroupBy/Agg, WriteCsv, Column
+- `DataFrame` — Read_Csv, Group_By/Agg, Write_Csv, Column
 
 ## Running it
 

@@ -7,21 +7,21 @@ anchor = "ns/Shell"
 summary = "Run external commands and programs."
 
 remarks = """
-`Shell` runs a command line and gives you its result. `Run` waits for the command to finish and returns its output as text. `Start` launches it *without* waiting and hands back a **Process** you can `Wait` on, poll with `IsRunning`, or `Kill`.
+`Shell` runs a command line and gives you its result. `Run` waits for the command to finish and returns its output as text. `Start` launches it *without* waiting and hands back a **Process** you can `Wait` on, poll with `Is_Running`, or `Kill`.
 
-Both return a **Result** — the command might not exist, or might fail. Being an outside-world operation, a Shell program is built as a **project** (`vbr runproject` / `vbr build`).
+Both can fail — the command might not exist. A normal call propagates; intercept with `Handle err`. Being an outside-world operation, a Shell program is built as a **project** (`vbr runproject` / `vbr build`).
 """
 
 members = """
-method | Run(command)   | Run a command, wait for it, and return its output. Returns Result<String>.
-method | Start(command) | Launch a command without waiting; returns a Process handle. Returns Result<Process>.
+method | Run(command)   | Run a command, wait for it, and return its output. Returns String (can fail).
+method | Start(command) | Launch a command without waiting; returns a Process handle. Returns Process (can fail).
 """
 
 example = """
 Function Main()
-    Dim output As String = Shell.Run("echo hello").Unwrap()
+    Dim output As String = Shell.Run("echo hello")
     Debug.Print output
 End Function
 """
 
-see_also = ["shell.run", "shell.start", "filesystem", "result"]
+see_also = ["shell.run", "shell.start", "filesystem", "handle"]

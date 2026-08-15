@@ -1,6 +1,6 @@
 // Iterators — filter, map, sum, any, count, collect
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut nums: Vec<i64> = Vec::new();
     nums.push(1);
     nums.push(2);
@@ -19,5 +19,13 @@ fn main() {
     }
     for n in &doubled {
         println!("doubled: {}", *n);
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

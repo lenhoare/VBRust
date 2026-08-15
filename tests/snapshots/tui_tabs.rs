@@ -72,7 +72,15 @@ fn main() -> std::io::Result<()> {
                         break;
                     }
                     KeyCode::Char('b') => {
-                        state.busy = !state.busy;
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.busy = !state.busy;
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Tab => {
                         state.focus_index = (state.focus_index + 1) % 2;
@@ -110,7 +118,15 @@ fn main() -> std::io::Result<()> {
                             1 => {
                                 state.busy = !state.busy;
                                 let value = state.busy;
-                                state.busy = value;
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.busy = value;
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             _ => {}
                         }
@@ -129,7 +145,15 @@ fn main() -> std::io::Result<()> {
                                 if c == ' ' {
                                     state.busy = !state.busy;
                                     let value = state.busy;
-                                    state.busy = value;
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.busy = value;
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             _ => {}

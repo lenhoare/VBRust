@@ -6,7 +6,7 @@ position and speed, driven by an `Every` timer. The column simulation
 lives in `stream.vbr` and is unit-tested; the Screen renders one frame per
 tick.
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - `Every 120 Tick` — fast animation timer

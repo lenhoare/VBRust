@@ -15,7 +15,7 @@ returns = "String — the DateTime written in that format."
 
 example = """
 Function Main()
-    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d").Unwrap()
+    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d")
     Debug.Print d.Format("%d/%m/%Y")   ' 14/08/2026
 End Function
 """

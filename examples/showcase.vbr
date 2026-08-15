@@ -1,4 +1,4 @@
-' A control panel showing every VBR GUI control: Text, Button, TextInput,
+' A control panel showing every Bust GUI control: Text, Button, TextInput,
 ' Checkbox, Toggler, Slider, ProgressBar, Radio — plus Row layout, Match and If
 ' in the view, an enum-backed radio group, and an async Await (Http) event.
 Enum Size

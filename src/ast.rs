@@ -1,11 +1,11 @@
-//! Abstract syntax tree for VBR.
+//! Abstract syntax tree for Bust.
 //!
 //! This is the vertical-slice subset of spec_01: functions, primitive `Dim`,
 //! `Debug.Print`, arithmetic, `If`, and `For`. It will grow one slice at a time.
 
 use crate::span::Span;
 
-/// A VBR primitive type. Spec_01 is authoritative on the Rust mapping
+/// A Bust primitive type. Spec_01 is authoritative on the Rust mapping
 /// (Rust-first: `Integer` → `i32`, `Long` → `i64` — not VBA's 16/32-bit widths).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
@@ -93,7 +93,7 @@ pub struct Program {
 }
 
 /// A `Test "description" … End Test` block. The description is the spec sentence
-/// a reader verifies against; the body is ordinary VBR (Arrange-Act-`Assert`).
+/// a reader verifies against; the body is ordinary Bust (Arrange-Act-`Assert`).
 #[derive(Debug, Clone)]
 pub struct TestBlock {
     pub description: String,
@@ -101,7 +101,7 @@ pub struct TestBlock {
     pub line: usize,
 }
 
-/// A Godot game object: a node class VBR contributes to a Godot scene. Unlike a
+/// A Godot game object: a node class Bust contributes to a Godot scene. Unlike a
 /// `Window`/`Screen` (a whole State/View/Events app), a `Node2D` block is *one
 /// class* that Godot instantiates and drives — inversion of control. `base` is
 /// the Godot base class (`Node2D`, later `CharacterBody2D`…); `fields` are the
@@ -149,7 +149,7 @@ pub struct GodotField {
 }
 
 /// A lifecycle callback on a `GodotNode` (`On Ready`, `On Process(delta)`). `name`
-/// is the VBR event name (`Ready`, `Process`); `params` carry the one built-in
+/// is the Bust event name (`Ready`, `Process`); `params` carry the one built-in
 /// argument some callbacks get (`Process`'s `delta`). Lowers to the matching
 /// gdext virtual method (`fn ready`, `fn process(&mut self, delta: f64)`).
 #[derive(Debug, Clone)]
@@ -167,6 +167,8 @@ pub struct GodotEvent {
 pub struct Screen {
     pub name: String,
     pub title: Option<String>,
+    /// Optional `Theme NightOwl` — restyles chrome, borders, text, and charts.
+    pub theme: Option<String>,
     /// Optional status-line text (left side of the bottom bar). A string or
     /// an expression over state — `Status log`, `Status count & " items"`.
     pub status: Option<Expr>,
@@ -693,7 +695,7 @@ pub enum Stmt {
         value: Expr,
     },
     /// `Dim name = Rust … End Rust` — an opaque Rust handle. No `As` type: the
-    /// value's type lives only in Rust (inferred there). VBR can pass it back
+    /// value's type lives only in Rust (inferred there). Bust can pass it back
     /// into another inline-Rust block but never use it as a value.
     HandleDim {
         name: String,
@@ -702,6 +704,18 @@ pub enum Stmt {
     },
     /// `Return value` or `FunctionName = value` — both become a Rust return.
     Return(Option<Expr>),
+    /// `RaiseError "…" ` / `RaiseError err` — fail from this function.
+    RaiseError(Expr),
+    /// `a = F() Handle err … End Handle` / `F() Handle err … End Handle`.
+    /// Intercepts this call's error; `err_name` is block-scoped.
+    HandleErr {
+        /// Assignment target, if this produced a value (`a = F() Handle err`).
+        target: Option<Expr>,
+        call: Expr,
+        err_name: String,
+        body: Vec<Stmt>,
+        line: usize,
+    },
     /// A bare expression used as a statement — chiefly a call for its effect,
     /// e.g. `AddTo(total, 5)`.
     Expr(Expr),
@@ -729,7 +743,7 @@ pub enum Stmt {
     },
     /// `Exit Do` / `Exit For` → `break`.
     Break,
-    /// `Continue` → `continue` (a VBR extension over classic VBA).
+    /// `Continue` → `continue` (a Bust extension over classic VBA).
     Continue,
     /// `For Each item In coll` / `For Each k, v In map` → `for … in &coll`.
     ForEach {
@@ -758,9 +772,9 @@ pub enum Stmt {
     /// failure messages.
     Assert(Expr),
     Comment(String),
-    /// Not a statement: marks that whatever is emitted next came from this VBR
+    /// Not a statement: marks that whatever is emitted next came from this Bust
     /// source line. The parser drops one before each statement; the emitter
-    /// turns them into (generated-Rust line → VBR line) checkpoints, which is
+    /// turns them into (generated-Rust line → Bust line) checkpoints, which is
     /// how `vbr run` points rustc errors back at the `.vbr` source. Emits
     /// nothing, so generated output is unchanged.
     LineMark(usize),
@@ -847,7 +861,10 @@ pub enum ExprKind {
     /// would do silently but Rust requires to be explicit.
     Cast(Box<Expr>, Type),
     /// `inner?` — propagate the error/None of a Result/Option.
+    /// Inserted by the resolver for implicit propagation; `?` in source is rejected.
     Try(Box<Expr>),
+    /// `Raw F()` — the underlying `Result<T, E>` as a value; no implicit `?`.
+    Raw(Box<Expr>),
     /// `Person { name: ..., age: ... }` — struct construction.
     StructLit {
         name: String,
@@ -879,7 +896,7 @@ pub enum ExprKind {
     /// A `Python … End Python` block — the body is *run* at runtime via pyo3 (not
     /// spliced like inline Rust). The last non-blank line is the value; it is
     /// extracted into the annotated type (`As T`) or held as an opaque `PyObject`
-    /// handle (no `As`). `inputs` are VBR variables passed in via `Python(a, b)` —
+    /// handle (no `As`). `inputs` are Bust variables passed in via `Python(a, b)` —
     /// scalars are converted, a `PyObject` handle is re-borrowed under the GIL.
     InlinePython { inputs: Vec<String>, body: String },
     /// `Not inner` — logical negation → `!(inner)`.

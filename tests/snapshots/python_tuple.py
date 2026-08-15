@@ -1,7 +1,7 @@
 # Tuple return — pull SEVERAL values out of one Python block, in a single GIL
 # scope. The natural shape for "a name AND its data" from a model, a dataframe,
 # a query result… write the results as a comma-separated tuple on the last line,
-# and destructure them into typed VBR bindings. (Slice 3.)
+# and destructure them into typed Bust bindings. (Slice 3.)
 
 def _vb(x):
     if isinstance(x, bool):

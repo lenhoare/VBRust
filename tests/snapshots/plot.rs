@@ -4,13 +4,13 @@ struct Bar {
     pub h: i32,
 }
 
-fn makebars(seed: i32) -> Vec<Bar> {
+fn makebars(seed: i32) -> Result<Vec<Bar>, String> {
     let mut result: Vec<Bar> = Vec::new();
     for i in 0..=9 {
         let h: i32 = (i * seed + 7) % 15 * 10 + 20;
         result.push(Bar { x: i * 32 + 14, h: h });
     }
-    result
+    Ok(result)
 }
 
 use iced::widget::{button, column, text};
@@ -23,7 +23,7 @@ struct Chart {
 
 impl Default for Chart {
     fn default() -> Self {
-        let bars = makebars(3);
+        let bars = makebars(3)?;
         let seed = 3;
         Chart {
             bars,
@@ -40,8 +40,16 @@ enum Message {
 fn update(state: &mut Chart, message: Message) {
     match message {
         Message::Regenerate => {
-            state.seed += 1;
-            state.bars = makebars(state.seed);
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.seed += 1;
+                    state.bars = makebars(state.seed)?;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

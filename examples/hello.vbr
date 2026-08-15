@@ -1,4 +1,4 @@
-' VBR vertical-slice demo — everything here is in the first milestone
+' Bust vertical-slice demo — everything here is in the first milestone
 Function Main()
     Dim count As Long = 3
     Dim total As Long = 0

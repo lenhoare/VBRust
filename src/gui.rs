@@ -98,18 +98,14 @@ pub fn emit_gui_program(
     out
 }
 
-/// Iced's built-in themes (variant names). Selecting one restyles the whole app.
-pub(crate) const KNOWN_THEMES: &[&str] = &[
-    "Light", "Dark", "Dracula", "Nord", "SolarizedLight", "SolarizedDark",
-    "GruvboxLight", "GruvboxDark", "CatppuccinLatte", "CatppuccinFrappe",
-    "CatppuccinMacchiato", "CatppuccinMocha", "TokyoNight", "TokyoNightStorm",
-    "TokyoNightLight", "KanagawaWave", "KanagawaDragon", "KanagawaLotus",
-    "Moonfly", "Nightfly", "Oxocarbon", "Ferra",
-];
+/// Canonical theme names (`Dracula`, `NightOwl`, …). Shared with the Screen and Page.
+pub(crate) fn known_theme_names() -> String {
+    crate::theme::names().join(", ")
+}
 
 /// The canonical (PascalCase) name of a built-in theme, matched case-insensitively.
 pub(crate) fn canonical_theme(name: &str) -> Option<&'static str> {
-    KNOWN_THEMES.iter().find(|t| t.eq_ignore_ascii_case(name)).copied()
+    crate::theme::lookup(name).map(|t| t.name)
 }
 
 /// `fn main` for a GUI: run the window. With a `Theme`, use the `application`
@@ -118,8 +114,8 @@ pub(crate) fn canonical_theme(name: &str) -> Option<&'static str> {
 /// the state via `init()` and bailing out cleanly before any window opens.
 fn emit_main(w: &Window, fallible: bool) -> String {
     let title = w.title.clone().unwrap_or_else(|| w.name.clone());
-    let theme_line = w.theme.as_ref().map(|t| {
-        format!("        .theme(|_| iced::Theme::{})\n", canonical_theme(t).unwrap_or(t))
+    let theme_line = w.theme.as_ref().and_then(|t| crate::theme::lookup(t)).map(|spec| {
+        format!("        .theme(|_| {})\n", spec.iced_expr())
     });
     if fallible {
         return format!(
@@ -205,7 +201,7 @@ fn emit_window(
                 format!(
                     "Unknown theme `{}`. Built-in themes: {}.",
                     t,
-                    KNOWN_THEMES.join(", ")
+                    known_theme_names()
                 ),
             );
         }
@@ -355,14 +351,14 @@ fn emit_window(
         match split {
             // Synchronous event: run the body; async windows need a `Task::none()`.
             None => {
-                surface::emit_event_stmts(&e.body, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
+                surface::emit_event_stmts_caught(&e.body, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
                 if any_async {
                     out.push_str("            Task::none()\n");
                 }
             }
             // Async kick-off: pre-await body, snapshot state, then return the Task.
             Some(s) => {
-                surface::emit_event_stmts(&s.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
+                surface::emit_event_stmts_caught(&s.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
                 for snap in &s.snapshots {
                     out.push_str(&format!("            {}\n", snap));
                 }
@@ -385,7 +381,7 @@ fn emit_window(
         // The continuation arm for an async event.
         if let Some(s) = split {
             out.push_str(&format!("        Message::{}Done({}) => {{\n", e.name, s.bind));
-            surface::emit_event_stmts(&s.cont, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
+            surface::emit_event_stmts_caught(&s.cont, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
             out.push_str("            Task::none()\n");
             out.push_str("        }\n");
         }
@@ -1264,6 +1260,14 @@ fn rewrite_canvas_stmt(
         Stmt::Set { name, mutable, value } => Stmt::Set { name, mutable, value: re(value) },
         Stmt::DestructureDim { names, ty, value } => Stmt::DestructureDim { names, ty, value: re(value) },
         Stmt::Return(e) => Stmt::Return(e.map(re)),
+        Stmt::RaiseError(e) => Stmt::RaiseError(re(e)),
+        Stmt::HandleErr { target, call, err_name, body, line } => Stmt::HandleErr {
+            target: target.map(re),
+            call: re(call),
+            err_name,
+            body: body.into_iter().map(rec).collect(),
+            line,
+        },
         // Leaves — no `self`-field expression to rewrite. Listed explicitly (no
         // `_`) so a new statement carrying an expression must be handled here.
         leaf @ (Stmt::HandleDim { .. }

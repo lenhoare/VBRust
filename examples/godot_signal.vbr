@@ -1,4 +1,4 @@
-' Godot signals in VBR (Godot slice 3).
+' Godot signals in Bust (Godot slice 3).
 '
 ' A node's *outgoing* events. `Signal` declares one (with an optional typed
 ' payload); `Emit` fires it. Another node — or the Godot editor — connects a

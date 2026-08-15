@@ -1,7 +1,7 @@
 {
   "name": "vbr-lsp",
-  "displayName": "VBR Language Support",
-  "description": "Language assistance for VBR — live diagnostics (proof of concept).",
+  "displayName": "Bust Language Support",
+  "description": "Language assistance for Bust — live diagnostics (proof of concept).",
   "version": "0.0.1",
   "publisher": "vbr",
   "engines": {
@@ -16,14 +16,14 @@
     "commands": [
       {
         "command": "vbr.runFile",
-        "title": "VBR: Run File",
-        "category": "VBR",
+        "title": "Bust: Run File",
+        "category": "Bust",
         "icon": "$(play)"
       },
       {
         "command": "vbr.showRustOutput",
-        "title": "VBR: Open Rust Output to the Side",
-        "category": "VBR",
+        "title": "Bust: Open Rust Output to the Side",
+        "category": "Bust",
         "icon": "$(split-horizontal)"
       }
     ],
@@ -62,7 +62,7 @@
       {
         "id": "vbr",
         "aliases": [
-          "VBR",
+          "Bust",
           "vbr"
         ],
         "extensions": [
@@ -84,7 +84,7 @@
       }
     ],
     "configuration": {
-      "title": "VBR",
+      "title": "Bust",
       "properties": {
         "vbr.serverPath": {
           "type": "string",

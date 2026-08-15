@@ -1,6 +1,6 @@
 # Notes — building the A-series example projects
 
-Experience log for the VBR example-project exercise. Each entry: what was
+Experience log for the Bust example-project exercise. Each entry: what was
 attempted, what the transpiler accepted/rejected, quirks found, and workarounds
 used. Bugs worth fixing in the transpiler are flagged **[BUG]**; features that
 feel missing are flagged **[MISSING]**. (The older gap log from the
@@ -108,7 +108,7 @@ End Enum
 Debug.Print light  ' � ✘ TrafficLight doesn't implement std::fmt::Display
 ```
 
-VBR currently does not derive the `Display` trait for `Enum`, so `Debug.Print`
+Bust currently does not derive the `Display` trait for `Enum`, so `Debug.Print`
 (or any formatted output) of an enum value fails to compile. The workaround is
 to provide a `Public Function Name(light As TrafficLight) As String` that
 uses a `Match` to return the string literal for each variant. This is exactly
@@ -197,7 +197,7 @@ from the 81-list. Deterministic version: fixed secret `"123"`, fixed guesses.
 7/7 tests pass; `runproject` output matches `expected_output.txt`
 byte-for-byte.
 
-### Quirk 5 — [BUG] VBR arrays/Vec index with brackets, not parens
+### Quirk 5 — [BUG] Bust arrays/Vec index with brackets, not parens
 
 ```vb
 Dim used As Vec<Boolean> = [False, False, False]
@@ -205,7 +205,7 @@ used(0) = True    ' � ✘ 'used' is an array — index it Rust-style with used
 ```
 
 The transpiler rejects `used(i)` with a helpful hint to use `used[i]` (or
-`used.get(i)` for a safe Option). VB6 muscle memory writes parens; VBR wants
+`used.get(i)` for a safe Option). VB6 muscle memory writes parens; Bust wants
 Rust brackets everywhere, including for `Vec`. The vb6_to_vbr_guide says this
 ("index with brackets, not scores(i)") — it's the single most common
 transpiler error so far. Fix: write `used[i]`.
@@ -245,7 +245,7 @@ carry a `Dim solved As Boolean` flag out of the loop, as `main.vbr` does.
 ### Quirk 9 — `.Length` on a `Vec` → use `.Len()`
 
 `guesses.Length` fails (`no field length on type Vec<String>`); `.Len()` (or
-`.Count()`) is the VBR spelling.
+`.Count()`) is the Bust spelling.
 
 ### Test-authoring mistake worth recording
 
@@ -415,7 +415,7 @@ Matching a `String` scrutinee against `"..."` literal patterns doesn't
 compile — the literals are `&str` and no coercion happens in the pattern
 position. Workaround: use an `If / ElseIf` chain with `=` — `String = "a"`
 comparisons are fine (Rust's `PartialEq<&str> for String`). Worth checking
-whether VBR should lower String match scrutinees via `.as_str()`.
+whether Bust should lower String match scrutinees via `.as_str()`.
 
 ### Mapping note
 
@@ -505,7 +505,7 @@ Dim k As Long = FindIn(upper, Mid(keyword, pos, 1))
 '                             ^ � ✘ mismatched types: expected `&str`, found `String`
 ```
 
-A `ByVal String` parameter renders as `&str`, and VBR auto-borrows a String
+A `ByVal String` parameter renders as `&str`, and Bust auto-borrows a String
 *variable* at the call site — but a call expression returning String isn't
 borrowed, so it fails. Workaround: assign the expression to a local first
 (`Dim keyChar As String = Mid(...)`), then pass the variable. Same shape as
@@ -965,7 +965,7 @@ applies to *variables*, not `Public Const`s — the constant arrives as i64
 and isn't cast. Workaround: use the numeric literal (`32.0`). Also, `i64 *
 f64` in an expression never compiles — widen before multiplying.
 
-### Quirk 37 — [MISSING] `DataFrame.ReadCsv` aborts on `N/A` strings
+### Quirk 37 — [MISSING] `DataFrame.Read_Csv` aborts on `N/A` strings
 
 The raw `premier_league_23-26.csv` has `N/A` in numeric columns
 (`attendance`, `Game Week`); the stdlib `read_csv` (dataframe.rs:29) has
@@ -975,7 +975,7 @@ Worth a `null_values`/`ignore_errors` read option in a later slice.
 
 ### What worked well
 
-- `DataFrame.ReadCsv` → `Sort("timestamp")` → `Column(...)` extraction:
+- `DataFrame.Read_Csv` → `Sort("timestamp")` → `Column(...)` extraction:
   all smooth; polars infers the numeric columns as i64 automatically.
 - `df.Column("home_team_name")` as `Vec<String>` and goal columns as
   `Vec<Long>` — the FromColumn impl handles both.
@@ -988,29 +988,29 @@ Worth a `null_values`/`ignore_errors` read option in a later slice.
 
 ---
 
-## 55 — Powerball (DataFrame GroupBy/Agg) (2026-08-07)
+## 55 — Powerball (DataFrame Group_By/Agg) (2026-08-07)
 
 Project: `projects/55_powerball/`. 6/6 logic tests pass; the full tool ran
-1000 tickets through GroupBy/Agg and the win simulation. First project to
-use the GroupBy/Agg and WriteCsv verbs.
+1000 tickets through Group_By/Agg and the win simulation. First project to
+use the Group_By/Agg and Write_Csv verbs.
 
 ### Quirk 38 — [BUG] `Count()` aggregates to u32 — can't extract as `Vec<Long>`
 
 ```vb
-Dim byPb As DataFrame = df.GroupBy("pb").Agg(Count(w1))
+Dim byPb As DataFrame = df.Group_By("pb").Agg(Count(w1))
 Dim counts As Vec<Long> = byPb.Column("w1")   ' � ✘ expected Int64, got u32
 ```
 
 polars' `count()` returns a u32 column, and the stdlib `FromColumn for
 i64` (dataframe.rs:267) refuses anything but Int64. Workaround: write the
-grouped frame with `WriteCsv` and read it back — polars reinfers the
+grouped frame with `Write_Csv` and read it back — polars reinfers the
 counts as i64, so `Column("w1")` works. (That round-trip also exercises
-the WriteCsv verb, so it's not pure waste.)
+the Write_Csv verb, so it's not pure waste.)
 
-### Quirk 39 — [BUG] GroupBy AND Agg on the same column collides
+### Quirk 39 — [BUG] Group_By AND Agg on the same column collides
 
 ```vb
-df.GroupBy("w1").Agg(Count(w1))    ' � ✘ column with name 'w1' has more than one occurrence
+df.Group_By("w1").Agg(Count(w1))    ' � ✘ column with name 'w1' has more than one occurrence
 ```
 
 Grouping by `w1` and aggregating `w1` in one call duplicates the output
@@ -1021,7 +1021,7 @@ column (`Count(w2)`), which is fine for counting.
 
 ```vb
 Dim w1 As Vec<Long> = df.Column("w1")
-df.GroupBy("pb").Agg(Count(w1))    ' � ✘ Vec<i64> doesn't implement Literal
+df.Group_By("pb").Agg(Count(w1))    ' � ✘ Vec<i64> doesn't implement Literal
 ```
 
 The column-formula rule ("Dim'd names are values") bites: if you've
@@ -1049,7 +1049,7 @@ First project to use the **DateTime** stdlib.
 - `DateTime.Parse(text, pattern).Unwrap()` + `Format("%u")` gives the ISO
   weekday deterministically — no `Now()`, so the output is reproducible
   (same discipline as the other examples).
-- Leap-year logic (`Mod 400 / 100 / 4`) and the month table are plain VBR.
+- Leap-year logic (`Mod 400 / 100 / 4`) and the month table are plain Bust.
 
 ### Quirk 41 — [CONFIRMED] `Dim` is a reserved word as a variable name
 
@@ -1125,7 +1125,7 @@ self-check on startup is a genuinely useful Godot-verification pattern.
   `GetNode`, signals (`Signal`/`Emit`/`Connect … To`/`Sub OnFinished`) all
   compile and run first-try once the borrow workarounds were in.
 - Cross-module calls from node bodies (`Maze.TryMove`, `Maze.IsWall`) are
-  plain VBR — the resolver runs on node bodies like any other surface.
+  plain Bust — the resolver runs on node bodies like any other surface.
 - `rungodot` project folder flow (main.vbr + sibling modules + generated
   `*_godot/`) works; the cdylib compiled without Godot present, and Godot
   loaded it at runtime.
@@ -1223,7 +1223,7 @@ found").
 
 - `Type` → `@dataclass`, `list.append`, f-strings, `len()`: the generated
   Python is genuinely idiomatic, not a transliteration.
-- `FileSystem.ReadLines` + `_unwrap` from vbrpy — the stdlib package works
+- `FileSystem.Read_Lines` + `_unwrap` from vbrpy — the stdlib package works
   on pure Python batteries, no pip.
 - The byte-identical diff is a great teaching moment: same program, three
   backends, one output.
@@ -1321,6 +1321,6 @@ first try; output matches.
 
 The spec's examples (`sum_types.vbr`, `enum_payloads.vbr`) are accurate —
 no transpiler quirks surfaced here. A satisfyingly clean first test of
-VBR's signature feature.
+Bust's signature feature.
 
 ---

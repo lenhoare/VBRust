@@ -16,12 +16,12 @@ returns = "DataFrame — a new table with the columns of both, for the rows whos
 
 example = """
 Function Main()
-    Dim people As DataFrame = DataFrame.ReadCsv("people.csv")
-    Dim orders As DataFrame = DataFrame.ReadCsv("orders.csv")
+    Dim people As DataFrame = DataFrame.Read_Csv("people.csv")
+    Dim orders As DataFrame = DataFrame.Read_Csv("orders.csv")
 
     Dim buyers As DataFrame = people.Join(orders, "name")
     buyers.Print()
 End Function
 """
 
-see_also = ["dataframe", "dataframe.groupby"]
+see_also = ["dataframe", "dataframe.group_by"]

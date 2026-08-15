@@ -4,7 +4,7 @@ Prints the first 15 Fibonacci numbers and spot-checks larger terms. The
 logic module builds the sequence as a `Vec<Long>` and also exposes an
 `Fib(n)` accessor, both directly testable.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning `Vec<Long>` with `Push`, and one returning `Long`
 - `For` loop with three tracked locals (swap-based iteration)

@@ -39,7 +39,15 @@ enum Message {
 fn update(state: &mut Chooser, message: Message) {
     match message {
         Message::Pick(value) => {
-            state.choice = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.choice = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

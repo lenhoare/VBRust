@@ -1,4 +1,4 @@
-//! TIDE — Turbo Pascal–inspired TUI IDE for VBR.
+//! TIDE — Turbo Pascal–inspired TUI IDE for Bust.
 
 mod compile;
 mod files;

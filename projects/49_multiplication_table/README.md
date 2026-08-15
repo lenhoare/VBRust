@@ -5,7 +5,7 @@ right-justified into a 4-character cell. The book's version is a
 pure-formatting exercise; here the grid is built by a `multable.vbr` module
 (rows as `Vec<String>`) so the formatting logic is directly testable.
 
-## VBR language features tested
+## Bust language features tested
 
 - Nested `For` loops (`For r ... Next` / `For c ... Next`)
 - `Vec<String>` with `Push`, `Len()`, bracket indexing `rows[i]`

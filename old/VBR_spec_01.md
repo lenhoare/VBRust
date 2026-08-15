@@ -1,4 +1,4 @@
-## VBR Version 0.1 Complete Specification — Revision 3
+## Bust Version 0.1 Complete Specification — Revision 3
 
 ---
 
@@ -8,7 +8,7 @@
 - Educational errors — never preachy, warn once not repeatedly
 - Inline Rust escape hatch for advanced features
 - CLI first, others later
-- **When in doubt, use Rust syntax not VBA syntax. VBR is a teaching tool, not a comfort blanket**
+- **When in doubt, use Rust syntax not VBA syntax. Bust is a teaching tool, not a comfort blanket**
 - **Use Rust syntax when it appears in small doses and makes the user curious. Keep VBA syntax when replacing it would overwhelm the user**
 - **If Rust knows the size at compile time it copies freely. If it doesn't you must be explicit**
 
@@ -16,7 +16,7 @@
 
 ## Syntax Origin Reference
 
-| Rust syntax in VBR | VBA syntax kept in VBR |
+| Rust syntax in Bust | VBA syntax kept in Bust |
 |---|---|
 | `::` navigation | `Function/End Function` |
 | `<>` generics | `If/ElseIf/Else/End If` |
@@ -43,7 +43,7 @@
 
 ## Program Structure
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `Function Main()` | `fn main()` | Required entry point |
 | `Module/End Module` | `mod` | Explicit, never implicit |
@@ -73,7 +73,7 @@
 
 ## Assignment Rules
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `Dim a As Long = b` | `let a: i32 = b` | Fixed size, copies freely |
 | `Dim a As Double = b` | `let a: f64 = b` | Fixed size, copies freely |
@@ -111,7 +111,7 @@
 
 ## Variables & Scope
 
-| VBA | VBR/Rust | Notes |
+| VBA | Bust/Rust | Notes |
 |---|---|---|
 | `Dim x As Long` | `let x: i32` | |
 | `Dim x As Long = 5` | `let x: i32 = 5` | |
@@ -128,7 +128,7 @@
 
 ## Procedures
 
-| VBA | VBR/Rust | Notes |
+| VBA | Bust/Rust | Notes |
 |---|---|---|
 | `Sub` | ✘ Hard error | Use Function with no return type |
 | `Function MyFunc()` | `fn my_func()` | |
@@ -146,7 +146,7 @@
 
 ## Error Handling
 
-| VBA/VBR | Behaviour | Rust output |
+| VBA/Bust | Behaviour | Rust output |
 |---|---|---|
 | `On Error GoTo` | ✘ Hard error | Full explanation given |
 | `As Result<Type>` | Allowed | `-> Result<Type, String>` |
@@ -175,7 +175,7 @@
 | `Do While` | `while` | |
 | `Do Until` | `while !` | Condition inverted |
 | `Exit For/Do` | `break` | |
-| `Continue` | `continue` | VBR extension over VBA |
+| `Continue` | `continue` | Bust extension over VBA |
 
 ---
 
@@ -200,7 +200,7 @@
 
 ## Arrays — 1D
 
-| VBA/VBR | Behaviour | Rust output |
+| VBA/Bust | Behaviour | Rust output |
 |---|---|---|
 | `Dim x(10) As Long` | ⚠ Size not upper bound | `[i32; 10]` |
 | `Dim x() As Long` | Allowed | `Vec<i32>` |
@@ -215,7 +215,7 @@
 
 ## Arrays — 2D
 
-| VBA/VBR | Behaviour | Rust output |
+| VBA/Bust | Behaviour | Rust output |
 |---|---|---|
 | `Dim grid(10, 20) As Long` | ⚠ Size not upper bound | `[[i32; 20]; 10]` |
 | `Dim grid(,) As Long` | Allowed dynamic | `Vec<Vec<i32>>` |
@@ -229,7 +229,7 @@
 
 ## Structs
 
-| VBA | VBR/Rust | Notes |
+| VBA | Bust/Rust | Notes |
 |---|---|---|
 | `Type/End Type` | `struct` | Private by default |
 | `Public Type` | `pub struct` | |
@@ -293,7 +293,7 @@
 
 ## Collections — HashMap
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `Dim x As New HashMap<String, Long>` | `let mut x: HashMap<String, i32> = HashMap::new()` | ℹ VBA equivalent is Scripting.Dictionary |
 | `x.insert("key", value)` | `x.insert("key".to_string(), value)` | ℹ to_string() automatic |

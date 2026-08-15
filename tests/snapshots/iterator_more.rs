@@ -1,7 +1,7 @@
 // More iterator links — take, skip, rev — and the Option-returning consumers
 // (max, position) that pair with Match.
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let hi: i64 = 8;
     let mut nums: Vec<i64> = Vec::new();
     for i in 1..=hi {
@@ -34,5 +34,13 @@ fn main() {
         None => {
             println!("none over 6");
         }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

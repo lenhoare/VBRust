@@ -4,44 +4,52 @@
 // loop while the pattern keeps matching. The Rust backend emits the idiomatic
 // `if let` / `loop { if let … else break }`.
 
-fn findprice(item: &str) -> Option<i64> {
+fn findprice(item: &str) -> Result<Option<i64>, String> {
     if item == "apple" {
-        return Some(30);
+        return Ok(Some(30));
     }
-    None
+    Ok(None)
 }
 
-fn nextitem(xs: &mut Vec<i64>, idx: i64) -> Option<i64> {
+fn nextitem(xs: &mut Vec<i64>, idx: i64) -> Result<Option<i64>, String> {
     if idx < (xs.len() as i64) {
-        return Some(xs[(idx) as usize]);
+        return Ok(Some(xs[(idx) as usize]));
     }
-    None
+    Ok(None)
 }
 
-fn main() {
-    if let Some ( price ) = findprice("apple") {
+fn vbr_main() -> Result<(), String> {
+    if let Some ( price ) = findprice("apple")? {
         println!("apple costs {}", price);
     } else {
         println!("no price for apple");
     }
-    if let Some ( price ) = findprice("pear") {
+    if let Some ( price ) = findprice("pear")? {
         println!("pear costs {}", price);
     } else {
         println!("no price for pear");
     }
     // Single-line form.
-    if let Some ( price ) = findprice("apple") {
+    if let Some ( price ) = findprice("apple")? {
         println!("again: {}", price);
     }
     // while let — drain a list of prices.
     let mut prices: Vec<i64> = vec![10, 20, 30];
     let mut i: i64 = 0;
     loop {
-        if let Some ( v ) = nextitem(&mut prices, i) {
+        if let Some ( v ) = nextitem(&mut prices, i)? {
             println!("item {}", v);
             i = i + 1;
         } else {
             break;
         }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

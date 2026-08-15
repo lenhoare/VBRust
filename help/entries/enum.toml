@@ -15,7 +15,7 @@ summary = "Defines a type whose value is one of a fixed set of named variants."
 remarks = """
 An `Enum` lists the only values a variable of that type may hold. It makes intent obvious and lets `Match` check that every case is handled.
 
-VBR enums go beyond classic VB: a variant can also carry data, giving you Rust-style sum types. The plain, C-like form shown here is the everyday case.
+Bust enums go beyond classic VB: a variant can also carry data, giving you Rust-style sum types. The plain, C-like form shown here is the everyday case.
 """
 
 example = """

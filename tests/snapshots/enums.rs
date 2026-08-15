@@ -15,28 +15,36 @@ impl std::fmt::Display for Suit {
     }
 }
 
-fn color(s: &Suit) -> String {
+fn color(s: &Suit) -> Result<String, String> {
     match s {
         Suit :: Hearts => {
-            return "red".to_string();
+            return Ok("red".to_string());
         }
         Suit :: Diamonds => {
-            return "red".to_string();
+            return Ok("red".to_string());
         }
         Suit :: Clubs => {
-            return "black".to_string();
+            return Ok("black".to_string());
         }
         Suit :: Spades => {
-            return "black".to_string();
+            return Ok("black".to_string());
         }
     }
 }
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let s: Suit = Suit::Spades;
-    println!("Spades are {}", color(&s));
-    println!("Hearts are {}", color(&Suit::Hearts));
+    println!("Spades are {}", color(&s)?);
+    println!("Hearts are {}", color(&Suit::Hearts)?);
     if s == Suit::Spades {
         println!("yes, spades");
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

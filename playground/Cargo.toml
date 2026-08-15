@@ -2,7 +2,7 @@
 name = "vbr-playground"
 version = "0.1.0"
 edition = "2021"
-description = "The VBR transpiler running in the browser: type VBA-flavoured syntax, watch idiomatic Rust appear."
+description = "The Bust transpiler running in the browser: type VBA-flavoured syntax, watch idiomatic Rust appear."
 
 [dependencies]
 vbr = { path = ".." }

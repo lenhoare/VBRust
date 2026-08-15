@@ -79,7 +79,7 @@ fn a_stdlib_namespace_offers_its_functions() {
     assert_eq!(labels(&items), vec!["Get", "Post"]);
     // A partial member keeps the member context (the editor filters by it).
     let items = complete(SRC, "Debug.Print s", "FileSystem.Rea");
-    assert!(labels(&items).contains(&"ReadLines"));
+    assert!(labels(&items).contains(&"Read_Lines"));
 }
 
 #[test]

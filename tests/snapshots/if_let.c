@@ -23,6 +23,9 @@ static Vec_longlong Vec_longlong_of(size_t count, long long* items) {
     return v;
 }
 
+typedef struct { bool is_ok; Option_longlong ok; char* err; } Result_opt_longlong_str;
+static Option_longlong Result_opt_longlong_str_unwrap(Result_opt_longlong_str r) { if (!r.is_ok) { fprintf(stderr, "unwrapped an Err\n"); exit(1); } return r.ok; }
+
 static char* vbr_from_ll(long long v) {
     char* s = (char*)malloc(32);
     snprintf(s, 32, "%lld", v);
@@ -35,32 +38,36 @@ static char* vbr_concat(const char* a, const char* b) {
     return s;
 }
 
-Option_longlong findprice(char* item);
-Option_longlong nextitem(Vec_longlong xs, long long idx);
+Result_opt_longlong_str findprice(char* item);
+Result_opt_longlong_str nextitem(Vec_longlong xs, long long idx);
 
-Option_longlong findprice(char* item) {
+Result_opt_longlong_str findprice(char* item) {
     if ((item == "apple")) {
-        return (Option_longlong){ .is_some = true, .value = 30 };
+        return (Result_opt_longlong_str){ .is_ok = true, .ok = (Option_longlong){ .is_some = true, .value = 30 } };
     }
-    return (Option_longlong){ .is_some = false };
+    return (Result_opt_longlong_str){ .is_ok = true, .ok = (Option_longlong){ .is_some = false } };
 }
 
-Option_longlong nextitem(Vec_longlong xs, long long idx) {
+Result_opt_longlong_str nextitem(Vec_longlong xs, long long idx) {
     if ((idx < xs.len)) {
-        return (Option_longlong){ .is_some = true, .value = xs.data[idx] };
+        return (Result_opt_longlong_str){ .is_ok = true, .ok = (Option_longlong){ .is_some = true, .value = xs.data[idx] } };
     }
-    return (Option_longlong){ .is_some = false };
+    return (Result_opt_longlong_str){ .is_ok = true, .ok = (Option_longlong){ .is_some = false } };
 }
 
 int main(void) {
-    Option_longlong _m0 = findprice("apple");
+    Result_opt_longlong_str _t0 = findprice("apple");
+    if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
+    Option_longlong _m0 = _t0.ok;
     if (_m0.is_some) {
         long long price = _m0.value;
         printf("%s\n", vbr_concat("apple costs ", vbr_from_ll(price)));
     } else {
         printf("%s\n", "no price for apple");
     }
-    Option_longlong _m1 = findprice("pear");
+    Result_opt_longlong_str _t1 = findprice("pear");
+    if (!_t1.is_ok) { fprintf(stderr, "Error: %s\n", _t1.err); return 1; }
+    Option_longlong _m1 = _t1.ok;
     if (_m1.is_some) {
         long long price = _m1.value;
         printf("%s\n", vbr_concat("pear costs ", vbr_from_ll(price)));
@@ -68,7 +75,9 @@ int main(void) {
         printf("%s\n", "no price for pear");
     }
     // Single-line form.
-    Option_longlong _m2 = findprice("apple");
+    Result_opt_longlong_str _t2 = findprice("apple");
+    if (!_t2.is_ok) { fprintf(stderr, "Error: %s\n", _t2.err); return 1; }
+    Option_longlong _m2 = _t2.ok;
     if (_m2.is_some) {
         long long price = _m2.value;
         printf("%s\n", vbr_concat("again: ", vbr_from_ll(price)));
@@ -78,7 +87,9 @@ int main(void) {
     Vec_longlong prices = Vec_longlong_of(3, (long long[]){ 10, 20, 30 });
     long long i = 0;
     while (1) {
-        Option_longlong _m3 = nextitem(prices, i);
+        Result_opt_longlong_str _t3 = nextitem(prices, i);
+        if (!_t3.is_ok) { fprintf(stderr, "Error: %s\n", _t3.err); return 1; }
+        Option_longlong _m3 = _t3.ok;
         if (_m3.is_some) {
             long long v = _m3.value;
             printf("%s\n", vbr_concat("item ", vbr_from_ll(v)));

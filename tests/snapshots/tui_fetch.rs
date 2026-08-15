@@ -48,12 +48,20 @@ fn main() -> std::io::Result<()> {
         while let Ok(msg) = rx.try_recv() {
             match msg {
                 Message::FetchDone(result) => {
-                    match result {
-                        Ok ( _ ) => {
-                            state.status = "ok — page fetched".to_string();
-                        }
-                        Err ( e ) => {
-                            state.status = format!("error: {}", e);
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( _ ) => {
+                                    state.status = "ok — page fetched".to_string();
+                                }
+                                Err ( e ) => {
+                                    state.status = format!("error: {}", e);
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
                         }
                     }
                 }
@@ -66,7 +74,15 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('r') => {
-                        state.status = "loading…".to_string();
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.status = "loading…".to_string();
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                         let url = state.url.clone();
                         let tx = tx.clone();
                         std::thread::spawn(move || {

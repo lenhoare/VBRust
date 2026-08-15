@@ -1,4 +1,4 @@
-//! VBR → Python backend (slice 1: pure computation).
+//! Bust → Python backend (slice 1: pure computation).
 //!
 //! A second target beside the Rust transpiler. Where the Rust emitter lowers to
 //! ownership-and-types Rust, this lowers the *same* parsed AST to idiomatic
@@ -23,7 +23,7 @@ use crate::pattern::{self, Pat};
 use crate::transpiler::{convert_returns, rust_name};
 use crate::types::{type_program, TypeTable};
 
-/// The result of emitting Python for one VBR source.
+/// The result of emitting Python for one Bust source.
 pub struct PyProgram {
     /// The generated Python source.
     pub code: String,
@@ -114,6 +114,12 @@ struct Emitter {
     needs_result: bool,
     needs_unwrap: bool,
     needs_time: bool,
+    needs_sys: bool,
+    skip_auto_try: bool,
+    emitting_main: bool,
+    wrap_ok: bool,
+    user_fns: HashSet<String>,
+    user_methods: HashSet<String>,
 }
 
 impl Emitter {
@@ -157,6 +163,19 @@ impl Emitter {
             .iter()
             .filter(|e| e.variants.iter().any(|v| !v.payload.is_empty()))
             .map(|e| e.name.clone())
+            .collect();
+
+        self.user_fns = program
+            .functions
+            .iter()
+            .filter(|f| f.receiver.is_some() || !f.name.eq_ignore_ascii_case("main"))
+            .map(|f| rust_name(&f.name))
+            .collect();
+        self.user_methods = program
+            .functions
+            .iter()
+            .filter(|f| f.receiver.is_some())
+            .map(|f| rust_name(&f.name))
             .collect();
 
         if !program.windows.is_empty() || !program.screens.is_empty() || !program.pages.is_empty() {
@@ -263,6 +282,9 @@ impl Emitter {
         let name = rust_name(&func.name);
         self.formula_vars.clear();
         self.current_ret = func.ret.clone();
+        let is_main = !is_method && func.name.eq_ignore_ascii_case("main");
+        self.emitting_main = is_main;
+        self.wrap_ok = !is_main;
         let mut params: Vec<String> = Vec::new();
         if is_method {
             params.push("self".to_string());
@@ -288,10 +310,18 @@ impl Emitter {
         let mut body = func.body.clone();
         convert_returns(&mut body, &name);
 
-        if body.iter().all(|s| matches!(s, Stmt::LineMark(_) | Stmt::Comment(_))) {
+        let empty = body.iter().all(|s| matches!(s, Stmt::LineMark(_) | Stmt::Comment(_)));
+        if empty && !self.wrap_ok {
             self.line(indent + 1, "pass");
+        } else {
+            self.block(&body, indent + 1);
+            if self.wrap_ok && !py_body_ends_with_return(&body) {
+                self.needs_result = true;
+                self.line(indent + 1, "return Ok(None)");
+            }
         }
-        self.block(&body, indent + 1);
+        self.emitting_main = false;
+        self.wrap_ok = false;
     }
 
     fn block(&mut self, stmts: &[Stmt], indent: usize) {
@@ -340,9 +370,32 @@ impl Emitter {
             }
             Stmt::Return(Some(e)) => {
                 let v = self.expr(e);
-                self.line(indent, &format!("return {}", v));
+                if self.wrap_ok {
+                    self.needs_result = true;
+                    self.line(indent, &format!("return Ok({})", v));
+                } else {
+                    self.line(indent, &format!("return {}", v));
+                }
             }
-            Stmt::Return(None) => self.line(indent, "return"),
+            Stmt::Return(None) => {
+                if self.wrap_ok {
+                    self.needs_result = true;
+                    self.line(indent, "return Ok(None)");
+                } else {
+                    self.line(indent, "return");
+                }
+            }
+            Stmt::RaiseError(e) => {
+                self.needs_result = true;
+                let msg = match &e.kind {
+                    ExprKind::Str(_) => self.expr(e),
+                    _ => format!("str({})", self.expr(e)),
+                };
+                self.line(indent, &format!("return Err({})", msg));
+            }
+            Stmt::HandleErr { target, call, err_name, body, .. } => {
+                self.emit_handle(target.as_ref(), call, err_name, body, indent);
+            }
             Stmt::Expr(e) => {
                 // A bare `Python … End Python` statement: splice the block in for
                 // its side effects; its last line is evaluated and discarded.
@@ -433,7 +486,7 @@ impl Emitter {
             }
             other => {
                 self.warn(format!("`{}` doesn't lower to Python yet.", stmt_name(other)));
-                self.line(indent, &format!("pass  # [VBR→Python] unsupported: {}", stmt_name(other)));
+                self.line(indent, &format!("pass  # [Bust→Python] unsupported: {}", stmt_name(other)));
             }
         }
     }
@@ -446,7 +499,7 @@ impl Emitter {
     /// last non-blank line is the value: bound to `bind` when given (a name, or a
     /// `a, b, c` tuple target), otherwise evaluated for its side effects.
     fn inline_python(&mut self, inputs: &[String], body: &str, indent: usize, bind: Option<&str>) {
-        // Re-expose each input under the exact name the block wrote, in case VBR
+        // Re-expose each input under the exact name the block wrote, in case Bust
         // lowercased it (`Python(Data)` → the block still says `Data`).
         for name in inputs {
             let local = rust_name(name);
@@ -595,20 +648,21 @@ impl Emitter {
         self.block(stmts, indent);
     }
 
-    /// A method call → its Python form. The curated table turns Rust/VBR method
+    /// A method call → its Python form. The curated table turns Rust/Bust method
     /// names into Python idioms (`.push`→`.append`, `.len()`→`len()`, iterator
     /// chains → comprehensions); anything unrecognised passes straight through.
     fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
         let m = method.to_ascii_lowercase();
+        let key = m.replace('_', "");
 
         // A standard-library static call (`FileSystem.Read(...)`, `Json.Parse(...)`)
         // → the matching `vbrpy` class method; the namespace is recorded so the
         // import (and project mode) is emitted.
         if let ExprKind::Ident(ns) = &recv.kind {
             if ns == "DataFrame" {
-                // `DataFrame.ReadCsv(path)` → polars `read_csv(path)` (re-exported).
+                // `DataFrame.Read_Csv(path)` → polars `read_csv(path)` (re-exported).
                 self.stdlib_used.insert("DataFrame".to_string());
-                if m == "readcsv" {
+                if key == "readcsv" {
                     self.df_builders.insert("read_csv");
                     let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                     // Read common missing-value tokens as nulls, matching the Rust
@@ -643,7 +697,7 @@ impl Emitter {
             }
         }
 
-        // An instance method on a DataFrame (`df.WithColumn(...)`, `df.Filter(...)`)
+        // An instance method on a DataFrame (`df.With_Column(...)`, `df.Filter(...)`)
         // → idiomatic polars, with column-formula arguments lowered.
         if self.is_df_expr(recv) {
             return self.df_method(recv, &m, args);
@@ -792,6 +846,104 @@ impl Emitter {
         format!("{}.value", tmp)
     }
 
+    fn hoist_result(&mut self, val: String) -> String {
+        let Some(indent) = self.hoist_at else {
+            self.warn("`Handle`/`?` couldn't be lowered here (no statement context).");
+            return val;
+        };
+        self.needs_result = true;
+        let tmp = format!("_t{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        self.line(indent, &format!("{} = {}", tmp, val));
+        self.line(indent, &format!("if isinstance({}, Err):", tmp));
+        if self.emitting_main {
+            self.needs_sys = true;
+            self.line(indent + 1, &format!("print(f\"Error: {{{}.error}}\", file=sys.stderr)", tmp));
+            self.line(indent + 1, "raise SystemExit(1)");
+        } else {
+            self.line(indent + 1, &format!("return {}", tmp));
+        }
+        format!("{}.value", tmp)
+    }
+
+    fn should_auto_try_call(&self, name: &str) -> bool {
+        if self.skip_auto_try {
+            return false;
+        }
+        let lower = name.to_ascii_lowercase();
+        if matches!(lower.as_str(), "ok" | "err" | "some" | "none" | "iif" | "sleep") {
+            return false;
+        }
+        if matches!(lower.as_str(), "cdbl" | "clng" | "cint") {
+            return true;
+        }
+        self.user_fns.contains(&rust_name(name))
+    }
+
+    fn should_auto_try_method(&self, recv: &Expr, method: &str, whole: &Expr) -> bool {
+        if self.skip_auto_try {
+            return false;
+        }
+        if matches!(self.type_of(whole), Some(DeclType::Result(..))) {
+            return true;
+        }
+        if matches!(&recv.kind, ExprKind::Ident(n) if STDLIB_SUPPORTED.contains(&n.as_str())) {
+            return false;
+        }
+        self.user_methods.contains(&rust_name(method))
+    }
+
+    fn emit_handle(
+        &mut self,
+        target: Option<&Expr>,
+        call: &Expr,
+        err_name: &str,
+        body: &[Stmt],
+        indent: usize,
+    ) {
+        let saved = self.skip_auto_try;
+        self.skip_auto_try = true;
+        let val = self.expr(call);
+        self.skip_auto_try = saved;
+        self.needs_result = true;
+        let tmp = format!("_t{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        let err = rust_name(err_name);
+        self.line(indent, &format!("{} = {}", tmp, val));
+        match target {
+            None => {
+                self.line(indent, &format!("if isinstance({}, Err):", tmp));
+                self.line(indent + 1, &format!("{} = {}.error", err, tmp));
+                self.block_or_pass(body, indent + 1);
+            }
+            Some(tgt) => {
+                let lhs = self.expr(tgt);
+                self.line(indent, &format!("if isinstance({}, Err):", tmp));
+                self.line(indent + 1, &format!("{} = {}.error", err, tmp));
+                if py_body_diverges(body) {
+                    self.block_or_pass(body, indent + 1);
+                    self.line(indent, "else:");
+                    self.line(indent + 1, &format!("{} = {}.value", lhs, tmp));
+                } else if let Some(Stmt::Expr(e)) = body
+                    .iter()
+                    .rev()
+                    .find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_)))
+                {
+                    let last_i = body.iter().rposition(|s| matches!(s, Stmt::Expr(_))).unwrap();
+                    self.block(&body[..last_i], indent + 1);
+                    let repl = self.expr(e);
+                    self.line(indent + 1, &format!("{} = {}", lhs, repl));
+                    self.line(indent, "else:");
+                    self.line(indent + 1, &format!("{} = {}.value", lhs, tmp));
+                } else {
+                    self.block_or_pass(body, indent + 1);
+                    self.line(indent, "else:");
+                    self.line(indent + 1, &format!("{} = {}.value", lhs, tmp));
+                }
+            }
+        }
+    }
+
 
     /// Is `recv` known to be a `Map`/`HashMap` (so `.insert` is a subscript)?
     fn recv_is_map(&self, recv: &Expr) -> bool {
@@ -799,7 +951,7 @@ impl Emitter {
     }
 
     /// Is `e` a DataFrame-valued expression? A variable declared `As DataFrame`,
-    /// a `DataFrame.ReadCsv(...)` constructor, or a transform chained off one.
+    /// a `DataFrame.Read_Csv(...)` constructor, or a transform chained off one.
     fn is_df_expr(&self, e: &Expr) -> bool {
         match &e.kind {
             ExprKind::Ident(_) => matches!(self.type_of(e), Some(DeclType::Named(t)) if t == "DataFrame"),
@@ -813,7 +965,8 @@ impl Emitter {
     /// A DataFrame instance method → idiomatic polars.
     fn df_method(&mut self, recv: &Expr, m: &str, args: &[Expr]) -> String {
         let base = self.expr(recv);
-        match m {
+        let key = m.replace('_', "");
+        match key.as_str() {
             "withcolumn" => {
                 let name = self.expr(&args[0]);
                 let formula = self.lower_formula(&args[1]);
@@ -840,7 +993,7 @@ impl Emitter {
                 } else {
                     format!("[{}]", keys.join(", "))
                 };
-                let how = match m {
+                let how = match key.as_str() {
                     "join" => "inner",
                     "leftjoin" => "left",
                     _ => "outer",
@@ -868,7 +1021,7 @@ impl Emitter {
         }
     }
 
-    /// Rewrite a VBR column formula (`price * qty`, `age >= 18`, `IIf(...)`) into a
+    /// Rewrite a Bust column formula (`price * qty`, `age >= 18`, `IIf(...)`) into a
     /// polars expression — the Python-side twin of the resolver's `lower_formula`.
     /// A bare name is a column (`col("x")`) unless it's a `Dim`'d value; polars
     /// overloads the operators (`>`, `&`, `~`), so no `.gt()`/`.and()` methods.
@@ -903,7 +1056,7 @@ impl Emitter {
                 self.df_builders.insert("lit");
                 format!("lit({})", if *b { "True" } else { "False" })
             }
-            ExprKind::Call { name, args } if name.eq_ignore_ascii_case("IsNull") && args.len() == 1 => {
+            ExprKind::Call { name, args } if name.eq_ignore_ascii_case("Is_Null") && args.len() == 1 => {
                 let inner = self.lower_formula(&args[0]);
                 format!("{}.is_null()", inner)
             }
@@ -1121,7 +1274,12 @@ impl Emitter {
                     }
                     format!("{}({})", method, a.join(", "))
                 } else {
-                    self.method_call(recv, method, args)
+                    let s = self.method_call(recv, method, args);
+                    if self.should_auto_try_method(recv, method, e) {
+                        self.hoist_result(s)
+                    } else {
+                        s
+                    }
                 }
             }
             ExprKind::List(items) => {
@@ -1138,6 +1296,13 @@ impl Emitter {
                 format!("not ({})", i)
             }
             ExprKind::Try(inner) => self.hoist_try(inner),
+            ExprKind::Raw(inner) => {
+                let saved = self.skip_auto_try;
+                self.skip_auto_try = true;
+                let s = self.expr(inner);
+                self.skip_auto_try = saved;
+                s
+            }
             ExprKind::Binary { op: BinOp::Concat, .. } => self.concat_fstring(e),
             ExprKind::Binary { op: BinOp::Div, lhs, rhs } => {
                 // Rust's `/` truncates for integer operands but divides for floats;
@@ -1166,10 +1331,17 @@ impl Emitter {
                     format!("{} {} {}", l, self.bin_op(*op), r)
                 }
             }
-            ExprKind::Call { name, args } => self.call(name, args),
+            ExprKind::Call { name, args } => {
+                let s = self.call(name, args);
+                if self.should_auto_try_call(name) {
+                    self.hoist_result(s)
+                } else {
+                    s
+                }
+            }
             other => {
                 self.warn(format!("`{}` doesn't lower to Python yet.", expr_name(other)));
-                format!("None  # [VBR→Python] unsupported: {}", expr_name(other))
+                format!("None  # [Bust→Python] unsupported: {}", expr_name(other))
             }
         }
     }
@@ -1333,6 +1505,9 @@ impl Emitter {
         if self.needs_time {
             code.push_str("import time\n");
         }
+        if self.needs_sys {
+            code.push_str("import sys\n");
+        }
         // `Use <package> <version> [As <module>]` → a top-level `import <module>`
         // (the alias when a pip package imports under a different name — `pillow`
         // installs, `PIL` imports), in source order. The module is then in scope
@@ -1389,6 +1564,7 @@ impl Emitter {
         } else {
             let any_import = self.needs_math
                 || self.needs_time
+                || self.needs_sys
                 || needs_dataclass
                 || self.needs_enum
                 || !program.uses.is_empty();
@@ -1570,6 +1746,26 @@ fn py_float(f: f64) -> String {
     }
 }
 
+fn py_body_ends_with_return(stmts: &[Stmt]) -> bool {
+    matches!(
+        stmts.iter().rev().find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))),
+        Some(Stmt::Return(_) | Stmt::RaiseError(_))
+    )
+}
+
+fn py_body_diverges(stmts: &[Stmt]) -> bool {
+    match stmts.iter().rev().find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))) {
+        Some(Stmt::Return(_) | Stmt::RaiseError(_) | Stmt::Break | Stmt::Continue) => true,
+        Some(Stmt::If { branches, else_body }) => {
+            else_body.as_ref().is_some_and(|e| py_body_diverges(e))
+                && branches.iter().all(|(_, b)| py_body_diverges(b))
+        }
+        Some(Stmt::Match { arms, .. }) => !arms.is_empty() && arms.iter().all(|a| py_body_diverges(&a.body)),
+        Some(Stmt::HandleErr { body, .. }) => py_body_diverges(body),
+        _ => false,
+    }
+}
+
 fn stmt_name(s: &Stmt) -> &'static str {
     match s {
         Stmt::Dim { .. } => "Dim",
@@ -1591,6 +1787,8 @@ fn stmt_name(s: &Stmt) -> &'static str {
         Stmt::Match { .. } => "Match",
         Stmt::Draw(_) => "Draw",
         Stmt::Assert(_) => "Assert",
+        Stmt::RaiseError(_) => "RaiseError",
+        Stmt::HandleErr { .. } => "Handle",
         Stmt::Comment(_) => "comment",
         Stmt::LineMark(_) => "line mark",
     }
@@ -1610,6 +1808,7 @@ fn expr_name(e: &ExprKind) -> &'static str {
         ExprKind::InlineRust(_) => "inline Rust",
         ExprKind::InlinePython { .. } => "inline Python",
         ExprKind::Await(_) => "Await",
+        ExprKind::Raw(_) => "Raw",
         ExprKind::Try(_) => "error propagation (?)",
         _ => "expression",
     }

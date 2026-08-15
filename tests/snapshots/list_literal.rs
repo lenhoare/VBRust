@@ -4,20 +4,28 @@
 // like Rust. String elements are owned automatically; numbers take their type
 // from the target.
 
-fn total(xs: &Vec<i64>) -> i64 {
+fn total(xs: &Vec<i64>) -> Result<i64, String> {
     let mut sum: i64 = 0;
     for x in &*xs {
         sum = sum + *x;
     }
-    sum
+    Ok(sum)
 }
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let names: Vec<String> = vec!["alice".to_string(), "bob".to_string(), "carol".to_string()];
     println!("first = {}, of {}", names[0], names.len());
     // A list literal passed straight into a function (the common case for, e.g.,
     // query parameters).
-    println!("total = {}", total(&vec![10, 20, 30]));
+    println!("total = {}", total(&vec![10, 20, 30])?);
     let empty: Vec<String> = vec![];
     println!("empty count = {}", empty.len());
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

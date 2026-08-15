@@ -1,0 +1,33 @@
+id = "theme"
+title = "Theme"
+category = "Surfaces"
+kind = "keyword"
+anchor = "kw/Theme"
+
+syntax = """
+Theme <Name>
+"""
+
+summary = "Restyles a Window, Screen, or Page with one named palette."
+
+remarks = """
+Put `Theme <Name>` under the Title. It restyles the **whole** surface — no per-control work.
+
+A **Window** uses Iced's built-in palettes (`Dracula`, `Nord`, `CatppuccinMocha`, …). `NightOwl` and `JellyFish` are Bust's own: they lower to a custom Iced palette.
+
+A **Screen** uses the same names. With no Theme the terminal stays cyan-on-black (Turbo Pascal chrome). With a Theme, the status bar, menu, borders, text, charts, and file prompt follow the palette. `Night_Owl` is the same as `NightOwl`.
+
+A **Page** gets the palette as CSS (`--vbr-background`, `--vbr-text`, `--vbr-primary`). A `Css` block can override it.
+
+Unknown names are a compile error listing every built-in.
+"""
+
+example = """
+Function Main()
+    Debug.Print "Theme NightOwl"
+    Debug.Print "Theme JellyFish"
+    Debug.Print "Theme Dracula"
+End Function
+"""
+
+see_also = ["await"]

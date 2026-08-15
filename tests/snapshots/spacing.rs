@@ -27,10 +27,26 @@ enum Message {
 fn update(state: &mut Spaced, message: Message) {
     match message {
         Message::Up => {
-            state.n += 1;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.n += 1;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
         Message::Down => {
-            state.n -= 1;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.n -= 1;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

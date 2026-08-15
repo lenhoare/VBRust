@@ -213,6 +213,20 @@ impl Typer {
                     self.env = saved;
                 }
             }
+            Stmt::RaiseError(e) => {
+                self.infer(e);
+            }
+            Stmt::HandleErr { target, call, err_name, body, .. } => {
+                if let Some(t) = target {
+                    self.infer(t);
+                }
+                self.infer(call);
+                let saved = self.env.clone();
+                self.env
+                    .insert(err_name.to_ascii_lowercase(), DeclType::Plain(Type::Text));
+                self.block(body);
+                self.env = saved;
+            }
             // `Destroy`/`Break`/`Continue`/`Comment`/`LineMark` carry no slice-1
             // expression to type; other statement kinds arrive in later slices.
             _ => {}
@@ -292,11 +306,19 @@ impl Typer {
                 }
             }
             ExprKind::Not(_) => DeclType::Plain(Type::Boolean),
-            // `expr?` yields the unwrapped success value.
+            // `expr?` yields the unwrapped success value. Implicit `?` on a
+            // user function (Bust type is already `T`) is a no-op for inference.
             ExprKind::Try(inner) => match self.infer(inner) {
                 DeclType::Option(t) | DeclType::Result(t, _) => *t,
-                _ => DeclType::Plain(Type::Long),
+                other => other,
             },
+            ExprKind::Raw(inner) => {
+                let t = self.infer(inner);
+                match t {
+                    DeclType::Result(..) | DeclType::Option(_) => t,
+                    other => DeclType::Result(Box::new(other), Box::new(DeclType::Plain(Type::Text))),
+                }
+            }
             ExprKind::Call { name, args } => {
                 for a in args {
                     self.infer(a);
@@ -462,7 +484,10 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
     // `Result<T>` shorthand — the error is always `String`.
     let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
     let named = |n: &str| DeclType::Named(n.to_string());
-    Some(match (ns, method) {
+    // Source uses `Read_Lines`; tables stay squashed (`readlines`).
+    let ns = ns.to_ascii_lowercase();
+    let method = method.to_ascii_lowercase().replace('_', "");
+    Some(match (ns.as_str(), method.as_str()) {
         ("filesystem", "read") => res(text()),
         ("filesystem", "readlines") => res(DeclType::Vec(Box::new(text()))),
         ("filesystem", "exists" | "folderexists") => DeclType::Plain(Type::Boolean),
@@ -475,6 +500,8 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
         ("datetime", "parse") => res(named("DateTime")),
         ("regex", "replace" | "replaceall") => res(text()),
         ("regex", "ismatch") => res(DeclType::Plain(Type::Boolean)),
+        ("regex", "find") => res(DeclType::Option(Box::new(text()))),
+        ("regex", "findall" | "captures") => res(DeclType::Vec(Box::new(text()))),
         ("shell", "run") => res(text()),
         ("shell", "start") => res(named("Process")),
         ("json", "parse") => res(named("Json")),
@@ -491,7 +518,10 @@ pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
     // `Result<T>` shorthand for the fallible `Json` accessors (error = String).
     let res = |t: DeclType| DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)));
     let text = || DeclType::Plain(Type::Text);
-    Some(match (ty, method) {
+    // Source uses `Get_String`; tables stay squashed (`getstring`).
+    let ty = ty.to_ascii_lowercase();
+    let method = method.to_ascii_lowercase().replace('_', "");
+    Some(match (ty.as_str(), method.as_str()) {
         // `Json` accessors — the typed `get_*`/`as_*` return `Result<T>`; the
         // `set_*`/`push` mutators and `has_key`/`is_null` are non-fallible.
         ("json", "getstring" | "asstring" | "tostring" | "topretty") => res(text()),
@@ -503,7 +533,7 @@ pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
         ("json", "haskey" | "isnull") => DeclType::Plain(Type::Boolean),
         ("json", "setstring" | "setint" | "setbool" | "set" | "push") => DeclType::Tuple(Vec::new()),
         // `Database` connection methods — `Execute` returns the rows changed,
-        // `Query` returns one `Json` object per row, `LastInsertId` a rowid.
+        // `Query` returns one `Json` object per row, `Last_Insert_Id` a rowid.
         ("database", "execute") => res(DeclType::Plain(Type::Long)),
         ("database", "query") => res(DeclType::Vec(Box::new(DeclType::Named("Json".to_string())))),
         ("database", "lastinsertid") => DeclType::Plain(Type::Long),

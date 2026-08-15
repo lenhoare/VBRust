@@ -1,6 +1,5 @@
-# Result<T, E> with a real, typed error enum — including a message-carrying
-# variant. Build errors with Err(MathError.…); read them back by matching. `?`
-# works when the error types line up.
+# Typed errors are strings on the implicit Result<T, String> channel.
+# RaiseError fails; Handle intercepts a call and binds the message.
 
 from dataclasses import dataclass
 
@@ -19,25 +18,14 @@ def _vb(x):
         return str(int(x))
     return str(x)
 
-class MathError:
-    pass
-
-@dataclass
-class DivByZero(MathError):
-    pass
-
-@dataclass
-class Custom(MathError):
-    f0: str
-
-def safediv(a: int, b: int) -> object:
+def safediv(a: int, b: int) -> int:
     if b == 0:
-        return Err(DivByZero())
+        return Err('div by zero')
     if b < 0:
-        return Err(Custom('negative divisor'))
+        return Err('negative divisor')
     return Ok(a // b)
 
-def doublediv(a: int, b: int) -> object:
+def doublediv(a: int, b: int) -> int:
     _t0 = safediv(a, b)
     if isinstance(_t0, Err):
         return _t0
@@ -45,28 +33,33 @@ def doublediv(a: int, b: int) -> object:
     return Ok(q * 2)
 
 def main():
-    _m0 = doublediv(10, 2)
-    match _m0:
-        case Ok(v):
-            print(f"ok: {_vb(v)}")
-        case Err(DivByZero()):
-            print('div by zero')
-        case Err(Custom(msg)):
-            print(f"error: {_vb(msg)}")
-    _m1 = doublediv(10, 0)
-    match _m1:
-        case Ok(v):
-            print(f"ok: {_vb(v)}")
-        case Err(_):
-            print('failed')
-    _m2 = doublediv(10, -2)
-    match _m2:
-        case Ok(v):
-            print(f"ok: {_vb(v)}")
-        case Err(DivByZero()):
-            print('div by zero')
-        case Err(Custom(msg)):
-            print(f"error: {_vb(msg)}")
+    v: int = 0
+    _t1 = doublediv(10, 2)
+    if isinstance(_t1, Err):
+        _ = _t1.error
+        print('failed')
+        return
+    else:
+        v = _t1.value
+    print(f"ok: {_vb(v)}")
+    ignored: int = 0
+    _t2 = doublediv(10, 0)
+    if isinstance(_t2, Err):
+        _ = _t2.error
+        print('failed')
+        return
+    else:
+        ignored = _t2.value
+    print(f"ok: {_vb(ignored)}")
+    v3: int = 0
+    _t3 = doublediv(10, -2)
+    if isinstance(_t3, Err):
+        err = _t3.error
+        print(f"error: {_vb(err)}")
+        return
+    else:
+        v3 = _t3.value
+    print(f"ok: {_vb(v3)}")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ start/pause on Space, reset on `r`. The segment shapes and the
 countdown/format logic live in `count.vbr` and are unit-tested; the Screen
 only owns the timer.
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - `Every 1000 Tick` — one-second timer; `On Key " " Toggle`, `"r" Reset`

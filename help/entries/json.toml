@@ -9,32 +9,32 @@ summary = "Read and build JSON data."
 remarks = """
 `Json.Parse(text)` turns JSON text into a **Json value**; `Json.Object()` and `Json.Array()` start an empty one to build up. A Json value then has its own methods.
 
-**Read** with the typed accessors — `GetString`, `GetInt`, `GetFloat`, `GetBool`, `GetArray`, and `Get` (for a nested object). Each returns a **Result**, because the key might be missing or hold a different type. `HasKey` checks first. **Build** with `SetString`, `SetInt`, `SetBool`, `Set` (a nested Json), and `Push` (onto an array). `ToString` / `ToPretty` render it back to text.
+**Read** with the typed accessors — `Get_String`, `Get_Int`, `Get_Float`, `Get_Bool`, `Get_Array`, and `Get` (for a nested object). Each can fail if the key is missing or holds a different type; a normal call propagates. `Has_Key` checks first. **Build** with `Set_String`, `Set_Int`, `Set_Bool`, `Set` (a nested Json), and `Push` (onto an array). `To_String` / `To_Pretty` render it back to text.
 
 Needs the `json` feature — build as a project.
 """
 
 members = """
-method | Parse(text)         | Parse JSON text into a Json value. Returns Result<Json>.
+method | Parse(text)         | Parse JSON text into a Json value. Returns Json (can fail).
 method | Object()            | A new, empty JSON object to build up. Returns Json.
-method | Get(key)            | The nested Json value at a key. Returns Result<Json>.
-method | GetString(key)      | The string at a key. Returns Result<String>. (GetInt/GetFloat/GetBool too.)
-method | GetInt(key)         | The integer at a key. Returns Result<Long>.
-method | HasKey(key)         | Whether a key is present. Returns Boolean.
-method | SetString(key, val) | Set a string on an object. (SetInt/SetBool/Set too.)
+method | Get(key)            | The nested Json value at a key. Returns Json (can fail).
+method | Get_String(key)      | The string at a key. Returns String (can fail). (Get_Int/Get_Float/Get_Bool too.)
+method | Get_Int(key)         | The integer at a key. Returns Long (can fail).
+method | Has_Key(key)         | Whether a key is present. Returns Boolean.
+method | Set_String(key, val) | Set a string on an object. (Set_Int/Set_Bool/Set too.)
 method | Push(val)           | Append a value to an array.
-method | ToString()          | Render as compact JSON text. Returns Result<String>.
+method | To_String()          | Render as compact JSON text. Returns String (can fail).
 """
 
 example = """
 Function Main()
     Dim doc As Json = Json.Object()
-    doc.SetString("name", "Ada")
-    doc.SetInt("age", 36)
+    doc.Set_String("name", "Ada")
+    doc.Set_Int("age", 36)
 
-    Debug.Print doc.GetString("name").Unwrap()   ' Ada
-    Debug.Print doc.ToString().Unwrap()          ' {"name":"Ada","age":36}
+    Debug.Print doc.Get_String("name")   ' Ada
+    Debug.Print doc.To_String()          ' {"name":"Ada","age":36}
 End Function
 """
 
-see_also = ["json.parse", "json.getstring", "database", "http"]
+see_also = ["json.parse", "json.get_string", "database", "http"]

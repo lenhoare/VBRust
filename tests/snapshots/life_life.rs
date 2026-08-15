@@ -32,50 +32,51 @@ impl std::fmt::Display for CellState {
 }
 
 impl Rule {
-    pub fn describe(&self) -> String {
-        format!("B{}/S{}", self.birth, self.survive)
+    pub fn describe(&self) -> Result<String, String> {
+        Ok(format!("B{}/S{}", self.birth, self.survive))
     }
 }
 
-pub fn classicrule() -> Rule {
-    Rule { birth: "3".to_string(), survive: "23".to_string() }
+pub fn classicrule() -> Result<Rule, String> {
+    Ok(Rule { birth: "3".to_string(), survive: "23".to_string() })
 }
 
-pub fn stateof(v: i64) -> CellState {
+pub fn stateof(v: i64) -> Result<CellState, String> {
     if v == 0 {
-        return CellState::Dead;
+        return Ok(CellState::Dead);
     }
-    CellState::Alive
+    Ok(CellState::Alive)
 }
 
-pub fn newgrid() -> Vec<i64> {
+pub fn newgrid() -> Result<Vec<i64>, String> {
     let mut g: Vec<i64> = vec![];
     for _ in 1..=WIDTH * HEIGHT {
         g.push(0);
     }
-    g
+    Ok(g)
 }
 
-pub fn setcell(grid: &mut Vec<i64>, x: i64, y: i64, v: i64) {
+pub fn setcell(grid: &mut Vec<i64>, x: i64, y: i64, v: i64) -> Result<(), String> {
     grid[(y * WIDTH + x) as usize] = v;
+    Ok(())
 }
 
-pub fn countlive(grid: &Vec<i64>) -> i64 {
+pub fn countlive(grid: &Vec<i64>) -> Result<i64, String> {
     let mut total: i64 = 0;
     for cell in &*grid {
         total = total + *cell;
     }
-    total
+    Ok(total)
 }
 
-pub fn formatrule(birth: &str, survive: &str) -> String {
-    format!("B{}/S{}", birth, survive)
+pub fn formatrule(birth: &str, survive: &str) -> Result<String, String> {
+    Ok(format!("B{}/S{}", birth, survive))
 }
 
-fn hidden() -> i64 {
-    SECRET
+fn hidden() -> Result<i64, String> {
+    Ok(SECRET)
 }
 
-pub fn checksum() -> i64 {
-    hidden() + WIDTH
+pub fn checksum() -> Result<i64, String> {
+    Ok(hidden()? + WIDTH)
 }

@@ -1,6 +1,6 @@
 // Built-in maths functions (work on floating-point values)
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let x: f64 = 9.0;
     let angle: f64 = 0.0;
     println!("sqrt(9)    = {}", x.sqrt());
@@ -16,4 +16,12 @@ fn main() {
     // Mod gives the remainder (→ Rust's %, same precedence as * and /)
     let n: i64 = 17;
     println!("17 Mod 5   = {}", n % 5);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

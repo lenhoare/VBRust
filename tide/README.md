@@ -1,12 +1,12 @@
 # TIDE
 
-A Turbo Pascal–inspired TUI IDE for VBR, built on a reusable terminal code
+A Turbo Pascal–inspired TUI IDE for Bust, built on a reusable terminal code
 editor — the “Monaco for TUIs.”
 
 | Crate | Role |
 |-------|------|
 | **`tide-editor`** | Reusable ratatui editor (document / view / decorations / highlight hooks) |
-| **`tide`** | Thin VBR IDE shell: blue menus, edit, save, compile-and-run |
+| **`tide`** | Thin Bust IDE shell: blue menus, edit, save, compile-and-run |
 
 Design north star is classic **Turbo Pascal**, not a remake of the desktop
 `vbr-ide`. The existing Tauri IDE, VS Code extension, and LSP are left alone.
@@ -64,5 +64,5 @@ Screen layout work lives in the sibling app **[`tide_design/`](../tide_design/)*
 ```
 tide/
   editor/   # tide-editor library
-  app/      # tide binary (VBR customer)
+  app/      # tide binary (Bust customer)
 ```

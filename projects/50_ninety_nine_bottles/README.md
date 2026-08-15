@@ -4,7 +4,7 @@ The classic folk-song stanza generator. Prints a shortened run (5 down to 0)
 with correct singular/plural handling. The lyric-building logic lives in
 `bottles.vbr` so each stanza shape is directly testable.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning `Vec<String>` of lines
 - `If / ElseIf / Else` branching on the bottle count

@@ -1,4 +1,4 @@
-"""`FileSystem` — the VBR standard library's file I/O, on Python's own `open`/
+"""`FileSystem` — the Bust standard library's file I/O, on Python's own `open`/
 `os`/`shutil`. Every fallible call returns `Ok`/`Err`, mirroring the Rust
 `vbr_stdlib::FileSystem` surface (`Result<_, String>`)."""
 
@@ -18,7 +18,7 @@ class FileSystem:
             return Err(str(e))
 
     @staticmethod
-    def readlines(path):
+    def read_lines(path):
         try:
             with open(path, "r") as f:
                 return Ok([line.rstrip("\n") for line in f])
@@ -56,7 +56,7 @@ class FileSystem:
             return Err(str(e))
 
     @staticmethod
-    def movefile(source, destination):
+    def move_file(source, destination):
         try:
             shutil.move(source, destination)
             return Ok(None)
@@ -72,7 +72,7 @@ class FileSystem:
             return Err(str(e))
 
     @staticmethod
-    def createfolder(path):
+    def create_folder(path):
         try:
             os.mkdir(path)
             return Ok(None)
@@ -80,7 +80,7 @@ class FileSystem:
             return Err(str(e))
 
     @staticmethod
-    def createfolderall(path):
+    def create_folder_all(path):
         try:
             os.makedirs(path, exist_ok=True)
             return Ok(None)
@@ -88,11 +88,11 @@ class FileSystem:
             return Err(str(e))
 
     @staticmethod
-    def folderexists(path):
+    def folder_exists(path):
         return os.path.isdir(path)
 
     @staticmethod
-    def deletefolder(path):
+    def delete_folder(path):
         try:
             os.rmdir(path)
             return Ok(None)
@@ -100,7 +100,7 @@ class FileSystem:
             return Err(str(e))
 
     @staticmethod
-    def deletefolderall(path):
+    def delete_folder_all(path):
         try:
             shutil.rmtree(path)
             return Ok(None)

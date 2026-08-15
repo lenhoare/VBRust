@@ -1,10 +1,10 @@
-# VBR Godot gaps found while building Pac-Man
+# Bust Godot gaps found while building Pac-Man
 
 Features we don't have yet (worked around for now; discuss after Pac-Man). Clear
 *bugs* get fixed on the spot and aren't listed here.
 
 - **Load a texture/resource from code** — no `load("res://x.png")` for a
-  `Texture2D`. *Workaround:* set textures in the `.tscn` (`ext_resource`); VBR only
+  `Texture2D`. *Workaround:* set textures in the `.tscn` (`ext_resource`); Bust only
   drives behaviour. (Fits the "editor owns the scene" model, so maybe fine as-is.)
 - **Cross-node property assignment** — `handle.Position = v` doesn't work (only
   `Me.Prop = v` does). *Workaround:* use the method form `handle.SetPosition(v)`.
@@ -22,7 +22,7 @@ Features we don't have yet (worked around for now; discuss after Pac-Man). Clear
 
 ## More feature-gaps (worked around)
 - **Case-insensitive name collisions pass silently** — a `Row` function and a `row`
-  param both became `row` in Rust (`row(row)` → error). VBR should *diagnose* this.
+  param both became `row` in Rust (`row(row)` → error). Bust should *diagnose* this.
   *Workaround:* renamed the param.
 - **`Vector2` fields are opaque to the resolver** — `p.X` on a `Vector2` infers as
   Unknown, so numeric math through it loses types. Same root as "richer value

@@ -1,1 +1,1 @@
-✘ 'words' is an opaque Rust handle — its type lives only inside Rust. You can pass it back into another `Rust … End Rust` block, but VBR can't print it, compare it, assign it, or pass it to a function.
+✘ 'words' is an opaque Rust handle — its type lives only inside Rust. You can pass it back into another `Rust … End Rust` block, but Bust can't print it, compare it, assign it, or pass it to a function.

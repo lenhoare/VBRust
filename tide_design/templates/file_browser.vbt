@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Two-pane commander. Norton Commander, Midnight Commander, FAR.
 Screen FileBrowser
     Title "Files"
@@ -8,7 +8,7 @@ Screen FileBrowser
             Item "View" ViewFile
             Item "Edit" EditFile
             Item "Copy" CopyFile
-            Item "Move" MoveFile
+            Item "Move" Move_File
             Item "Delete" DeleteFile
             Separator
             Item "Quit" Quit
@@ -62,7 +62,7 @@ Screen FileBrowser
                 End Button
                 Length 1
                 Button "F6 Move"
-                    On Click MoveFile
+                    On Click Move_File
                 End Button
                 Length 1
                 Button "F8 Delete"

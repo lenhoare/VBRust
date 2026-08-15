@@ -1,6 +1,6 @@
 // String and ownership demo
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let greeting: String = "Hello".to_string();
     // a literal is a fixed-size &str
     let view = &greeting;
@@ -12,4 +12,12 @@ fn main() {
     println!("{}", view);
     println!("{}", combined);
     println!("{}", copy);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

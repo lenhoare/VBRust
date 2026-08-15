@@ -11,15 +11,13 @@ arguments = """
 url | String | The address to fetch (http or https).
 """
 
-returns = "Result<String> — Ok with the response body as text, or Err(message) if the request fails (bad host, no network, error status)."
+returns = "String — the response body as text. Fails if the request fails (bad host, no network, error status)."
 
 example = """
 Function Main()
-    Match Http.Get("https://example.com")
-        Ok(body) => Debug.Print "got " & Len(body) & " bytes"
-        Err(e)   => Debug.Print "error: " & e
-    End Match
+    Dim body As String = Http.Get("https://example.com")
+    Debug.Print "got " & Len(body) & " bytes"
 End Function
 """
 
-see_also = ["http", "http.post", "await", "result"]
+see_also = ["http", "http.post", "await", "handle"]

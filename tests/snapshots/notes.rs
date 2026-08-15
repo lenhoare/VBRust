@@ -29,7 +29,15 @@ enum Message {
 fn update(state: &mut Notes, message: Message) {
     match message {
         Message::Count => {
-            state.status = format!("you typed {} characters", state.notes.text().len());
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.status = format!("you typed {} characters", state.notes.text().len());
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
         Message::NotesEdited(action) => {
             state.notes.perform(action);

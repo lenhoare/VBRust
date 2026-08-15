@@ -3,10 +3,10 @@
 ' wrapping at Z. Only A-Z / a-z are shifted; everything else passes through
 ' unchanged. A positive key encrypts; Decrypt shifts by (26 - key).
 '
-' Implementation note: VBR has no Asc() builtin, so instead of working with
+' Implementation note: Bust has no Asc() builtin, so instead of working with
 ' character codes we look each letter up in an alphabet string (InStr),
 ' shift the 1-based position, and read the shifted letter back with Mid —
-' pure VBR, no inline Rust.
+' pure Bust, no inline Rust.
 
 Public Function Encrypt(ByVal message As String, ByVal key As Long) As String
     Return Shift(message, key)

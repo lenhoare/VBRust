@@ -2,11 +2,19 @@
 
 use vbr_stdlib::{FileSystem, Regex};
 
-fn main() {
-    FileSystem::write("greeting.txt", "Hello   from   VBR").unwrap();
-    let text: String = FileSystem::read("greeting.txt").unwrap();
+fn vbr_main() -> Result<(), String> {
+    FileSystem::write("greeting.txt", "Hello   from   Bust")?;
+    let text: String = FileSystem::read("greeting.txt")?;
     println!("file says: {}", text);
-    let cleaned: String = Regex::replace_all("\\s+", &text, " ").unwrap();
+    let cleaned: String = Regex::replace_all("\\s+", &text, " ")?;
     println!("cleaned:   {}", cleaned);
-    FileSystem::delete("greeting.txt").unwrap();
+    FileSystem::delete("greeting.txt")?;
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

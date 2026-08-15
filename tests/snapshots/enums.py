@@ -1,7 +1,17 @@
 # Simple enums — a named set of variants. They're Copy, compare with `=`, and
 # pair naturally with Match. Reference a variant as `Suit.Hearts` → `Suit::Hearts`.
 
+import sys
+from dataclasses import dataclass
 from enum import Enum
+
+@dataclass
+class Ok:
+    value: object
+
+@dataclass
+class Err:
+    error: object
 
 def _vb(x):
     if isinstance(x, bool):
@@ -20,18 +30,27 @@ def color(s: Suit) -> str:
     _m0 = s
     match _m0:
         case Suit.Hearts:
-            return 'red'
+            return Ok('red')
         case Suit.Diamonds:
-            return 'red'
+            return Ok('red')
         case Suit.Clubs:
-            return 'black'
+            return Ok('black')
         case Suit.Spades:
-            return 'black'
+            return Ok('black')
+    return Ok(None)
 
 def main():
     s: Suit = Suit.Spades
-    print(f"Spades are {_vb(color(s))}")
-    print(f"Hearts are {_vb(color(Suit.Hearts))}")
+    _t0 = color(s)
+    if isinstance(_t0, Err):
+        print(f"Error: {_t0.error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Spades are {_vb(_t0.value)}")
+    _t1 = color(Suit.Hearts)
+    if isinstance(_t1, Err):
+        print(f"Error: {_t1.error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Hearts are {_vb(_t1.value)}")
     if s == Suit.Spades:
         print('yes, spades')
 

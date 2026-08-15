@@ -106,7 +106,7 @@ export const EXAMPLES: Example[] = [
   { group: "Python interop", label: "PyObject handle ⚙", source: pythonHandle },
 
   { group: "Data", label: "DataFrames ⚙", source: dataframe },
-  { group: "Data", label: "DataFrame GroupBy ⚙", source: dataframeGroupby },
+  { group: "Data", label: "DataFrame Group_By ⚙", source: dataframeGroupby },
   { group: "Data", label: "DateTime & JSON ⚙", source: datetimeJson },
 
   { group: "Standard library", label: "HTTP fetch ⚙", source: fetch },

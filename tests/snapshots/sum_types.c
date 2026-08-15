@@ -16,6 +16,9 @@ typedef struct {
     } data;
 } Shape;
 
+typedef struct { bool is_ok; double ok; char* err; } Result_double_str;
+static double Result_double_str_unwrap(Result_double_str r) { if (!r.is_ok) { fprintf(stderr, "unwrapped an Err\n"); exit(1); } return r.ok; }
+
 static char* vbr_dup(const char* s) {
     char* d = (char*)malloc(strlen(s) + 1);
     strcpy(d, s);
@@ -36,27 +39,34 @@ static char* vbr_concat(const char* a, const char* b) {
     return s;
 }
 
-double area(Shape s);
+Result_double_str area(Shape s);
 
-double area(Shape s) {
+Result_double_str area(Shape s) {
     Shape _m0 = s;
     if (_m0.tag == Shape_Circle) {
         double r = _m0.data.Circle.f0;
-        return ((3.14159 * r) * r);
+        return (Result_double_str){ .is_ok = true, .ok = ((3.14159 * r) * r) };
     } else if (_m0.tag == Shape_Rectangle) {
         double w = _m0.data.Rectangle.f0;
         double h = _m0.data.Rectangle.f1;
-        return (w * h);
+        return (Result_double_str){ .is_ok = true, .ok = (w * h) };
     } else {
-        return 0.0;
+        return (Result_double_str){ .is_ok = true, .ok = 0.0 };
     }
+    return (Result_double_str){ .is_ok = true, .ok = 0 };
 }
 
 int main(void) {
     Shape c = (Shape){ .tag = Shape_Circle, .data.Circle = { 2.0 } };
     Shape r = (Shape){ .tag = Shape_Rectangle, .data.Rectangle = { 3.0, 4.0 } };
-    printf("%s\n", vbr_concat("circle area = ", vbr_from_double(area(c))));
-    printf("%s\n", vbr_concat("rect area   = ", vbr_from_double(area(r))));
-    printf("%s\n", vbr_concat("empty area  = ", vbr_from_double(area((Shape){ .tag = Shape_Empty }))));
+    Result_double_str _t0 = area(c);
+    if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
+    printf("%s\n", vbr_concat("circle area = ", vbr_from_double(_t0.ok)));
+    Result_double_str _t1 = area(r);
+    if (!_t1.is_ok) { fprintf(stderr, "Error: %s\n", _t1.err); return 1; }
+    printf("%s\n", vbr_concat("rect area   = ", vbr_from_double(_t1.ok)));
+    Result_double_str _t2 = area((Shape){ .tag = Shape_Empty });
+    if (!_t2.is_ok) { fprintf(stderr, "Error: %s\n", _t2.err); return 1; }
+    printf("%s\n", vbr_concat("empty area  = ", vbr_from_double(_t2.ok)));
     return 0;
 }

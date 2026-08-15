@@ -7,14 +7,14 @@ anchor = "m/Option.Unwrap"
 
 caution = ["unwrap-training-wheels"]
 
-summary = "The value inside — but crashes on None."
+summary = "Gone. Use Is Some, Match, or Unwrap_Or."
 
-returns = "T — the contained value. Stops the program if the option is None, so reach for Unwrap_Or, Is Some, or Match unless you are certain there is a value."
+returns = "Do not write `.Unwrap()`. Prefer `If x Is Some(v) Then`, `Match`, or `.Unwrap_Or(default)`."
 
 example = """
 Function Main()
     Dim found As Option<Long> = Some(7)
-    Debug.Print found.Unwrap()   ' 7
+    Debug.Print found.Unwrap_Or(0)   ' 7
 End Function
 """
 

@@ -15,7 +15,7 @@ returns = "DataFrame — a new table with just the matching rows. The condition 
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("people.csv")
 
     df = df.Filter(age >= 18 And active)
 
@@ -23,4 +23,4 @@ Function Main()
 End Function
 """
 
-see_also = ["dataframe", "dataframe.withcolumn", "and"]
+see_also = ["dataframe", "dataframe.with_column", "and"]

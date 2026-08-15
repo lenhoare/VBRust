@@ -15,11 +15,11 @@ returns = "Vec<T> — the column's values as an ordinary list. The element type 
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("people.csv")
 
     Dim names As Vec<String> = df.Column("name")
     Debug.Print names.Len()
 End Function
 """
 
-see_also = ["dataframe", "dataframe.groupby", "vec"]
+see_also = ["dataframe", "dataframe.group_by", "vec"]

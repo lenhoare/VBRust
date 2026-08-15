@@ -1,7 +1,7 @@
-//! The **C backend** — VBR's third target, after Rust and Python. Where the
+//! The **C backend** — Bust's third target, after Rust and Python. Where the
 //! Python target could lean on dynamic typing and a garbage collector, C gives
 //! us neither: every declaration needs a type (supplied by the neutral typing
-//! pass, [`crate::types`]) and every heap value must be freed by hand. VBR's
+//! pass, [`crate::types`]) and every heap value must be freed by hand. Bust's
 //! answer to the latter is *leak-by-default* with an explicit `x = Nothing`
 //! release hook (`Stmt::Destroy`) — which is exactly what makes a C target
 //! worth having: it puts on the page the manual-memory cost that Rust's
@@ -14,7 +14,7 @@
 //! top (the C analogue of the Python prelude / `vbr_stdlib`); it's split into a
 //! real `vbr_runtime.{h,c}` in a later slice, once it grows.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::iter;
@@ -64,6 +64,14 @@ pub fn emit_c(program: &Program) -> CProgram {
         needs_json: false,
         needs_database: false,
         needs_http: false,
+        skip_auto_try: false,
+        emitting_main: false,
+        wrap_ok: false,
+        user_fns: HashSet::new(),
+        user_methods: HashSet::new(),
+        user_fn_ret: HashMap::new(),
+        err_names: HashSet::new(),
+        success_ret: None,
     };
     e.program(program);
     e.finish(program)
@@ -137,6 +145,14 @@ struct Emitter {
     needs_database: bool,
     /// The `Http` namespace — one-shot requests over libcurl (links `-lcurl`).
     needs_http: bool,
+    skip_auto_try: bool,
+    emitting_main: bool,
+    wrap_ok: bool,
+    user_fns: HashSet<String>,
+    user_methods: HashSet<String>,
+    user_fn_ret: HashMap<String, Option<DeclType>>,
+    err_names: HashSet<String>,
+    success_ret: Option<DeclType>,
 }
 
 impl Emitter {
@@ -162,6 +178,24 @@ impl Emitter {
         for c in &program.constants {
             self.const_names.insert(c.name.to_ascii_lowercase(), c.name.clone());
         }
+        self.user_fns = program
+            .functions
+            .iter()
+            .filter(|f| f.receiver.is_some() || !f.name.eq_ignore_ascii_case("main"))
+            .map(|f| c_name(&f.name))
+            .collect();
+        self.user_methods = program
+            .functions
+            .iter()
+            .filter(|f| f.receiver.is_some())
+            .map(|f| c_name(&f.name))
+            .collect();
+        self.user_fn_ret = program
+            .functions
+            .iter()
+            .filter(|f| f.receiver.is_some() || !f.name.eq_ignore_ascii_case("main"))
+            .map(|f| (c_name(&f.name), f.ret.clone()))
+            .collect();
         for e in &program.enums {
             let is_data = e.variants.iter().any(|v| !v.payload.is_empty());
             let variants = e.variants.iter().map(|v| (v.name.clone(), v.payload.clone())).collect();
@@ -277,6 +311,14 @@ impl Emitter {
     fn collection_runtimes(&mut self, program: &Program) {
         let mut c = Collected::default();
         gather_types(program, &mut c);
+        // Every user function is fallible — instantiate Result<T, String> for its
+        // success type even when the source never wrote `As Result`.
+        for f in &program.functions {
+            if f.receiver.is_none() && f.name.eq_ignore_ascii_case("main") {
+                continue;
+            }
+            visit_ty(&result_of(f.ret.as_ref()), &mut c);
+        }
         // Also from every *inferred* expression type — this is how a stdlib
         // call's `Result<…>` return (never written as a `Dim`) gets a runtime.
         // Visit in source order (the table is a HashMap) so emission is stable.
@@ -439,7 +481,14 @@ impl Emitter {
 
     fn function(&mut self, func: &Function) {
         let is_main = func.receiver.is_none() && func.name.eq_ignore_ascii_case("main");
-        self.current_ret = func.ret.clone();
+        self.emitting_main = is_main;
+        self.wrap_ok = !is_main;
+        self.success_ret = func.ret.clone();
+        self.current_ret = if is_main {
+            func.ret.clone()
+        } else {
+            Some(result_of(func.ret.as_ref()))
+        };
         let sig = self.signature(func, is_main);
         self.line(&format!("{} {{", sig));
         self.indent += 1;
@@ -448,12 +497,16 @@ impl Emitter {
         convert_returns(&mut body, &func.name);
         self.block(&body);
 
-        // `Function Main()` returns nothing in VBR; C's `main` returns a status.
         if is_main {
             self.line("return 0;");
+        } else if !c_body_ends_with_return(&body) {
+            let ty = result_of(func.ret.as_ref());
+            self.line(&format!("return {};", self.ok_literal(&ty, None)));
         }
         self.indent -= 1;
         self.line("}");
+        self.emitting_main = false;
+        self.wrap_ok = false;
     }
 
     /// The C signature (no trailing `;` — the caller adds `{` or `;`).
@@ -461,10 +514,7 @@ impl Emitter {
         if is_main {
             return "int main(void)".to_string();
         }
-        let ret = match &func.ret {
-            Some(t) => c_type(t),
-            None => "void".to_string(),
-        };
+        let ret = c_type(&result_of(func.ret.as_ref()));
         let mut params: Vec<String> = Vec::new();
         // A method `Function Person.M()` takes the receiver first, by pointer
         // (so it can mutate, and reads go through `self->field`).
@@ -516,14 +566,52 @@ impl Emitter {
                 self.line(&format!("printf(\"%s\\n\", {});", s));
             }
             Stmt::Return(Some(e)) => {
-                // The return type is the construction context for a bare
-                // `Some`/`Ok`/`Err`/`None`.
-                self.type_hint = self.current_ret.clone();
+                self.type_hint = self.success_ret.clone();
                 let v = self.expr(e);
                 self.type_hint = None;
-                self.line(&format!("return {};", v));
+                if self.wrap_ok {
+                    if let Some(ty) = self.current_ret.clone() {
+                        self.line(&format!("return {};", self.ok_literal(&ty, Some(v))));
+                    } else {
+                        self.line(&format!("return {};", v));
+                    }
+                } else {
+                    self.line(&format!("return {};", v));
+                }
             }
-            Stmt::Return(None) => self.line("return;"),
+            Stmt::Return(None) => {
+                if self.wrap_ok {
+                    if let Some(ty) = self.current_ret.clone() {
+                        self.line(&format!("return {};", self.ok_literal(&ty, None)));
+                    } else {
+                        self.line("return;");
+                    }
+                } else if self.emitting_main {
+                    self.line("return 0;");
+                } else {
+                    self.line("return;");
+                }
+            }
+            Stmt::RaiseError(e) => {
+                let msg = match &e.kind {
+                    ExprKind::Str(s) => {
+                        self.need_dup = true;
+                        format!("vbr_dup({})", c_string(s))
+                    }
+                    _ => {
+                        self.need_dup = true;
+                        format!("vbr_dup({})", self.as_str(e))
+                    }
+                };
+                if let Some(ty) = self.current_ret.clone() {
+                    self.line(&format!("return {};", self.err_literal(&ty, &msg)));
+                } else {
+                    self.line(&format!("fprintf(stderr, \"Error: %s\\n\", {}); return 1;", msg));
+                }
+            }
+            Stmt::HandleErr { target, call, err_name, body, .. } => {
+                self.emit_handle(target.as_ref(), call, err_name, body);
+            }
             // A bare expression used for its effect (`alice.HaveBirthday()`).
             Stmt::Expr(e) => {
                 let v = self.expr(e);
@@ -540,7 +628,7 @@ impl Emitter {
             Stmt::Continue => self.line("continue;"),
             other => {
                 self.warn(format!("`{}` doesn't lower to C yet.", stmt_name(other)));
-                self.line(&format!("/* [VBR→C] unsupported: {} */", stmt_name(other)));
+                self.line(&format!("/* [Bust→C] unsupported: {} */", stmt_name(other)));
             }
         }
     }
@@ -779,7 +867,7 @@ impl Emitter {
             }
             _ => {
                 self.warn("`For Each` needs a Vec or HashMap.");
-                self.line("/* [VBR→C] For Each over a non-collection */");
+                self.line("/* [Bust→C] For Each over a non-collection */");
             }
         }
     }
@@ -787,7 +875,7 @@ impl Emitter {
     /// A C expression yielding a `char*` for `value`, converting per its type —
     /// the counterpart of Rust's `Display` / Python's `_vb`.
     fn as_str(&mut self, e: &Expr) -> String {
-        let ty = self.type_of(e);
+        let ty = self.value_ty(e);
         if is_text(&ty) {
             // A literal is a `const char*` already; anything else is our `char*`.
             return self.expr(e);
@@ -879,7 +967,14 @@ impl Emitter {
             }
             // `recv.Method(args)` → `Struct_method(&recv, args)` — the receiver
             // goes in first, by pointer (already a pointer when it's `Me`).
-            ExprKind::MethodCall { recv, method, args } => self.method_call(recv, method, args),
+            ExprKind::MethodCall { recv, method, args } => {
+                let s = self.method_call(recv, method, args);
+                if self.should_auto_try_method(recv, method, e) {
+                    self.hoist_result(s, &self.as_result_ty(e))
+                } else {
+                    s
+                }
+            }
             ExprKind::Not(inner) => {
                 let i = self.expr(inner);
                 format!("(!{})", i)
@@ -912,9 +1007,23 @@ impl Emitter {
                 let r = self.expr(rhs);
                 format!("({} {} {})", l, bin_op(*op), r)
             }
-            ExprKind::Call { name, args } => self.call(name, args),
+            ExprKind::Call { name, args } => {
+                let s = self.call(name, args);
+                if self.should_auto_try_call(name) {
+                    self.hoist_result(s, &self.as_result_ty(e))
+                } else {
+                    s
+                }
+            }
             // `expr?` — propagate a failure, hoisting the temp + early return.
             ExprKind::Try(inner) => self.hoist_try(inner),
+            ExprKind::Raw(inner) => {
+                let saved = self.skip_auto_try;
+                self.skip_auto_try = true;
+                let s = self.expr(inner);
+                self.skip_auto_try = saved;
+                s
+            }
             // `v[i]` — a Vec/Map stores its elements in `.data`.
             ExprKind::Index(recv, idx) => {
                 let r = self.expr(recv);
@@ -937,7 +1046,7 @@ impl Emitter {
             }
             other => {
                 self.warn(format!("`{}` doesn't lower to C yet.", expr_name(other)));
-                "0 /* [VBR→C] unsupported */".to_string()
+                "0 /* [Bust→C] unsupported */".to_string()
             }
         }
     }
@@ -975,7 +1084,7 @@ impl Emitter {
                 _ => v,
             };
         }
-        let rty = self.type_of(recv);
+        let rty = self.value_ty(recv);
         match &rty {
             // `s.Len()` on a String → `strlen` (VB's `Len`, method form).
             DeclType::Plain(Type::Text) if matches!(m.as_str(), "len") => {
@@ -1027,7 +1136,7 @@ impl Emitter {
     }
 
     fn struct_method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
-        let struct_name = match self.type_of(recv) {
+        let struct_name = match self.value_ty(recv) {
             DeclType::Named(n) => n,
             _ => {
                 self.warn(format!("couldn't resolve the type of `.{}(…)` — left as-is.", method));
@@ -1268,7 +1377,8 @@ impl Emitter {
     /// A standard-library namespace call → its C runtime function (registered for
     /// emission), or `None` if `ns.method` isn't a known stdlib call.
     fn stdlib_call(&mut self, ns: &str, method: &str, args: &[Expr]) -> Option<String> {
-        let fname = match (ns.to_ascii_lowercase().as_str(), method.to_ascii_lowercase().as_str()) {
+        let method = method.to_ascii_lowercase().replace('_', "");
+        let fname = match (ns.to_ascii_lowercase().as_str(), method.as_str()) {
             ("filesystem", "read") => self.use_stdlib("fs_read", true),
             ("filesystem", "write") => self.use_stdlib("fs_write", true),
             ("filesystem", "delete") => self.use_stdlib("fs_delete", true),
@@ -1320,7 +1430,7 @@ impl Emitter {
             "database" => {
                 self.needs_database = true;
                 self.needs_json = true;
-                return self.database_call(recv, &method.to_ascii_lowercase(), args);
+                return self.database_call(recv, &method.to_ascii_lowercase().replace('_', ""), args);
             }
             _ => {}
         }
@@ -1329,7 +1439,8 @@ impl Emitter {
         for a in args {
             all.push(self.expr(a));
         }
-        format!("vbr_{}_{}({})", t, method.to_ascii_lowercase(), all.join(", "))
+        let method = method.to_ascii_lowercase().replace('_', "");
+        format!("vbr_{}_{}({})", t, method, all.join(", "))
     }
 
     /// A `Database` connection method. `Execute`/`Query` take an SQL string and a
@@ -1424,6 +1535,156 @@ impl Emitter {
         }
     }
 
+    fn as_result_ty(&self, e: &Expr) -> DeclType {
+        match &e.kind {
+            ExprKind::Call { name, .. } => {
+                if let Some(ret) = self.user_fn_ret.get(&c_name(name)) {
+                    return result_of(ret.as_ref());
+                }
+            }
+            ExprKind::MethodCall { method, .. } => {
+                if let Some(ret) = self.user_fn_ret.get(&c_name(method)) {
+                    return result_of(ret.as_ref());
+                }
+            }
+            _ => {}
+        }
+        let ty = self.type_of(e);
+        if matches!(ty, DeclType::Result(..)) {
+            ty
+        } else {
+            result_of(Some(&ty))
+        }
+    }
+
+    fn hoist_result(&mut self, val: String, ity: &DeclType) -> String {
+        let tmp = format!("_t{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        let cty = c_type(ity);
+        self.line(&format!("{} {} = {};", cty, tmp, val));
+        if self.emitting_main {
+            self.line(&format!(
+                "if (!{}.is_ok) {{ fprintf(stderr, \"Error: %s\\n\", {}.err); return 1; }}",
+                tmp, tmp
+            ));
+        } else {
+            let ret = self.propagate_err(&tmp);
+            self.line(&format!("if (!{}.is_ok) return {};", tmp, ret));
+        }
+        if let DeclType::Result(t, _) = ity {
+            if is_unit(t) {
+                return "(void)0".to_string();
+            }
+        }
+        format!("{}.ok", tmp)
+    }
+
+    fn should_auto_try_call(&self, name: &str) -> bool {
+        if self.skip_auto_try {
+            return false;
+        }
+        let lower = name.to_ascii_lowercase();
+        if matches!(lower.as_str(), "ok" | "err" | "some" | "none" | "iif" | "sleep") {
+            return false;
+        }
+        if matches!(lower.as_str(), "cdbl" | "clng" | "cint") {
+            return true;
+        }
+        self.user_fns.contains(&c_name(name))
+    }
+
+    fn should_auto_try_method(&self, _recv: &Expr, method: &str, whole: &Expr) -> bool {
+        if self.skip_auto_try {
+            return false;
+        }
+        if matches!(self.type_of(whole), DeclType::Result(..)) {
+            return true;
+        }
+        self.user_methods.contains(&c_name(method))
+    }
+
+    fn ok_literal(&self, ty: &DeclType, value: Option<String>) -> String {
+        let n = res_name(ty);
+        if let DeclType::Result(t, _) = ty {
+            if is_unit(t) {
+                return format!("({}){{ .is_ok = true }}", n);
+            }
+        }
+        let v = value.unwrap_or_else(|| "0".to_string());
+        format!("({}){{ .is_ok = true, .ok = {} }}", n, v)
+    }
+
+    fn err_literal(&self, ty: &DeclType, msg: &str) -> String {
+        format!("({}){{ .is_ok = false, .err = {} }}", res_name(ty), msg)
+    }
+
+    fn emit_handle(
+        &mut self,
+        target: Option<&Expr>,
+        call: &Expr,
+        err_name: &str,
+        body: &[Stmt],
+    ) {
+        let saved = self.skip_auto_try;
+        self.skip_auto_try = true;
+        let val = self.expr(call);
+        self.skip_auto_try = saved;
+        let ity = self.as_result_ty(call);
+        let tmp = format!("_t{}", self.tmp_counter);
+        self.tmp_counter += 1;
+        let err = c_name(err_name);
+        self.err_names.insert(err.clone());
+        self.line(&format!("{} {} = {};", c_type(&ity), tmp, val));
+        match target {
+            None => {
+                self.line(&format!("if (!{}.is_ok) {{", tmp));
+                self.indent += 1;
+                self.line(&format!("char* {} = {}.err;", err, tmp));
+                self.block(body);
+                self.indent -= 1;
+                self.line("}");
+            }
+            Some(tgt) => {
+                let lhs = self.expr(tgt);
+                self.line(&format!("if (!{}.is_ok) {{", tmp));
+                self.indent += 1;
+                self.line(&format!("char* {} = {}.err;", err, tmp));
+                if c_body_diverges(body) {
+                    self.block(body);
+                    self.indent -= 1;
+                    self.line("} else {");
+                    self.indent += 1;
+                    self.line(&format!("{} = {}.ok;", lhs, tmp));
+                    self.indent -= 1;
+                    self.line("}");
+                } else if let Some(Stmt::Expr(e)) = body
+                    .iter()
+                    .rev()
+                    .find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_)))
+                {
+                    let last_i = body.iter().rposition(|s| matches!(s, Stmt::Expr(_))).unwrap();
+                    self.block(&body[..last_i]);
+                    let repl = self.expr(e);
+                    self.line(&format!("{} = {};", lhs, repl));
+                    self.indent -= 1;
+                    self.line("} else {");
+                    self.indent += 1;
+                    self.line(&format!("{} = {}.ok;", lhs, tmp));
+                    self.indent -= 1;
+                    self.line("}");
+                } else {
+                    self.block(body);
+                    self.indent -= 1;
+                    self.line("} else {");
+                    self.indent += 1;
+                    self.line(&format!("{} = {}.ok;", lhs, tmp));
+                    self.indent -= 1;
+                    self.line("}");
+                }
+            }
+        }
+    }
+
     fn propagate_none(&mut self) -> String {
         match self.current_ret.clone() {
             Some(ty @ DeclType::Option(_)) => format!("({}){{ .is_some = false }}", opt_name(&ty)),
@@ -1481,7 +1742,30 @@ impl Emitter {
     }
 
     fn type_of(&self, e: &Expr) -> DeclType {
+        if let ExprKind::Ident(n) = &e.kind {
+            if self.err_names.contains(&c_name(n)) {
+                return DeclType::Plain(Type::Text);
+            }
+        }
         self.types.get(&e.span).cloned().unwrap_or(DeclType::Plain(Type::Long))
+    }
+
+    /// The type after implicit `?` — a `Result<T, E>` call yields `T`.
+    fn value_ty(&self, e: &Expr) -> DeclType {
+        self.value_ty_of(e, self.type_of(e))
+    }
+
+    fn value_ty_of(&self, e: &Expr, ty: DeclType) -> DeclType {
+        if self.skip_auto_try {
+            return ty;
+        }
+        if matches!(&e.kind, ExprKind::Raw(_)) {
+            return ty;
+        }
+        match ty {
+            DeclType::Result(t, _) => *t,
+            other => other,
+        }
     }
 
     fn finish(self, program: &Program) -> CProgram {
@@ -2182,7 +2466,32 @@ fn c_type(ty: &DeclType) -> String {
     }
 }
 
-/// Is this the unit type `()` (an empty tuple) — a `Result<()>`'s success?
+/// Wrap a success type in `Result<T, String>`. `None` is unit `Result<()>`.
+fn result_of(inner: Option<&DeclType>) -> DeclType {
+    let t = inner.cloned().unwrap_or_else(|| DeclType::Tuple(Vec::new()));
+    DeclType::Result(Box::new(t), Box::new(DeclType::Plain(Type::Text)))
+}
+
+fn c_body_ends_with_return(stmts: &[Stmt]) -> bool {
+    matches!(
+        stmts.iter().rev().find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))),
+        Some(Stmt::Return(_) | Stmt::RaiseError(_))
+    )
+}
+
+fn c_body_diverges(stmts: &[Stmt]) -> bool {
+    match stmts.iter().rev().find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))) {
+        Some(Stmt::Return(_) | Stmt::RaiseError(_) | Stmt::Break | Stmt::Continue) => true,
+        Some(Stmt::If { branches, else_body }) => {
+            else_body.as_ref().is_some_and(|e| c_body_diverges(e))
+                && branches.iter().all(|(_, b)| c_body_diverges(b))
+        }
+        Some(Stmt::Match { arms, .. }) => !arms.is_empty() && arms.iter().all(|a| c_body_diverges(&a.body)),
+        Some(Stmt::HandleErr { body, .. }) => c_body_diverges(body),
+        _ => false,
+    }
+}
+
 fn is_unit(t: &DeclType) -> bool {
     matches!(t, DeclType::Tuple(v) if v.is_empty())
 }
@@ -2351,7 +2660,7 @@ fn is_float(ty: &DeclType) -> bool {
     matches!(ty, DeclType::Plain(Type::Single | Type::Double))
 }
 
-/// A VBR identifier as a C one. VB is case-insensitive, so everything lowercases
+/// A Bust identifier as a C one. VB is case-insensitive, so everything lowercases
 /// (which also turns `Function Main` into C's `main`).
 fn c_name(name: &str) -> String {
     name.to_ascii_lowercase()

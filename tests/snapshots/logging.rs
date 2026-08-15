@@ -28,7 +28,7 @@ fn vbr_log(level: &str, msg: &str) {
     }
 }
 
-fn tally(items: &Vec<i64>) -> i64 {
+fn tally(items: &Vec<i64>) -> Result<i64, String> {
     let mut total: i64 = 0;
     for n in &*items {
         total = total + *n;
@@ -38,11 +38,19 @@ fn tally(items: &Vec<i64>) -> i64 {
         vbr_log("WARN ", "tally is empty");
     }
     vbr_log("INFO ", &format!("done — final total {}", total));
-    total
+    Ok(total)
+}
+
+fn vbr_main() -> Result<(), String> {
+    let nums: Vec<i64> = vec![3, 5, 8];
+    let sum: i64 = tally(&nums)?;
+    println!("sum = {}", sum);
+    Ok(())
 }
 
 fn main() {
-    let nums: Vec<i64> = vec![3, 5, 8];
-    let sum: i64 = tally(&nums);
-    println!("sum = {}", sum);
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

@@ -1,6 +1,6 @@
 // Shell — VB6's `Shell`, grown up. Two verbs:
 // Shell.Run(cmd)   — run through the system shell, WAIT, capture the output:
-// Ok(stdout) on success, Err(stderr) on a nonzero exit.
+// stdout on success; failure propagates (or Handle it).
 // Shell.Start(cmd) — launch and DON'T wait (VB6's actual Shell semantics):
 // you get a Process handle to check on or stop.
 // Pipes and PATH work — the command line goes through sh -c / cmd /C.
@@ -9,30 +9,36 @@
 
 use vbr_stdlib::{Shell, Process};
 
-fn main() {
-    match Shell::run("echo hello from VBR") {
-        Ok ( output ) => {
-            println!("said: {}", output);
-        }
-        Err ( why ) => {
+fn vbr_main() -> Result<(), String> {
+    let mut output: String;
+    output = match Shell::run("echo hello from Bust") {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(why) => {
             println!("echo failed: {}", why);
+            return Ok(());
         }
+    };
+    println!("said: {}", output);
+    if let Err(why) = Shell::run("ls /vbr/definitely/missing") {
+        println!("as expected, that failed");
     }
-    match Shell::run("ls /vbr/definitely/missing") {
-        Ok ( output ) => {
-            println!("{}", output);
-        }
-        Err ( _ ) => {
-            println!("as expected, that failed");
-        }
-    }
-    match runchild() {
-        Ok ( code ) => {
-            println!("child finished with exit code {}", code);
-        }
-        Err ( why ) => {
+    #[allow(unused_mut)]
+    let mut code: i64;
+    code = match runchild() {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(why) => {
             println!("child failed: {}", why);
+            return Ok(());
         }
+    };
+    println!("child finished with exit code {}", code);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }
 

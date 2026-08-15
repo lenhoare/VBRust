@@ -1,7 +1,7 @@
 // Logical operators: And, Or, Not, Xor. Logical (short-circuit) and looser
 // than comparison, just like Rust's &&, ||, !, ^ — no backwards-compat quirks.
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let age: i64 = 30;
     let member: bool = true;
     if age >= 18 && member {
@@ -24,4 +24,12 @@ fn main() {
     // Precedence: And binds tighter than Or, comparisons tighter than both.
     let ok: bool = age > 0 && age < 120 || member;
     println!("ok: {}", ok);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

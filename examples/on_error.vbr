@@ -1,4 +1,4 @@
-' MEANT to fail — Rust has no On Error; use Result<T> instead.
+' MEANT to fail — there is no On Error. Errors propagate; intercept with Handle.
 Function Main()
     On Error GoTo handler
     Debug.Print "hello"

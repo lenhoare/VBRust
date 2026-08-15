@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// A widget tree, built visually and sent to the compiler core to become VBR
+// A widget tree, built visually and sent to the compiler core to become Bust
 // `View` code. `id` is frontend-only bookkeeping — the Rust side ignores it.
 interface DProps {
   text?: string;
@@ -148,8 +148,8 @@ export function resetDesigner(t: "gui" | "tui"): void {
   if (title) {
     title.textContent =
       target === "tui"
-        ? "Screen Designer — a new terminal Screen (read-only VBR)"
-        : "Form Designer — a new Window (read-only VBR)";
+        ? "Screen Designer — a new terminal Screen (read-only Bust)"
+        : "Form Designer — a new Window (read-only Bust)";
   }
 }
 

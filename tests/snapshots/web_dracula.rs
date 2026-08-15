@@ -30,10 +30,26 @@ impl Component for Counter {
     fn update(&mut self, _ctx: &Context<Self>, message: Self::Message) -> bool {
         match message {
             Message::Up => {
-                self.count += 1;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.count += 1;
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
             Message::Down => {
-                self.count -= 1;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.count -= 1;
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
         }
         true // state changed — re-render the view

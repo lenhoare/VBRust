@@ -41,7 +41,7 @@ class Process:
         except Exception:  # noqa: BLE001
             pass
 
-    def isrunning(self):
+    def is_running(self):
         return self._p.poll() is None
 
     def wait(self):

@@ -1,0 +1,22 @@
+id = "database.last_insert_id"
+title = "Last_Insert_Id"
+category = "Database"
+kind = "method"
+parent = "database"
+anchor = "ns/Database.Last_Insert_Id"
+
+summary = "The rowid assigned to the most recent insert."
+
+returns = "Long — the id of the last inserted row. Handy for grabbing the auto-generated primary key after an INSERT. Not a Result."
+
+example = """
+Function Main()
+    Dim db As Database = Database.Open(":memory:")
+    db.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", [])
+
+    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"])
+    Debug.Print db.Last_Insert_Id()   ' 1
+End Function
+"""
+
+see_also = ["database", "database.execute"]

@@ -1,12 +1,12 @@
-# VBR Inline Rust — Spec
+# Bust Inline Rust — Spec
 
-The escape hatch *and* the learning ramp. Inline Rust is VBR's "inline assembly":
+The escape hatch *and* the learning ramp. Inline Rust is Bust's "inline assembly":
 just as 80s languages let you drop into `asm { … }` for the bits the high-level
-language couldn't express, VBR lets you drop into a block of real Rust — and only
-a plain value crosses back into VBR.
+language couldn't express, Bust lets you drop into a block of real Rust — and only
+a plain value crosses back into Bust.
 
-This is how VBR calls **arbitrary Rust crates** without dumping Rust's complexity
-(traits, generics, lifetimes, ranges, macros) onto the VBR programmer: that
+This is how Bust calls **arbitrary Rust crates** without dumping Rust's complexity
+(traits, generics, lifetimes, ranges, macros) onto the Bust programmer: that
 complexity stays *sealed inside the block*.
 
 ---
@@ -34,9 +34,9 @@ so the Rust compiler checks your block against it.
 ## The two rules (that's all there is)
 
 1. **Passing IN is automatic.** The block is spliced into the same function, so
-   every VBR variable you've declared is already in scope — just write its name.
+   every Bust variable you've declared is already in scope — just write its name.
    No `pass` keyword, no re-declaration. (One catch: inside the block you use the
-   *Rust* spelling — a VBR name is simply its lowercase self, so `myValue` is
+   *Rust* spelling — a Bust name is simply its lowercase self, so `myValue` is
    `myvalue` — you're writing Rust there.)
 
 2. **Passing OUT is the last line with no semicolon.** In Rust, a block's value
@@ -49,7 +49,7 @@ so the Rust compiler checks your block against it.
 
    So **no trailing semicolon = "this is my answer."**
 
-This is the same mechanic VBR already uses for `Return x + y` (which compiles to a
+This is the same mechanic Bust already uses for `Return x + y` (which compiles to a
 tail `x + y` with no semicolon). Inline Rust just exposes the trick you've been
 benefiting from all along.
 
@@ -74,7 +74,7 @@ End Function
 ```
 
 The crate type (`ThreadRng`), the trait (`Rng`), the range (`0.0..1.0`) — all
-sealed in the block. What comes out is a plain `Double`. VBR never has to *name*
+sealed in the block. What comes out is a plain `Double`. Bust never has to *name*
 a crate type or understand a trait.
 
 ---
@@ -93,8 +93,8 @@ a crate type or understand a trait.
   ```
   → `let (q, r) = { (n / d, n % d) };`
 - **Crate objects live and die inside the block.** You don't hold a `ThreadRng`
-  or a `reqwest::Client` in a VBR variable — do the whole interaction in one
-  block and return the simple value. (Only VBR-expressible values cross back.)
+  or a `reqwest::Client` in a Bust variable — do the whole interaction in one
+  block and return the simple value. (Only Bust-expressible values cross back.)
 - **The block handles its own imports** (`use rand::Rng;` inside it). Self-contained.
 
 ---
@@ -117,7 +117,7 @@ for the stdlib, which we control.)
 ## Why it's a great teaching ramp
 
 A VBer who needs `rand` writes three lines of real Rust, sees it work, and gets a
-result back into familiar territory. Over time the blocks grow and the VBR
+result back into familiar territory. Over time the blocks grow and the Bust
 shrinks — which is the whole point. It's the most natural on-ramp from "VB with
 training wheels" to "I'm writing Rust now."
 

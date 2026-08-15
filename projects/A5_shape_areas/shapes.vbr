@@ -1,5 +1,5 @@
 ' A5 — Shape Areas logic module.
-' Exercises VBR's sum types: an Enum whose variants CARRY data. Each shape
+' Exercises Bust's sum types: an Enum whose variants CARRY data. Each shape
 ' is built by calling its variant constructor; the only way to read the
 ' payload back is to Match and unpack it — the compiler guarantees every
 ' Match handles every variant.

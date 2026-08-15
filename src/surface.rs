@@ -401,6 +401,31 @@ pub(crate) fn emit_event_stmts(
     }
 }
 
+/// Run an event body so an unhandled error ends the event, not the app.
+pub(crate) fn emit_event_stmts_caught(
+    stmts: &[Stmt],
+    params: &[Param],
+    recv: &'static str,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &Tables,
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    let pad = "    ".repeat(indent);
+    out.push_str(&format!("{}{{\n", pad));
+    out.push_str(&format!("{}    let __vbr_event: Result<(), String> = (|| {{\n", pad));
+    emit_event_stmts(stmts, params, recv, fields, field_ty, t, indent + 2, diags, out);
+    out.push_str(&format!("{}        Ok(())\n", pad));
+    out.push_str(&format!("{}    }})();\n", pad));
+    out.push_str(&format!(
+        "{}    if let Err(__e) = __vbr_event {{\n        {}eprintln!(\"Error: {{}}\", __e);\n{}    }}\n",
+        pad, pad, pad
+    ));
+    out.push_str(&format!("{}}}\n", pad));
+}
+
 /// Build a per-screen view of the tables: `screen_subs` filled with this block's
 /// `Sub` helper names, and each helper registered in the fn table so a call to it
 /// gets the usual argument coercion (borrow a String, widen a number) before it's
@@ -440,12 +465,13 @@ pub(crate) fn emit_subs(
         let params: Vec<String> = s.params.iter().map(crate::transpiler::render_param).collect();
         let sep = if params.is_empty() { "" } else { ", " };
         out.push_str(&format!(
-            "    fn {}(&mut self{}{}) {{\n",
+            "    fn {}(&mut self{}{}) -> Result<(), String> {{\n",
             rust_name(&s.name),
             sep,
             params.join(", ")
         ));
         emit_event_stmts(&s.body, &s.params, "self", fields, field_ty, t, 2, diags, out);
+        out.push_str("        Ok(())\n");
         out.push_str("    }\n");
     }
     out.push_str("}\n\n");
@@ -605,6 +631,11 @@ pub(crate) fn coerce_state_strings(
                 coerce_state_strings(s2, state_recv, field_ty);
             }
         }
+        Stmt::HandleErr { body, .. } => {
+            for s2 in body {
+                coerce_state_strings(s2, state_recv, field_ty);
+            }
+        }
         // Statements with no nested statements — nothing to descend into. Listed
         // explicitly (no `_`) so a future block-bearing statement is forced to
         // decide here rather than silently skipping coercion inside it.
@@ -615,6 +646,7 @@ pub(crate) fn coerce_state_strings(
         | Stmt::DestructureDim { .. }
         | Stmt::HandleDim { .. }
         | Stmt::Return(_)
+        | Stmt::RaiseError(_)
         | Stmt::Expr(_)
         | Stmt::Print(_)
         | Stmt::Log(..)
@@ -702,7 +734,7 @@ pub(crate) fn await_split(
                  (`Match Await Http.Get(url)`) or a `Dim` (`Dim x = Await …`), not nested inside \
                  an `If`/`For`/`Match`. To guard the call, put the check *before* the `Await` \
                  (`If busy Then Return` / set a flag first), or move it into the awaited helper \
-                 (return early on the guard). VBR keeps async deliberately simple: one `Await` \
+                 (return early on the guard). Bust keeps async deliberately simple: one `Await` \
                  per event, at the top.",
             );
             None
@@ -927,7 +959,7 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
         // Children are never "awaited" by this expression.
         match &e.kind {
             ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
-            | ExprKind::Try(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
+            | ExprKind::Try(i) | ExprKind::Raw(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
             | ExprKind::Closure { body: i, .. } => ex(i, false, diags),
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
                 ex(lhs, false, diags);
@@ -1207,6 +1239,7 @@ fn rewrite_expr_subs(
         ExprKind::MutRef(inner) => ExprKind::MutRef(Box::new(go(*inner))),
         ExprKind::Deref(inner) => ExprKind::Deref(Box::new(go(*inner))),
         ExprKind::Try(inner) => ExprKind::Try(Box::new(go(*inner))),
+        ExprKind::Raw(inner) => ExprKind::Raw(Box::new(go(*inner))),
         ExprKind::Await(inner) => ExprKind::Await(Box::new(go(*inner))),
         ExprKind::Tuple(elems) => ExprKind::Tuple(elems.into_iter().map(go).collect()),
         ExprKind::List(elems) => ExprKind::List(elems.into_iter().map(go).collect()),
@@ -1319,6 +1352,14 @@ pub(crate) fn rewrite_stmt(
             Stmt::DestructureDim { names, ty, value: re(value) }
         }
         Stmt::Return(e) => Stmt::Return(e.map(re)),
+        Stmt::RaiseError(e) => Stmt::RaiseError(re(e)),
+        Stmt::HandleErr { target, call, err_name, body, line } => Stmt::HandleErr {
+            target: target.map(re),
+            call: re(call),
+            err_name,
+            body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect(),
+            line,
+        },
         // Leaves and canvas-only forms — no bare state field to rewrite. Listed
         // explicitly (no `_`) so a new statement carrying an expression or a body
         // must be handled here, not swallowed. `Draw` only appears in a canvas

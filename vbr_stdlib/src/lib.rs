@@ -1,14 +1,15 @@
-// VBR Standard Library
+// Bust Standard Library
 // A collection of friendly wrappers for common Rust operations
-// designed for VBA developers learning Rust via VBR.
+// designed for VBA developers learning Rust via Bust.
 //
 // Each module wraps a standard Rust library or crate, and is a *namespace* of
 // functions — you call them as `FileSystem::read(path)`, never an instance.
 // Reading the source of each module is encouraged — it is real idiomatic Rust
 // and a great learning resource.
 //
-// Every fallible function returns `Result<T, String>`, which maps onto VBR's
-// `As Result<T>`.
+// Every fallible function returns `Result<T, String>`. Bust hides that box:
+// a normal call propagates the error; `Handle err` intercepts it; `Raw F()`
+// yields the `Result` as a value.
 
 // `FileSystem` and `Shell` are std-only and always available; the rest are
 // behind features (see Cargo.toml) so a project compiles only the wrappers it

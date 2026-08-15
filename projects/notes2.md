@@ -170,7 +170,7 @@ applies to *variables*, not `Public Const`s — the constant arrives as i64
 and isn't cast. Workaround: use the numeric literal (`32.0`). Also, `i64 *
 f64` in an expression never compiles — widen before multiplying.
 
-### Quirk 37 — [MISSING] `DataFrame.ReadCsv` aborts on `N/A` strings
+### Quirk 37 — [MISSING] `DataFrame.Read_Csv` aborts on `N/A` strings
 
 The raw `premier_league_23-26.csv` has `N/A` in numeric columns
 (`attendance`, `Game Week`); the stdlib `read_csv` (dataframe.rs:29) has
@@ -182,20 +182,20 @@ Worth a `null_values`/`ignore_errors` read option in a later slice.
 ### Quirk 38 — [BUG] `Count()` aggregates to u32 — can't extract as `Vec<Long>`
 
 ```vb
-Dim byPb As DataFrame = df.GroupBy("pb").Agg(Count(w1))
+Dim byPb As DataFrame = df.Group_By("pb").Agg(Count(w1))
 Dim counts As Vec<Long> = byPb.Column("w1")   ' � ✘ expected Int64, got u32
 ```
 
 polars' `count()` returns a u32 column, and the stdlib `FromColumn for
 i64` (dataframe.rs:267) refuses anything but Int64. Workaround: write the
-grouped frame with `WriteCsv` and read it back — polars reinfers the
+grouped frame with `Write_Csv` and read it back — polars reinfers the
 counts as i64, so `Column("w1")` works. (That round-trip also exercises
-the WriteCsv verb, so it's not pure waste.)
+the Write_Csv verb, so it's not pure waste.)
 
-### Quirk 39 — [BUG] GroupBy AND Agg on the same column collides
+### Quirk 39 — [BUG] Group_By AND Agg on the same column collides
 
 ```vb
-df.GroupBy("w1").Agg(Count(w1))    ' � ✘ column with name 'w1' has more than one occurrence
+df.Group_By("w1").Agg(Count(w1))    ' � ✘ column with name 'w1' has more than one occurrence
 ```
 
 Grouping by `w1` and aggregating `w1` in one call duplicates the output
@@ -206,7 +206,7 @@ column (`Count(w2)`), which is fine for counting.
 
 ```vb
 Dim w1 As Vec<Long> = df.Column("w1")
-df.GroupBy("pb").Agg(Count(w1))    ' � ✘ Vec<i64> doesn't implement Literal
+df.Group_By("pb").Agg(Count(w1))    ' � ✘ Vec<i64> doesn't implement Literal
 ```
 
 The column-formula rule ("Dim'd names are values") bites: if you've

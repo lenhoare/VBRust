@@ -11,12 +11,12 @@ arguments = """
 path | String | The path of the file to delete.
 """
 
-returns = "Result — Ok on success, or Err(message) if the file is missing or can't be removed."
+returns = "Nothing on success. Fails if the file is missing or can't be removed."
 
 example = """
 Function Main()
-    FileSystem.Write("temp.txt", "scratch").Unwrap()
-    FileSystem.Delete("temp.txt").Unwrap()
+    FileSystem.Write("temp.txt", "scratch")
+    FileSystem.Delete("temp.txt")
 
     Debug.Print FileSystem.Exists("temp.txt")   ' False
 End Function

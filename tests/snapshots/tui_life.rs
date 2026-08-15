@@ -5,16 +5,16 @@
 // the same resolver pass as a function body, so `CountLive(SeedGrid())`
 // borrows its ByVal Vec argument exactly as it would anywhere else.
 
-fn seedgrid() -> Vec<i64> {
-    vec![0, 1, 0, 1, 0, 1, 0, 1, 0]
+fn seedgrid() -> Result<Vec<i64>, String> {
+    Ok(vec![0, 1, 0, 1, 0, 1, 0, 1, 0])
 }
 
-fn countlive(grid: &Vec<i64>) -> i64 {
+fn countlive(grid: &Vec<i64>) -> Result<i64, String> {
     let mut total: i64 = 0;
     for cell in &*grid {
         total = total + *cell;
     }
-    total
+    Ok(total)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -30,8 +30,8 @@ struct Life {
 
 impl Default for Life {
     fn default() -> Self {
-        let grid = seedgrid();
-        let living = countlive(&seedgrid());
+        let grid = seedgrid()?;
+        let living = countlive(&seedgrid()?)?;
         let ticks = 0;
         Life {
             grid,
@@ -44,7 +44,7 @@ impl Default for Life {
 fn view(state: &Life, frame: &mut Frame) {
     let area = frame.area();
     let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
-    let block = Block::bordered().title("VBR Life");
+    let block = Block::bordered().title("Bust Life");
     let inner = block.inner(chunks_status[0]);
     frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).split(inner);
@@ -65,16 +65,24 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('s') => {
-                        for i in 0..=8 {
-                            state.grid[(i) as usize] = 1 - state.grid[(i) as usize];
-                        }
-                        state.living = 0;
-                        for cell in &state.grid {
-                            state.living = state.living + *cell;
-                        }
-                        state.ticks = state.ticks + 1;
-                        while state.ticks > 99 {
-                            state.ticks = state.ticks - 100;
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                for i in 0..=8 {
+                                    state.grid[(i) as usize] = 1 - state.grid[(i) as usize];
+                                }
+                                state.living = 0;
+                                for cell in &state.grid {
+                                    state.living = state.living + *cell;
+                                }
+                                state.ticks = state.ticks + 1;
+                                while state.ticks > 99 {
+                                    state.ticks = state.ticks - 100;
+                                }
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
                         }
                     }
                     KeyCode::Char('q') => {

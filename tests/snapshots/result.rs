@@ -1,35 +1,47 @@
-// Result<T> for fallible functions — propagate with ?, handle with Match
+// Errors propagate automatically. Intercept a call with Handle; fail with RaiseError.
+
+fn vbr_main() -> Result<(), String> {
+    #[allow(unused_mut)]
+    let mut value: i64;
+    value = match divide(10, 2) {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(message) => {
+            println!("error: {}", message);
+            return Ok(());
+        }
+    };
+    println!("10 / 2 = {}", value);
+    #[allow(unused_mut)]
+    let mut bad: i64;
+    bad = match divide(7, 0) {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(message) => {
+            println!("error: {}", message);
+            return Ok(());
+        }
+    };
+    println!("7 / 0 = {}", bad);
+    // Failure from Divide flows out of DoubleQuotient with no extra syntax
+    #[allow(unused_mut)]
+    let mut doubled: i64;
+    doubled = match doublequotient(20, 4) {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(message) => {
+            println!("error: {}", message);
+            return Ok(());
+        }
+    };
+    println!("double of 20 / 4 = {}", doubled);
+    let known: i64 = divide(9, 3)?;
+    println!("9 / 3 = {}", known);
+    Ok(())
+}
 
 fn main() {
-    // Handle the outcome explicitly
-    match divide(10, 2) {
-        Ok ( value ) => {
-            println!("10 / 2 = {}", value);
-        }
-        Err ( message ) => {
-            println!("error: {}", message);
-        }
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
-    match divide(7, 0) {
-        Ok ( value ) => {
-            println!("7 / 0 = {}", value);
-        }
-        Err ( message ) => {
-            println!("error: {}", message);
-        }
-    }
-    // A function that uses ? to propagate failure
-    match doublequotient(20, 4) {
-        Ok ( value ) => {
-            println!("double of 20 / 4 = {}", value);
-        }
-        Err ( message ) => {
-            println!("error: {}", message);
-        }
-    }
-    // .Unwrap() is allowed, but training wheels
-    let known: i64 = divide(9, 3).unwrap();
-    println!("9 / 3 = {}", known);
 }
 
 fn divide(numerator: i64, denominator: i64) -> Result<i64, String> {

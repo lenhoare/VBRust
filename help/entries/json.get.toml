@@ -11,15 +11,15 @@ arguments = """
 key | String | The key whose value to fetch.
 """
 
-returns = "Result<Json> — Ok with the value as a Json (which you read further with GetString, GetInt, …), or Err(message) if the key is missing."
+returns = "Json — the value as a Json (which you read further with Get_String, Get_Int, …). Fails if the key is missing."
 
 example = """
 Function Main()
-    Dim doc As Json = Json.Parse("{""user"": {""name"": ""Ada""}}").Unwrap()
+    Dim doc As Json = Json.Parse("{""user"": {""name"": ""Ada""}}")
 
-    Dim user As Json = doc.Get("user").Unwrap()
-    Debug.Print user.GetString("name").Unwrap()   ' Ada
+    Dim user As Json = doc.Get("user")
+    Debug.Print user.Get_String("name")   ' Ada
 End Function
 """
 
-see_also = ["json", "json.getstring", "json.haskey"]
+see_also = ["json", "json.get_string", "json.has_key"]

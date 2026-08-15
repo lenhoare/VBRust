@@ -1,17 +1,17 @@
-fn leftitems() -> Vec<String> {
+fn leftitems() -> Result<Vec<String>, String> {
     let mut v: Vec<String> = Vec::new();
     v.push("Alpha".to_string());
     v.push("Beta".to_string());
     v.push("Gamma".to_string());
-    v
+    Ok(v)
 }
 
-fn rightitems() -> Vec<String> {
+fn rightitems() -> Result<Vec<String>, String> {
     let mut v: Vec<String> = Vec::new();
     v.push("One".to_string());
     v.push("Two".to_string());
     v.push("Three".to_string());
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -30,8 +30,8 @@ struct Panels {
 
 impl Default for Panels {
     fn default() -> Self {
-        let left = leftitems();
-        let right = rightitems();
+        let left = leftitems()?;
+        let right = rightitems()?;
         let log = "(nothing picked yet)".to_string();
         Panels {
             left,
@@ -97,13 +97,29 @@ fn main() -> std::io::Result<()> {
                             0 => {
                                 if let Some(i) = state.left_state.selected() {
                                     let item = state.left[i].clone();
-                                    state.log = format!("left / {}", item);
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.log = format!("left / {}", item);
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             1 => {
                                 if let Some(i) = state.right_state.selected() {
                                     let item = state.right[i].clone();
-                                    state.log = format!("right / {}", item);
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.log = format!("right / {}", item);
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             _ => {}

@@ -19,9 +19,9 @@ use std::path::Path;
 use std::process::Command;
 
 /// One example per backend: stdlib wrappers (Json + DateTime multi-word
-/// methods), dataframes (polars, formulas, joins, IsNull), GUI (the full Iced
+/// methods), dataframes (polars, formulas, joins, Is_Null), GUI (the full Iced
 /// control set + async `Await`), stdlib-inside-a-GUI-event (the event bodies
-/// run the resolver, so `now.AddDays(30)` maps to `add_days`), and TUI
+/// run the resolver, so `now.Add_Days(30)` maps to `add_days`), and TUI
 /// (ratatui charts, timers, async). Inline-Python examples are left out —
 /// they link libpython, which not every machine has.
 const GUARDED: &[&str] = &[
@@ -53,7 +53,7 @@ const GUARDED: &[&str] = &[
     // GetOpenFilename / GetSaveAsFilename nested-loop path prompt + FileSystem.
     "tui_file",
     // Shell: run-and-capture in Main plus a background Process behind a
-    // Screen (fallible Shell.Start in State, IsRunning/Kill from events).
+    // Screen (fallible Shell.Start in State, Is_Running/Kill from events).
     "shell",
     "tui_shell",
 ];
@@ -248,7 +248,7 @@ fn transpile_only_examples_compile() {
 }
 
 /// `vbr test` end to end: the runner parses `Test`/`Assert`, emits `#[test]`
-/// functions, runs `cargo test`, and translates the result back to VBR terms.
+/// functions, runs `cargo test`, and translates the result back to Bust terms.
 /// Covers the single-file form (the `tests.vbr` example) and the `.test.vbr`
 /// sibling placement — including a deliberate failure, to prove the operand
 /// values and `.vbr` line come through.
@@ -327,7 +327,7 @@ fn vbr_test_runs_specs() {
 
 /// `vbr graduate` — the journey out. Copies the Life project (the hard case:
 /// its interface has ByRef grids and borrowed collections, so callers depend
-/// on VBR's argument treatment), graduates the module, proves the project
+/// on Bust's argument treatment), graduates the module, proves the project
 /// still runs with `main.vbr` calling Rust, then graduates the entry and
 /// proves the handed-over cargo project runs on its own.
 #[test]
@@ -343,7 +343,7 @@ fn vbr_graduate_promotes_generated_rust() {
         fs::copy(src_proj.join(f), proj.join(f)).unwrap();
     }
 
-    // The entry refuses to graduate while a module is still VBR.
+    // The entry refuses to graduate while a module is still Bust.
     let out = Command::new(vbr).arg("graduate").arg(proj.join("main.vbr")).output().unwrap();
     assert!(!out.status.success());
     assert!(

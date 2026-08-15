@@ -1,63 +1,58 @@
-// Result<T, E> with a real, typed error enum — including a message-carrying
-// variant. Build errors with Err(MathError.…); read them back by matching. `?`
-// works when the error types line up.
+// Typed errors are strings on the implicit Result<T, String> channel.
+// RaiseError fails; Handle intercepts a call and binds the message.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
-enum MathError {
-    DivByZero,
-    Custom(String),
-}
-impl std::fmt::Display for MathError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-fn safediv(a: i32, b: i32) -> Result<i32, MathError> {
+fn safediv(a: i32, b: i32) -> Result<i32, String> {
     if b == 0 {
-        return Err(MathError::DivByZero);
+        return Err("div by zero".to_string());
     }
     if b < 0 {
-        return Err(MathError::Custom("negative divisor".to_string()));
+        return Err("negative divisor".to_string());
     }
     Ok(((a as f64) / (b as f64)) as i32)
 }
 
-fn doublediv(a: i32, b: i32) -> Result<i32, MathError> {
+fn doublediv(a: i32, b: i32) -> Result<i32, String> {
     let q: i32 = safediv(a, b)?;
     Ok(q * 2)
 }
 
-fn main() {
-    match doublediv(10, 2) {
-        Ok ( v ) => {
-            println!("ok: {}", v);
-        }
-        Err ( MathError :: DivByZero ) => {
-            println!("div by zero");
-        }
-        Err ( MathError :: Custom ( msg ) ) => {
-            println!("error: {}", msg);
-        }
-    }
-    match doublediv(10, 0) {
-        Ok ( v ) => {
-            println!("ok: {}", v);
-        }
-        Err ( _ ) => {
+fn vbr_main() -> Result<(), String> {
+    #[allow(unused_mut)]
+    let mut v: i32;
+    v = match doublediv(10, 2) {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(_) => {
             println!("failed");
+            return Ok(());
         }
-    }
-    match doublediv(10, -2) {
-        Ok ( v ) => {
-            println!("ok: {}", v);
+    };
+    println!("ok: {}", v);
+    #[allow(unused_mut)]
+    let mut ignored: i32;
+    ignored = match doublediv(10, 0) {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(_) => {
+            println!("failed");
+            return Ok(());
         }
-        Err ( MathError :: DivByZero ) => {
-            println!("div by zero");
+    };
+    println!("ok: {}", ignored);
+    #[allow(unused_mut)]
+    let mut v3: i32;
+    v3 = match doublediv(10, -2) {
+        Ok(__vbr_ok) => __vbr_ok,
+        Err(err) => {
+            println!("error: {}", err);
+            return Ok(());
         }
-        Err ( MathError :: Custom ( msg ) ) => {
-            println!("error: {}", msg);
-        }
+    };
+    println!("ok: {}", v3);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

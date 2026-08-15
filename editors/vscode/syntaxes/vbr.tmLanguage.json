@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "VBR",
+  "name": "Bust",
   "scopeName": "source.vbr",
   "patterns": [
     { "include": "#comments" },

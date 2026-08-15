@@ -2,7 +2,7 @@
 
 A playable **Godot 2D game** (GDExtension) — the classic maze runner: WASD
 to move through a 12×12 maze, walls block, reaching the glowing exit wins.
-Built with VBR's **Godot target**: `Node2D` blocks compiled to a Rust
+Built with Bust's **Godot target**: `Node2D` blocks compiled to a Rust
 cdylib that Godot 4 loads as a native extension.
 
 ## What it does
@@ -12,9 +12,9 @@ cdylib that Godot 4 loads as a native extension.
   emits a `Finished` signal on the win) and **RunnerHud** (connects to the
   signal and prints the win message).
 - `maze.vbr` holds all the grid logic — maze layout, wall/exit checks,
-  blocked-move rules — in plain testable VBR.
+  blocked-move rules — in plain testable Bust.
 
-## VBR language features tested
+## Bust language features tested
 
 **Godot target (first project):**
 - `Node2D "MazeRunner"` block: `Export`, `Dim` members, `On Ready` /

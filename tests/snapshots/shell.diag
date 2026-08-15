@@ -1,2 +1,2 @@
 ℹ The standard library is a Rust crate — `FileSystem.Read(...)` becomes `FileSystem::read(...)` and `use vbr_stdlib::…;` is added for you.
-ℹ VBR names are their lowercase self in Rust — e.g. `RunChild` becomes `runchild`. (Functions and variables lowercase, constants uppercase; shown once.)
+ℹ Bust names are their lowercase self in Rust — e.g. `RunChild` becomes `runchild`. (Functions and variables lowercase, constants uppercase; shown once.)

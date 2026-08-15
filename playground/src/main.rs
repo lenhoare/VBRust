@@ -1,5 +1,5 @@
-//! The VBR playground: the whole transpiler (`vbr::compile`) compiled to
-//! WebAssembly, wrapped in a two-pane Yew app. Type VBR on the left, read the
+//! The Bust playground: the whole transpiler (`vbr::compile`) compiled to
+//! WebAssembly, wrapped in a two-pane Yew app. Type Bust on the left, read the
 //! generated Rust on the right — teaching diagnostics included, entirely in
 //! the browser, no server.
 //!
@@ -69,7 +69,7 @@ impl Component for Playground {
         html! {
             <>
                 <header>
-                    <h1>{ "VBR Playground" }</h1>
+                    <h1>{ "Bust Playground" }</h1>
                     <p>{ "VBA syntax in, idiomatic Rust out — transpiled live in your browser." }</p>
                     <label>
                         { "Example: " }
@@ -84,7 +84,7 @@ impl Component for Playground {
                 </header>
                 <main>
                     <div class="pane">
-                        <h2>{ "VBR" }</h2>
+                        <h2>{ "Bust" }</h2>
                         <textarea
                             spellcheck="false"
                             value={self.source.clone()}

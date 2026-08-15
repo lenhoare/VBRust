@@ -10,7 +10,7 @@ Mid(<string>, <start>, <count>)
 summary = "A run of characters taken from the middle of a string."
 
 remarks = """
-`Mid(s, start, count)` returns `count` characters beginning at position `start`. As in classic VB the position is **1-based** — `Mid(s, 1, …)` starts at the first character — and VBR counts by characters, so it stays correct on any text.
+`Mid(s, start, count)` returns `count` characters beginning at position `start`. As in classic VB the position is **1-based** — `Mid(s, 1, …)` starts at the first character — and Bust counts by characters, so it stays correct on any text.
 """
 
 example = """

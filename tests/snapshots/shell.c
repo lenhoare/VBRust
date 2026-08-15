@@ -1,6 +1,6 @@
 // Shell — VB6's `Shell`, grown up. Two verbs:
 // Shell.Run(cmd)   — run through the system shell, WAIT, capture the output:
-// Ok(stdout) on success, Err(stderr) on a nonzero exit.
+// stdout on success; failure propagates (or Handle it).
 // Shell.Start(cmd) — launch and DON'T wait (VB6's actual Shell semantics):
 // you get a Process handle to check on or stop.
 // Pipes and PATH work — the command line goes through sh -c / cmd /C.
@@ -101,36 +101,38 @@ static long long vbr_process_wait(Process* p) {
 Result_longlong_str runchild(void);
 
 int main(void) {
-    Result_str_str _m0 = vbr_shell_run("echo hello from VBR");
-    if (_m0.is_ok) {
-        char* output = _m0.ok;
-        printf("%s\n", vbr_concat("said: ", output));
-    } else {
-        char* why = _m0.err;
+    char* output = NULL;
+    Result_str_str _t0 = vbr_shell_run("echo hello from Bust");
+    if (!_t0.is_ok) {
+        char* why = _t0.err;
         printf("%s\n", vbr_concat("echo failed: ", why));
-    }
-    Result_str_str _m1 = vbr_shell_run("ls /vbr/definitely/missing");
-    if (_m1.is_ok) {
-        char* output = _m1.ok;
-        printf("%s\n", output);
+        return 0;
     } else {
+        output = _t0.ok;
+    }
+    printf("%s\n", vbr_concat("said: ", output));
+    Result_str_str _t1 = vbr_shell_run("ls /vbr/definitely/missing");
+    if (!_t1.is_ok) {
+        char* why = _t1.err;
         printf("%s\n", "as expected, that failed");
     }
-    Result_longlong_str _m2 = runchild();
-    if (_m2.is_ok) {
-        long long code = _m2.ok;
-        printf("%s\n", vbr_concat("child finished with exit code ", vbr_from_ll(code)));
-    } else {
-        char* why = _m2.err;
+    long long code = 0;
+    Result_longlong_str _t2 = runchild();
+    if (!_t2.is_ok) {
+        char* why = _t2.err;
         printf("%s\n", vbr_concat("child failed: ", why));
+        return 0;
+    } else {
+        code = _t2.ok;
     }
+    printf("%s\n", vbr_concat("child finished with exit code ", vbr_from_ll(code)));
     return 0;
 }
 
 Result_longlong_str runchild(void) {
-    Result_Process_str _t0 = vbr_shell_start("sleep 2");
-    if (!_t0.is_ok) return (Result_longlong_str){ .is_ok = false, .err = _t0.err };
-    Process child = _t0.ok;
+    Result_Process_str _t3 = vbr_shell_start("sleep 2");
+    if (!_t3.is_ok) return (Result_longlong_str){ .is_ok = false, .err = _t3.err };
+    Process child = _t3.ok;
     usleep((100) * 1000);
     // VB6's kernel32 Sleep, no Declare needed (milliseconds)
     printf("%s\n", vbr_concat("running: ", vbr_from_bool(vbr_process_isrunning(&child))));

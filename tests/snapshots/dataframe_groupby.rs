@@ -1,4 +1,4 @@
-// GroupBy and aggregation — group rows by a key column and compute per-group
+// Group_By and aggregation — group rows by a key column and compute per-group
 // summaries with the same Excel-style formulas, plus whole-column scalar
 // aggregations (a single Double out). See dataframe_spec.md §4b.
 
@@ -7,7 +7,7 @@ use vbr_stdlib::{DataFrame};
 #[allow(unused_imports)]
 use vbr_stdlib::dataframe::{col, len, lit, when};
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut df: DataFrame = DataFrame::read_csv("people.csv");
     df = df.with_column("band", when(col("age").gt_eq(lit(18))).then(lit("adult")).otherwise(lit("minor")));
     // Whole-column scalars — one number for the whole frame.
@@ -19,4 +19,12 @@ fn main() {
     // Formulas work inside an aggregation too.
     let spend: DataFrame = df.group_by(&["band"]).agg(&[(col("price") * col("qty")).sum()]);
     spend.print();
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

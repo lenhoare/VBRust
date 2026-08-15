@@ -9,31 +9,31 @@ summary = "Read and write files on disk."
 remarks = """
 `FileSystem` groups the everyday file operations — read a file's text, write or append to one, check whether it exists, copy it, delete it. It needs no setup and no external crates.
 
-Most calls return a **Result**, because the disk can refuse (a missing file, no permission). Handle it with `Match` or the `?` operator, or call `.Unwrap()` when you're sure it will succeed. `Exists` is the exception — it simply returns a `Boolean`.
+Most calls can fail, because the disk can refuse (a missing file, no permission). A normal call propagates that error; intercept it with `Handle err`. `Exists` is the exception — it simply returns a `Boolean`.
 
 Because it reaches outside the program, a file-using program is built as a **project**: run it with `vbr runproject` (or `vbr build`), not the single-file `vbr run`.
 """
 
 members = """
-method | Read(path)         | Read a whole file as a String. Returns Result<String>.
-method | ReadLines(path)    | Read a file as a Vec of its lines. Returns Result<Vec<String>>.
-method | Write(path, text)  | Write text to a file, replacing any existing content. Returns Result.
-method | Append(path, text) | Add text to the end of a file, creating it if needed. Returns Result.
+method | Read(path)         | Read a whole file as a String. Can fail.
+method | Read_Lines(path)    | Read a file as a Vec of its lines. Can fail.
+method | Write(path, text)  | Write text to a file, replacing any existing content. Can fail.
+method | Append(path, text) | Add text to the end of a file, creating it if needed. Can fail.
 method | Exists(path)       | Whether a file exists. Returns Boolean.
-method | Copy(source, dest) | Copy a file to another path. Returns Result.
-method | Delete(path)       | Delete a file. Returns Result.
+method | Copy(source, dest) | Copy a file to another path. Can fail.
+method | Delete(path)       | Delete a file. Can fail.
 """
 
 example = """
 Function Main()
-    FileSystem.Write("notes.txt", "Hello from VBR").Unwrap()
+    FileSystem.Write("notes.txt", "Hello from Bust")
 
-    Dim text As String = FileSystem.Read("notes.txt").Unwrap()
+    Dim text As String = FileSystem.Read("notes.txt")
     Debug.Print text
 
     Debug.Print FileSystem.Exists("notes.txt")   ' True
-    FileSystem.Delete("notes.txt").Unwrap()
+    FileSystem.Delete("notes.txt")
 End Function
 """
 
-see_also = ["result", "shell", "json"]
+see_also = ["handle", "shell", "json"]

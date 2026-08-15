@@ -1,9 +1,9 @@
 // Tuple return — pull SEVERAL values out of one Python block, in a single GIL
 // scope. The natural shape for "a name AND its data" from a model, a dataframe,
 // a query result… write the results as a comma-separated tuple on the last line,
-// and destructure them into typed VBR bindings. (Slice 3.)
+// and destructure them into typed Bust bindings. (Slice 3.)
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     // One block, three results: a label (String), its data (Vec<Double>), and a
     // summary stat (Double) — extracted together without touching the object twice.
     let (name, weights, total): (String, Vec<f64>, f64) = {
@@ -54,4 +54,12 @@ _vbr_result = float(data.min()), float(data.max()), float(data.mean())
         .expect("the Python block raised an exception")
     };
     println!("range:  {} .. {} (mean {})", lo, hi, mean);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

@@ -9,12 +9,12 @@ This example is a **deterministic** version for regression testing: the
 secret is fixed (`"123"`) and the guesses are a fixed list, so the output is
 reproducible. (The book version uses a random secret and interactive input.)
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning `String`, called cross-module qualified as
   `Bagels.GetClue(secret, guess)`
 - `Mid(s, pos, len)` — the VB6-style substring builtin (1-based, char-counted)
-- `Vec<Boolean>` flags with **bracket indexing** `used[i]` (this is VBR, not
+- `Vec<Boolean>` flags with **bracket indexing** `used[i]` (this is Bust, not
   VB6 — `used(i)` fails)
 - Nested `For` loops with `Exit For`, `If / And / Not`
 - `&` concatenation; building a result list with `Vec.Push` and joining it

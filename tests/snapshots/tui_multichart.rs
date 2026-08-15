@@ -4,22 +4,22 @@ struct Point {
     pub y: f64,
 }
 
-fn linear() -> Vec<Point> {
+fn linear() -> Result<Vec<Point>, String> {
     let mut v: Vec<Point> = Vec::new();
     for i in 0..=10 {
         let xd: f64 = i as f64;
         v.push(Point { x: xd, y: xd * 8.0 });
     }
-    v
+    Ok(v)
 }
 
-fn quadratic() -> Vec<Point> {
+fn quadratic() -> Result<Vec<Point>, String> {
     let mut v: Vec<Point> = Vec::new();
     for i in 0..=10 {
         let xd: f64 = i as f64;
         v.push(Point { x: xd, y: xd * xd });
     }
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -34,8 +34,8 @@ struct MultiChart {
 
 impl Default for MultiChart {
     fn default() -> Self {
-        let linear = linear();
-        let quad = quadratic();
+        let linear = linear()?;
+        let quad = quadratic()?;
         MultiChart {
             linear,
             quad,

@@ -1,4 +1,4 @@
-# VBR vertical-slice demo — everything here is in the first milestone
+# Bust vertical-slice demo — everything here is in the first milestone
 
 def _vb(x):
     if isinstance(x, bool):

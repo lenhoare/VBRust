@@ -9,8 +9,16 @@ fn input_box(prompt: &str) -> String {
     line.trim_end().to_string()
 }
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let name: String = input_box("What is your name? ");
     println!("Hello, {}!", name);
     println!("Nice to meet you.");
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

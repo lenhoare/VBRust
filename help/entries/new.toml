@@ -3,10 +3,10 @@ title = "New"
 category = "Custom types"
 kind = "keyword"
 
-summary = "Classic VB's object-creation keyword — not needed in VBR."
+summary = "Classic VB's object-creation keyword — not needed in Bust."
 
 remarks = """
-In VB you'd write `Set x = New Thing`. VBR doesn't work that way: you build a value directly.
+In VB you'd write `Set x = New Thing`. Bust doesn't work that way: you build a value directly.
 
 For a record, use a struct literal that names every field — `Dim p As Point = Point { X: 1, Y: 2 }`. For a growing list, declare a `Vec` — `Dim items As Vec<Long> = []` — and `.Push` onto it. There is no separate construction step to remember, and a value is complete the moment it exists.
 """

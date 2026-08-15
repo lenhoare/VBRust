@@ -29,22 +29,23 @@ Screen Scratch
     Event OpenFile
         Dim picked As String = GetOpenFilename(path)
         If picked <> "" Then
-            Match FileSystem.Read(picked)
-                Ok(text) =>
-                    notes = text
-                    path = picked
-                Err(e) => notes = "Could not read: " & e
-            End Match
+            Dim text As String = FileSystem.Read(picked) Handle e
+                notes = "Could not read: " & e
+                Return
+            End Handle
+            notes = text
+            path = picked
         End If
     End Event
 
     Event SaveFile
         Dim picked As String = GetSaveAsFilename(path)
         If picked <> "" Then
-            Match FileSystem.Write(picked, notes)
-                Ok(_) => path = picked
-                Err(e) => notes = "Could not save: " & e
-            End Match
+            FileSystem.Write(picked, notes) Handle e
+                notes = "Could not save: " & e
+                Return
+            End Handle
+            path = picked
         End If
     End Event
 End Screen

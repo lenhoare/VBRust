@@ -1,5 +1,5 @@
 // The stdlib inside a Window event: event bodies run the same resolver pass as
-// function bodies, so multi-word methods (AddDays -> add_days) and string
+// function bodies, so multi-word methods (Add_Days -> add_days) and string
 // coercions work here too.
 
 use iced::widget::{button, column, text};
@@ -27,9 +27,17 @@ enum Message {
 fn update(state: &mut Clock, message: Message) {
     match message {
         Message::Stamp => {
-            let now: DateTime = DateTime::now();
-            let later: DateTime = now.add_days(30);
-            state.label = format!("in 30 days: {}", later.format("%Y-%m-%d"));
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    let now: DateTime = DateTime::now();
+                    let later: DateTime = now.add_days(30);
+                    state.label = format!("in 30 days: {}", later.format("%Y-%m-%d"));
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

@@ -13,17 +13,15 @@ body | String | The request body (often a JSON string).
 headers | HashMap<String, String> | Request headers. Pass an empty HashMap for none.
 """
 
-returns = "Result<String> — Ok with the response body, or Err(message) if the request fails."
+returns = "String — the response body. Fails if the request fails."
 
 example = """
 Function Main()
     Dim headers As HashMap<String, String>
     headers.Insert("Content-Type", "application/json")
 
-    Match Http.Post("https://api.example.com", "{}", headers)
-        Ok(reply) => Debug.Print reply
-        Err(e)    => Debug.Print "error: " & e
-    End Match
+    Dim reply As String = Http.Post("https://api.example.com", "{}", headers)
+    Debug.Print reply
 End Function
 """
 

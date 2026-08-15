@@ -1,0 +1,25 @@
+id = "filesystem.read_lines"
+title = "Read_Lines"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Read_Lines"
+
+summary = "Reads a file as a list of its lines."
+
+arguments = """
+path | String | The path of the file to read.
+"""
+
+returns = "Vec<String> — one String per line (no trailing newlines). Fails if the file can't be read."
+
+example = """
+Function Main()
+    FileSystem.Write("list.txt", "one" & vbCrLf & "two" & vbCrLf & "three")
+
+    Dim lines As Vec<String> = FileSystem.Read_Lines("list.txt")
+    Debug.Print lines.Len()   ' 3
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.read", "vec"]

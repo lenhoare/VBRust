@@ -1,14 +1,14 @@
 ' 55 — Powerball, entry point.
 ' Reads a generated ticket pool with a DataFrame and:
-'   1. Uses GroupBy/Agg to analyse the ticket numbers (powerball
+'   1. Uses Group_By/Agg to analyse the ticket numbers (powerball
 '      frequency, most common first ball) — first use of these verbs.
-'   2. Runs the win-checking simulation in pure VBR (lotto.vbr) against a
+'   2. Runs the win-checking simulation in pure Bust (lotto.vbr) against a
 '      fixed draw and prints the prize tally.
 '
-' DataFrame features exercised: ReadCsv, GroupBy().Agg(Count(...)),
+' DataFrame features exercised: Read_Csv, Group_By().Agg(Count(...)),
 ' Column extraction into Vec<Long>.
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/tickets.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/tickets.csv")
 
     Dim white1 As Vec<Long> = df.Column("w1")
     Dim white2 As Vec<Long> = df.Column("w2")
@@ -20,15 +20,15 @@ Function Main()
     Debug.Print "Powerball analysis (" & white1.Len() & " tickets)"
     Debug.Print ""
 
-    ' --- GroupBy/Agg: how often does each powerball number appear? ---
+    ' --- Group_By/Agg: how often does each powerball number appear? ---
     ' (The extracted Vecs are named white1..powerball so the bare names w1,
     ' pb inside Agg stay *columns* — a Dim'd name would become a value.)
     ' Count() outputs a u32 count column that Column() can't extract as
     ' Vec<Long> (Quirk 38), so the grouped frame is round-tripped through
-    ' WriteCsv/ReadCsv, which reinfers the counts as i64.
-    Dim byPb As DataFrame = df.GroupBy("pb").Agg(Count(w1))
-    byPb.WriteCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/pb_freq.csv")
-    Dim pbFreq As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/pb_freq.csv")
+    ' Write_Csv/Read_Csv, which reinfers the counts as i64.
+    Dim byPb As DataFrame = df.Group_By("pb").Agg(Count(w1))
+    byPb.Write_Csv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/pb_freq.csv")
+    Dim pbFreq As DataFrame = DataFrame.Read_Csv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/pb_freq.csv")
     Dim pbVals As Vec<Long> = pbFreq.Column("pb")
     Dim pbCounts As Vec<Long> = pbFreq.Column("w1")
     Debug.Print "Powerball frequency (top 5):"
@@ -39,18 +39,18 @@ Function Main()
         Debug.Print "  pb " & Pad(pbTop[i], 2) & " appeared " & pbCounts[idx] & " times"
     Next
 
-    ' --- GroupBy/Agg: most common first ball ---
+    ' --- Group_By/Agg: most common first ball ---
     ' (Group by w1 but count w2: grouping AND aggregating the same column
     ' collides on the output name — Quirk 39.)
-    Dim byW1 As DataFrame = df.GroupBy("w1").Agg(Count(w2))
-    byW1.WriteCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/w1_freq.csv")
-    Dim w1Freq As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/w1_freq.csv")
+    Dim byW1 As DataFrame = df.Group_By("w1").Agg(Count(w2))
+    byW1.Write_Csv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/w1_freq.csv")
+    Dim w1Freq As DataFrame = DataFrame.Read_Csv("/home/len/dev/vbrprojects/VBRust/projects/55_powerball/w1_freq.csv")
     Dim w1Vals As Vec<Long> = w1Freq.Column("w1")
     Dim w1Counts As Vec<Long> = w1Freq.Column("w1")
     Debug.Print ""
     Debug.Print "Most common first ball: " & Lotto.TopByCount(w1Vals, w1Counts, 1)[0]
 
-    ' --- The win simulation (pure VBR) ---
+    ' --- The win simulation (pure Bust) ---
     Dim drawW As Vec<Long> = [7, 13, 22, 31, 45]
     Dim drawPb As Long = 17
     Dim spend As Long = white1.Len() * 2

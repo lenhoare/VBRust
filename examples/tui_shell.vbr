@@ -25,7 +25,7 @@ Screen ProcessPanel
     On Key "q" Quit
 
     Event Check
-        If worker.IsRunning() Then
+        If worker.Is_Running() Then
             status = "worker is running"
         Else
             status = "worker has stopped"

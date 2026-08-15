@@ -6,7 +6,7 @@
 // VALUES (?, NULL) — a list of strings has no null slot. Query rows come back
 // as Json objects keyed by column name, each column with its natural type.
 // A ByVal Database param borrows the connection (&Database) — open once,
-// hand it around. Inside a Result function, `?` chains the fallible calls.
+// hand it around. Fallible calls propagate automatically.
 // text and score are `&str` params. Dropping them straight into the params list
 // fills a `Vec<String>`, so each is owned with `.to_string()` for you — no manual
 // `.clone()` or `CStr(...)`. A literal element (none here) is owned by the list
@@ -42,20 +42,16 @@ fn addscored(db: &Database, text: &str, score: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn vbr_main() -> Result<(), String> {
+    let db: Database = Database::open("ideas.db")?;
+    run(&db)?;
+    println!("done");
+    Ok(())
+}
+
 fn main() {
-    match Database::open("ideas.db") {
-        Ok ( db ) => {
-            match run(&db) {
-                Ok ( _ ) => {
-                    println!("done");
-                }
-                Err ( message ) => {
-                    println!("db error: {}", message);
-                }
-            }
-        }
-        Err ( message ) => {
-            println!("could not open: {}", message);
-        }
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

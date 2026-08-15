@@ -1,6 +1,6 @@
 // Built-in string functions
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let s: String = "Hello, World".to_string();
     println!("length:    {}", s.len());
     println!("upper:     {}", s.to_uppercase());
@@ -11,4 +11,12 @@ fn main() {
     println!("trimmed:   {}", "   padded   ".trim());
     println!("replaced:  {}", s.replace("World", "Rust"));
     println!("str of 42: {}", 42.to_string());
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

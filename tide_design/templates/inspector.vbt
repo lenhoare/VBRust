@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Labelled property rows. VB6 Properties window, Delphi Object Inspector.
 Screen Inspector
     Title "Properties"

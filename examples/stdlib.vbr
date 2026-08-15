@@ -1,12 +1,12 @@
 ' Standard library — file I/O and regex. Calls translate `.` to `::`.
 Function Main()
-    FileSystem.Write("greeting.txt", "Hello   from   VBR").Unwrap()
+    FileSystem.Write("greeting.txt", "Hello   from   Bust")
 
-    Dim text As String = FileSystem.Read("greeting.txt").Unwrap()
+    Dim text As String = FileSystem.Read("greeting.txt")
     Debug.Print "file says: " & text
 
-    Dim cleaned As String = Regex.ReplaceAll("\s+", text, " ").Unwrap()
+    Dim cleaned As String = Regex.Replace_All("\s+", text, " ")
     Debug.Print "cleaned:   " & cleaned
 
-    FileSystem.Delete("greeting.txt").Unwrap()
+    FileSystem.Delete("greeting.txt")
 End Function

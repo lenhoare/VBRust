@@ -29,13 +29,13 @@ fn dividing_into_a_long_truncates() {
     assert!(compiled.rust.contains("as i64"), "should narrow via cast: {}", compiled.rust);
 }
 
-/// The returned `Ok`/`Some` payload coerces to the function's declared inner
-/// type, so a float quotient narrows back to the integer the signature promises.
+/// The returned payload coerces to the function's declared type, so a float
+/// quotient narrows back to the integer the signature promises.
 #[test]
 fn ok_payload_coerces_to_the_declared_inner_type() {
-    let src = "Function Divide(ByVal a As Long, ByVal b As Long) As Result<Long>\n\
-               \x20   Return Ok(a / b)\nEnd Function\n\
-               Function Main()\n    Debug.Print Divide(10, 2).Unwrap()\nEnd Function\n";
+    let src = "Function Divide(ByVal a As Long, ByVal b As Long) As Long\n\
+               \x20   Return a / b\nEnd Function\n\
+               Function Main()\n    Debug.Print Divide(10, 2)\nEnd Function\n";
     let compiled = compile(src);
     assert!(!compiled.has_errors, "{:?}", compiled.diagnostics);
     // The float quotient is narrowed to i64 inside the Ok(...).

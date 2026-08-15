@@ -1,4 +1,4 @@
-# Inline Python handles — hold a Python object VBR has no type for, and pass it
+# Inline Python handles — hold a Python object Bust has no type for, and pass it
 # back into later blocks. Each block is its own GIL scope. (Slice 2.)
 
 def _vb(x):

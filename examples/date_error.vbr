@@ -1,4 +1,4 @@
-' MEANT to fail — Date isn't a VBR type; use DateTime from the standard library.
+' MEANT to fail — Date isn't a Bust type; use DateTime from the standard library.
 Function Main()
     Dim stamp As Date = 0
     Debug.Print stamp

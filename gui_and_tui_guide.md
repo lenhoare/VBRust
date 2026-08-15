@@ -1,6 +1,6 @@
 # Building Interfaces: Windows and Screens
 
-VBR builds two kinds of interactive program from the *same* set of ideas:
+Bust builds two kinds of interactive program from the *same* set of ideas:
 
 - a **`Window`** — a desktop application with buttons, sliders, and text boxes,
   drawn with [Iced];
@@ -23,7 +23,7 @@ and each control's event handler reaches out and *pokes* other controls —
 `Label1.Caption = CStr(n)`. The screen is the truth, and your code scrambles to
 keep it consistent.
 
-VBR turns that inside out. There is a single blob of **state** that is the truth,
+Bust turns that inside out. There is a single blob of **state** that is the truth,
 a **view** that is *computed* from that state, and **events** that are the only
 things allowed to change the state. When the state changes, the whole view is
 redrawn from scratch. You never poke a widget; you change a number and describe
@@ -98,7 +98,7 @@ vertically) and `Row` (side by side).
 **Events** are handlers, written `Event Name … End Event`, and they are the only
 place state may change. A button's `On Click Increment` says "when this is
 clicked, run the `Increment` event." Inside, you just assign to state fields as if
-they were ordinary variables — `count += 1` — and VBR arranges the redraw. An
+they were ordinary variables — `count += 1` — and Bust arranges the redraw. An
 event can take a parameter when the widget carries data (you'll see `On Change`
 below hand a slider's new value to its handler).
 
@@ -232,6 +232,9 @@ Window Counter
     ...
 ```
 
+`NightOwl` and `JellyFish` work here too (custom Iced palettes). The same names
+apply to a `Page`.
+
 ---
 
 ## 4. Screens — the terminal TUI
@@ -268,6 +271,13 @@ arrows, Enter, Esc. Example: `examples/tui_menu.vbr`.
 same TIDE Open / Save As prompt over the Screen — Tab completes, Enter opens or
 saves, Esc returns `""`. Call them from an event, then `FileSystem.Read` /
 `Write`. Example: `examples/tui_file.vbr`.
+
+### Theme
+
+The same `Theme <Name>` line a Window uses. Omit it and the Screen stays
+cyan-on-black. Set `Theme NightOwl` or `Theme JellyFish` (or `Dracula`, `Nord`,
+…) and the status bar, menu, borders, text, charts, and file prompt follow the
+palette. Examples: `examples/tui_nightowl.vbr`, `examples/tui_jellyfish.vbr`.
 
 ### Widgets, including data-viz
 

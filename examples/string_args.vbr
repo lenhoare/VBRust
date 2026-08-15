@@ -1,4 +1,4 @@
-' Passing strings to functions — VBR borrows an owned String automatically
+' Passing strings to functions — Bust borrows an owned String automatically
 Function Shout(ByVal text As String) As String
     Return UCase(text)
 End Function

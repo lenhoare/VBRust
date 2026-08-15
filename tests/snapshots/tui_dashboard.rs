@@ -4,7 +4,7 @@ struct Bar {
     pub value: i32,
 }
 
-fn history() -> Vec<i32> {
+fn history() -> Result<Vec<i32>, String> {
     let mut v: Vec<i32> = Vec::new();
     v.push(3);
     v.push(7);
@@ -13,16 +13,16 @@ fn history() -> Vec<i32> {
     v.push(6);
     v.push(8);
     v.push(5);
-    v
+    Ok(v)
 }
 
-fn sales() -> Vec<Bar> {
+fn sales() -> Result<Vec<Bar>, String> {
     let mut v: Vec<Bar> = Vec::new();
     v.push(Bar { label: "Jan".to_string(), value: 12 });
     v.push(Bar { label: "Feb".to_string(), value: 19 });
     v.push(Bar { label: "Mar".to_string(), value: 8 });
     v.push(Bar { label: "Apr".to_string(), value: 15 });
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -39,8 +39,8 @@ struct Dash {
 impl Default for Dash {
     fn default() -> Self {
         let cpu = 62;
-        let history = history();
-        let sales = sales();
+        let history = history()?;
+        let sales = sales()?;
         Dash {
             cpu,
             history,

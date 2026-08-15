@@ -2,8 +2,8 @@
 // The block runs via pyo3; its last line is the value, extracted into the
 // type you annotate with `As`. (Slice 1: scalars in, scalars out.)
 
-fn main() {
-    // A one-liner reaching a library VBR doesn't have.
+fn vbr_main() -> Result<(), String> {
+    // A one-liner reaching a library Bust doesn't have.
     let mean: f64 = {
         use pyo3::prelude::*;
         pyo3::Python::with_gil(|py| -> pyo3::PyResult<f64> {
@@ -49,4 +49,12 @@ _vbr_result = 6 * 7
         .expect("the Python block raised an exception")
     };
     println!("the answer is {}", answer);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

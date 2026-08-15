@@ -1,19 +1,21 @@
-' Result<()> — a fallible action that returns no value on success. `Ok(())` is
-' the unit success; failure carries the error as usual.
-Function Save(ByVal ok As Boolean) As Result<()>
+' A fallible action that returns no value on success. RaiseError fails; a
+' bare End Function is success. Intercept at the call with Handle.
+Function Save(ByVal ok As Boolean)
     If Not ok Then
-        Return Err("save failed")
+        RaiseError "save failed"
     End If
-    Return Ok(())
 End Function
 
 Function Main()
-    Match Save(True)
-        Ok(_) => Debug.Print "saved"
-        Err(e) => Debug.Print "error: " & e
-    End Match
-    Match Save(False)
-        Ok(_) => Debug.Print "saved"
-        Err(e) => Debug.Print "error: " & e
-    End Match
+    Save(True) Handle e
+        Debug.Print "error: " & e
+        Return
+    End Handle
+    Debug.Print "saved"
+
+    Save(False) Handle e
+        Debug.Print "error: " & e
+        Return
+    End Handle
+    Debug.Print "saved"
 End Function

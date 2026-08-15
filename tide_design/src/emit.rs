@@ -1,4 +1,4 @@
-//! Emit a runnable VBR `Screen` from the designer tree.
+//! Emit a runnable Bust `Screen` from the designer tree.
 //!
 //! Adapted from the Screen path in `vbr-ide-core::design` — Screen widgets only.
 
@@ -143,7 +143,7 @@ End Function\n\n";
 /// The designer will round-trip this; a human-edited `.vbr` will not.
 pub fn design_to_vbt(design: &Design) -> String {
     let mut out = String::new();
-    out.push_str("' VBR Screen template — structure only. Open in tide_design.\n");
+    out.push_str("' Bust Screen template — structure only. Open in tide_design.\n");
     out.push_str(&format!("Screen {}\n", design.screen_name));
     out.push_str(&format!("    Title {}\n\n", quote(&design.title)));
     emit_menu(design, &mut out);
@@ -633,7 +633,7 @@ mod tests {
         let compiled = vbr::compile(&src);
         assert!(
             !compiled.has_errors,
-            "emitted VBR failed to compile:\n{}\n--- source ---\n{src}",
+            "emitted Bust failed to compile:\n{}\n--- source ---\n{src}",
             compiled.diagnostics.join("\n")
         );
     }

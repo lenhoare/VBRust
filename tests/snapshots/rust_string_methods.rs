@@ -1,7 +1,7 @@
 // Rust string methods pass through alongside the VB functions — use whichever
 // reads better. Methods lower to real Rust (`.Trim()` and `.trim()` both work).
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let name: String = "  Ada Lovelace  ".to_string();
     // VB muscle memory still works...
     println!("VB UCase:  {}", name.to_uppercase());
@@ -19,4 +19,12 @@ fn main() {
     let mut greeting: String = "Hello".to_string();
     greeting.push_str(", world");
     println!("built:     {}", greeting);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

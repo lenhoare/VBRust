@@ -1,7 +1,7 @@
 // FileSystem from the standard library — write a file, read it back, check it
-// exists, then delete it. Every fallible call returns a Result you `Unwrap` (or
-// `Match`). Backed by stdio + POSIX; the same program transpiles to Rust, Python
-// and C.
+// exists, then delete it. Fallible calls propagate automatically; a missing file
+// prints and exits from Main. Backed by stdio + POSIX; the same program
+// transpiles to Rust, Python and C.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,11 +60,17 @@ static Result_unit_str vbr_fs_write(char* path, char* contents) {
 }
 
 int main(void) {
-    Result_unit_str_unwrap(vbr_fs_write("vbr_fs_demo.txt", "Hello from VBR"));
-    char* text = Result_str_str_unwrap(vbr_fs_read("vbr_fs_demo.txt"));
+    Result_unit_str _t0 = vbr_fs_write("vbr_fs_demo.txt", "Hello from Bust");
+    if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
+    (void)0;
+    Result_str_str _t1 = vbr_fs_read("vbr_fs_demo.txt");
+    if (!_t1.is_ok) { fprintf(stderr, "Error: %s\n", _t1.err); return 1; }
+    char* text = _t1.ok;
     printf("%s\n", vbr_concat("file says:    ", text));
     printf("%s\n", vbr_concat("exists:       ", vbr_from_bool(vbr_fs_exists("vbr_fs_demo.txt"))));
-    Result_unit_str_unwrap(vbr_fs_delete("vbr_fs_demo.txt"));
+    Result_unit_str _t2 = vbr_fs_delete("vbr_fs_demo.txt");
+    if (!_t2.is_ok) { fprintf(stderr, "Error: %s\n", _t2.err); return 1; }
+    (void)0;
     printf("%s\n", vbr_concat("after delete: ", vbr_from_bool(vbr_fs_exists("vbr_fs_demo.txt"))));
     return 0;
 }

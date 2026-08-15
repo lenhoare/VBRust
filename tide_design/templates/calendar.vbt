@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Day list plus event detail. Calendar / agenda, Sidekick, Outlook.
 Screen Calendar
     Title "Calendar"

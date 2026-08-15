@@ -4,43 +4,42 @@ category = "Collections & wrappers"
 kind = "type"
 
 syntax = """
-Function <Name>(...) As Result<<T>>
-    Return Ok(<value>)
-    Return Err(<message>)
-End Function
+Dim <name> As Result<<T>> = Raw <call>()
+Match <name>
+    Ok(<value>) => ...
+    Err(<message>) => ...
+End Match
 """
 
 replaces = "On Error and the Err object"
 
-summary = "A value that succeeded (Ok) or failed (Err) — errors you can't ignore."
+summary = "The underlying success-or-failure box — only when you ask for it with Raw."
 
 remarks = """
-`Result<T>` is either `Ok(value)` on success or `Err(message)` on failure. A function that can fail returns one, so the caller *must* deal with both outcomes — this is VBR's answer to `On Error`, made visible in the type.
+Ordinary Bust never writes `Result`. A function declares its success type (`As Long`); a normal call gives you that value, or fails. To look at the box itself, prefix the call with `Raw`.
 
-Handle it with a `Match` on `Ok`/`Err`. Inside another fallible function, the `?` operator (see "? (try)") forwards an `Err` for you and unwraps an `Ok`, so the happy path stays clean.
+The box is either `Ok(value)` or `Err(message)`. Inspect it with `Match`. `.Is_Ok` / `.Is_Err` / `.Unwrap_Or` work on a Raw result. `.Unwrap()` is gone — intercept with `Handle` instead.
 """
 
 members = """
 property | .Is_Ok()            | True when the result succeeded.
 property | .Is_Err()           | True when it failed.
 method   | .Unwrap_Or(default) | The Ok value, or the given default on Err.
-method   | .Unwrap()           | The Ok value — but crashes on Err (prefer ? or Match).
 """
 
 example = """
-Function Half(n As Long) As Result<Long>
-    If n Mod 2 <> 0 Then
-        Return Err("not even")
-    End If
-    Return Ok(n / 2)
+Function Half(n As Long) As Long
+    If n Mod 2 <> 0 Then RaiseError "not even"
+    Return n / 2
 End Function
 
 Function Main()
-    Match Half(10)
+    Dim r As Result<Long> = Raw Half(10)
+    Match r
         Ok(h) => Debug.Print h
         Err(e) => Debug.Print e
     End Match
 End Function
 """
 
-see_also = ["option", "question", "match"]
+see_also = ["raw", "handle", "raiseerror", "option", "match"]

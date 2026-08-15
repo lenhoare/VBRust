@@ -5,7 +5,7 @@ secret word is shown masked; 26 letter buttons reveal it one guess at a
 time. Six wrong guesses and you're hanged. Words pick deterministically by
 round. All rules live in `hangman.vbr` and are unit-tested.
 
-## VBR language features tested
+## Bust language features tested
 
 **GUI (`Window`):**
 - 26 `Button` widgets in two `Row`s; each has its own event calling the

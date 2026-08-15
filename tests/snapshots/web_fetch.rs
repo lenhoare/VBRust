@@ -35,20 +35,44 @@ impl Component for Fetcher {
     fn update(&mut self, ctx: &Context<Self>, message: Self::Message) -> bool {
         match message {
             Message::SetUrl(value) => {
-                self.url = value;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.url = value;
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
             Message::Fetch => {
-                self.status = "loading…".to_string();
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.status = "loading…".to_string();
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
                 let url = self.url.clone();
                 ctx.link().send_future(async move { Message::FetchDone(http_get(&url).await) });
             }
             Message::FetchDone(result) => {
-                match result {
-                    Ok ( body ) => {
-                        self.status = format!("got {} bytes", body.len());
-                    }
-                    Err ( e ) => {
-                        self.status = format!("error: {}", e);
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        match result {
+                            Ok ( body ) => {
+                                self.status = format!("got {} bytes", body.len());
+                            }
+                            Err ( e ) => {
+                                self.status = format!("error: {}", e);
+                            }
+                        }
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
                     }
                 }
             }

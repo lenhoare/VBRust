@@ -1,4 +1,4 @@
-//! tide_design — structural TUI Screen designer for VBR.
+//! tide_design — structural TUI Screen designer for Bust.
 
 mod emit;
 mod files;

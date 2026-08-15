@@ -21,29 +21,37 @@ impl std::fmt::Display for Shape {
     }
 }
 
-fn describe(s: &Shape) -> String {
+fn describe(s: &Shape) -> Result<String, String> {
     match s {
         Shape :: Dot ( p ) => {
-            return format!("dot at {},{}", p.x, p.y);
+            return Ok(format!("dot at {},{}", p.x, p.y));
         }
         Shape :: Segment ( a , b ) => {
-            return format!("segment {} to {}", a.x, b.x);
+            return Ok(format!("segment {} to {}", a.x, b.x));
         }
         Shape :: Blob ( pts ) => {
-            return format!("blob of {} points", pts.len());
+            return Ok(format!("blob of {} points", pts.len()));
         }
         Shape :: Empty => {
-            return "nothing".to_string();
+            return Ok("nothing".to_string());
         }
     }
 }
 
-fn main() {
-    println!("{}", describe(&Shape::Dot(Point { x: 1.0, y: 2.0 })));
-    println!("{}", describe(&Shape::Segment(Point { x: 1.0, y: 2.0 }, Point { x: 5.0, y: 6.0 })));
+fn vbr_main() -> Result<(), String> {
+    println!("{}", describe(&Shape::Dot(Point { x: 1.0, y: 2.0 }))?);
+    println!("{}", describe(&Shape::Segment(Point { x: 1.0, y: 2.0 }, Point { x: 5.0, y: 6.0 }))?);
     let mut cloud: Vec<Point> = Vec::new();
     cloud.push(Point { x: 1.0, y: 2.0 });
     cloud.push(Point { x: 5.0, y: 6.0 });
-    println!("{}", describe(&Shape::Blob(cloud)));
-    println!("{}", describe(&Shape::Empty));
+    println!("{}", describe(&Shape::Blob(cloud))?);
+    println!("{}", describe(&Shape::Empty)?);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

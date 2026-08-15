@@ -13,13 +13,13 @@ text | String | The text to search in.
 replacement | String | What to put in place of the first match.
 """
 
-returns = "Result<String> — Ok with the edited text (unchanged if nothing matched), or Err(message) if the pattern is invalid."
+returns = "String — the edited text (unchanged if nothing matched). Fails if the pattern is invalid."
 
 example = """
 Function Main()
-    Dim once As String = Regex.Replace("o", "foo", "0").Unwrap()
+    Dim once As String = Regex.Replace("o", "foo", "0")
     Debug.Print once   ' f0o
 End Function
 """
 
-see_also = ["regex", "regex.replaceall"]
+see_also = ["regex", "regex.replace_all"]

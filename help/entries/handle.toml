@@ -1,0 +1,45 @@
+id = "handle"
+title = "Handle"
+category = "Procedures"
+kind = "keyword"
+
+syntax = """
+<a> = <call>() Handle <err>
+    <statements>
+End Handle
+
+<call>() Handle <err>
+    <statements>
+End Handle
+"""
+
+replaces = "On Error GoTo / On Error Resume Next"
+
+summary = "Intercepts one fallible call. The error does not propagate."
+
+remarks = """
+A normal call that can fail just fails — the error leaves this function. `Handle` catches **that one call**. The name you bind (conventionally `err`) is a String and exists only inside the block.
+
+Value form (`a = F() Handle err`): every path must leave (`Return`, `Exit For`, `Continue`, `RaiseError`) or produce a replacement value for `a`.
+
+Statement form (`F() Handle err`): falling through swallows the error. That swallow has to be written; a bare `F()` still propagates.
+
+`Handle` on something that cannot fail is a teaching error. Nested fallible calls inside the handled call are also a teaching error — give each call its own statement.
+"""
+
+example = """
+Function Divide(a As Long, b As Long) As Long
+    If b = 0 Then RaiseError "cannot divide by zero"
+    Return a / b
+End Function
+
+Function Main()
+    Dim n As Long = Divide(10, 2) Handle err
+        Debug.Print err
+        Return
+    End Handle
+    Debug.Print n
+End Function
+"""
+
+see_also = ["raiseerror", "raw", "result"]

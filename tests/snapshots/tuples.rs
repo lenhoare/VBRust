@@ -1,12 +1,12 @@
 // Tuples — literals, indexing, multiple return values, destructuring, patterns
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let pair: (i64, i64) = (3, 7);
     println!("first = {}", pair.0);
     println!("sum   = {}", pair.0 + pair.1);
-    let (lo, hi) = minmax(10, 4);
+    let (lo, hi) = minmax(10, 4)?;
     println!("min = {}, max = {}", lo, hi);
-    match classify(0, 5) {
+    match classify(0, 5)? {
         ( 0 , y ) => {
             println!("on the y-axis at {}", y);
         }
@@ -17,15 +17,23 @@ fn main() {
             println!("off both axes");
         }
     }
+    Ok(())
 }
 
-fn minmax(a: i64, b: i64) -> (i64, i64) {
-    if a < b {
-        return (a, b);
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
-    (b, a)
 }
 
-fn classify(x: i64, y: i64) -> (i64, i64) {
-    (x, y)
+fn minmax(a: i64, b: i64) -> Result<(i64, i64), String> {
+    if a < b {
+        return Ok((a, b));
+    }
+    Ok((b, a))
+}
+
+fn classify(x: i64, y: i64) -> Result<(i64, i64), String> {
+    Ok((x, y))
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "scopeName": "vbr.embedded.injection",
-  "comment": "Injects VBR highlighting into `/* vbr … */` block comments inside Rust files (see `vbr embed`). One contiguous region, so source.vbr injects cleanly. `L:source.rust` gives our begin-rule priority over Rust's plain block-comment rule so it claims the region first.",
+  "comment": "Injects Bust highlighting into `/* vbr … */` block comments inside Rust files (see `vbr embed`). One contiguous region, so source.vbr injects cleanly. `L:source.rust` gives our begin-rule priority over Rust's plain block-comment rule so it claims the region first.",
   "injectionSelector": "L:source.rust -comment.line -string",
   "patterns": [
     {

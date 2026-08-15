@@ -206,7 +206,7 @@ pub struct UiState {
     pub path_tab: Option<crate::files::PathTabState>,
     /// Turbo Debugger–style generated Rust strip (bottom).
     pub show_rust: bool,
-    /// True when the VBR buffer changed since the last Rust refresh.
+    /// True when the Bust buffer changed since the last Rust refresh.
     pub rust_stale: bool,
     /// `(rust_line, vbr_line)` 1-based map from the last compile.
     pub line_map: Vec<(usize, usize)>,
@@ -751,7 +751,7 @@ fn draw_dialog(f: &mut Frame, area: Rect, dialog: &Dialog) {
         ),
         Dialog::About => (
             " About ",
-            "TIDE — TUI IDE for VBR\n\
+            "TIDE — TUI IDE for Bust\n\
              Turbo Pascal vibes. Built on tide-editor.\n\
              \n\
              Esc to close"
@@ -944,7 +944,7 @@ fn inset_border(area: Rect) -> Rect {
     }
 }
 
-/// Screen rect of the VBR editor content (inside its border).
+/// Screen rect of the Bust editor content (inside its border).
 pub fn vbr_inner_rect(frame: Rect, watch_visible: bool, rust_visible: bool) -> Rect {
     let chunk = main_editor_chunk(frame, watch_visible);
     let panes = split_editor_panes(chunk, rust_visible);
@@ -958,7 +958,7 @@ pub fn rust_inner_rect(frame: Rect, watch_visible: bool, rust_visible: bool) -> 
     Some(inset_border(panes.rust?))
 }
 
-/// Back-compat alias — VBR pane only (no Rust strip).
+/// Back-compat alias — Bust pane only (no Rust strip).
 #[allow(dead_code)]
 pub fn editor_inner_rect(frame: Rect, watch_visible: bool) -> Rect {
     vbr_inner_rect(frame, watch_visible, false)

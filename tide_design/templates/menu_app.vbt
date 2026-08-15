@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Menu-heavy shell with a work memo. Turbo Pascal / WordStar / TIDE itself.
 Screen MenuApp
     Title "Workbench"

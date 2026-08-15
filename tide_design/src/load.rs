@@ -1,6 +1,6 @@
 //! Load a `.vbt` Screen template into the designer tree.
 //!
-//! A template is VBR with no extra code: one `Screen`, a `Title`, optional
+//! A template is Bust with no extra code: one `Screen`, a `Title`, optional
 //! `Menu`, and a `View`. No `Function Main`, no `Event` bodies, no `On Key`.
 //! Human-edited `.vbr` programs are refused — that's the can of worms.
 
@@ -19,7 +19,7 @@ use crate::model::{Design, Kind, MenuKind, MenuNode, Node, SizeHint};
 pub fn load_template(path: &Path) -> Result<Design, String> {
     if is_vbr(path) {
         return Err(
-            "That's a VBR program, not a template. The designer only opens .vbt \
+            "That's a Bust program, not a template. The designer only opens .vbt \
              (File → Save as template) — it won't round-trip event code a human may have edited."
                 .into(),
         );
@@ -525,7 +525,7 @@ End Screen
             let compiled = vbr::compile(&src);
             assert!(
                 !compiled.has_errors,
-                "{} emitted VBR failed:\n{}\n--- source ---\n{src}",
+                "{} emitted Bust failed:\n{}\n--- source ---\n{src}",
                 path.display(),
                 compiled.diagnostics.join("\n")
             );

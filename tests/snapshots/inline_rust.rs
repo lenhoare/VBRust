@@ -1,6 +1,6 @@
 // Inline Rust — drop into Rust for a bit, get a plain value back
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let a: i64 = 5;
     let b: i64 = 7;
     // variables pass in automatically; last line (no semicolon) is the value
@@ -15,4 +15,12 @@ fn main() {
         total
     };
     println!("1 to 100 = {}", big);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

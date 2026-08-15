@@ -11,7 +11,7 @@ Function Knows(ByVal scores As HashMap<String, Long>, ByVal who As String) As Bo
 End Function
 
 Function FirstName(ByVal names As Vec<String>) As String
-    ' Indexing a Vec can't *move* the String out — VBR clones it for you.
+    ' Indexing a Vec can't *move* the String out — Bust clones it for you.
     Return names[0]
 End Function
 
@@ -22,7 +22,7 @@ Function Main()
     ' A `String` *local* key borrows for `contains_key`/`get`, like a literal.
     Dim who As String = "Ada"
     If scores.contains_key(who) Then
-        Debug.Print who & " scored " & scores.get(who).Unwrap()
+        Debug.Print who & " scored " & scores.get(who).Unwrap_Or(0)
     End If
     Debug.Print "known via param: " & Knows(scores, who)
 

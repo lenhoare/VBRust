@@ -12,17 +12,17 @@ sql | String | The SELECT statement, with ? placeholders for any values.
 params | Vec<String> | The values for the ? placeholders. Pass [] for none.
 """
 
-returns = "Result<Vec<Json>> — Ok with one Json object per row (read its columns with GetString / GetInt), or Err(message) if the query fails."
+returns = "Vec<Json> — one Json object per row (read its columns with Get_String / Get_Int). Fails if the query fails."
 
 example = """
 Function Main()
-    Dim db As Database = Database.Open(":memory:").Unwrap()
-    db.Execute("CREATE TABLE users (name TEXT)", []).Unwrap()
-    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"]).Unwrap()
+    Dim db As Database = Database.Open(":memory:")
+    db.Execute("CREATE TABLE users (name TEXT)", [])
+    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"])
 
-    Dim rows As Vec<Json> = db.Query("SELECT name FROM users", []).Unwrap()
+    Dim rows As Vec<Json> = db.Query("SELECT name FROM users", [])
     For Each row In rows
-        Debug.Print row.GetString("name").Unwrap()   ' Ada
+        Debug.Print row.Get_String("name")   ' Ada
     Next
 End Function
 """

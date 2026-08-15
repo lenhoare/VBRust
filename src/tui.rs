@@ -25,6 +25,66 @@ use crate::surface::{
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
+fn resolve_theme(name: &Option<String>, diags: &mut Diagnostics) -> Option<&'static crate::theme::Spec> {
+    let Some(n) = name else {
+        return None;
+    };
+    match crate::theme::lookup(n) {
+        Some(s) => Some(s),
+        None => {
+            diags.error_once(
+                "unknown-theme",
+                format!(
+                    "Unknown theme `{}`. Built-in themes: {}.",
+                    n,
+                    crate::gui::known_theme_names()
+                ),
+            );
+            None
+        }
+    }
+}
+
+fn emit_theme_lets(spec: &crate::theme::Spec, body: &str, has_chrome: bool, out: &mut String) {
+    let rgb = crate::theme::ratatui_rgb;
+    out.push_str(&format!(
+        "    let theme_body = ratatui::style::Style::new().bg({}).fg({});\n",
+        rgb(spec.background),
+        rgb(spec.text)
+    ));
+    if has_chrome {
+        out.push_str(&format!(
+            "    let theme_chrome = ratatui::style::Style::new().bg({}).fg({});\n",
+            rgb(spec.primary),
+            rgb(spec.chrome_fg())
+        ));
+    }
+    out.push_str(&format!("    let theme_accent = {};\n", rgb(spec.primary)));
+    if body.contains("theme_series") {
+        let series: Vec<String> = spec.series_colors().iter().copied().map(rgb).collect();
+        out.push_str(&format!(
+            "    let theme_series: [ratatui::style::Color; 6] = [{}];\n",
+            series.join(", ")
+        ));
+    }
+}
+
+fn theme_block_suffix(themed: bool) -> &'static str {
+    if themed {
+        ".style(theme_body).border_style(ratatui::style::Style::new().fg(theme_accent))"
+    } else {
+        ""
+    }
+}
+
+fn chrome_style(themed: bool) -> &'static str {
+    if themed {
+        "theme_chrome"
+    } else {
+        "ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)"
+    }
+}
+
 /// Emit a complete TUI program: shared items (consts/structs/enums/functions),
 /// each screen's definition, then `fn main`, which runs the screen launched by
 /// `<Screen>.Run` inside `Function Main()`. With `web`, `fn main` is the
@@ -124,7 +184,12 @@ pub fn emit_tui_program(
         out.push('\n');
     }
     if !web && file_in_event {
-        out.push_str(FILE_DIALOG_MOD);
+        let dialog_theme = program
+            .screens
+            .iter()
+            .find(|sc| sc.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body)))
+            .and_then(|sc| resolve_theme(&sc.theme, diags));
+        out.push_str(&file_dialog_mod(dialog_theme));
         out.push('\n');
     }
     let launched_screen = launched(program, |name| {
@@ -212,16 +277,19 @@ fn emit_screen(
         );
     }
 
+    let theme = resolve_theme(&sc.theme, diags);
+    let themed = theme.is_some();
+
     // Render the view body up front (into `inner`) — this decides which imports
     // are needed and whether the view reads `state`. `focus_seq` assigns the
     // same Tab-order indices `collect_focusables` walked.
     let mut body = String::new();
     let mut counter = 0usize;
     let mut focus_seq = 0usize;
-    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, multi, web, &mut focus_seq, &mut counter, 1, &mut body, diags);
+    render_view_node(&sc.view, "inner", &fields, &field_ty, enums, structs, multi, web, themed, &mut focus_seq, &mut counter, 1, &mut body, diags);
 
     let has_menu = screen_has_menu(sc);
-    let status_src = emit_status_bar(sc, &focusables, &fields, enums, has_menu);
+    let status_src = emit_status_bar(sc, &focusables, &fields, enums, has_menu, themed);
     let has_bar = status_src.is_some();
     if web && has_menu {
         diags.note(
@@ -358,6 +426,14 @@ fn emit_screen(
         ("_state".to_string(), format!("&{}", ty))
     };
     out.push_str(&format!("fn view({}: {}, frame: &mut Frame) {{\n", param_name, param_ty));
+    if let Some(spec) = theme {
+        emit_theme_lets(spec, &body, has_bar || has_menu, &mut out);
+    }
+    let block = format!(
+        "Block::bordered().title({:?}){}",
+        title,
+        theme_block_suffix(themed)
+    );
     if has_menu {
         out.push_str("    let area = frame.area();\n");
         let mut parts: Vec<&str> = Vec::new();
@@ -371,9 +447,9 @@ fn emit_screen(
             parts.join(", ")
         ));
         out.push_str("    let menu_area = chunks[0];\n");
-        emit_menu_bar_draw(sc, &mut out);
+        emit_menu_bar_draw(sc, themed, &mut out);
         out.push_str("    let view_area = chunks[1];\n");
-        out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+        out.push_str(&format!("    let block = {block};\n"));
         out.push_str("    let inner = block.inner(view_area);\n");
         out.push_str("    frame.render_widget(block, view_area);\n");
         out.push_str(&body);
@@ -385,7 +461,7 @@ fn emit_screen(
     } else if has_bar {
         out.push_str("    let area = frame.area();\n");
         out.push_str("    let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);\n");
-        out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+        out.push_str(&format!("    let block = {block};\n"));
         out.push_str("    let inner = block.inner(chunks_status[0]);\n");
         out.push_str("    frame.render_widget(block, chunks_status[0]);\n");
         out.push_str(&body);
@@ -393,7 +469,7 @@ fn emit_screen(
             out.push_str(bar);
         }
     } else {
-        out.push_str(&format!("    let block = Block::bordered().title({:?});\n", title));
+        out.push_str(&format!("    let block = {block};\n"));
         out.push_str("    let area = frame.area();\n");
         out.push_str("    let inner = block.inner(area);\n");
         out.push_str("    frame.render_widget(block, area);\n");
@@ -651,14 +727,16 @@ fn validate_focusable(
     }
 }
 
-/// Bottom cyan bar: optional `Status` text on the left, then hotkey labels
+/// Bottom status bar: optional `Status` text on the left, then hotkey labels
 /// from `On Key` plus built-in Tab / Enter / Up-Down when those apply.
+/// Unthemed chrome is cyan-on-black (Turbo Pascal); a `Theme` restyles it.
 fn emit_status_bar(
     sc: &Screen,
     focusables: &[Focusable],
     fields: &HashSet<String>,
     enums: &HashSet<String>,
     has_menu: bool,
+    themed: bool,
 ) -> Option<String> {
     let items = status_hotkeys(sc, focusables);
     if sc.status.is_none() && items.is_empty() {
@@ -686,9 +764,9 @@ fn emit_status_bar(
     };
     Some(format!(
         "    frame.render_widget(Paragraph::new(Line::from(vec![{}]))\
-         .style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan)\
-         .fg(ratatui::style::Color::Black)), {area});\n",
-        spans.join(", ")
+         .style({}), {area});\n",
+        spans.join(", "),
+        chrome_style(themed)
     ))
 }
 
@@ -748,6 +826,7 @@ fn display_key(key: &str) -> String {
 /// Recursively emit the render statements for a view node into `area` (a Rust
 /// expression naming the ratatui `Rect` to draw into). Containers split their
 /// area with a `Layout`; leaves render a widget.
+#[allow(clippy::too_many_arguments)]
 fn render_view_node(
     node: &ViewNode,
     area: &str,
@@ -757,6 +836,7 @@ fn render_view_node(
     structs: &HashMap<String, &StructDef>,
     multi: bool,
     web: bool,
+    themed: bool,
     focus_seq: &mut usize,
     counter: &mut usize,
     indent: usize,
@@ -767,14 +847,16 @@ fn render_view_node(
     match node {
         // A constraint is consumed by the parent container; render the child.
         ViewNode::Constrained { child, .. } => render_view_node(
-            child, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter, indent, out,
+            child, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter, indent, out,
             diags,
         ),
         ViewNode::Text(e) => {
+            let style = if themed { ".style(theme_body)" } else { "" };
             out.push_str(&format!(
-                "{}frame.render_widget(Paragraph::new({}), {});\n",
+                "{}frame.render_widget(Paragraph::new({}){}, {});\n",
                 pad,
                 text_content(e, fields, enums),
+                style,
                 area
             ));
         }
@@ -796,7 +878,7 @@ fn render_view_node(
             for (i, child) in children.iter().enumerate() {
                 let sub = format!("chunks_{}[{}]", id, i);
                 render_view_node(
-                    child, &sub, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                    child, &sub, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                     indent, out, diags,
                 );
             }
@@ -813,6 +895,7 @@ fn render_view_node(
             if let Some(t) = title {
                 block.push_str(&format!(".title({})", text_content(t, fields, enums)));
             }
+            block.push_str(theme_block_suffix(themed));
             out.push_str(&format!("{}let block_{} = {};\n", pad, id, block));
             out.push_str(&format!(
                 "{}let inner_{} = block_{}.inner({});\n",
@@ -827,7 +910,7 @@ fn render_view_node(
                 [] => {}
                 [one] if spacing.is_none() && padding.is_none() => {
                     render_view_node(
-                        one, &inner, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                        one, &inner, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                         indent, out, diags,
                     );
                 }
@@ -838,7 +921,7 @@ fn render_view_node(
                         padding: *padding,
                     };
                     render_view_node(
-                        &col, &inner, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                        &col, &inner, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                         indent, out, diags,
                     );
                 }
@@ -898,6 +981,7 @@ fn render_view_node(
                     structs,
                     multi,
                     web,
+                    themed,
                     focus_seq,
                     counter,
                     indent,
@@ -922,6 +1006,7 @@ fn render_view_node(
                         structs,
                         multi,
                         web,
+                        themed,
                         focus_seq,
                         counter,
                         indent + 2,
@@ -941,8 +1026,8 @@ fn render_view_node(
             let idx = take_focus(focus_seq);
             out.push_str(&format!(
                 "{}frame.render_widget(Paragraph::new(state.{}.as_str())\
-                 .block(Block::bordered().title({:?})), {});\n",
-                pad, f, field, area
+                 .block(Block::bordered().title({:?}){}), {});\n",
+                pad, f, field, theme_block_suffix(themed), area
             ));
             // Place the terminal cursor at the end of the text when focused.
             let set_cursor = format!(
@@ -964,13 +1049,13 @@ fn render_view_node(
             if web {
                 out.push_str(&format!(
                     "{}frame.render_widget(Paragraph::new(state.{}.as_str())\
-                     .block(Block::bordered().title({:?})), {});\n",
-                    pad, f, field, area
+                     .block(Block::bordered().title({:?}){}), {});\n",
+                    pad, f, field, theme_block_suffix(themed), area
                 ));
             } else {
                 out.push_str(&format!(
-                    "{}state.{}_state.set_block(Block::bordered().title({:?}));\n",
-                    pad, f, field
+                    "{}state.{}_state.set_block(Block::bordered().title({:?}){});\n",
+                    pad, f, field, theme_block_suffix(themed)
                 ));
                 let show_cursor = |out: &mut String, pad: &str| {
                     out.push_str(&format!(
@@ -1143,8 +1228,17 @@ fn render_view_node(
             ));
             out.push_str(&format!(
                 "{}frame.render_widget(ratatui::widgets::Gauge::default()\
-                 .block(Block::bordered().title({:?})).ratio(ratio_{}), {});\n",
-                pad, value, id, area
+                 .block(Block::bordered().title({:?}){}){}.ratio(ratio_{}), {});\n",
+                pad,
+                value,
+                theme_block_suffix(themed),
+                if themed {
+                    ".gauge_style(ratatui::style::Style::new().fg(theme_accent))"
+                } else {
+                    ""
+                },
+                id,
+                area
             ));
         }
         // A trend line over a Vec of numbers (ratatui `Sparkline`).
@@ -1164,8 +1258,17 @@ fn render_view_node(
             ));
             out.push_str(&format!(
                 "{}frame.render_widget(ratatui::widgets::Sparkline::default()\
-                 .block(Block::bordered().title({:?})).data(&spark_{}), {});\n",
-                pad, field, id, area
+                 .block(Block::bordered().title({:?}){}){}.data(&spark_{}), {});\n",
+                pad,
+                field,
+                theme_block_suffix(themed),
+                if themed {
+                    ".style(ratatui::style::Style::new().fg(theme_accent))"
+                } else {
+                    ""
+                },
+                id,
+                area
             ));
         }
         // Bars over a Vec<Struct>: first String field labels, first number heights.
@@ -1182,8 +1285,17 @@ fn render_view_node(
                     ));
                     out.push_str(&format!(
                         "{}frame.render_widget(ratatui::widgets::BarChart::default()\
-                         .block(Block::bordered().title({:?})).data(&bars_{}).bar_width(7), {});\n",
-                        pad, field, id, area
+                         .block(Block::bordered().title({:?}){}){}.data(&bars_{}).bar_width(7), {});\n",
+                        pad,
+                        field,
+                        theme_block_suffix(themed),
+                        if themed {
+                            ".bar_style(ratatui::style::Style::new().fg(theme_accent))"
+                        } else {
+                            ""
+                        },
+                        id,
+                        area
                     ));
                 }
                 None => diags.error_once(
@@ -1257,18 +1369,23 @@ fn render_view_node(
             // Datasets (one per series, cycling colours + a legend name).
             let mut names: Vec<String> = Vec::new();
             for (k, f) in series.iter().enumerate() {
+                let color = if themed {
+                    format!("theme_series[{}]", k % 6)
+                } else {
+                    format!("ratatui::style::Color::{}", COLORS[k % COLORS.len()])
+                };
                 out.push_str(&format!(
                     "{}let dataset_{}_{} = ratatui::widgets::Dataset::default().name({:?})\
                      .marker(ratatui::symbols::Marker::Braille).graph_type(ratatui::widgets::GraphType::{})\
-                     .style(ratatui::style::Style::new().fg(ratatui::style::Color::{})).data(&pts_{}_{});\n",
-                    pad, id, k, f, graph, COLORS[k % COLORS.len()], id, k
+                     .style(ratatui::style::Style::new().fg({})).data(&pts_{}_{});\n",
+                    pad, id, k, f, graph, color, id, k
                 ));
                 names.push(format!("dataset_{}_{}", id, k));
             }
             let title = series.join(", ");
             out.push_str(&format!(
-                "{}let chart_{} = ratatui::widgets::Chart::new(vec![{}]).block(Block::bordered().title({:?}))\n",
-                pad, id, names.join(", "), title
+                "{}let chart_{} = ratatui::widgets::Chart::new(vec![{}]).block(Block::bordered().title({:?}){})\n",
+                pad, id, names.join(", "), title, theme_block_suffix(themed)
             ));
             out.push_str(&format!(
                 "{}    .x_axis(ratatui::widgets::Axis::default().bounds([xlo_{}, xhi_{}]).labels(vec![format!(\"{{:.1}}\", xlo_{}), format!(\"{{:.1}}\", xhi_{})]))\n",
@@ -1295,7 +1412,7 @@ fn render_view_node(
                 };
                 out.push_str(&format!("{}    {}{} => {{\n", pad, arm.pattern, guard));
                 render_body_nodes(
-                    &arm.body, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                    &arm.body, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                     indent + 2, out, diags,
                 );
                 out.push_str(&format!("{}    }}\n", pad));
@@ -1310,14 +1427,14 @@ fn render_view_node(
                 let kw = if i == 0 { "if" } else { "} else if" };
                 out.push_str(&format!("{}{} {} {{\n", pad, kw, c));
                 render_body_nodes(
-                    body, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                    body, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                     indent + 1, out, diags,
                 );
             }
             if let Some(b) = else_body {
                 out.push_str(&format!("{}}} else {{\n", pad));
                 render_body_nodes(
-                    b, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter,
+                    b, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                     indent + 1, out, diags,
                 );
             }
@@ -1358,6 +1475,7 @@ fn render_body_nodes(
     structs: &HashMap<String, &StructDef>,
     multi: bool,
     web: bool,
+    themed: bool,
     focus_seq: &mut usize,
     counter: &mut usize,
     indent: usize,
@@ -1367,13 +1485,13 @@ fn render_body_nodes(
     match body {
         [] => {}
         [one] => render_view_node(
-            one, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter, indent, out,
+            one, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter, indent, out,
             diags,
         ),
         many => {
             let col = ViewNode::Column { children: many.to_vec(), spacing: None, padding: None };
             render_view_node(
-                &col, area, fields, field_ty, enums, structs, multi, web, focus_seq, counter, indent,
+                &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter, indent,
                 out, diags,
             );
         }
@@ -1595,7 +1713,7 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
         for (e, split) in sc.events.iter().zip(&splits) {
             if let Some(s) = split {
                 out.push_str(&format!("                Message::{}Done({}) => {{\n", e.name, s.bind));
-                surface::emit_event_stmts(&s.cont, &e.params, "state", &fields, &field_ty, t, 5, &mut dummy, &mut out);
+                surface::emit_event_stmts_caught(&s.cont, &e.params, "state", &fields, &field_ty, t, 5, &mut dummy, &mut out);
                 out.push_str("                }\n");
             }
         }
@@ -1965,7 +2083,7 @@ fn emit_web_event_run(
     let pad = "    ".repeat(indent);
     match split {
         Some(s) => {
-            surface::emit_event_stmts(
+            surface::emit_event_stmts_caught(
                 &s.pre, &ev.params, "state", fields, field_ty, t, indent, dummy, out,
             );
             for snap in &s.snapshots {
@@ -1977,13 +2095,13 @@ fn emit_web_event_run(
             out.push_str(&format!("{}        let {} = {}.await;\n", pad, s.bind, s.call_src));
             out.push_str(&format!("{}        let mut guard = state.borrow_mut();\n", pad));
             out.push_str(&format!("{}        let state = &mut *guard;\n", pad));
-            surface::emit_event_stmts(
+            surface::emit_event_stmts_caught(
                 &s.cont, &ev.params, "state", fields, field_ty, t, indent + 2, dummy, out,
             );
             out.push_str(&format!("{}    }}\n", pad));
             out.push_str(&format!("{}}});\n", pad));
         }
-        None => surface::emit_event_stmts(
+        None => surface::emit_event_stmts_caught(
             &ev.body, &ev.params, "state", fields, field_ty, t, indent, dummy, out,
         ),
     }
@@ -2005,7 +2123,7 @@ fn emit_event_run(
 ) {
     let pad = "    ".repeat(indent);
     let emit_body = |body: &[Stmt], out: &mut String, dummy: &mut Diagnostics| {
-        surface::emit_event_stmts(body, &ev.params, "state", fields, field_ty, t, indent, dummy, out);
+        surface::emit_event_stmts_caught(body, &ev.params, "state", fields, field_ty, t, indent, dummy, out);
     };
     match split {
         // Kick-off: pre-await body (main thread), snapshot state, spawn the
@@ -2209,7 +2327,7 @@ fn tab_change_event(
         ));
     }
     let mut dummy = Diagnostics::new();
-    surface::emit_event_stmts(
+    surface::emit_event_stmts_caught(
         &ev.body, &ev.params, "state", fields, field_ty, t, indent, &mut dummy, &mut s,
     );
     s
@@ -2242,7 +2360,7 @@ fn enter_dispatch(
                 };
                 let mut dummy = Diagnostics::new();
                 let mut emit_body = |s: &mut String, extra: usize| {
-                    surface::emit_event_stmts(&ev.body, &ev.params, "state", fields, field_ty, t, indent + extra, &mut dummy, s);
+                    surface::emit_event_stmts_caught(&ev.body, &ev.params, "state", fields, field_ty, t, indent + extra, &mut dummy, s);
                 };
                 if fo.is_input() {
                     if let Some(p) = ev.params.first() {
@@ -2324,7 +2442,7 @@ fn activate_widget(
                 _ => {}
             }
         }
-        surface::emit_event_stmts(
+        surface::emit_event_stmts_caught(
             &ev.body, &ev.params, "state", fields, field_ty, t, indent, &mut dummy, &mut s,
         );
     }
@@ -2486,12 +2604,12 @@ fn emit_menu_impl(sc: &Screen, ty: &str, out: &mut String) {
     out.push_str("}\n\n");
 }
 
-fn emit_menu_bar_draw(sc: &Screen, out: &mut String) {
+fn emit_menu_bar_draw(sc: &Screen, themed: bool, out: &mut String) {
     let Some(menu) = &sc.menu else { return };
-    out.push_str(
-        "    let menu_style = ratatui::style::Style::new().bg(ratatui::style::Color::Cyan)\
-         .fg(ratatui::style::Color::Black);\n",
-    );
+    out.push_str(&format!(
+        "    let menu_style = {};\n",
+        chrome_style(themed)
+    ));
     out.push_str("    let mut menu_spans = Vec::new();\n");
     for (i, g) in menu.menus.iter().enumerate() {
         let label = menu_bar_label(&g.title);
@@ -2767,7 +2885,29 @@ fn tab_title_string(e: &Expr, fields: &HashSet<String>, enums: &HashSet<String>)
 
 /// Nested-loop path prompt emitted into a Screen program that calls
 /// `GetOpenFilename` / `GetSaveAsFilename`. Copied from TIDE's Open / Save As
-/// (Tab completes, Enter opens or browses, Esc returns `""`).
+/// (Tab completes, Enter opens or browses, Esc returns `""`). Chrome colours
+/// follow the Screen's `Theme` when one is set.
+fn file_dialog_mod(theme: Option<&crate::theme::Spec>) -> String {
+    let (bg, fg) = match theme {
+        Some(t) => (
+            crate::theme::ratatui_rgb(t.primary),
+            crate::theme::ratatui_rgb(t.chrome_fg()),
+        ),
+        None => (
+            "ratatui::style::Color::Cyan".to_string(),
+            "ratatui::style::Color::Black".to_string(),
+        ),
+    };
+    FILE_DIALOG_MOD.replacen(
+        "mod file_dialog {",
+        &format!(
+            "mod file_dialog {{\n    const DIALOG_BG: ratatui::style::Color = {bg};\n    \
+             const DIALOG_FG: ratatui::style::Color = {fg};"
+        ),
+        1,
+    )
+}
+
 const FILE_DIALOG_MOD: &str = r#"
 mod file_dialog {
     use std::path::{Path, PathBuf};
@@ -2861,12 +3001,12 @@ mod file_dialog {
         };
         frame.render_widget(Clear, rect);
         let style = Style::new()
-            .bg(ratatui::style::Color::Cyan)
-            .fg(ratatui::style::Color::Black);
+            .bg(DIALOG_BG)
+            .fg(DIALOG_FG);
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::default().fg(ratatui::style::Color::Black))
+            .border_style(Style::default().fg(DIALOG_FG))
             .style(style);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);

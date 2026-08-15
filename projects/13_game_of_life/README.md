@@ -6,7 +6,7 @@ oscillator; the Step button advances one generation, and Blinker/Glider/
 Clear reseed. All the cellular-automaton rules live in `life.vbr` and are
 unit-tested; the Window renders from state.
 
-## VBR language features tested
+## Bust language features tested
 
 **GUI (`Window`):**
 - Four `Button`s in a `Row`, each firing its own event

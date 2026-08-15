@@ -1,11 +1,11 @@
-# VBR — Language Specification
+# Bust — Language Specification
 
-Concise, normative reference for the VBR language as transpiled by this
+Concise, normative reference for the Bust language as transpiled by this
 implementation. Not a tutorial. Where a construct is unsupported it is listed in
 §12, with the diagnostic the compiler emits.
 
 **Prime directive:** VBA-flavoured syntax in, idiomatic Rust out. Where VBA
-semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rules
+semantics and Rust semantics conflict, **Rust wins** — Bust exposes Rust's rules
 (ownership, static typing, exhaustive matching) rather than hiding them.
 
 ---
@@ -20,7 +20,7 @@ semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rule
   and fields are lowercased (`myTotal` → `mytotal`); `Const` names are uppercased
   (`MaxSize` → `MAXSIZE`); `Type` (struct) and `Enum` names are kept as written
   (expected PascalCase). Underscores you write are kept (`my_total` stays
-  `my_total`), so one rule covers everything: *a VBR name is its lowercase self
+  `my_total`), so one rule covers everything: *a Bust name is its lowercase self
   on the Rust side.* Names differing only in case collapse to the same
   identifier — use one consistent spelling per name. A re-spelling emits a
   one-time `ℹ`/`⚠` note.
@@ -47,9 +47,9 @@ semantics and Rust semantics conflict, **Rust wins** — VBR exposes Rust's rule
 
 ## 2. Types
 
-Primitive VBR types map to Rust as follows:
+Primitive Bust types map to Rust as follows:
 
-| VBR        | Rust     | Notes                                            |
+| Bust        | Rust     | Notes                                            |
 |------------|----------|--------------------------------------------------|
 | `Integer`  | `i32`    | Rust's default integer (not VBA's 16-bit).       |
 | `Long`     | `i64`    |                                                  |
@@ -77,7 +77,7 @@ Compound / declared types:
 - **Named type:** a user `Type` (§7) or stdlib type (§10), used by name.
 
 `Currency` and `Variant` are rejected (§12). Where VB would coerce one numeric
-type to another silently, VBR inserts an **explicit Rust `as` cast** (e.g. a
+type to another silently, Bust inserts an **explicit Rust `as` cast** (e.g. a
 `Long` assigned into a `Double` becomes `… as f64`) — the conversion VB hides,
 made visible. Bare numeric literals adapt to their context instead (a `5` in a
 float slot is emitted `5.0`).
@@ -101,7 +101,7 @@ Dim (a, b) As (T, U) = expr      ' tuple destructuring (typed)
 - A **multi-variable `Dim`** declares several variables on one line, each with
   its own `As Type` and optional `= expr`. Because every variable is typed
   independently, VBA's `Dim a, b As Integer` — which would leave `a` an untyped
-  `Variant` — is **rejected**; VBR has no `Variant`, so write `Dim a As …, b As
+  `Variant` — is **rejected**; Bust has no `Variant`, so write `Dim a As …, b As
   Integer`. (The bare `Dim a, b = expr` remains tuple destructuring; the `As`
   is what distinguishes a declaration list from a destructure.)
 - Mutability is **inferred**: a variable is emitted `let mut` iff it is later
@@ -162,8 +162,9 @@ Module-level constants are permitted. Mutable module-level globals are **not**
 End Function
 ```
 - `Function … As T` returns `T`. `RetType` may be a primitive, named type,
-  tuple, `Result<T>`, or `Option<T>`. A `Function` with **no** `As` returns
-  nothing (`()`).
+  tuple, or `Option<T>`. A `Function` with **no** `As` returns nothing (`()`).
+  Do not write `As Result<T>` — every user function is internally fallible;
+  the visible type is the success value (§8).
 - `Sub Name(params) … End Sub` is accepted as **sugar** for a no-return
   `Function` — both become a Rust `fn` — and emits a one-time note. A `Sub` may
   not declare `As T` (it returns nothing).
@@ -260,7 +261,7 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
   (and owning a string element) is inserted for you — unlike `str.contains`,
   which is left as-is.
 - **Iterator chains** work on a `Vec`/fixed array —
-  `nums.filter(|x| x > 2).map(|x| x * x).collect()`. VBR builds the chain root
+  `nums.filter(|x| x > 2).map(|x| x * x).collect()`. Bust builds the chain root
   for you: `.iter().copied()` when the element is a Copy primitive (free), or
   `.iter().cloned()` when it owns data (`String`/struct — a real copy, the same
   explicit-cost trade as `.clone()`). The closure parameter carries the element
@@ -279,7 +280,7 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
 
 ### Text → number: `Val` (lenient) vs `CDbl`/`CLng`/`CInt` (strict)
 
-VB has two ways to read a number out of text, and VBR keeps both — they differ in
+VB has two ways to read a number out of text, and Bust keeps both — they differ in
 what they do with bad input:
 
 - **`Val(x)`** is the *forgiving* one: always a `Double`, surrounding whitespace
@@ -288,19 +289,18 @@ what they do with bad input:
   flowing into a `Long` (`Dim n As Long = Val(x)`) gets the usual automatic `as`
   cast.
 - **`CDbl(x)` / `CLng(x)` / `CInt(x)`** are the *strict* conversions (VB raised a
-  runtime "type mismatch" here): on non-numeric text they **fail**, returning a
-  `Result<_, String>` you handle with `?` (propagate) or `Match` (branch). Lower
-  to `x.trim().parse::<…>().map_err(|e| e.to_string())`, so the error joins VBR's
-  String-error convention. As with any fallible call, assigning one straight to a
-  non-`Result` `Dim` is a mismatch `rustc` catches.
+  runtime "type mismatch" here): on non-numeric text they **fail**. A normal call
+  propagates that error (§8); intercept it with `Handle`. Lower to
+  `x.trim().parse::<…>().map_err(|e| e.to_string())`, so the error joins Bust's
+  String-error convention.
 
 ```vb
 Dim n As Double = Val("  42x ")      ' 42.0 — lenient, never fails
-Dim p As Double = CDbl(userText)?    ' bails with the error on bad input
-Match CLng(field)                    ' or branch on it
-    Ok(v) => …
-    Err(e) => …
-End Match
+Dim p As Double = CDbl(userText)     ' propagates on bad input
+Dim q As Long = CLng(field) Handle err
+    Debug.Print err
+    Return
+End Handle
 ```
 
 *Scope:* the `Cxxx` forms currently cover the **string-parse** case, not VB's
@@ -330,7 +330,7 @@ Set name = value         ' shared borrow   → let name = &value;
 Set Mut name = value     ' mutable borrow  → let name = &mut value;
 ```
 
-Unlike VB — where `Set` is for object references only — **VBR's `Set` works on
+Unlike VB — where `Set` is for object references only — **Bust's `Set` works on
 any variable**. It is the one explicit way to say "point at this, don't copy it."
 
 `Set` is meaningful for **owned / non-`Copy`** types (`String`, structs, `Vec`,
@@ -362,7 +362,7 @@ greeting = Nothing                   ' → drop(greeting);   (Rust)
 ```
 
 `Nothing` is valid **only** as an assignment right-hand side on a plain variable.
-Because VBR's `Set` means *borrow* (above), **`Set x = Nothing`** is a teaching
+Because Bust's `Set` means *borrow* (above), **`Set x = Nothing`** is a teaching
 error pointing you to `x = Nothing`. VB6's `Is Nothing` test is not provided:
 Rust has no null (a dropped value is gone, not testable) — the idiomatic
 "maybe-absent, check it" tool is `Option`/`None` + `Match` (§8).
@@ -403,9 +403,9 @@ End Match
   `Point { x, y }`, `(a, b)`), bindings, and `_`. A guard is `<pattern> If <cond>`.
 - A bare name **binds** (it does not compare) — `n => …` matches everything and
   names it `n`. To compare against a variable, use a guard: `v If v = y => …`.
-- **Exhaustiveness is rustc's job**: there is no forced catch-all. For a `Result`,
-  covering `Ok`/`Err` is complete; a missing case is a compile error that names
-  exactly what you left out.
+- **Exhaustiveness is rustc's job**: there is no forced catch-all. For a `Raw`
+  `Result`, covering `Ok`/`Err` is complete; a missing case is a compile error
+  that names exactly what you left out.
 - Name bindings should be written lowercase — that's how the body refers to
   them. The pattern is verbatim Rust, so `Ok(runId)` keeps `runId`; the body,
   however, lowercases names (`runId` → `runid`), so a mixed-case binding and its
@@ -453,7 +453,7 @@ when `Log` is used — `[14:32:05.887 INFO ] message`. It composes with `&` exac
 like `Debug.Print`, and is available everywhere — plain code, functions, methods,
 and surface events. It's the diagnostic channel for when stdout is taken: a
 **`Screen`** draws into the terminal, so `Debug.Print` there scribbles on the UI
-(VBR warns and points you at `Log`); `Log` writes to the file instead, so
+(Bust warns and points you at `Log`); `Log` writes to the file instead, so
 `tail -f build/vbr.log` in another terminal shows a running app's trace.
 
 Bare `Log expr` is `INFO`; **`Log.Debug` / `Log.Info` / `Log.Warn` / `Log.Error`**
@@ -532,49 +532,79 @@ End Enum
 
 ## 8. Error model
 
-VBR has no `On Error` — no exceptions, no jumps. **Failure is a value.** A
-fallible function declares `As Result<T, E>` and returns `Ok(v)` on success or
-`Err(e)` on failure. The caller receives that `Result` — a value that is
-*either* `Ok` or `Err`, not a bare `T` — and **cannot silently ignore it**.
-`As Option<T>` (`Some`/`None`) is the same idea for "a value, or nothing."
+**Rule:** errors propagate automatically unless intercepted at the producing call.
 
-`Result<T, E>` is a real generic type — the error is a **typed value**, exactly
-as in Rust. `E` can be a `String`, or your own enum (`Result<User, ParseError>`),
-etc. **`Result<T>` is shorthand for `Result<T, String>`** — the easy path for
-beginners, no lie about Rust. `Err("…")` coerces the string literal to `String`
-when `E` is `String`; with a typed `E` you construct the variant: `Err(ParseError.TooLong)`.
-A fallible action that returns *nothing* on success uses `Result<()>` with
-`Return Ok(())` (`()` is the unit value).
+Failure is a value, not an exception. Propagation is implicit. Handling is local.
+Ordinary Bust never writes `Result`, `?`, `Ok`, `Err`, or `.Unwrap()`.
 
-> `?` note: Rust's `?` converts the error via `From`, which VBR can't generate.
-> So `?` works when the inner error type **matches** the enclosing function's `E`
-> (or both are `String`). Mixing different typed errors with `?` isn't supported
-> yet — handle those with `Match`.
+Every user `Function` / `Sub` is internally fallible. The visible return type is
+the success value. The channel is `Result<T, String>` so `vbr run file.vbr` stays
+bare `rustc`. Infallible builtins stay infallible (`Trim`, `Abs`, `+`).
 
-A `Result` at the call site must be **handled**, **propagated**, or
-**unwrapped**:
+`Option` is separate. Absence is not failure. Do not auto-`?` `Option`.
 
-- **Handle it** — `Match` over `Ok`/`Err` (or `Some`/`None`):
-  ```
-  Match Divide(10, 2)
-      Ok(value) => Use(value)       ' success — value is the T
-      Err(message) => Report(message) ' failure — message is the error
-  End Match
-  ```
-- **Propagate it — `?`** — `Dim x As Long = MightFail()?` means: *if it's `Err`,
-  return that error from the current function immediately; if it's `Ok`, take the
-  value and continue.* It is shorthand for the "unwrap on success / early-return
-  on failure" pattern, and is the idiomatic way to pass a failure up to whoever
-  called you. **`?` is only valid inside a function that itself returns `Result`**
-  (the propagated error needs somewhere to go).
-- **Unwrap it — `.Unwrap()`** — returns the value, or panics (crashes) on `Err`.
-  Allowed, but flagged as training wheels; avoid in real code.
+```vb
+Function LoadNumber(path As String) As Long
+    Dim text As String = FileSystem.Read(path)
+    Return CLng(text)
+End Function
+```
 
-Rule of thumb: use `?` when handling the failure isn't *this* function's job
-(push it up); use `Match` at the level that knows how to recover or report.
+A normal call is an implicit `?`. The Bust variable holds `T`, not `Result<T>`.
+`Return value` is success. `RaiseError` is failure.
 
-Silently discarding a returned `Result` (calling it as a bare statement) is
-rejected. `On Error …` is also rejected, with guidance toward `Result`.
+### The four call forms
+
+| Form | Meaning |
+|------|---------|
+| `a = MyFunc()` | propagate |
+| `a = MyFunc() Handle err` … `End Handle` | intercept this call |
+| `a = Raw MyFunc()` | take the `Result` as data |
+| `RaiseError "…"` | fail from here |
+
+```vb
+a = MyFunc()                              ' propagate
+
+a = MyFunc() Handle err                   ' intercept
+    Debug.Print err
+    Return
+End Handle
+
+r = Raw MyFunc()                          ' Result as a value
+
+If b = 0 Then RaiseError "cannot divide by zero"
+```
+
+No `Try`/`Catch` region. No global `Err`. `On Error` stays rejected.
+
+`Handle` is postfix on **one call**, at statement level. Nested fallible calls
+inside that call are a teaching error — intercept each call separately.
+
+**Value form** (`a = F() Handle err`): every path must diverge (`Return`,
+`Exit For`, `Continue`, `RaiseError`) or produce a replacement `T`.
+**Statement form** (`F() Handle err`): falling through consumes the error
+(explicit swallow). Bare `F()` still propagates. `Handle` on an infallible call
+is a teaching error.
+
+`Raw` cannot fail at the Bust layer; inspect with `Match` or inline Rust.
+`Handle` and `Raw` do not combine.
+
+`?`, `As Result<T>` on functions, `Return Ok(…)`, `Return Err(…)`, and
+`.Unwrap()` leave ordinary Bust. `Match` stays for `Option`, enums, `Await`,
+and `Raw` results.
+
+### Top-level sinks
+
+Same channel everywhere. Only the last catcher changes.
+
+| Boundary | Unhandled error |
+|----------|-----------------|
+| `Main` | print, exit 1 |
+| `State` / `init()` | print `could not start: …`, exit 1 |
+| Event, timer, `Await` continuation, Godot `On …` | event ends, app keeps running |
+
+Host/runtime I/O (`terminal.draw()?`, stdin died) stays fatal and does not use
+this sink.
 
 ---
 
@@ -590,25 +620,25 @@ Dim x As T = Rust
     <raw Rust>
 End Rust
 ```
-- **Inputs:** in-scope VBR variables are available by their emitted (lowercase)
+- **Inputs:** in-scope Bust variables are available by their emitted (lowercase)
   Rust name — `myTotal` is `mytotal`. No declaration needed.
 - **Output:** the block's value is its last line **without** a semicolon (Rust
   tail expression). A trailing `;` discards the value.
 - **Multiple outputs:** return a tuple; bind with `Dim a, b = Rust … End Rust`.
-- **Typed form** (`Dim x As T = …`): the block must produce a VBR-expressible
-  type `T`, which crosses fully back into VBR.
+- **Typed form** (`Dim x As T = …`): the block must produce a Bust-expressible
+  type `T`, which crosses fully back into Bust.
 - The block body is captured **verbatim** (not tokenised); terminated by a line
   that is exactly `End Rust`.
 
 **Opaque handles** — `Dim name = Rust … End Rust` with **no `As`**:
-- Hold a value whose type is not VBR-expressible; Rust infers and owns the type.
+- Hold a value whose type is not Bust-expressible; Rust infers and owns the type.
 - The handle's **only** legal use is being spliced into a later inline-Rust block
   (by name). Any other appearance — printing, comparison, assignment, passing to
   a procedure — is rejected (§12).
-- Confined to one function (it cannot cross a procedure boundary, since VBR has
+- Confined to one function (it cannot cross a procedure boundary, since Bust has
   no type name for it). Within the function it may flow between any number of
   Rust blocks, persisting state between them.
-- Emitted `let mut` (VBR cannot see whether a later block mutates it).
+- Emitted `let mut` (Bust cannot see whether a later block mutates it).
 
 An inline block may use an external crate: declare it with `Use` (§13) and run
 the project with `runproject`.
@@ -632,9 +662,9 @@ End Python
 - **Several outputs:** a typed destructure — `Dim (name, xs) As (String, Vec<Double>)
   = Python … End Python` — extracts a Python tuple in one call.
 - **Opaque `PyObject` handles:** `Dim df = Python … End Python` with **no `As`**
-  holds a Python value VBR has no type for (a DataFrame, a model). Its only use is
+  holds a Python value Bust has no type for (a DataFrame, a model). Its only use is
   being passed back into another block.
-- **Inputs:** `Python(a, b) … End Python` injects the VBR variables `a`, `b`
+- **Inputs:** `Python(a, b) … End Python` injects the Bust variables `a`, `b`
   (scalars are converted; a `PyObject` handle is re-borrowed) so the Python body
   can use them by name.
 - Needs the project build; requires a Python interpreter (with dev headers)
@@ -652,13 +682,14 @@ Provided by the `vbr_stdlib` crate, auto-imported when referenced. Calls are
 
 - **Stateless namespaces:** `FileSystem`, `Regex`, `Http` — module-style
   functions. `Http.Get(url)` / `Http.Post(url, body)` are blocking, one-shot
-  requests returning `Result<String>` (the body); for a reused client/session,
-  use inline Rust or a `.rs` module.
+  requests; the visible type is `String` (the body). They can fail — a normal
+  call propagates (§8). For a reused client/session, use inline Rust or a
+  `.rs` module.
 - **Wrapper types:** `DateTime`, `Json` — opaque value types with methods
-  (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`, `j.GetString(...)`,
+  (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`, `j.Get_String(...)`,
   etc.). Static calls use `.` → `::`; instance calls use `.` → `.`.
 - **`DataFrame`** — a native table backed by the **polars** crate. Read/inspect/
-  transform/write, with **column formulas** (`df.WithColumn("total", price * qty)`,
+  transform/write, with **column formulas** (`df.With_Column("total", price * qty)`,
   `df.Filter(age > 30 And active)`) that read like Excel array formulas and lower
   to real polars expressions. Full surface in `dataframe_spec.md`.
 
@@ -696,12 +727,11 @@ These parse but are deliberately refused, each with guidance:
 | `Variant`                       | Types must be known at compile time; declare the concrete type. |
 | `Date`                          | Use `DateTime` from the stdlib (a bare date is just a number). |
 | `ReDim`                         | Use a `Vec` (grows dynamically).               |
-| `On Error …`                    | Use `Result<T>` + `Err`/`?`.                   |
+| `On Error …`                    | Errors propagate automatically; intercept a call with `Handle err`. |
 | Mutable module-level globals    | Use `Const`, or pass state / wrap it in a `Type`. |
 | `Option Base` / `Option Explicit` | Rust is always zero-indexed and explicit.    |
 | `Exit` (other than Do/For/Function) | Only those three targets.                  |
-| Ignoring a returned `Result`    | Must propagate or handle.                       |
-| `?` outside a `Result`/`Option` function | Propagation needs a fallible caller; use `Match`, or declare `As Result<T>`. |
+| `?` / `As Result<T>` / `Return Ok` / `Return Err` / `.Unwrap()` | Ordinary Bust: a call propagates; `Handle err` intercepts; `RaiseError` fails; `Raw F()` yields the box. |
 | Passing a literal to `ByRef`    | Needs an assignable place.                      |
 | Declaring a struct uninitialised | Construct fully at `Dim`.                      |
 | Indexing where a bound/type is unknown | Compile-time error with explanation.     |
@@ -768,7 +798,7 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
 - A sibling **`.rs` file is a hand-written module**, included **verbatim** (it
   skips transpilation) and called with the same qualified syntax —
   `Text.Shout(s)` → `crate::text::shout(s)`. This is the in-project "wrapper"
-  for stateful or unwrapped Rust, with no published crate required. Since VBR
+  for stateful or unwrapped Rust, with no published crate required. Since Bust
   doesn't see its signatures, argument types must match the Rust side directly.
 - Generated layout is **visible and explorable** under `build/`
   (`src/main.rs`, `src/<module>.rs`, `Cargo.toml`); regenerated each run.
@@ -800,7 +830,7 @@ Use PyYAML 6.0 As yaml    →   import yaml       +   PyYAML==6.0   (requirement
 
 ## 14. Alternative targets — Python & C
 
-VBR is **Rust-first**: the semantics are Rust's and the language is defined around
+Bust is **Rust-first**: the semantics are Rust's and the language is defined around
 Rust (§1–§13). As an additive bolt-on, the *same source* can also transpile to:
 
 - **`vbr py <file>`** — idiomatic **Python** (core language **and** the full

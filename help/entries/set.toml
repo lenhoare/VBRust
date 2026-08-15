@@ -15,7 +15,7 @@ summary = "Binds a name that borrows a value instead of copying it."
 remarks = """
 Where `Dim` makes an independent variable, `Set` makes a name that *points at* an existing value — no copy is made. Both names then see the same data. This matters for big values like strings or `Vec`s where copying would be wasteful.
 
-`Set Mut` borrows *mutably*: changes through the new name affect the original. (This is VBR's take on classic VB's `Set` for object references, made explicit about sharing versus copying.)
+`Set Mut` borrows *mutably*: changes through the new name affect the original. (This is Bust's take on classic VB's `Set` for object references, made explicit about sharing versus copying.)
 """
 
 example = """

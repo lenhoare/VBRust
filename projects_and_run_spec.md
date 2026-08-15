@@ -1,13 +1,13 @@
-# VBR Projects & Run Modes — Spec
+# Bust Projects & Run Modes — Spec
 
-How VBR programs are organised into projects, and how they're built and run.
+How Bust programs are organised into projects, and how they're built and run.
 (Companion to `inline_rust_spec.md` and `stdlib_spec.md`.)
 
 ---
 
 ## Project model
 
-A **VBR project is a folder of `.vbr` files.**
+A **Bust project is a folder of `.vbr` files.**
 
 - `main.vbr` (the file with `Function Main()`) is the **entry point**.
 - Every other `.vbr` file is a **module**, named by the file:
@@ -55,7 +55,7 @@ function or reading a private `Const` from another file says to mark it
 
 One deliberate limit:
 
-- **A verbatim `.rs` module has no VBR interface** — calls into it stay
+- **A verbatim `.rs` module has no Bust interface** — calls into it stay
   name-qualified only, and its argument types are matched by hand (as before).
 
 Example: `examples/life_project/` (a miniature Game of Life split into
@@ -123,7 +123,7 @@ initialiser (`Dim db As Database = Store.OpenDb()`) gets the clean-bail
 
 A project is a folder of files that become Rust modules — so they needn't all be
 `.vbr`. **A `.rs` file alongside them is included verbatim as a module**, called
-from VBR exactly like any other module (the qualified-call machinery doesn't care
+from Bust exactly like any other module (the qualified-call machinery doesn't care
 it's hand-written Rust — `.rs` files just skip the transpile step).
 
 ```
@@ -147,7 +147,7 @@ pub fn get(s: &Session, url: &str) -> Result<String, String> {
 ```
 ```vb
 Dim s = Http.Connect()
-Dim body As String = Http.Get(s, "https://example.com").Unwrap()
+Dim body As String = Http.Get(s, "https://example.com")
 ```
 
 The persistent `Session` (connection pool, cookies, auth) lives in `s` and is
@@ -161,9 +161,9 @@ as the user gets comfortable, until one day it's just a Rust project.
 None of these require a published wrapper:
 
 - **Quick / throwaway** → an inline `Rust … End Rust` block (stateless), or an
-  **opaque handle** threaded across blocks (stateful, with VBR driving the loop):
+  **opaque handle** threaded across blocks (stateful, with Bust driving the loop):
   ```vb
-  Dim client = Rust  reqwest::blocking::Client::new()  End Rust   ' opaque, held by VBR
+  Dim client = Rust  reqwest::blocking::Client::new()  End Rust   ' opaque, held by Bust
   For Each url In urls
       Dim body As String = Rust
           client.get(url).send().unwrap().text().unwrap()         ' reuses the same client
@@ -172,8 +172,8 @@ None of these require a published wrapper:
   Next
   ```
   `client` is declared once, lives for the whole function, and every iteration
-  reuses it — VBR owns the control flow, the Rust object just gets handed to each
-  block. (An opaque handle is a value VBR holds but can't interpret — it can only
+  reuses it — Bust owns the control flow, the Rust object just gets handed to each
+  block. (An opaque handle is a value Bust holds but can't interpret — it can only
   carry it and pass it back into Rust blocks.)
 - **Reusable in this project** → a **`.rs` module file** you write yourself (above).
 - **Worth sharing with all VBers** → *then* it graduates into the curated stdlib.
@@ -228,17 +228,17 @@ bolt-ons to the Rust-first language (full detail in `targets_spec.md`).
 
 ### `vbr graduate <file.vbr>` — the journey out — **BUILT 2026-07-12**
 
-VBR's end goal is that you stop needing it: the generated Rust *is* the
+Bust's end goal is that you stop needing it: the generated Rust *is* the
 curriculum, and graduation is the day one file of it becomes yours.
 
 - **What it does:** the module's generated `.rs` — *exactly* what `build/` has
   been compiling all along; no rewriting, no AI, no drift — is written next to
   the sources (with a short header), and the `.vbr` is retired to
   `<name>.vbr.graduated`. From then on you maintain that file in Rust; the
-  remaining VBR modules keep calling it (a graduated module is just a verbatim
+  remaining Bust modules keep calling it (a graduated module is just a verbatim
   `.rs` module, which projects already support).
 - **The retired file works:** `life.vbr.graduated` beside `life.rs` supplies
-  the module's **VBR interface** at build time, so other `.vbr` modules keep
+  the module's **Bust interface** at build time, so other `.vbr` modules keep
   the full argument treatment (`ByRef` → `&mut`, collections borrow) when
   calling it — the calls they generate are identical before and after
   graduation. Keep it until the whole project graduates.
@@ -246,9 +246,9 @@ curriculum, and graduation is the day one file of it becomes yours.
   `cargo build` (`cargo test` when `.test.vbr` siblings exist). Failure rolls
   everything back — the `.vbr` returns, the `.rs` is removed, nothing changed.
 - **The entry graduates last.** `vbr graduate main.vbr` refuses while any
-  module is still VBR; once they're all Rust it verifies, writes `main.rs`,
+  module is still Bust; once they're all Rust it verifies, writes `main.rs`,
   and hands over: `build/` is now a plain cargo project that compiles exactly
-  these files — `cd build && cargo run`, and VBR's part of the story is done.
+  these files — `cd build && cargo run`, and Bust's part of the story is done.
 - **`.test.vbr` files don't graduate** — the `Test` blocks are the readable
   spec, and they keep running against graduated modules via `vbr test`.
 
@@ -298,7 +298,7 @@ Same thread as inline Rust and the visible project: **seamless to run, but hones
 and explorable.** The magic is in the convenience (`runproject` does everything),
 never in concealment. For a teaching transpiler, the visible-but-effortless
 project beats a hidden cache — hiding Cargo forever would undercut the very thing
-VBR is for (the transition to Rust).
+Bust is for (the transition to Rust).
 
 ---
 

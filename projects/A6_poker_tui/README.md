@@ -28,7 +28,7 @@ stage always give the same number.
   signature), so "better hand" is just `>` — and equity simulation compares
   scores directly
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - Three `Input` widgets (card text, players) with `On Submit`; Tab cycles

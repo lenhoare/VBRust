@@ -1,4 +1,4 @@
-' A Godot 2D node written in VBR — the "moving square" (Godot slice 1).
+' A Godot 2D node written in Bust — the "moving square" (Godot slice 1).
 '
 ' A `Node2D` block is one Godot class: Godot instantiates it, drops it into a
 ' scene, and calls its lifecycle events. Unlike a Window/Screen (a whole app),

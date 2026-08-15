@@ -18,11 +18,11 @@ Function Main()
     Dim list As Json = Json.Array()
 
     Dim first As Json = Json.Object()
-    first.SetString("name", "Ada")
+    first.Set_String("name", "Ada")
     list.Push(first)
 
-    Debug.Print list.ToString().Unwrap()   ' [{"name":"Ada"}]
+    Debug.Print list.To_String()   ' [{"name":"Ada"}]
 End Function
 """
 
-see_also = ["json", "json.object", "json.tostring"]
+see_also = ["json", "json.object", "json.to_string"]

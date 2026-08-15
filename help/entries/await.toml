@@ -17,9 +17,9 @@ summary = "Runs slow work without freezing a Window or Screen."
 remarks = """
 `Await` belongs inside a surface **event** (a `Window` or `Screen` handler). It lets a slow call — a web request, a heavy computation — run off to one side so the interface stays live, then continues when the result lands.
 
-The usual shape: set a "working…" state first (the view redraws at once), then `Match` on the awaited result to fold the outcome back into state. It reads like ordinary sequential code, but nothing blocks.
+The usual shape: set a "working…" state first (the view redraws at once), then `Match Await` on the call to fold Ok/Err into state. A failed call hits the event sink unless you `Handle` it. It reads like ordinary sequential code, but nothing blocks.
 
 `Await` only makes sense in that event context, so there is no standalone example here — see the GUI / TUI guide for a full one.
 """
 
-see_also = ["match"]
+see_also = ["match", "handle"]

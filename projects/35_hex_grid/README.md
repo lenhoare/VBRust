@@ -2,7 +2,7 @@
 
 Builds a repeating hexagonal grid pattern (the chicken-wire / interlocking
 hexagon look) as text rows. This project exists to exercise the **C
-target** (`vbr c`): the same VBR source transpiles to a single
+target** (`vbr c`): the same Bust source transpiles to a single
 self-contained `.c` that compiles with plain `cc`, and its output is
 checked **byte-for-byte against the Rust build** (the ground-truth
 discipline from `targets_spec.md`).
@@ -32,7 +32,7 @@ The C output is **byte-identical** to the Rust output. The generated C is
 idiomatic: a monomorphised `Vec_str` with growable push, `vbr_concat`
 helper, `long long` for Long, `size_t` loops.
 
-## VBR language features tested
+## Bust language features tested
 
 **C target (the point of the project):**
 - `vbr c` single-file transpilation → self-contained `.c`

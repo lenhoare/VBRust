@@ -204,7 +204,7 @@ fn c_http_roundtrip() {
     // GET: the server replies a fixed body.
     let get_url = serve_once(|_req| "hello-from-c-get".to_string());
     let get_src = format!(
-        "Function Main()\n    Debug.Print Http.Get(\"{get_url}\").Unwrap()\nEnd Function\n"
+        "Function Main()\n    Debug.Print Http.Get(\"{get_url}\")\nEnd Function\n"
     );
     let out = compile_build_run(&get_src, "http_get");
     assert_eq!(out, "hello-from-c-get\n", "GET roundtrip");
@@ -223,7 +223,7 @@ fn c_http_roundtrip() {
         "Function Main()\n    \
          Dim headers As HashMap<String, String>\n    \
          headers.insert(\"Authorization\", \"Bearer xyz\")\n    \
-         Debug.Print Http.Post(\"{post_url}\", \"body123\", headers).Unwrap()\nEnd Function\n"
+         Debug.Print Http.Post(\"{post_url}\", \"body123\", headers)\nEnd Function\n"
     );
     let out = compile_build_run(&post_src, "http_post_rt");
     assert_eq!(out, "posted:body123|auth:Bearer xyz\n", "POST roundtrip");

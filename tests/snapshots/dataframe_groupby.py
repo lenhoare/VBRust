@@ -1,4 +1,4 @@
-# GroupBy and aggregation — group rows by a key column and compute per-group
+# Group_By and aggregation — group rows by a key column and compute per-group
 # summaries with the same Excel-style formulas, plus whole-column scalar
 # aggregations (a single Double out). See dataframe_spec.md §4b.
 

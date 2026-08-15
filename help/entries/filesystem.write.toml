@@ -12,14 +12,14 @@ path | String | The path of the file to write.
 text | String | The text to write. Any existing content is replaced.
 """
 
-returns = "Result — Ok on success, or Err(message) if the file can't be written. Creates the file if it doesn't exist."
+returns = "Nothing on success. Fails if the file can't be written. Creates the file if it doesn't exist."
 
 example = """
 Function Main()
-    FileSystem.Write("out.txt", "first line").Unwrap()
-    FileSystem.Write("out.txt", "replaced").Unwrap()   ' overwrites
+    FileSystem.Write("out.txt", "first line")
+    FileSystem.Write("out.txt", "replaced")   ' overwrites
 
-    Debug.Print FileSystem.Read("out.txt").Unwrap()    ' replaced
+    Debug.Print FileSystem.Read("out.txt")    ' replaced
 End Function
 """
 

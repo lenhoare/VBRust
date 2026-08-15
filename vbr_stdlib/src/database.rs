@@ -11,8 +11,8 @@
 //!
 //! Query rows come back as `Json` objects (one per row, keyed by column name),
 //! carrying each column's natural storage type: INTEGER → a JSON integer,
-//! REAL → a float, TEXT → a string, NULL → JSON null. So `GetInt`/`GetFloat`/
-//! `GetString` read typed values directly, and `IsNull` spots a NULL.
+//! REAL → a float, TEXT → a string, NULL → JSON null. So `Get_Int`/`Get_Float`/
+//! `Get_String` read typed values directly, and `Is_Null` spots a NULL.
 
 use crate::json::Json;
 

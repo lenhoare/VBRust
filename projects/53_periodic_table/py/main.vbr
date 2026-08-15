@@ -10,7 +10,7 @@
 ' byte-for-byte for this deterministic program.
 Function Main()
     ' Prove the vbrpy FileSystem package works on the Python target.
-    Dim lines As Vec<String> = FileSystem.ReadLines("/home/len/dev/vbrprojects/VBRust/projects/53_periodic_table/periodictable.csv").Unwrap()
+    Dim lines As Vec<String> = FileSystem.Read_Lines("/home/len/dev/vbrprojects/VBRust/projects/53_periodic_table/periodictable.csv")
 
     Dim elements As Vec<Element>
     elements.Push(Element { number: 1, symbol: "H", name: "Hydrogen", mass: 1.008, state: "gas" })

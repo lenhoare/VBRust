@@ -1,9 +1,9 @@
-# A3 — Bank Account (Type + Result)
+# A3 — Bank Account (Type + Handle)
 
-A small bank-account demo that exercises VBR's **`Type` (struct)** and
-**`Result<T>`** error handling — the two features VB6 has no direct
-equivalent for (a struct is like a VB6 `Type` that can also carry *methods*;
-`Result` replaces the old `On Error GoTo` jumps with errors-as-values).
+A small bank-account demo that exercises Bust's **`Type` (struct)** and
+error handling — the two features VB6 has no direct equivalent for (a struct
+is like a VB6 `Type` that can also carry *methods*; errors propagate
+automatically, and `Handle err` intercepts a call).
 
 ## What it does
 
@@ -11,7 +11,7 @@ Opens an account with a starting balance, deposits, withdraws, and tries an
 overdraft — which is refused — printing the running balance after each step.
 The logic lives in `bank.vbr` and is driven by a thin `main.vbr`.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Type` / `End Type` — a struct with fields, built with the
   `Account { owner: ..., balance: ... }` literal constructor
@@ -19,11 +19,9 @@ The logic lives in `bank.vbr` and is driven by a thin `main.vbr`.
   `acc.Deposit(50)`
 - `Me` as the receiver; `&mut self` is inferred automatically because the
   method body assigns to `Me.Balance`
-- `Result<Long>` returns with `Ok(...)` / `Err("...")` — no exceptions
-- Handling a `Result` with `Match` (`Ok(...)` / `Err(...)` arms) and with
-  `.Unwrap()`
-- A free helper (`TryWithdraw`) that flattens a `Result` to a `Boolean`
-  using `Return` inside a `Match` arm
+- `RaiseError` to refuse an overdraft; a normal call propagates; `Handle err`
+  intercepts at the call site
+- A free helper (`TryWithdraw`) that turns a fallible withdraw into a `Boolean`
 - `ByRef` parameters (`TryWithdraw(ByRef acc As Account, ...)`) — writes flow
   back to the caller
 

@@ -5,7 +5,7 @@ bounces diagonally inside a fixed field, reflecting off the walls, with a
 corner-hit counter. Driven by an `Every` timer. All the motion math lives in
 `bdvd.vbr` and is unit-tested; main.vbr only renders it.
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - `Every 150 Tick` — timer-driven animation (the screen redraws on its own)

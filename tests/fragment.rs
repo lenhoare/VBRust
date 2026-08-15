@@ -1,4 +1,4 @@
-//! Fragment mode (`compile_fragment`) — the core of embedding VBR in Rust. A
+//! Fragment mode (`compile_fragment`) — the core of embedding Bust in Rust. A
 //! fragment is a statement list, not a whole program; it's transpiled by
 //! wrapping in `Function Main()`, compiling, and lifting out the body. These
 //! tests pin that it produces bare, dedented Rust statements (no `fn` wrapper),
@@ -20,7 +20,7 @@ fn plain_statements_become_a_bare_block() {
 
 #[test]
 fn an_unknown_name_passes_through_for_rustc_to_check() {
-    // COHERENCE GUARD: `compute` isn't defined in VBR — at the embedding seam it's
+    // COHERENCE GUARD: `compute` isn't defined in Bust — at the embedding seam it's
     // the surrounding Rust, so fragment mode must emit the call and let rustc
     // check it. If this ever fails, something (likely task #24, an "unknown
     // function" diagnostic) has started rejecting unknown names WITHOUT exempting

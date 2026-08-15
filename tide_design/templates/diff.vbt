@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Two memos side by side. Diff, merge, before/after.
 Screen Diff
     Title "Compare"

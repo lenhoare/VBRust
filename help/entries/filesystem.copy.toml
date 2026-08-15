@@ -12,14 +12,14 @@ source | String | The path of the file to copy.
 dest | String | The path to copy it to (overwritten if it exists).
 """
 
-returns = "Result — Ok on success, or Err(message) if the source is missing or the copy fails."
+returns = "Nothing on success. Fails if the source is missing or the copy fails."
 
 example = """
 Function Main()
-    FileSystem.Write("a.txt", "data").Unwrap()
-    FileSystem.Copy("a.txt", "b.txt").Unwrap()
+    FileSystem.Write("a.txt", "data")
+    FileSystem.Copy("a.txt", "b.txt")
 
-    Debug.Print FileSystem.Read("b.txt").Unwrap()   ' data
+    Debug.Print FileSystem.Read("b.txt")   ' data
 End Function
 """
 

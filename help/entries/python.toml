@@ -1,0 +1,47 @@
+id = "python"
+title = "Python … End Python"
+category = "Escape hatches"
+kind = "keyword"
+
+syntax = """
+Dim <name> As <Type> = Python
+    <python>
+End Python
+
+Dim <name> As <Type> = Python(<vars>)
+    <python>
+End Python
+
+Dim <handle> = Python
+    <python>
+End Python
+"""
+
+summary = "Runs a block of real CPython and brings a typed value back."
+
+remarks = """
+Where a `Rust` block splices *source*, a `Python … End Python` block *runs* real CPython at your program's runtime (through pyo3). Use it to reach libraries that have no Rust equivalent you'd want to rewrite — numpy, pandas, and the rest.
+
+The last line is the value, extracted into the type you annotate (`As Double`, `As String`, …). To get several values at once, return a Python tuple and destructure it: `Dim (name, total) As (String, Double) = Python`.
+
+Each block is its own scope. Bust variables are **not** automatically in scope — list the ones you need after `Python`: `Python(data, n)`. A `Dim` with **no `As`** holds an opaque handle (a DataFrame, a trained model) you can pass back into a later block the same way.
+
+A Python block needs a Python installed on the machine, and it is pulled into the build only when you actually write one. For *tables* specifically, prefer the native `DataFrame` from the standard library — it needs no Python at all.
+"""
+
+example = """
+Function Main()
+    Dim greeting As String = Python
+        name = "world"
+        f"hello, {name}"
+    End Python
+    Debug.Print greeting
+
+    Dim answer As Integer = Python
+        6 * 7
+    End Python
+    Debug.Print "the answer is " & answer
+End Function
+"""
+
+see_also = ["rust", "dim", "dataframe"]

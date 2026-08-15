@@ -13,14 +13,14 @@ fn addidea(db: &Database) -> Result<i64, String> {
     db.execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", vec![])?;
     db.execute("INSERT INTO ideas (text) VALUES (?)", vec!["a fresh idea".to_string()])?;
     let rows: Vec<Json> = db.query("SELECT COUNT(*) AS n FROM ideas", vec![])?;
-    Ok(rows[0].get_int("n")?)
+    Ok(rows[0].get_int("n"))
 }
 
-fn bonuspoints() -> i64 {
+fn bonuspoints() -> Result<i64, String> {
     let mut weights: HashMap<String, i64> = HashMap::new();
     weights.insert("base".to_string(), 3);
     weights.insert("streak".to_string(), 2);
-    weights.len() as i64
+    Ok(weights.len() as i64)
 }
 
 use vbr_stdlib::{Json, Database};
@@ -39,7 +39,7 @@ struct Ideas {
 
 impl Ideas {
     fn init() -> Result<Ideas, String> {
-        let db = Database::open("ideas.db")?;
+        let db = Database::open("ideas.db")??;
         let status = "a = add an idea, q = quit".to_string();
         let count = 0;
         Ok(Ideas {
@@ -78,13 +78,23 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('a') => {
-                        match addidea(&state.db) {
-                            Ok ( n ) => {
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                #[allow(unused_mut)]
+                                let mut n: i64;
+                                n = match addidea(&state.db) {
+                                    Ok(__vbr_ok) => __vbr_ok,
+                                    Err(e) => {
+                                        state.status = format!("error: {}", e);
+                                        return Ok(());
+                                    }
+                                };
                                 state.count = n;
-                                state.status = format!("added — {} ideas now (+{} bonus)", n, bonuspoints());
-                            }
-                            Err ( e ) => {
-                                state.status = format!("error: {}", e);
+                                state.status = format!("added — {} ideas now (+{} bonus)", n, bonuspoints()?);
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
                             }
                         }
                     }

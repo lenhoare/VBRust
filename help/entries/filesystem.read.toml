@@ -11,17 +11,14 @@ arguments = """
 path | String | The path of the file to read.
 """
 
-returns = "Result<String> — Ok with the file's contents, or Err(message) if the file can't be read (missing, no permission)."
+returns = "String — the file's contents. Fails if the file can't be read (missing, no permission)."
 
 example = """
 Function Main()
-    FileSystem.Write("greeting.txt", "hello").Unwrap()
-
-    Match FileSystem.Read("greeting.txt")
-        Ok(text) => Debug.Print text
-        Err(e)   => Debug.Print "could not read: " & e
-    End Match
+    FileSystem.Write("greeting.txt", "hello")
+    Dim text As String = FileSystem.Read("greeting.txt")
+    Debug.Print text
 End Function
 """
 
-see_also = ["filesystem", "filesystem.readlines", "filesystem.write", "result"]
+see_also = ["filesystem", "filesystem.read_lines", "filesystem.write", "handle"]

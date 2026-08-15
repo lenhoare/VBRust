@@ -1,4 +1,4 @@
-Bitmap message (VBR):
+Bitmap message (Bust):
      VBRVB     
   RVB     RVB  
 RVB         RVB

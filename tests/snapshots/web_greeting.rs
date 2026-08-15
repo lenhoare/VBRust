@@ -32,17 +32,41 @@ impl Component for Greeter {
     fn update(&mut self, _ctx: &Context<Self>, message: Self::Message) -> bool {
         match message {
             Message::Rename(value) => {
-                if self.shout {
-                    self.name = value.to_uppercase();
-                } else {
-                    self.name = value;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        if self.shout {
+                            self.name = value.to_uppercase();
+                        } else {
+                            self.name = value;
+                        }
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
                 }
             }
             Message::SetShout(value) => {
-                self.shout = value;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.shout = value;
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
             Message::Clear => {
-                self.name = "".to_string();
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.name = "".to_string();
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
         }
         true // state changed — re-render the view

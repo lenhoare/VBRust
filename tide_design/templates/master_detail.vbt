@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' List on the left, fields on the right. Access, FileMaker, dBase, Outlook.
 Screen MasterDetail
     Title "Records"

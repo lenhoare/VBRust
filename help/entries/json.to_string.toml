@@ -1,0 +1,21 @@
+id = "json.to_string"
+title = "To_String"
+category = "Json"
+kind = "method"
+parent = "json"
+anchor = "ns/Json.To_String"
+
+summary = "Renders the Json value as compact JSON text."
+
+returns = "String — the JSON on one line. Fails if it can't be rendered. To_Pretty() gives the same thing nicely indented over several lines."
+
+example = """
+Function Main()
+    Dim doc As Json = Json.Object()
+    doc.Set_String("name", "Ada")
+
+    Debug.Print doc.To_String()   ' {"name":"Ada"}
+End Function
+"""
+
+see_also = ["json", "json.object", "json.set_string"]

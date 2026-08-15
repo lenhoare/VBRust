@@ -1,7 +1,7 @@
 //! Wraps `ureq` — simple, blocking HTTP. Each call is an independent one-shot
 //! request; there is no shared connection or session here. For a reused client
 //! (connection pool, cookies, auth across calls), drop to inline Rust or a `.rs`
-//! module holding a `reqwest::Client` — VBR keeps the simple case simple and
+//! module holding a `reqwest::Client` — Bust keeps the simple case simple and
 //! sends the stateful case to the escape hatch.
 
 use std::collections::HashMap;

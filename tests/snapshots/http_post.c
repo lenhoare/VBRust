@@ -103,13 +103,15 @@ int main(void) {
     Map_str_str headers = {0};
     Map_str_str_insert(&headers, "Authorization", vbr_concat("Bearer ", key));
     Map_str_str_insert(&headers, "Content-Type", "application/json");
-    Result_str_str _m0 = vbr_http_post("https://api.example.com/v1/complete", body, headers);
-    if (_m0.is_ok) {
-        char* reply = _m0.ok;
-        printf("%s\n", vbr_concat(vbr_concat("got ", vbr_from_ll((long long)strlen(reply))), " bytes"));
-    } else {
-        char* message = _m0.err;
+    char* reply = NULL;
+    Result_str_str _t0 = vbr_http_post("https://api.example.com/v1/complete", body, headers);
+    if (!_t0.is_ok) {
+        char* message = _t0.err;
         printf("%s\n", vbr_concat("request failed: ", message));
+        return 0;
+    } else {
+        reply = _t0.ok;
     }
+    printf("%s\n", vbr_concat(vbr_concat("got ", vbr_from_ll((long long)strlen(reply))), " bytes"));
     return 0;
 }

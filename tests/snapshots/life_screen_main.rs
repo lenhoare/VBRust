@@ -23,8 +23,8 @@ struct LifeLab {
 
 impl Default for LifeLab {
     fn default() -> Self {
-        let grid = crate::life::newgrid();
-        let rule = crate::life::classicrule();
+        let grid = crate::life::newgrid()?;
+        let rule = crate::life::classicrule()?;
         let living = 0;
         let status = "ready".to_string();
         LifeLab {
@@ -60,14 +60,30 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('s') => {
-                        crate::life::setcell(&mut state.grid, 1, 1, 1);
-                        crate::life::setcell(&mut state.grid, 2, 1, 1);
-                        crate::life::setcell(&mut state.grid, 3, 1, 1);
-                        state.status = format!("seeded {}", state.rule.describe());
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                crate::life::setcell(&mut state.grid, 1, 1, 1)?;
+                                crate::life::setcell(&mut state.grid, 2, 1, 1)?;
+                                crate::life::setcell(&mut state.grid, 3, 1, 1)?;
+                                state.status = format!("seeded {}", state.rule.describe()?);
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Char('c') => {
-                        state.living = crate::life::countlive(&state.grid);
-                        state.status = format!("counted under {}", crate::life::formatrule("3", "23"));
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.living = crate::life::countlive(&state.grid)?;
+                                state.status = format!("counted under {}", crate::life::formatrule("3", "23")?);
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Char('q') => {
                         break;

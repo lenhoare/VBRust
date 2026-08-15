@@ -10,7 +10,7 @@ def _vb(x):
     return str(x)
 
 def main():
-    # A one-liner reaching a library VBR doesn't have.
+    # A one-liner reaching a library Bust doesn't have.
     import numpy as np
     mean = np.array([1, 2, 3, 4]).mean()
     print(f"mean is {_vb(mean)}")

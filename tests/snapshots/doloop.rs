@@ -1,6 +1,6 @@
 // Do loops, Exit and Continue
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut i: i64 = 1;
     while i <= 3 {
         println!("while {}", i);
@@ -27,5 +27,13 @@ fn main() {
             continue;
         }
         println!("k = {}", k);
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

@@ -43,15 +43,15 @@ pub const CAUTIONS: &[Caution] = &[
         summary: "Lenient — never fails",
         body: "`Val` returns 0 for text it can't read as a number, so it never fails and never \
                tells you the input was bad. Handy for tidy input, but not a validator: when a bad \
-               value should be caught, use `CDbl` / `CLng` / `CInt`, which return a `Result` you \
-               handle with `?` or `Match`.",
+               value should be caught, use `CDbl` / `CLng` / `CInt`. Those can fail; the error \
+               propagates unless you intercept the call with `Handle err`.",
     },
     Caution {
         key: "unwrap-training-wheels",
-        summary: "Training wheels — prefer ? or Match",
-        body: ".unwrap() works, but it's training wheels — it crashes the program if the value is \
-               an error or None. Prefer the `?` operator to propagate, or `Match` over Ok/Err \
-               (Some/None) to handle both outcomes.",
+        summary: "`.Unwrap()` is gone",
+        body: "`.Unwrap()` is gone. Errors propagate automatically. To intercept a call, use \
+               `Handle err` … `End Handle`. For an Option, use `If x Is Some(v) Then`, `Match`, \
+               or `.Unwrap_Or(default)`.",
     },
 ];
 
@@ -97,7 +97,7 @@ pub struct Diagnostics {
     items: Vec<Diagnostic>,
     seen_notes: HashSet<String>,
     marks: HashSet<String>,
-    /// (generated-Rust line, VBR source line) checkpoints, in emission order —
+    /// (generated-Rust line, Bust source line) checkpoints, in emission order —
     /// the map `vbr run`/`runproject` use to point rustc errors back at the
     /// `.vbr` source. Lives here because the whole emission pipeline already
     /// threads `Diagnostics` through.
@@ -232,7 +232,7 @@ impl Diagnostics {
         &self.items
     }
 
-    /// Record that generated-Rust line `rust_line` came from VBR line `vbr_line`.
+    /// Record that generated-Rust line `rust_line` came from Bust line `vbr_line`.
     pub fn map_line(&mut self, rust_line: usize, vbr_line: usize) {
         self.line_map.push((rust_line, vbr_line));
     }

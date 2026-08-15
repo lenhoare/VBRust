@@ -26,10 +26,26 @@ enum Message {
 fn update(state: &mut Gauge, message: Message) {
     match message {
         Message::Up => {
-            state.level += 1;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.level += 1;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
         Message::Down => {
-            state.level -= 1;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.level -= 1;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

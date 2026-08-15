@@ -1,4 +1,4 @@
-"""`Http` — the VBR standard library's simple blocking HTTP, on Python's
+"""`Http` — the Bust standard library's simple blocking HTTP, on Python's
 `urllib` (stdlib, no third-party install). One-shot GET/POST returning the
 response body as `Ok`/`Err`, mirroring `vbr_stdlib::Http` (which wraps `ureq`).
 A 60s timeout turns a hung server into an `Err` rather than a permanent hang."""

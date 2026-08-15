@@ -2,7 +2,7 @@
 // Asc gives a character's code; IIf picks one of two values by a condition
 // (lowered to a lazy Rust `if`/`else`, so — unlike VB — only one arm runs).
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     println!("{}", "A".chars().next().map_or(0, |c| c as i64));
     // 65
     println!("{}", ((("A".chars().next().map_or(0, |c| c as i64) + 1) as u8) as char).to_string());
@@ -14,4 +14,12 @@ fn main() {
     // Mismatched arms (an owned String and a &str literal) still unify.
     let word: String = "hello".to_string();
     println!("{}", (if "z".chars().next().map_or(0, |c| c as i64) > 100 { word } else { "?".to_string() }));
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

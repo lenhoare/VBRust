@@ -9,28 +9,28 @@ summary = "Store and query data in a SQLite database."
 remarks = """
 `Database.Open(path)` opens (or creates) a SQLite database file and hands back a connection. On it you run SQL: `Execute` for statements that change data (CREATE, INSERT, UPDATE, DELETE), `Query` for SELECTs that return rows.
 
-Both take the SQL plus a **list of parameters** — pass `["Ada", "42"]` to fill the `?` placeholders (and `[]` for none). Using placeholders instead of pasting values into the SQL keeps you safe from injection. A `Query` returns each row as a **Json** object you read with `GetString` / `GetInt`.
+Both take the SQL plus a **list of parameters** — pass `["Ada", "42"]` to fill the `?` placeholders (and `[]` for none). Using placeholders instead of pasting values into the SQL keeps you safe from injection. A `Query` returns each row as a **Json** object you read with `Get_String` / `Get_Int`.
 
 SQLite is built in — no server to install. Needs the `database` feature; build as a project.
 """
 
 members = """
-method | Open(path)             | Open or create a SQLite file. Returns Result<Database>.
-method | Execute(sql, params)   | Run a statement (INSERT/UPDATE/…); returns the number of rows changed. Returns Result<Long>.
-method | Query(sql, params)     | Run a SELECT; returns one Json row per result. Returns Result<Vec<Json>>.
-method | LastInsertId()         | The rowid of the most recent insert. Returns Long.
+method | Open(path)             | Open or create a SQLite file. Returns Database (can fail).
+method | Execute(sql, params)   | Run a statement (INSERT/UPDATE/…); returns the number of rows changed. Returns Long (can fail).
+method | Query(sql, params)     | Run a SELECT; returns one Json row per result. Returns Vec<Json> (can fail).
+method | Last_Insert_Id()         | The rowid of the most recent insert. Returns Long.
 """
 
 example = """
 Function Main()
-    Dim db As Database = Database.Open("app.db").Unwrap()
+    Dim db As Database = Database.Open("app.db")
 
-    db.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", []).Unwrap()
-    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"]).Unwrap()
+    db.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", [])
+    db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"])
 
-    Dim rows As Vec<Json> = db.Query("SELECT name FROM users", []).Unwrap()
+    Dim rows As Vec<Json> = db.Query("SELECT name FROM users", [])
     Debug.Print rows.Len()   ' 1
 End Function
 """
 
-see_also = ["database.open", "database.query", "json", "result"]
+see_also = ["database.open", "database.query", "json", "handle"]

@@ -22,7 +22,7 @@ pub fn save_document(doc: &mut Document, path: Option<&Path>) -> Result<(), Stri
 
 pub fn default_untitled() -> Document {
     Document::from_str(
-        "' TIDE — Turbo Pascal vibes for VBR\n\
+        "' TIDE — Turbo Pascal vibes for Bust\n\
          ' F10 Menu  F1 Help  F9 Run  Ctrl+S Save\n\
          ' Ctrl+P Open project   Ctrl+U Units\n\
          \n\
@@ -39,13 +39,13 @@ pub fn display_name(doc: &Document) -> String {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| p.display().to_string())
         })
-        .unwrap_or_else(|| "NONAME.VBR".into())
+        .unwrap_or_else(|| "NONAME.Bust".into())
 }
 
 pub fn resolve_save_path(input: &str) -> PathBuf {
     let p = input.trim();
     if p.is_empty() {
-        return PathBuf::from("NONAME.VBR");
+        return PathBuf::from("NONAME.Bust");
     }
     let mut path = PathBuf::from(p);
     if path.extension().is_none() {
@@ -88,7 +88,7 @@ pub fn list_units(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(units)
 }
 
-/// A folder is a VBR project if it has `main.vbr` or more than one `.vbr` file.
+/// A folder is a Bust project if it has `main.vbr` or more than one `.vbr` file.
 pub fn is_project_dir(dir: &Path) -> bool {
     if !dir.is_dir() {
         return false;

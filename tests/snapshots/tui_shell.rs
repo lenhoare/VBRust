@@ -18,7 +18,7 @@ struct ProcessPanel {
 
 impl ProcessPanel {
     fn init() -> Result<ProcessPanel, String> {
-        let worker = Shell::start("sleep 300")?;
+        let worker = Shell::start("sleep 300")??;
         let status = "worker started".to_string();
         Ok(ProcessPanel {
             worker,
@@ -56,15 +56,31 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('c') => {
-                        if state.worker.is_running() {
-                            state.status = "worker is running".to_string();
-                        } else {
-                            state.status = "worker has stopped".to_string();
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                if state.worker.is_running() {
+                                    state.status = "worker is running".to_string();
+                                } else {
+                                    state.status = "worker has stopped".to_string();
+                                }
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
                         }
                     }
                     KeyCode::Char('k') => {
-                        state.worker.kill();
-                        state.status = "worker killed".to_string();
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.worker.kill();
+                                state.status = "worker killed".to_string();
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Char('q') => {
                         break;

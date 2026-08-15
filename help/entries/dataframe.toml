@@ -7,20 +7,20 @@ anchor = "ns/DataFrame"
 summary = "Load, transform, and summarise tables of data."
 
 remarks = """
-A **DataFrame** is a table of named columns — think of a spreadsheet or a CSV. Load one with `DataFrame.ReadCsv`, then transform it with a pipeline of methods, each returning a new DataFrame. `Debug.Print df` shows the table.
+A **DataFrame** is a table of named columns — think of a spreadsheet or a CSV. Load one with `DataFrame.Read_Csv`, then transform it with a pipeline of methods, each returning a new DataFrame. `Debug.Print df` shows the table.
 
-The heart of it is the **column formula**. Inside `WithColumn` and `Filter`, a bare name means a whole *column*, and the formula is applied down every row at once — just like an Excel formula filled down. So `df.WithColumn("total", price * qty)` multiplies the `price` and `qty` columns row by row. Formulas can use arithmetic, comparisons, `And`/`Or`/`Not`, and `IIf(condition, a, b)`.
+The heart of it is the **column formula**. Inside `With_Column` and `Filter`, a bare name means a whole *column*, and the formula is applied down every row at once — just like an Excel formula filled down. So `df.With_Column("total", price * qty)` multiplies the `price` and `qty` columns row by row. Formulas can use arithmetic, comparisons, `And`/`Or`/`Not`, and `IIf(condition, a, b)`.
 
 Two notes on the formula: if a name clashes with a local variable in scope, it's read as that variable's *value* instead of a column; and a column whose name has spaces is written in backticks — `` `Unit Price` ``.
 
-`GroupBy(key).Agg(...)` summarises each group with `Sum`, `Mean`, `Min`, `Max`, or `Count` of a column. `Column(name)` pulls one column out into a `Vec`. `Sort` and `Join` round it out. Needs the `dataframe` feature (polars) — build as a project.
+`Group_By(key).Agg(...)` summarises each group with `Sum`, `Mean`, `Min`, `Max`, or `Count` of a column. `Column(name)` pulls one column out into a `Vec`. `Sort` and `Join` round it out. Needs the `dataframe` feature (polars) — build as a project.
 """
 
 members = """
-method | ReadCsv(path)             | Load a CSV file into a DataFrame. Returns DataFrame.
-method | WithColumn(name, formula) | Add or replace a column from a formula over other columns. Returns DataFrame.
+method | Read_Csv(path)             | Load a CSV file into a DataFrame. Returns DataFrame.
+method | With_Column(name, formula) | Add or replace a column from a formula over other columns. Returns DataFrame.
 method | Filter(condition)         | Keep only the rows where a column formula is true. Returns DataFrame.
-method | GroupBy(key)              | Group rows by a column, ready for .Agg(...). Returns DataFrame.
+method | Group_By(key)              | Group rows by a column, ready for .Agg(...). Returns DataFrame.
 method | Column(name)              | Pull one column out as a Vec. Returns Vec<T>.
 method | Sort(name)                | Sort the rows by a column. Returns DataFrame.
 method | Join(other, key)          | Join with another DataFrame on a shared column. Returns DataFrame.
@@ -28,13 +28,13 @@ method | Join(other, key)          | Join with another DataFrame on a shared col
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("sales.csv")
 
-    df = df.WithColumn("total", price * qty)
+    df = df.With_Column("total", price * qty)
     df = df.Filter(total > 100)
 
     df.Print()
 End Function
 """
 
-see_also = ["dataframe.readcsv", "dataframe.withcolumn", "dataframe.groupby", "vec"]
+see_also = ["dataframe.read_csv", "dataframe.with_column", "dataframe.group_by", "vec"]

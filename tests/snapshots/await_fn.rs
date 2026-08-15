@@ -1,6 +1,6 @@
 // Await your own function: a (pretend-slow) computation runs off the UI thread
 // via Await, and its Result comes back in the generated continuation. No stdlib
-// needed — VBR knows the function's return type, so it can build the message.
+// needed — Bust knows the function's return type, so it can build the message.
 
 fn sumto(n: i32) -> Result<i32, String> {
     if n < 0 {
@@ -39,27 +39,51 @@ impl Default for Worker {
 enum Message {
     SetInput(i32),
     Compute,
-    ComputeDone(Result<i32, String>),
+    ComputeDone(i32),
 }
 
 fn update(state: &mut Worker, message: Message) -> Task<Message> {
     match message {
         Message::SetInput(value) => {
-            state.input = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.input = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::Compute => {
-            state.status = "working…".to_string();
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.status = "working…".to_string();
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             let input = state.input.clone();
             Task::perform(async move { tokio::task::spawn_blocking(move || sumto(input)).await.unwrap() }, Message::ComputeDone)
         }
         Message::ComputeDone(result) => {
-            match result {
-                Ok ( result ) => {
-                    state.status = format!("sum = {}", result);
-                }
-                Err ( e ) => {
-                    state.status = format!("error: {}", e);
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    match result {
+                        Ok ( result ) => {
+                            state.status = format!("sum = {}", result);
+                        }
+                        Err ( e ) => {
+                            state.status = format!("error: {}", e);
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
                 }
             }
             Task::none()

@@ -80,6 +80,7 @@ fn stmt_contains(s: &Stmt, pred: &dyn Fn(&Stmt) -> bool) -> bool {
         Stmt::Match { arms, .. } => {
             arms.iter().any(|a| a.body.iter().any(|s| stmt_contains(s, pred)))
         }
+        Stmt::HandleErr { body, .. } => body.iter().any(|s| stmt_contains(s, pred)),
         _ => false,
     }
 }
@@ -179,7 +180,7 @@ pub fn transpile_module(
     }
     // A Godot program (one with a `Node2D`/… block) compiles to a gdext
     // GDExtension: a cdylib of node classes Godot loads and drives. No `fn main`
-    // — Godot is the host; VBR contributes the node scripts.
+    // — Godot is the host; Bust contributes the node scripts.
     if !program.godot_nodes.is_empty() {
         let rust = crate::godot::emit_godot_program(program, modules, interfaces, is_entry, diags);
         diags.clear_line_map();
@@ -403,7 +404,7 @@ fn ambiguous_type_error(name: &str, mods: &[String], diags: &mut Diagnostics) {
     diags.error_once(
         &format!("ambiguous-type-{}", name),
         format!(
-            "The type '{}' is Public in more than one file ({}) — VBR can't tell \
+            "The type '{}' is Public in more than one file ({}) — Bust can't tell \
              which one you mean. Rename one of them.",
             name,
             mods.iter().map(|m| format!("'{}.vbr'", m)).collect::<Vec<_>>().join(" and "),
@@ -468,7 +469,7 @@ pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics
         diags.note(
             "name-case",
             format!(
-                "VBR names change case in Rust — the constant `{}` becomes `{}`. \
+                "Bust names change case in Rust — the constant `{}` becomes `{}`. \
                  (Functions and variables lowercase, constants uppercase; shown once.)",
                 c.name, name
             ),
@@ -593,7 +594,7 @@ fn enum_derives(e: &EnumDef) -> String {
 
 pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
     let kw = if s.public { "pub struct" } else { "struct" };
-    // Debug + Clone are safe for every VBR field type (primitives, String,
+    // Debug + Clone are safe for every Bust field type (primitives, String,
     // collections, other structs) and let structs be printed and copied — e.g.
     // a `Vec<Struct>` state field snapshotted into a canvas.
     out.push_str("#[derive(Debug, Clone)]\n");
@@ -618,7 +619,7 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
     match ty {
         DeclType::Plain(t) => t.rust().to_string(),
         // `PyObject` is the opaque inline-Python handle type — a GIL-independent
-        // owned reference to a Python value VBR has no type for.
+        // owned reference to a Python value Bust has no type for.
         DeclType::Named(n) if n == "PyObject" => "pyo3::Py<pyo3::PyAny>".to_string(),
         DeclType::Named(n) => n.clone(),
         DeclType::Tuple(ts) => {
@@ -651,7 +652,7 @@ pub(crate) fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
 /// The Rust `#[test]` function name for each `Test` block: a slug of its
 /// description, deduped so two identically-described tests still compile. Shared
 /// by the emitter and `Compiled.tests` so the runner can pair a `cargo test`
-/// result line back to its VBR description.
+/// result line back to its Bust description.
 pub(crate) fn test_fn_names(tests: &[TestBlock]) -> Vec<String> {
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut names = Vec::new();
@@ -709,18 +710,22 @@ fn emit_tests(
         // `emit_fn`. Dropping it here made mutating-method calls in a Test/Assert
         // fail to compile ("cannot borrow as mutable") while identical code in a
         // normal function was fine.
+        let ret_shape = Some(resolver::FailShape::Result);
         let passed_by_ref = resolver::resolve_body(
             &mut body, &[], fns, methods, consts, modules, interfaces, enums, structs, None, None,
-            None, None, diags,
+            None, ret_shape, diags,
         );
         elide_for_counter_dims(&mut body);
         let mut mutated = HashSet::new();
         collect_mutated(&body, &mut mutated);
         mutated.extend(passed_by_ref);
         let empty = HashSet::new();
-        out.push_str(&format!("    #[test]\n    fn {}() {{\n", name));
+        out.push_str(&format!(
+            "    #[test]\n    fn {}() -> Result<(), String> {{\n",
+            name
+        ));
         emit_block(&body, &mutated, &empty, 2, diags, out);
-        out.push_str("    }\n");
+        out.push_str("        Ok(())\n    }\n");
     }
     out.push_str("}\n");
 }
@@ -748,45 +753,28 @@ pub(crate) fn emit_fn(
     }
     params.extend(func.params.iter().map(render_param));
 
-    // `Main` is the one function that can use `?` without an explicit fallible
-    // return: Rust's `main` may itself return a `Result`. A declared fallible
-    // return on `Main` doesn't map to a valid `fn main`, so steer it to the
-    // plain form instead of emitting Rust that won't compile.
     let is_main = name == "main";
-    if is_main && matches!(func.ret, Some(DeclType::Result(..)) | Some(DeclType::Option(_))) {
+    if is_main && func.ret.is_some() {
         diags.error(
             func.line,
-            "`Main` can't declare a fallible return type. Write a plain `Function Main()` and use \
-             `?` inside — VBR gives `main` a `Result` return (and the closing `Ok`) for you, so \
-             propagation just works.",
+            "`Main` has no return type — write `Function Main()` (or `Sub Main()`). \
+             Unhandled errors print and exit; intercept them with `Handle err`.",
         );
     }
-    // A plain `Main` whose body propagates with `?` becomes
-    // `fn main() -> Result<(), String>`, with `Ok(())` appended below.
-    let main_fallible = is_main && func.ret.is_none() && body_has_try(&func.body);
 
-    let ret = if main_fallible {
-        " -> Result<(), String>".to_string()
-    } else {
-        match &func.ret {
-            Some(t) => format!(" -> {}", decltype_rust(t)),
-            None => String::new(),
-        }
+    let rust_name_out = if is_main { "vbr_main" } else { name.as_str() };
+    let ret = match &func.ret {
+        Some(t) => format!(" -> Result<{}, String>", decltype_rust(t)),
+        None => " -> Result<(), String>".to_string(),
     };
-    // Only a plain return type drives literal coercion of the tail expression;
-    // an Ok/Some/tuple wrapper carries its own type.
+    // Only a plain return type drives literal coercion of the tail expression.
     let tail_expected = match &func.ret {
         Some(DeclType::Plain(t)) => Some(*t),
         _ => None,
     };
-    // The numeric inner type of a `Result<T>`/`Option<T>` return, so a returned
-    // `Ok(a / b)` / `Some(x)` payload coerces to it (e.g. float `/` → `Long`).
     let ret_inner = match &func.ret {
-        Some(DeclType::Result(ok, _)) => match &**ok {
-            DeclType::Plain(t) => Some(*t),
-            _ => None,
-        },
-        Some(DeclType::Option(inner)) => match &**inner {
+        Some(DeclType::Plain(t)) => Some(*t),
+        Some(DeclType::Option(inner) | DeclType::Result(inner, _)) => match inner.as_ref() {
             DeclType::Plain(t) => Some(*t),
             _ => None,
         },
@@ -796,7 +784,10 @@ pub(crate) fn emit_fn(
     let vis = if func.public { "pub " } else { "" };
     // Checkpoint the header too, so signature-level rustc errors map back.
     diags.map_line(out.matches('\n').count() + 1, func.line);
-    out.push_str(&format!("{}{}fn {}({}){} {{\n", pad, vis, name, params.join(", "), ret));
+    out.push_str(&format!(
+        "{}{}fn {}({}){} {{\n",
+        pad, vis, rust_name_out, params.join(", "), ret
+    ));
 
     // `FunctionName = value` is really a return — rewrite it before emitting.
     let mut body = func.body.clone();
@@ -810,19 +801,6 @@ pub(crate) fn emit_fn(
         .map(|p| rust_name(&p.name))
         .collect();
 
-    // Resolver rewrites the body (&mut at call sites, *deref of ByRef params,
-    // `as` casts for numeric coercions) and tells us which locals were lent.
-    // `?` is only valid when this function can itself fail (returns Result/Option,
-    // or is the auto-fallible `Main`), and must propagate that same shape.
-    let ret_shape = if main_fallible {
-        Some(resolver::FailShape::Result)
-    } else {
-        match &func.ret {
-            Some(DeclType::Result(..)) => Some(resolver::FailShape::Result),
-            Some(DeclType::Option(_)) => Some(resolver::FailShape::Option),
-            _ => None,
-        }
-    };
     let passed_by_ref = resolver::resolve_body(
         &mut body,
         &func.params,
@@ -836,7 +814,7 @@ pub(crate) fn emit_fn(
         func.receiver.as_deref(),
         tail_expected,
         ret_inner,
-        ret_shape,
+        Some(resolver::FailShape::Result),
         diags,
     );
 
@@ -849,12 +827,23 @@ pub(crate) fn emit_fn(
     collect_mutated(&body, &mut mutated);
     mutated.extend(passed_by_ref);
 
-    emit_fn_body(&body, &mutated, &byref, tail_expected, diags, out, base_indent + 1);
-    // The closing `Ok(())` that makes an auto-fallible `Main` type-check.
-    if main_fallible {
-        out.push_str(&format!("{}    Ok(())\n", pad));
-    }
+    emit_fn_body(
+        &body,
+        &mutated,
+        &byref,
+        tail_expected,
+        func.ret.is_none(),
+        diags,
+        out,
+        base_indent + 1,
+    );
     out.push_str(&format!("{}}}\n", pad));
+
+    if is_main {
+        out.push_str(
+            "\nfn main() {\n    if let Err(error) = vbr_main() {\n        eprintln!(\"Error: {error}\");\n        std::process::exit(1);\n    }\n}\n",
+        );
+    }
 }
 
 pub(crate) fn render_param(p: &Param) -> String {
@@ -882,6 +871,7 @@ fn emit_fn_body(
     mutated: &HashSet<String>,
     byref: &HashSet<String>,
     ret: Option<Type>,
+    unit: bool,
     diags: &mut Diagnostics,
     out: &mut String,
     indent: usize,
@@ -902,12 +892,15 @@ fn emit_fn_body(
             for stmt in &stmts[l + 1..] {
                 emit_stmt(stmt, mutated, byref, indent, diags, out);
             }
-            out.push_str(&format!("{}{}\n", pad, render_expr(e, ret)));
+            out.push_str(&format!("{}Ok({})\n", pad, render_expr(e, ret)));
             return;
         }
     }
     for stmt in stmts {
         emit_stmt(stmt, mutated, byref, indent, diags, out);
+    }
+    if unit {
+        out.push_str(&format!("{}Ok(())\n", pad));
     }
 }
 
@@ -947,6 +940,7 @@ pub(crate) fn convert_returns(stmts: &mut [Stmt], fn_name: &str) {
                     convert_returns(&mut arm.body, fn_name);
                 }
             }
+            Stmt::HandleErr { body, .. } => convert_returns(body, fn_name),
             _ => {}
         }
     }
@@ -1163,7 +1157,7 @@ pub(crate) fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
             collect_expr_idents(rhs, out);
         }
         ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
-        | ExprKind::Try(i) | ExprKind::Await(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
+        | ExprKind::Try(i) | ExprKind::Raw(i) | ExprKind::Await(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
         | ExprKind::Closure { body: i, .. } => collect_expr_idents(i, out),
         ExprKind::MethodCall { recv, args, .. } => {
             collect_expr_idents(recv, out);
@@ -1187,6 +1181,132 @@ pub(crate) fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
     }
 }
 
+fn body_diverges(stmts: &[Stmt]) -> bool {
+    let last = stmts
+        .iter()
+        .rev()
+        .find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_)));
+    match last {
+        Some(Stmt::Return(_) | Stmt::RaiseError(_) | Stmt::Break | Stmt::Continue) => true,
+        Some(Stmt::If { branches, else_body }) => {
+            else_body.as_ref().is_some_and(|e| body_diverges(e))
+                && branches.iter().all(|(_, b)| body_diverges(b))
+        }
+        Some(Stmt::Match { arms, .. }) => !arms.is_empty() && arms.iter().all(|a| body_diverges(&a.body)),
+        Some(Stmt::HandleErr { body, .. }) => body_diverges(body),
+        _ => false,
+    }
+}
+
+fn emit_handle_err(
+    target: Option<&Expr>,
+    call: &Expr,
+    err_name: &str,
+    body: &[Stmt],
+    mutated: &HashSet<String>,
+    byref: &HashSet<String>,
+    indent: usize,
+    line: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    let err = rust_name(err_name);
+    let call_rs = render_expr(call, None);
+    match target {
+        None => {
+            out.push_str(&format!("{}if let Err({}) = {} {{\n", pad, err, call_rs));
+            emit_block(body, mutated, byref, indent + 1, diags, out);
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        Some(tgt) => {
+            let lhs = match &tgt.kind {
+                ExprKind::Ident(name) => {
+                    let var = rust_name(name);
+                    if byref.contains(&var) {
+                        format!("*{}", var)
+                    } else {
+                        var
+                    }
+                }
+                _ => render_expr(tgt, None),
+            };
+            // First assignment to a local uses `let`; later ones are `=`.
+            let is_ident = matches!(&tgt.kind, ExprKind::Ident(_));
+            let let_kw = if is_ident && !lhs.starts_with('*') {
+                let var = lhs.trim();
+                if mutated.contains(var) {
+                    "let mut "
+                } else {
+                    "let "
+                }
+            } else {
+                ""
+            };
+            let assign_op = if let_kw.is_empty() && !is_ident {
+                // field/index: `x.f = match ...`
+                format!("{} = ", lhs)
+            } else if let_kw.is_empty() {
+                format!("{} = ", lhs)
+            } else {
+                format!("{}{} = ", let_kw, lhs)
+            };
+            // A Dim already bound the name — then this is Assign not first let.
+            // Handle-as-assign from `a = F() Handle` is always a let if `a` isn't
+            // already in mutated from a prior Dim... actually Dim then assign
+            // would be Assign to existing. We can't see Dim here. Use assignment
+            // always when the target is an ident that collect_mutated saw as
+            // assigned — first Handle-assign of a new name needs let.
+            // Simplest: always `let` for ident targets (shadows a prior Dim).
+            // If they Dim'd first, `let a = match` shadows. That's OK in Rust
+            // and matches `a = F()?` which after Dim is `a = ...` not `let a`.
+            //
+            // `a = F() Handle` without Dim: need `let a`.
+            // `Dim a As T` then `a = F() Handle`: need `a =`.
+            // collect_mutated includes Assign targets. HandleErr target should
+            // be in mutated if we collect it. First-only names that are mutated
+            // get `let mut` from Dim... this is getting messy.
+            //
+            // Emit `lhs = match` without let — the Dim path declares. For
+            // undeclared `a = F() Handle` (VB implicit Dim), Bust requires Dim
+            // except inference from assign... Bust allows `a = F()` as assign
+            // which requires a prior Dim. So always `lhs = match`.
+            let _ = assign_op;
+            out.push_str(&format!("{}{} = match {} {{\n", pad, lhs, call_rs));
+            out.push_str(&format!("{}Ok(__vbr_ok) => __vbr_ok,\n", inner));
+            out.push_str(&format!("{}Err({}) => {{\n", inner, err));
+            if body_diverges(body) {
+                emit_block(body, mutated, byref, indent + 2, diags, out);
+            } else if let Some(Stmt::Expr(e)) = body
+                .iter()
+                .rev()
+                .find(|s| !matches!(s, Stmt::Comment(_) | Stmt::LineMark(_)))
+            {
+                let last_i = body
+                    .iter()
+                    .rposition(|s| matches!(s, Stmt::Expr(_)))
+                    .unwrap();
+                emit_block(&body[..last_i], mutated, byref, indent + 2, diags, out);
+                out.push_str(&format!(
+                    "{}{}\n",
+                    "    ".repeat(indent + 2),
+                    render_expr(e, None)
+                ));
+            } else {
+                diags.error(
+                    line,
+                    "A `Handle` on a value-producing call must `Return`, `Exit For`/`Continue`, \
+                     `RaiseError`, or end with a replacement value.",
+                );
+                emit_block(body, mutated, byref, indent + 2, diags, out);
+            }
+            out.push_str(&format!("{}}}\n", inner));
+            out.push_str(&format!("{}}};\n", pad));
+        }
+    }
+}
+
 pub(crate) fn emit_stmt(
     stmt: &Stmt,
     mutated: &HashSet<String>,
@@ -1199,7 +1319,7 @@ pub(crate) fn emit_stmt(
     match stmt {
         Stmt::LineMark(vbr_line) => {
             // Emits nothing: records that the next generated line came from
-            // this VBR source line (for translating rustc errors back).
+            // this Bust source line (for translating rustc errors back).
             diags.map_line(out.matches('\n').count() + 1, *vbr_line);
         }
         Stmt::Comment(text) => {
@@ -1324,6 +1444,9 @@ pub(crate) fn emit_stmt(
                                 ));
                             }
                             None => {
+                                if is_mut {
+                                    out.push_str(&format!("{}#[allow(unused_mut)]\n", pad));
+                                }
                                 out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, t.rust()));
                             }
                         }
@@ -1420,10 +1543,37 @@ pub(crate) fn emit_stmt(
             ));
         }
         Stmt::Return(Some(e)) => {
-            out.push_str(&format!("{}return {};\n", pad, render_expr(e, None)));
+            out.push_str(&format!("{}return Ok({});\n", pad, render_expr(e, None)));
         }
         Stmt::Return(None) => {
-            out.push_str(&format!("{}return;\n", pad));
+            out.push_str(&format!("{}return Ok(());\n", pad));
+        }
+        Stmt::RaiseError(e) => {
+            let msg = match &e.kind {
+                ExprKind::Str(s) => format!("\"{}\".to_string()", escape(s)),
+                _ => format!("format!(\"{{}}\", {})", render_expr(e, None)),
+            };
+            out.push_str(&format!("{}return Err({});\n", pad, msg));
+        }
+        Stmt::HandleErr {
+            target,
+            call,
+            err_name,
+            body,
+            line,
+        } => {
+            emit_handle_err(
+                target.as_ref(),
+                call,
+                err_name,
+                body,
+                mutated,
+                byref,
+                indent,
+                *line,
+                diags,
+                out,
+            );
         }
         Stmt::Print(e) => {
             // Print a concatenation as one flat println! (string literals fold
@@ -1891,7 +2041,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             if method.eq_ignore_ascii_case("insert") {
                 diags.note(
                     "hashmap-insert-tostring",
-                    "HashMap keys are owned Strings — VBR adds `.to_string()` to a string-literal \
+                    "HashMap keys are owned Strings — Bust adds `.to_string()` to a string-literal \
                      key for you, so `dict.insert(\"key\", v)` becomes `dict.insert(\"key\".to_string(), v)`.",
                 );
             }
@@ -1921,7 +2071,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             match name.to_ascii_lowercase().as_str() {
                 "mid" => diags.note(
                     "builtin-mid",
-                    "Mid is 1-indexed in VB; VBR shifts the position for you and counts by \
+                    "Mid is 1-indexed in VB; Bust shifts the position for you and counts by \
                      characters (not bytes), so it stays correct on any text — Mid(s, 2, 3) \
                      is s.chars().skip(1).take(3).",
                 ),
@@ -1935,7 +2085,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     diags.mark("input_box");
                     diags.note(
                         "builtin-inputbox",
-                        "InputBox has no window in a terminal app — VBR prints the prompt and \
+                        "InputBox has no window in a terminal app — Bust prints the prompt and \
                          reads a line from the keyboard, returning it as a String.",
                     );
                 }
@@ -2060,6 +2210,7 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
 /// Does this expression contain a `?` anywhere? Used to decide whether the
 /// entry `Main` needs a fallible `fn main() -> Result<(), String>` signature so
 /// propagation works in the one function every program has.
+#[allow(dead_code)]
 fn expr_has_try(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Try(_) => true,
@@ -2087,6 +2238,7 @@ fn expr_has_try(e: &Expr) -> bool {
 
 /// Does a statement body use `?` anywhere? Walks the console statement forms
 /// (a `Main` never contains GUI/TUI surface statements).
+#[allow(dead_code)]
 fn body_has_try(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::Dim { init: Some(e), .. }
@@ -2239,7 +2391,7 @@ fn render_inline_block(raw: &str, indent: usize) -> String {
 /// body through pyo3. Unlike inline Rust (spliced tokens), this executes real
 /// CPython: the body runs in a fresh namespace, the last line's value is captured
 /// in `_vbr_result`, and it is either `.extract()`ed into the annotated Rust type
-/// or `.unbind()`ed into an opaque `PyObject` handle. `inputs` are VBR variables
+/// or `.unbind()`ed into an opaque `PyObject` handle. `inputs` are Bust variables
 /// injected into the namespace first (scalars convert; a handle is re-borrowed).
 /// `ty` is the target type (`None` → context inference, non-`Dim` positions only).
 fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, indent: usize) -> String {
@@ -2251,7 +2403,7 @@ fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, inde
     };
     let pad = "    ".repeat(indent + 1);
     let close = "    ".repeat(indent);
-    // Inject each VBR input under the name it was written as; `&var` works for
+    // Inject each Bust input under the name it was written as; `&var` works for
     // scalars (converted) and `&Py<PyAny>` handles (re-borrowed) alike.
     let mut sets = String::new();
     for name in inputs {
@@ -2301,7 +2453,7 @@ fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, inde
 }
 
 /// Prepare a raw Python body for `exec`: dedent it (Python cares about the leading
-/// whitespace the VBR editor added), trim blank edges, and bind the last non-blank
+/// whitespace the Bust editor added), trim blank edges, and bind the last non-blank
 /// line to `_vbr_result` so its value can be read back out. The last line must be
 /// an expression (the `Rust`-block "last line is the value" rule carries over).
 fn prepare_python(raw: &str) -> String {
@@ -2434,7 +2586,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         ExprKind::Binary { op, lhs, rhs } if *op == BinOp::Xor => {
-            // VBR treats Xor as a loose logical op, but Rust's `^` binds *tighter*
+            // Bust treats Xor as a loose logical op, but Rust's `^` binds *tighter*
             // than comparison/`&&`/`||`. So parenthesise any binary operand to keep
             // our grouping, and wrap the whole node when it sits under a tighter op.
             let operand = |e: &Expr| {
@@ -2486,7 +2638,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 let cols: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                 return format!("{}.select(&[{}])", render_recv(recv), cols.join(", "));
             }
-            // DataFrame `GroupBy` renders its key names as a slice, and `Agg`
+            // DataFrame `Group_By` renders its key names as a slice, and `Agg`
             // its (already-lowered) aggregation expressions likewise:
             // `df.group_by(&["band"]).agg(&[col("age").mean()])`.
             if method == "__df_group_by" {
@@ -2554,7 +2706,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
             format!("({})", parts.join(", "))
         }
-        // `[a, b, …]` → `vec![…]`. A string-literal element is owned (VBR strings
+        // `[a, b, …]` → `vec![…]`. A string-literal element is owned (Bust strings
         // are always `String`); numeric literals infer their type from the target
         // (`let v: Vec<i64> = vec![1, 2]`), same as elsewhere.
         ExprKind::List(elems) => {
@@ -2617,6 +2769,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         ExprKind::Try(inner) => format!("{}?", render_prec(inner, None, 9, false)),
+        ExprKind::Raw(inner) => render_prec(inner, expected, parent_prec, is_right),
         ExprKind::Field(inner, field) => format!("{}.{}", render_recv(inner), rust_name(field)),
         // Already the verbatim SCREAMING_SNAKE name from the resolver.
         ExprKind::ConstRef(name) => name.clone(),
@@ -2706,7 +2859,7 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         }
         ("replace", 3) => Some(format!("{}.replace({}, {})", r(0), r(1), r(2))),
         // `CStr` was VB's recommended conversion (Str added a leading space);
-        // in VBR both are plain `.to_string()`.
+        // in Bust both are plain `.to_string()`.
         ("str", 1) | ("cstr", 1) => Some(method0(&args[0], "to_string")),
         // Chr(n) → the one-character string for code point n (Chr(10) = newline).
         // Parenthesise the argument so `Chr(Asc(c) + 1)` (VB's "next letter") isn't
@@ -2743,7 +2896,7 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         // `CDbl`/`CLng`/`CInt` — VB's strict conversions (a runtime "type
         // mismatch" on bad input). Here they parse and hand back a
         // `Result<_, String>`, so a failure is handled with `?` or `Match`, like
-        // every other fallible call in VBR. Scope: the string-parse case (not
+        // every other fallible call in Bust. Scope: the string-parse case (not
         // VB's number→number rounding — a later refinement).
         ("cdbl", 1) => Some(format!("{}.trim().parse::<f64>().map_err(|e| e.to_string())", r(0))),
         ("clng", 1) => Some(format!("{}.trim().parse::<i64>().map_err(|e| e.to_string())", r(0))),
@@ -2907,10 +3060,10 @@ fn fmt_float(f: f64) -> String {
 }
 
 fn escape(s: &str) -> String {
-    // `\n`/`\t` only ever arrive via a `Text … End Text` block (a quoted VBR
+    // `\n`/`\t` only ever arrive via a `Text … End Text` block (a quoted Bust
     // literal is one line and never interprets escapes) — spelled out so the
     // generated literal stays on one line, incidentally showing the Rust
-    // escapes VBR source never makes you write.
+    // escapes Bust source never makes you write.
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\r', "\\r")
@@ -2995,6 +3148,17 @@ pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                     collect_mutated(&arm.body, set);
                 }
             }
+            Stmt::HandleErr { target, call, body, .. } => {
+                if let Some(t) = target {
+                    if let Some(root) = lvalue_root(t) {
+                        set.insert(root);
+                    }
+                    mark_mutating_calls(t, set);
+                }
+                mark_mutating_calls(call, set);
+                collect_mutated(body, set);
+            }
+            Stmt::RaiseError(e) => mark_mutating_calls(e, set),
             _ => {}
         }
     }
@@ -3012,7 +3176,7 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
         diags.note(
             "name-case",
             format!(
-                "VBR names are their lowercase self in Rust — e.g. `{name}` becomes \
+                "Bust names are their lowercase self in Rust — e.g. `{name}` becomes \
                  `{plain}`. (Functions and variables lowercase, constants uppercase; \
                  shown once.)"
             ),
@@ -3028,66 +3192,8 @@ pub(crate) fn to_screaming(name: &str) -> String {
     name.to_uppercase()
 }
 
-/// The real (snake_case) name of a stdlib wrapper method, from its lowercased
-/// VBR spelling — `GetString` → `get_string`, `ReadCsv` → `read_csv`. The
-/// stdlib is real Rust with real snake_case methods; *user* names are plainly
-/// lowercased instead, so this fixed dictionary bridges VBR's surface API to
-/// the crate we ship. (Writing the snake_case name directly works too — it
-/// passes through `rust_name` unchanged.)
-pub(crate) fn stdlib_method(squashed: &str) -> Option<&'static str> {
-    Some(match squashed {
-        // DataFrame
-        "readcsv" => "read_csv",
-        "withcolumn" => "with_column",
-        "writecsv" => "write_csv",
-        "groupby" => "group_by",
-        "leftjoin" => "left_join",
-        "outerjoin" => "outer_join",
-        // FileSystem
-        "readlines" => "read_lines",
-        "movefile" => "move_file",
-        "createfolder" => "create_folder",
-        "createfolderall" => "create_folder_all",
-        "folderexists" => "folder_exists",
-        "deletefolder" => "delete_folder",
-        "deletefolderall" => "delete_folder_all",
-        // Regex
-        "ismatch" => "is_match",
-        "findall" => "find_all",
-        "replaceall" => "replace_all",
-        // DateTime
-        "adddays" => "add_days",
-        "addhours" => "add_hours",
-        "addminutes" => "add_minutes",
-        "diffdays" => "diff_days",
-        "diffhours" => "diff_hours",
-        // Database
-        "lastinsertid" => "last_insert_id",
-        // Shell / Process
-        "isrunning" => "is_running",
-        "isnull" => "is_null",
-        // Json (`to_string` is also the universal Rust method — same mapping).
-        "tostring" => "to_string",
-        "topretty" => "to_pretty",
-        "haskey" => "has_key",
-        "getstring" => "get_string",
-        "getint" => "get_int",
-        "getfloat" => "get_float",
-        "getbool" => "get_bool",
-        "getarray" => "get_array",
-        "setstring" => "set_string",
-        "setint" => "set_int",
-        "setbool" => "set_bool",
-        "asstring" => "as_string",
-        "asint" => "as_int",
-        "asfloat" => "as_float",
-        "asbool" => "as_bool",
-        _ => return None,
-    })
-}
-
 /// The canonical name of a vbr_stdlib namespace, if `name` is one. Stdlib calls
-/// use `.` in VBR (`FileSystem.Read`) but `::` in Rust (`FileSystem::read`).
+/// use `.` in Bust (`FileSystem.Read`) but `::` in Rust (`FileSystem::read`).
 pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
     match name.to_ascii_lowercase().as_str() {
         "filesystem" => Some("FileSystem"),
@@ -3220,7 +3326,7 @@ pub(crate) fn stdlib_types_declared(
     used
 }
 
-/// The Rust spelling of a VBR name: simply lowercased. VBR identifiers are
+/// The Rust spelling of a Bust name: simply lowercased. Bust identifiers are
 /// case-insensitive (VB style), so lowercase is the one canonical form — and
 /// it makes the mapping trivially predictable: inside a `Rust … End Rust`
 /// block or a `Match` pattern, `myTotal` is `mytotal`, never a guess about
@@ -3246,7 +3352,7 @@ fn is_rust_keyword(s: &str) -> bool {
     )
 }
 
-/// Make a lowercased VBR name safe to emit as a Rust identifier. A VB program can
+/// Make a lowercased Bust name safe to emit as a Rust identifier. A VB program can
 /// legitimately name a function/variable/field after what happens to be a Rust
 /// keyword (`Move`, `Type`, `Ref`, …); most take the raw-identifier form
 /// `r#name`, but a few (`crate`, `self`, `super`) can't be raw, so those get a
@@ -3256,7 +3362,7 @@ fn escape_rust_keyword(name: String) -> String {
         // `self`/`crate`/`super` are generated internally by codegen (the `self`
         // receiver that `Me` lowers to, `crate::`/`super::` module paths) and
         // can't be raw identifiers anyway — leave them untouched. A user can't
-        // reach these names in VBR (the receiver is `Me`), so there's nothing to
+        // reach these names in Bust (the receiver is `Me`), so there's nothing to
         // rescue, and escaping them would break the generated Rust.
         "self" | "crate" | "super" | "_" => name,
         _ if is_rust_keyword(&name) => format!("r#{name}"),

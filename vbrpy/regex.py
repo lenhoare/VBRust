@@ -1,4 +1,4 @@
-"""`Regex` — the VBR standard library's regex, on Python's `re`. Mirrors
+"""`Regex` — the Bust standard library's regex, on Python's `re`. Mirrors
 `vbr_stdlib::Regex`: a bad pattern is an `Err`, `find` returns `Ok(Option<..>)`.
 
 Note: replacement group references differ from Rust — Python uses `\\1`, Rust
@@ -11,7 +11,7 @@ from .prelude import Ok, Err, Some
 
 class Regex:
     @staticmethod
-    def ismatch(pattern, text):
+    def is_match(pattern, text):
         try:
             return Ok(re.search(pattern, text) is not None)
         except re.error as e:
@@ -26,7 +26,7 @@ class Regex:
             return Err(str(e))
 
     @staticmethod
-    def findall(pattern, text):
+    def find_all(pattern, text):
         try:
             return Ok(re.findall(pattern, text))
         except re.error as e:
@@ -40,7 +40,7 @@ class Regex:
             return Err(str(e))
 
     @staticmethod
-    def replaceall(pattern, text, replacement):
+    def replace_all(pattern, text, replacement):
         try:
             return Ok(re.sub(pattern, replacement, text))
         except re.error as e:

@@ -5,7 +5,7 @@ a filled diamond (stars). A diamond of size n has 2n−1 rows — the widest
 row appears once in the middle. Each diamond is returned as a `Vec<String>`
 of rows so individual rows are directly testable.
 
-## VBR language features tested
+## Bust language features tested
 
 - Nested `For` loops; `For i = size - 1 To 1 Step -1` for the mirrored
   bottom half

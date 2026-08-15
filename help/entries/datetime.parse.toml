@@ -12,11 +12,11 @@ text | String | The text to read, e.g. "2026-08-14".
 pattern | String | The format the text is in, e.g. "%Y-%m-%d".
 """
 
-returns = "Result<DateTime> — Ok with the parsed value, or Err(message) if the text doesn't match the pattern."
+returns = "DateTime — the parsed value. Fails if the text doesn't match the pattern."
 
 example = """
 Function Main()
-    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d").Unwrap()
+    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d")
     Debug.Print d.Year()   ' 2026
 End Function
 """

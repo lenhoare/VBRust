@@ -598,6 +598,7 @@ pub fn resolve_body(
         interfaces,
         enums,
         structs,
+        no_auto_try: false,
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -638,7 +639,7 @@ pub fn resolve_event_body(
         consts,
         ret_coerce: None,
         ret_inner: None,
-        ret_shape: None,
+        ret_shape: Some(FailShape::Result),
         diags,
         env: &mut env,
         passed: &mut passed,
@@ -646,6 +647,7 @@ pub fn resolve_event_body(
         interfaces,
         enums,
         structs,
+        no_auto_try: false,
     };
     resolve_stmts(stmts, &mut ctx);
 }
@@ -742,6 +744,9 @@ struct Ctx<'a> {
     enums: &'a HashSet<String>,
     /// User struct definitions, so `p.field` infers to the field's type.
     structs: &'a StructTable,
+    /// When true, fallible calls are left as `Result` (inside `Raw`, `Await`,
+    /// or a `Handle` subject) instead of wrapping in implicit `?`.
+    no_auto_try: bool,
 }
 
 impl Ctx<'_> {
@@ -957,13 +962,14 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Expr(e) => {
                 resolve_expr(e, ctx);
-                // A bare call that yields a Result/Option must not be discarded.
+                // A bare call that yields an Option must not be discarded.
+                // Results propagate automatically (implicit `?`).
                 if let Some(kind) = ignored_result(e, ctx) {
                     ctx.diags.error_once(
                         "ignored-result",
                         format!(
-                            "This {} is being thrown away. Handle it: `?` to propagate, \
-                             `Match` over Ok/Err (or Some/None), or assign it with `Dim`.",
+                            "This {} is being thrown away. Handle it: `Match` over Some/None, \
+                             or assign it with `Dim`.",
                             kind
                         ),
                     );
@@ -1015,6 +1021,37 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 resolve_stmts(body, ctx);
             }
             Stmt::Break | Stmt::Continue => {}
+            Stmt::RaiseError(e) => resolve_expr(e, ctx),
+            Stmt::HandleErr {
+                target,
+                call,
+                err_name,
+                body,
+                ..
+            } => {
+                if let Some(t) = target {
+                    if !matches!(&t.kind, ExprKind::Ident(_)) {
+                        resolve_expr(t, ctx);
+                    }
+                }
+                // Nested fallible calls inside this call would `?` out of the
+                // function, not into this handler — reject them.
+                let saved = ctx.no_auto_try;
+                ctx.no_auto_try = true;
+                resolve_expr(call, ctx);
+                ctx.no_auto_try = saved;
+                if let Some(nested) = first_nested_fallible(call, ctx) {
+                    ctx.diags.error_once(
+                        "handle-nested",
+                        format!(
+                            "Handle intercepts one call. `{nested}` can also fail — give it \
+                             its own statement (and its own `Handle` if you want to catch it)."
+                        ),
+                    );
+                }
+                ctx.bind(err_name, DeclType::Plain(Type::Text));
+                resolve_stmts(body, ctx);
+            }
             // `x = Nothing` — releasing a plain variable; nothing to resolve.
             Stmt::Destroy { .. } => {}
             Stmt::ForEach { var1, var2, iter, body } => {
@@ -1127,7 +1164,7 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
     if src != target_n {
         ctx.diags.note(
             "numeric-cast",
-            "VB converts between number types silently; Rust wants it spelled out, so VBR \
+            "VB converts between number types silently; Rust wants it spelled out, so Bust \
              inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float \
              to an integer) can lose data.",
         );
@@ -1227,24 +1264,170 @@ fn is_lvalue(e: &Expr) -> bool {
     )
 }
 
-/// If `e` is a bare call yielding a Result/Option, returns its kind name.
+/// If `e` is a bare expression yielding an Option, returns its kind name.
+/// Results propagate automatically (implicit `?`); Options must still be handled.
 fn ignored_result(e: &Expr, ctx: &Ctx) -> Option<&'static str> {
-    if let ExprKind::Call { name, .. } = &e.kind {
-        match ctx.fns.get(&snake(name)).and_then(|s| s.ret.as_ref()) {
-            Some(DeclType::Result(..)) => return Some("Result"),
-            Some(DeclType::Option(_)) => return Some("Option"),
-            _ => {}
+    let e = peel_copy_wrap(e);
+    if matches!(infer(e, ctx), VType::Decl(DeclType::Option(_))) {
+        return Some("Option");
+    }
+    match &e.kind {
+        ExprKind::MethodCall { method, .. } => {
+            let m = snake(method);
+            if matches!(
+                m.as_str(),
+                "first" | "last" | "get" | "find" | "position" | "next"
+            ) {
+                Some("Option")
+            } else {
+                None
+            }
         }
-        match name.to_ascii_lowercase().as_str() {
-            "instr" => return Some("Option"),
-            // `Val` is infallible now (a `Double`, `0.0` on failure). The strict
-            // `Cxxx` conversions are the fallible ones whose `Result` must be
-            // handled with `?` or `Match`.
-            "cdbl" | "clng" | "cint" => return Some("Result"),
-            _ => {}
+        ExprKind::Call { name, .. } if name.eq_ignore_ascii_case("instr") => Some("Option"),
+        _ => None,
+    }
+}
+
+/// `.copied()` / `.cloned()` wrappers added on collection reads so Option<T> is owned.
+fn peel_copy_wrap(e: &Expr) -> &Expr {
+    let mut cur = e;
+    while let ExprKind::MethodCall { recv, method, .. } = &cur.kind {
+        if matches!(snake(method).as_str(), "copied" | "cloned") {
+            cur = recv;
+        } else {
+            break;
         }
     }
-    None
+    cur
+}
+
+/// For-each loop variables are wrapped in `Deref` so the body sees the value.
+fn peel_recv(e: &Expr) -> &Expr {
+    let mut cur = e;
+    while let ExprKind::Deref(inner) = &cur.kind {
+        cur = inner;
+    }
+    cur
+}
+
+/// Wrap a known-fallible call in `Try` (`?`) unless we're inside `Raw`/`Handle`/`Await`.
+fn auto_try(e: &mut Expr, ctx: &Ctx) {
+    if ctx.no_auto_try {
+        return;
+    }
+    if matches!(e.kind, ExprKind::Try(_)) {
+        return;
+    }
+    if !is_auto_try_expr(e, ctx) {
+        return;
+    }
+    let span = e.span;
+    let inner = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(span);
+    e.kind = ExprKind::Try(Box::new(inner));
+}
+
+/// Stdlib type tables are keyed by the squashed lowercase spelling (`getstring`,
+/// `readlines`). Source uses underscores (`Get_String`, `Read_Lines`); strip
+/// them so the tables still match after `rust_name` lowercases the call.
+fn stdlib_lookup_key(method: &str) -> String {
+    method.to_ascii_lowercase().replace('_', "")
+}
+
+fn is_auto_try_expr(e: &Expr, ctx: &Ctx) -> bool {
+    match &e.kind {
+        ExprKind::Call { name, .. } => {
+            let lower = name.to_ascii_lowercase();
+            if matches!(
+                lower.as_str(),
+                "ok" | "err" | "some" | "none" | "iif" | "sleep"
+            ) {
+                return false;
+            }
+            if matches!(lower.as_str(), "cdbl" | "clng" | "cint") {
+                return true;
+            }
+            let key = name.rsplit("::").next().unwrap_or(name);
+            let key = snake(key);
+            ctx.fns.contains_key(&key)
+                || ctx.interfaces.values().any(|i| i.fns.contains_key(&key))
+        }
+        ExprKind::MethodCall { recv, method, .. } => {
+            let lookup = stdlib_lookup_key(method);
+            let recv = peel_recv(recv);
+            if let ExprKind::Ident(ns) = &recv.kind {
+                if let Some(dt) = crate::types::stdlib_return(
+                    &ns.to_ascii_lowercase(),
+                    &lookup,
+                ) {
+                    return matches!(dt, DeclType::Result(..));
+                }
+                if ctx.binding(ns).is_none() {
+                    if let Some(s) = ctx.struct_of(ns) {
+                        if ctx.methods.contains_key(&(s.to_string(), snake(method))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if let ExprKind::Ident(v) = &recv.kind {
+                if let Some(DeclType::Named(ty)) = ctx.binding(v).and_then(|b| b.ty.clone()) {
+                    let t = ty.to_ascii_lowercase();
+                    if let Some(dt) = crate::types::stdlib_instance_return(&t, &lookup) {
+                        return matches!(dt, DeclType::Result(..));
+                    }
+                    if ctx.methods.contains_key(&(ty, snake(method))) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// A fallible call nested *inside* `call` (not `call` itself) — illegal under Handle.
+fn first_nested_fallible(call: &Expr, ctx: &Ctx) -> Option<String> {
+    fn walk(e: &Expr, ctx: &Ctx) -> Option<String> {
+        match &e.kind {
+            ExprKind::Call { name, args } => {
+                if is_auto_try_expr(e, ctx) {
+                    return Some(name.clone());
+                }
+                args.iter().find_map(|a| walk(a, ctx))
+            }
+            ExprKind::MethodCall { recv, method, args } => {
+                if is_auto_try_expr(e, ctx) {
+                    return Some(method.clone());
+                }
+                walk(recv, ctx).or_else(|| args.iter().find_map(|a| walk(a, ctx)))
+            }
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+                walk(lhs, ctx).or_else(|| walk(rhs, ctx))
+            }
+            ExprKind::Raw(inner)
+            | ExprKind::Await(inner)
+            | ExprKind::Try(inner)
+            | ExprKind::Field(inner, _)
+            | ExprKind::Not(inner)
+            | ExprKind::Deref(inner)
+            | ExprKind::Ref(inner)
+            | ExprKind::MutRef(inner)
+            | ExprKind::Cast(inner, _) => walk(inner, ctx),
+            ExprKind::Tuple(xs) | ExprKind::List(xs) => xs.iter().find_map(|a| walk(a, ctx)),
+            _ => None,
+        }
+    }
+    match &call.kind {
+        ExprKind::Call { args, .. } => args.iter().find_map(|a| walk(a, ctx)),
+        ExprKind::MethodCall { recv, args, .. } => {
+            walk(recv, ctx).or_else(|| args.iter().find_map(|a| walk(a, ctx)))
+        }
+        ExprKind::Try(inner) | ExprKind::Raw(inner) | ExprKind::Await(inner) => {
+            first_nested_fallible(inner, ctx)
+        }
+        _ => walk(call, ctx),
+    }
 }
 
 /// Which fallible box a value is — `Result` (carries an error) or `Option`
@@ -1300,7 +1483,7 @@ fn try_operand_shape(e: &Expr, ctx: &Ctx) -> Option<FailShape> {
                         .as_ref()
                         .and_then(decl_shape);
                 }
-                // A method on a stdlib wrapper instance — `doc.GetString(...)`.
+                // A method on a stdlib wrapper instance — `doc.Get_String(...)`.
                 if let Some(DeclType::Named(t)) = ctx.binding(n).and_then(|b| b.ty.as_ref()) {
                     if stdlib_type(t).is_some() {
                         return crate::types::stdlib_instance_return(&t.to_ascii_lowercase(), &m)
@@ -1358,7 +1541,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 &format!("handle-value-{}", snake(name)),
                 format!(
                     "'{}' is an opaque Rust handle — its type lives only inside Rust. \
-                     You can pass it back into another `Rust … End Rust` block, but VBR \
+                     You can pass it back into another `Rust … End Rust` block, but Bust \
                      can't print it, compare it, assign it, or pass it to a function.",
                     name
                 ),
@@ -1442,11 +1625,6 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // expressions, and skip the normal argument resolution.
             if is_df_expr(recv, ctx) {
                 resolve_expr(recv, ctx);
-                // Map the VBR spelling to the wrapper's real method name
-                // (`WithColumn` → `with_column`) before dispatching on it.
-                if let Some(real) = crate::transpiler::stdlib_method(&snake(method)) {
-                    *method = real.to_string();
-                }
                 match snake(method).as_str() {
                     "filter" => {
                         for a in args.iter_mut() {
@@ -1503,20 +1681,6 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 ExprKind::Ident(v) => Some(snake(v)),
                 _ => None,
             };
-            // A stdlib wrapper method keeps its real snake_case name
-            // (`GetString` → `get_string`) — unless the receiver is a user
-            // struct that defines its own method of that (lowercased) name.
-            if let Some(real) = crate::transpiler::stdlib_method(&snake(method)) {
-                let user_method = recv_var
-                    .as_ref()
-                    .and_then(|v| ctx.struct_of(v))
-                    .map_or(false, |s| {
-                        ctx.methods.contains_key(&(s.to_string(), snake(method)))
-                    });
-                if !user_method {
-                    *method = real.to_string();
-                }
-            }
             resolve_expr(recv, ctx);
             for a in args.iter_mut() {
                 // A closure argument to a pass-through method (`sort_by_key`,
@@ -1599,6 +1763,13 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
+            if snake(method) == "unwrap" {
+                ctx.diags.error_once(
+                    "unwrap-gone",
+                    "`.Unwrap()` is gone. Errors propagate automatically. To intercept a \
+                     call, use `Handle err` … `End Handle`.",
+                );
+            }
             // `opt.Unwrap_Or("x")` on an `Option<String>` needs an *owned*
             // String default — a string literal is `&str`, so give it `.to_string()`.
             if snake(method) == "unwrap_or" {
@@ -1663,7 +1834,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             // Stdlib functions take string args by `&str`; borrow an owned String.
             // (Collections like `Http.Post`'s headers map are passed by value.)
             // This applies both to namespace calls (`FileSystem.Read(x)`) and to
-            // methods on a stdlib *wrapper instance* (`doc.GetString(key)` with
+            // methods on a stdlib *wrapper instance* (`doc.Get_String(key)` with
             // `doc As Json`, `db.Query(sql, …)` with `db As Database`) — every
             // wrapper method takes its string args as `&str` too.
             let stdlib_recv = match &(&**recv).kind {
@@ -1684,7 +1855,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
                         arg.kind = ExprKind::Ref(Box::new(inner));
                     } else if owned_dt {
-                        // A `DateTime` argument (`d.DiffDays(other)`) is taken by
+                        // A `DateTime` argument (`d.Diff_Days(other)`) is taken by
                         // reference — it's never passed to a stdlib method by value.
                         let inner = std::mem::replace(&mut arg.kind, ExprKind::Int(0)).at(arg.span);
                         arg.kind = ExprKind::Ref(Box::new(inner));
@@ -1714,7 +1885,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             // `Shape.Circle(r)` on an enum → the variant constructor
             // `Shape::Circle(r)` (variant kept PascalCase). A string payload is
-            // owned — VBR enum text payloads are `String`, never `&str`.
+            // owned — Bust enum text payloads are `String`, never `&str`.
             if let ExprKind::Ident(m) = &(&**recv).kind {
                 if ctx.enums.contains(m) {
                     let path = format!("{}::{}", m, method);
@@ -1781,9 +1952,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         ExprKind::Call { name, args } => {
             // COHERENCE NOTE (embedding): a *bare* call to a name we don't know
             // is left alone on purpose — rustc is the backstop (see the `VType`
-            // doc). Embedding VBR in Rust (`vbr::compile_fragment` / `vbr embed`)
+            // doc). Embedding Bust in Rust (`vbr::compile_fragment` / `vbr embed`)
             // *relies* on this: `square(i)` inside a fragment is a Rust function,
-            // not a VBR one. So if you add an "unknown function — did you mean…?"
+            // not a Bust one. So if you add an "unknown function — did you mean…?"
             // diagnostic here (task #24), it MUST be gated off for fragments
             // (thread a `permissive` flag into `Ctx`), or you'll break embedding.
             // `tests/fragment.rs::an_unknown_name_passes_through_for_rustc_to_check`
@@ -1898,15 +2069,26 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         ExprKind::Deref(inner) | ExprKind::MutRef(inner) | ExprKind::Ref(inner) | ExprKind::Cast(inner, _)
-        | ExprKind::Field(inner, _) | ExprKind::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        | ExprKind::TupleIndex(inner, _) => resolve_expr(inner, ctx),
+        ExprKind::Field(inner, field) => {
+            resolve_expr(inner, ctx);
+            // `err.Message` in a Handle block — `err` is already the message String.
+            if field.eq_ignore_ascii_case("message") {
+                if let ExprKind::Ident(_) = &inner.kind {
+                    let span = e.span;
+                    e.kind = std::mem::replace(&mut inner.kind, ExprKind::Int(0));
+                    e.span = span;
+                }
+            }
+        }
         // A closure anywhere except a method argument: its type has no name,
-        // so it can't be stored in a variable, returned, or passed to a VBR
+        // so it can't be stored in a variable, returned, or passed to a Bust
         // function. (Method arguments are consumed before reaching here.)
         ExprKind::Closure { body, .. } => {
             ctx.diags.error_once(
                 "closure-value",
                 "A closure (`|x| …`) can't be stored in a variable or passed to a \
-                 function — its type has no name you (or VBR) could write. Use it \
+                 function — its type has no name you (or Bust) could write. Use it \
                  directly as a method argument (`v.filter(|x| x > 2)`), or give the \
                  logic a name with a `Function`.",
             );
@@ -1981,14 +2163,26 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         // Inline Rust/Python are opaque — no resolution.
         ExprKind::InlineRust(_) | ExprKind::InlinePython { .. } => {}
         ExprKind::Not(inner) => resolve_expr(inner, ctx),
-        ExprKind::Await(inner) => resolve_expr(inner, ctx),
+        ExprKind::Await(inner) => {
+            let saved = ctx.no_auto_try;
+            ctx.no_auto_try = true;
+            resolve_expr(inner, ctx);
+            ctx.no_auto_try = saved;
+        }
+        ExprKind::Raw(inner) => {
+            let saved = ctx.no_auto_try;
+            ctx.no_auto_try = true;
+            resolve_expr(inner, ctx);
+            ctx.no_auto_try = saved;
+        }
         ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) | ExprKind::Str(_) => {}
     }
+    auto_try(e, ctx);
 }
 
 // ---- Iterator chains -------------------------------------------------------
 //
-// `nums.filter(|x| x > 2).map(|x| x * x).collect()` — the links VBR
+// `nums.filter(|x| x > 2).map(|x| x * x).collect()` — the links Bust
 // understands on a `Vec`/fixed array. The chain root iterates by reference
 // and then makes items owned: `.iter().copied()` when the element is a Copy
 // primitive (free), `.iter().cloned()` when it owns data (a real copy — the
@@ -1996,7 +2190,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
 // the element type while their body is resolved, so the usual coercions
 // apply inside; unknown methods still pass through verbatim to rustc.
 
-/// Is this method (with these arguments) an iterator link VBR understands?
+/// Is this method (with these arguments) an iterator link Bust understands?
 /// `min`/`max` with an argument are the numeric receiver-typed methods
 /// (`n.min(other)`), not the iterator consumers, so argument shape decides.
 fn is_iter_adapter(m: &str, args: &[Expr]) -> bool {
@@ -2207,8 +2401,11 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         },
         ExprKind::Deref(inner) => infer(inner, ctx),
         ExprKind::Cast(_, ty) => vt(*ty),
-        // `?` unwraps a Result/Option to its payload; we don't track that yet.
-        ExprKind::Try(_) => VType::Unknown,
+        ExprKind::Try(inner) => match infer(inner, ctx) {
+            VType::Decl(DeclType::Option(t) | DeclType::Result(t, _)) => VType::Decl(*t),
+            other => other,
+        },
+        ExprKind::Raw(inner) => infer(inner, ctx),
         ExprKind::MutRef(_) | ExprKind::Ref(_) => VType::Unknown,
         // `p.field` — the field's declared type, when the receiver is a known
         // struct (including `Me` inside a method).
@@ -2375,14 +2572,14 @@ fn method_vtype(m: &str) -> VType {
 
 // ---- DataFrame column formulas -------------------------------------------------
 //
-// The argument of a DataFrame transform (`Filter`, `WithColumn`) is a *column
+// The argument of a DataFrame transform (`Filter`, `With_Column`) is a *column
 // formula*: it reads like an Excel array formula and applies down the whole
-// column. `lower_formula` rewrites an ordinary VBR expression into the polars
+// column. `lower_formula` rewrites an ordinary Bust expression into the polars
 // expression tree it means — `col(...)` / `lit(...)` / `when/then/otherwise` and
 // comparison/logical methods — which the emitter then renders verbatim.
 
 /// Is `e` a DataFrame-valued expression? A variable declared `As DataFrame`, a
-/// `DataFrame.ReadCsv(...)`-style constructor, or a transform chained off one.
+/// `DataFrame.Read_Csv(...)`-style constructor, or a transform chained off one.
 fn is_df_expr(e: &Expr, ctx: &Ctx) -> bool {
     match &e.kind {
         ExprKind::Ident(n) => ctx.struct_of(n) == Some("DataFrame"),
@@ -2402,7 +2599,7 @@ fn is_value_var(name: &str, ctx: &Ctx) -> bool {
     }
 }
 
-/// Rewrite a VBR expression in column-formula context into polars expressions.
+/// Rewrite a Bust expression in column-formula context into polars expressions.
 fn lower_formula(e: &mut Expr, ctx: &Ctx) {
     match &mut e.kind {
         // A bare name: a `Dim`'d value → `lit(v)`; otherwise a column → `col("name")`.
@@ -2419,10 +2616,10 @@ fn lower_formula(e: &mut Expr, ctx: &Ctx) {
             let v = std::mem::replace(&mut e.kind, ExprKind::Int(0)).at(e.span);
             *e = lit_of(v);
         }
-        // `IsNull(x)` → `x.is_null()` — nulls appear where a LeftJoin/OuterJoin
+        // `Is_Null(x)` → `x.is_null()` — nulls appear where a Left_Join/Outer_Join
         // found no matching key; this is the mask that finds (or, with `Not`,
         // removes) those rows.
-        ExprKind::Call { name, args } if name.eq_ignore_ascii_case("IsNull") && args.len() == 1 => {
+        ExprKind::Call { name, args } if name.eq_ignore_ascii_case("Is_Null") && args.len() == 1 => {
             let mut inner = args.drain(..).next().unwrap();
             lower_formula(&mut inner, ctx);
             *e = mcall(inner, "is_null", vec![]);

@@ -33,21 +33,45 @@ enum Message {
 fn update(state: &mut Fetcher, message: Message) -> Task<Message> {
     match message {
         Message::SetUrl(value) => {
-            state.url = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.url = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::Fetch => {
-            state.status = "loading…".to_string();
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.status = "loading…".to_string();
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             let url = state.url.clone();
             Task::perform(async move { tokio::task::spawn_blocking(move || Http::get(&url)).await.unwrap() }, Message::FetchDone)
         }
         Message::FetchDone(result) => {
-            match result {
-                Ok ( body ) => {
-                    state.status = format!("got {} bytes", body.len());
-                }
-                Err ( e ) => {
-                    state.status = format!("error: {}", e);
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    match result {
+                        Ok ( body ) => {
+                            state.status = format!("got {} bytes", body.len());
+                        }
+                        Err ( e ) => {
+                            state.status = format!("error: {}", e);
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
                 }
             }
             Task::none()

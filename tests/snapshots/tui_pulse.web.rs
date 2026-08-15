@@ -55,17 +55,25 @@ fn main() -> std::io::Result<()> {
         move || {
             let mut guard = state.borrow_mut();
             let state = &mut *guard;
-            if state.rising {
-                state.level += 5;
-                if state.level >= 100 {
-                    state.rising = false;
-                    state.beats += 1;
-                    state.history.push(state.level);
-                }
-            } else {
-                state.level -= 5;
-                if state.level <= 0 {
-                    state.rising = true;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    if state.rising {
+                        state.level += 5;
+                        if state.level >= 100 {
+                            state.rising = false;
+                            state.beats += 1;
+                            state.history.push(state.level);
+                        }
+                    } else {
+                        state.level -= 5;
+                        if state.level <= 0 {
+                            state.rising = true;
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
                 }
             }
         }

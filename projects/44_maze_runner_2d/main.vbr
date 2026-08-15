@@ -115,6 +115,6 @@ Node2D "RunnerHud"
 End Node2D
 
 Function Main()
-    ' Not used — Godot drives the scene. Kept so the file is a valid VBR
+    ' Not used — Godot drives the scene. Kept so the file is a valid Bust
     ' program for `vbr test` on the sibling logic module.
 End Function

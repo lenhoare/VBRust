@@ -1,4 +1,4 @@
-// A control panel showing every VBR GUI control: Text, Button, TextInput,
+// A control panel showing every Bust GUI control: Text, Button, TextInput,
 // Checkbox, Toggler, Slider, ProgressBar, Radio — plus Row layout, Match and If
 // in the view, an enum-backed radio group, and an async Await (Http) event.
 
@@ -66,36 +66,92 @@ enum Message {
 fn update(state: &mut Panel, message: Message) -> Task<Message> {
     match message {
         Message::SetName(value) => {
-            state.name = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.name = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::SetAgree(value) => {
-            state.agree = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.agree = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::SetDark(value) => {
-            state.dark = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.dark = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::SetVolume(value) => {
-            state.volume = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.volume = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::SetSize(value) => {
-            state.size = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.size = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::none()
         }
         Message::Fetch => {
-            state.status = "loading…".to_string();
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.status = "loading…".to_string();
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             Task::perform(async move { tokio::task::spawn_blocking(move || Http::get("https://example.com")).await.unwrap() }, Message::FetchDone)
         }
         Message::FetchDone(result) => {
-            match result {
-                Ok ( body ) => {
-                    state.status = format!("got {} bytes", body.len());
-                }
-                Err ( e ) => {
-                    state.status = format!("error: {}", e);
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    match result {
+                        Ok ( body ) => {
+                            state.status = format!("got {} bytes", body.len());
+                        }
+                        Err ( e ) => {
+                            state.status = format!("error: {}", e);
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
                 }
             }
             Task::none()

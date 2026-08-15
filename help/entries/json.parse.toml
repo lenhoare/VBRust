@@ -8,18 +8,18 @@ anchor = "ns/Json.Parse"
 summary = "Parses JSON text into a Json value you can read."
 
 arguments = """
-text | String | The JSON text to parse. (In a VBR string, an inner quote is written as two: "").
+text | String | The JSON text to parse. (In a Bust string, an inner quote is written as two: "").
 """
 
-returns = "Result<Json> — Ok with the parsed value, or Err(message) if the text isn't valid JSON."
+returns = "Json — the parsed value. Fails if the text isn't valid JSON."
 
 example = """
 Function Main()
-    Dim doc As Json = Json.Parse("{""name"": ""Ada"", ""age"": 36}").Unwrap()
+    Dim doc As Json = Json.Parse("{""name"": ""Ada"", ""age"": 36}")
 
-    Debug.Print doc.GetString("name").Unwrap()   ' Ada
-    Debug.Print doc.GetInt("age").Unwrap()       ' 36
+    Debug.Print doc.Get_String("name")   ' Ada
+    Debug.Print doc.Get_Int("age")       ' 36
 End Function
 """
 
-see_also = ["json", "json.getstring", "json.object"]
+see_also = ["json", "json.get_string", "json.object"]

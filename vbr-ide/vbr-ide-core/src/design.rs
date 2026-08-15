@@ -1,8 +1,8 @@
 //! The form designer's code generator: a widget tree (built visually in the
-//! frontend, sent over as JSON) → clean VBR `View` code. One direction only —
-//! the design is the source, the VBR is a read-only artifact you paste into a
+//! frontend, sent over as JSON) → clean Bust `View` code. One direction only —
+//! the design is the source, the Bust is a read-only artifact you paste into a
 //! `Window` file, exactly as the IDE's Rust pane is a read-only artifact of your
-//! VBR. Kept here (not the frontend) so the emitted syntax is unit-tested.
+//! Bust. Kept here (not the frontend) so the emitted syntax is unit-tested.
 
 use serde::Deserialize;
 
@@ -50,7 +50,7 @@ pub struct NodeProps {
     pub max: Option<i64>,
 }
 
-/// A VBR string literal: wrap in quotes, doubling any embedded quote (VB's
+/// A Bust string literal: wrap in quotes, doubling any embedded quote (VB's
 /// escaping — never a backslash).
 fn quote(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))

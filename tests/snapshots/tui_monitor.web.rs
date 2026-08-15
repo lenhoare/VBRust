@@ -45,7 +45,15 @@ fn main() -> std::io::Result<()> {
         move || {
             let mut guard = state.borrow_mut();
             let state = &mut *guard;
-            state.seconds += 1;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.seconds += 1;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     })
     .forget();
@@ -55,7 +63,15 @@ fn main() -> std::io::Result<()> {
             let rc = state.clone();
             let mut guard = state.borrow_mut();
             let state = &mut *guard;
-            state.status = "refreshing…".to_string();
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.status = "refreshing…".to_string();
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             let url = state.url.clone();
             wasm_bindgen_futures::spawn_local({
                 let state = rc.clone();
@@ -63,12 +79,20 @@ fn main() -> std::io::Result<()> {
                     let result = http_get(&url).await;
                     let mut guard = state.borrow_mut();
                     let state = &mut *guard;
-                    match result {
-                        Ok ( _ ) => {
-                            state.status = format!("ok at {}s", state.seconds);
-                        }
-                        Err ( e ) => {
-                            state.status = format!("error: {}", e);
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( _ ) => {
+                                    state.status = format!("ok at {}s", state.seconds);
+                                }
+                                Err ( e ) => {
+                                    state.status = format!("error: {}", e);
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
                         }
                     }
                 }

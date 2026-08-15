@@ -1,0 +1,27 @@
+id = "json.set_string"
+title = "Set_String"
+category = "Json"
+kind = "method"
+parent = "json"
+anchor = "ns/Json.Set_String"
+
+summary = "Sets a string value on an object under a key."
+
+arguments = """
+key | String | The key to set.
+val | String | The string value to store.
+"""
+
+returns = "Nothing — the object is updated in place. Set_Int, Set_Bool and Set (for a nested Json) work the same way."
+
+example = """
+Function Main()
+    Dim doc As Json = Json.Object()
+    doc.Set_String("status", "ok")
+    doc.Set_Int("code", 200)
+
+    Debug.Print doc.To_String()   ' {"status":"ok","code":200}
+End Function
+"""
+
+see_also = ["json", "json.object", "json.push", "json.to_string"]

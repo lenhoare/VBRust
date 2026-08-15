@@ -4,7 +4,7 @@
 //! Unlike the GUI/TUI/Web surfaces (a whole State/View/Events *app*), a Godot
 //! node is *one class* that Godot instantiates and drives: inversion of control.
 //! So there is no `fn main` — the program compiles to a **cdylib** the Godot
-//! editor loads. VBR contributes the behaviour scripts; Godot owns the scene.
+//! editor loads. Bust contributes the behaviour scripts; Godot owns the scene.
 //!
 //! Slice 1: a `Node2D "Player"` block with `Export` members and `On Ready` /
 //! `On Process(delta)` callbacks lowers to
@@ -186,7 +186,7 @@ fn emit_event(
         "ready" | "enter_tree" | "exit_tree" | "draw" => {
             (format!("fn {}(&mut self)", name), vec![])
         }
-        // Godot hands `process`/`physics_process` an f64 delta; VBR sees it in
+        // Godot hands `process`/`physics_process` an f64 delta; Bust sees it in
         // the declared type (default `Single`), so rebind: `let delta = … as f32`.
         "process" | "physics_process" => {
             let p = ev.params.first();
@@ -285,9 +285,18 @@ fn lower_body(
     collect_mutated(&body, &mut mutated);
     mutated.extend(handles.iter().cloned());
     let byref: HashSet<String> = HashSet::new();
+    // Events are a non-fatal sink: catch a propagated error, report it, keep running.
+    out.push_str("        {\n");
+    out.push_str("            let __vbr_event: Result<(), String> = (|| {\n");
     for stmt in &body {
-        emit_stmt(stmt, &mutated, &byref, 2, diags, out);
+        emit_stmt(stmt, &mutated, &byref, 3, diags, out);
     }
+    out.push_str("                Ok(())\n");
+    out.push_str("            })();\n");
+    out.push_str("            if let Err(__e) = __vbr_event {\n");
+    out.push_str("                eprintln!(\"Error: {}\", __e);\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +477,14 @@ impl Rw<'_> {
             Stmt::Expr(e) => Stmt::Expr(self.expr(e)),
             Stmt::Print(e) => Stmt::Print(self.expr(e)),
             Stmt::Return(e) => Stmt::Return(e.map(|e| self.expr(e))),
+            Stmt::RaiseError(e) => Stmt::RaiseError(self.expr(e)),
+            Stmt::HandleErr { target, call, err_name, body, line } => Stmt::HandleErr {
+                target: target.map(|e| self.expr(e)),
+                call: self.expr(call),
+                err_name,
+                body: body.into_iter().map(|s| self.stmt(s)).collect(),
+                line,
+            },
             Stmt::If { branches, else_body } => Stmt::If {
                 branches: branches
                     .into_iter()

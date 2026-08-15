@@ -15,7 +15,7 @@ fn vbcrlf_emits_an_escaped_carriage_return() {
     assert!(!compiled.rust.contains('\r'), "a raw CR leaked into the output");
 }
 
-/// Quirk 18/32 — a VBR name that collides with a Rust keyword (`Move`, and a
+/// Quirk 18/32 — a Bust name that collides with a Rust keyword (`Move`, and a
 /// `move` parameter) must be emitted as a raw identifier `r#move`, not the bare
 /// keyword (which won't parse).
 #[test]
@@ -44,7 +44,7 @@ fn a_string_match_lowers_the_scrutinee_through_as_str() {
     assert!(compiled.rust.contains(".as_str()"), "got: {}", compiled.rust);
 }
 
-/// Quirk 17/23/27 — a VBR keyword used as a name gives a targeted diagnostic
+/// Quirk 17/23/27 — a Bust keyword used as a name gives a targeted diagnostic
 /// (naming the keyword), not the cryptic "expected a name, found To".
 #[test]
 fn a_keyword_used_as_a_parameter_name_is_explained() {

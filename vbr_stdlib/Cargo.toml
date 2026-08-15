@@ -2,11 +2,11 @@
 name = "vbr_stdlib"
 version = "0.1.0"
 edition = "2021"
-description = "VBR Standard Library — friendly wrappers for common Rust operations"
+description = "Bust Standard Library — friendly wrappers for common Rust operations"
 license = "MIT"
 
 # Each dependency-bearing namespace is behind a feature, so a project only
-# compiles what it uses. `FileSystem` is always available (std-only). The VBR
+# compiles what it uses. `FileSystem` is always available (std-only). The Bust
 # project generator enables exactly the features a program needs.
 [features]
 default = []

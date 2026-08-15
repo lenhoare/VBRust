@@ -7,51 +7,43 @@
 ' as Json objects keyed by column name, each column with its natural type.
 
 ' A ByVal Database param borrows the connection (&Database) — open once,
-' hand it around. Inside a Result function, `?` chains the fallible calls.
-Function Run(ByVal db As Database) As Result<()>
-    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, gen INTEGER, text TEXT, score REAL, parent INTEGER)", [])?
-    db.Execute("DELETE FROM ideas", [])?
+' hand it around. Fallible calls propagate automatically.
+Function Run(ByVal db As Database)
+    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, gen INTEGER, text TEXT, score REAL, parent INTEGER)", [])
+    db.Execute("DELETE FROM ideas", [])
 
     ' A root idea has no parent — the NULL is written in the SQL.
-    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (1, ?, ?, NULL)", ["solar tracker", "0.82"])?
-    Dim root As Long = db.LastInsertId()
+    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (1, ?, ?, NULL)", ["solar tracker", "0.82"])
+    Dim root As Long = db.Last_Insert_Id()
 
     ' A child links to its parent via the fresh rowid — lineage.
-    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (2, ?, ?, ?)", ["improved tracker", "0.91", CStr(root)])?
+    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (2, ?, ?, ?)", ["improved tracker", "0.91", CStr(root)])
 
     ' Insert through a helper whose text/score arrive as ByVal String params —
     ' a `&str` element in the params list, owned into the Vec<String> for you.
-    AddScored(db, "wind turbine", "0.75")?
+    AddScored(db, "wind turbine", "0.75")
 
-    Dim rows As Vec<Json> = db.Query("SELECT text, score, parent FROM ideas ORDER BY score DESC", [])?
+    Dim rows As Vec<Json> = db.Query("SELECT text, score, parent FROM ideas ORDER BY score DESC", [])
     For Each row In rows
-        Dim line As String = row.GetString("text")? & " scores " & row.GetFloat("score")?
-        If row.Get("parent")?.IsNull() Then
+        Dim line As String = row.Get_String("text") & " scores " & row.Get_Float("score")
+        If row.Get("parent").Is_Null() Then
             Debug.Print line & " (a root idea)"
         Else
-            Debug.Print line & " (child of #" & row.GetInt("parent")? & ")"
+            Debug.Print line & " (child of #" & row.Get_Int("parent") & ")"
         End If
     Next
-
-    Return Ok(())
 End Function
 
 ' text and score are `&str` params. Dropping them straight into the params list
 ' fills a `Vec<String>`, so each is owned with `.to_string()` for you — no manual
 ' `.clone()` or `CStr(...)`. A literal element (none here) is owned by the list
 ' emitter as before.
-Function AddScored(ByVal db As Database, ByVal text As String, ByVal score As String) As Result<()>
-    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (3, ?, ?, NULL)", [text, score])?
-    Return Ok(())
+Function AddScored(ByVal db As Database, ByVal text As String, ByVal score As String)
+    db.Execute("INSERT INTO ideas (gen, text, score, parent) VALUES (3, ?, ?, NULL)", [text, score])
 End Function
 
 Function Main()
-    Match Database.Open("ideas.db")
-        Ok(db) =>
-            Match Run(db)
-                Ok(_) => Debug.Print "done"
-                Err(message) => Debug.Print "db error: " & message
-            End Match
-        Err(message) => Debug.Print "could not open: " & message
-    End Match
+    Dim db As Database = Database.Open("ideas.db")
+    Run(db)
+    Debug.Print "done"
 End Function

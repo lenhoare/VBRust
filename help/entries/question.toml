@@ -4,39 +4,32 @@ category = "Collections & wrappers"
 kind = "operator"
 
 syntax = """
-Dim <name> As <T> = <fallible call>?
+<a> = <call>()
 """
 
 replaces = "On Error error-handling"
 
-summary = "Forwards an error upward, unwrapping the success value on the happy path."
+summary = "Gone from ordinary Bust — a call already propagates."
 
 remarks = """
-A `?` after a fallible call means "if this failed, stop and return that failure from the current function; otherwise give me the value inside." It turns nested error-checking into a single character, keeping the successful path readable.
-
-It works on `Result` (and `Option`), and the enclosing function must itself return the matching kind — you can only forward an error out of a function that is allowed to fail.
+You do not write `?`. A fallible call already forwards failure out of the current function and gives you the success value. Intercept with `Handle err`. Fail from here with `RaiseError`. Take the box with `Raw`.
 """
 
 example = """
-Function ParseAge(s As String) As Result<Long>
-    Dim n As Long = Val(s)
-    If n <= 0 Then
-        Return Err("not a valid age")
-    End If
-    Return Ok(n)
+Function ParseAge(s As String) As Long
+    Dim n As Long = CLng(s)
+    If n <= 0 Then RaiseError "not a valid age"
+    Return n
 End Function
 
-Function Describe(s As String) As Result<String>
-    Dim age As Long = ParseAge(s)?      ' an Err here returns from Describe
-    Return Ok("age is " & CStr(age))
+Function Describe(s As String) As String
+    Dim age As Long = ParseAge(s)
+    Return "age is " & CStr(age)
 End Function
 
 Function Main()
-    Match Describe("36")
-        Ok(msg) => Debug.Print msg
-        Err(e) => Debug.Print e
-    End Match
+    Debug.Print Describe("36")
 End Function
 """
 
-see_also = ["result", "option", "match"]
+see_also = ["handle", "raiseerror", "raw", "result"]

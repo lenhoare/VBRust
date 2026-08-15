@@ -25,7 +25,15 @@ enum Message {
 fn update(state: &mut Greeter, message: Message) {
     match message {
         Message::Rename(value) => {
-            state.name = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.name = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

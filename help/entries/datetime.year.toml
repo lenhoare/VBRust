@@ -11,7 +11,7 @@ returns = "Long — the four-digit year. Month() and Day() work the same way, re
 
 example = """
 Function Main()
-    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d").Unwrap()
+    Dim d As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d")
     Debug.Print d.Year()    ' 2026
     Debug.Print d.Month()   ' 8
     Debug.Print d.Day()     ' 14

@@ -1,6 +1,6 @@
 # receipt — the `<module>.test.vbr` pattern
 
-A minimal, deterministic project that demonstrates VBR's **test harness** the way
+A minimal, deterministic project that demonstrates Bust's **test harness** the way
 the [`testing_spec.md`](../../testing_spec.md) recommends: a module of pure logic,
 tested by a `.test.vbr` file beside it.
 
@@ -20,7 +20,7 @@ the numbers and prints them — so the sums are testable in isolation.
 
 ## What it tests
 
-**VBR language features**
+**Bust language features**
 
 - A **multi-module project** (a folder): `main.vbr` calls the sibling module with
   **qualified names** — `Receipt.LineTotal(...)`.

@@ -1,34 +1,35 @@
 ' Shell — VB6's `Shell`, grown up. Two verbs:
 '   Shell.Run(cmd)   — run through the system shell, WAIT, capture the output:
-'                      Ok(stdout) on success, Err(stderr) on a nonzero exit.
+'                      stdout on success; failure propagates (or Handle it).
 '   Shell.Start(cmd) — launch and DON'T wait (VB6's actual Shell semantics):
 '                      you get a Process handle to check on or stop.
 ' Pipes and PATH work — the command line goes through sh -c / cmd /C.
 
 Function Main()
-    Match Shell.Run("echo hello from VBR")
-        Ok(output) => Debug.Print "said: " & output
-        Err(why) => Debug.Print "echo failed: " & why
-    End Match
+    Dim output As String = Shell.Run("echo hello from Bust") Handle why
+        Debug.Print "echo failed: " & why
+        Return
+    End Handle
+    Debug.Print "said: " & output
 
-    Match Shell.Run("ls /vbr/definitely/missing")
-        Ok(output) => Debug.Print output
-        Err(_) => Debug.Print "as expected, that failed"
-    End Match
+    Shell.Run("ls /vbr/definitely/missing") Handle why
+        Debug.Print "as expected, that failed"
+    End Handle
 
-    Match RunChild()
-        Ok(code) => Debug.Print "child finished with exit code " & code
-        Err(why) => Debug.Print "child failed: " & why
-    End Match
+    Dim code As Long = RunChild() Handle why
+        Debug.Print "child failed: " & why
+        Return
+    End Handle
+    Debug.Print "child finished with exit code " & code
 End Function
 
 ' A background child: start it, peek at it, stop it. `Kill` on an already-dead
 ' process is a harmless no-op; `Wait` returns the exit code (-1 after a kill).
-Function RunChild() As Result<Long>
-    Dim child As Process = Shell.Start("sleep 2")?
+Function RunChild() As Long
+    Dim child As Process = Shell.Start("sleep 2")
     Sleep 100    ' VB6's kernel32 Sleep, no Declare needed (milliseconds)
-    Debug.Print "running: " & child.IsRunning()
+    Debug.Print "running: " & child.Is_Running()
     child.Kill()
-    Debug.Print "after kill: " & child.IsRunning()
-    Return Ok(child.Wait())
+    Debug.Print "after kill: " & child.Is_Running()
+    Return child.Wait()
 End Function

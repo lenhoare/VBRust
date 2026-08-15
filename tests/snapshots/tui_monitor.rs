@@ -53,23 +53,47 @@ fn main() -> std::io::Result<()> {
         while let Ok(msg) = rx.try_recv() {
             match msg {
                 Message::PollDone(result) => {
-                    match result {
-                        Ok ( _ ) => {
-                            state.status = format!("ok at {}s", state.seconds);
-                        }
-                        Err ( e ) => {
-                            state.status = format!("error: {}", e);
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( _ ) => {
+                                    state.status = format!("ok at {}s", state.seconds);
+                                }
+                                Err ( e ) => {
+                                    state.status = format!("error: {}", e);
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
                         }
                     }
                 }
             }
         }
         if last_tick_0.elapsed().as_millis() >= 1000 {
-            state.seconds += 1;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.seconds += 1;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             last_tick_0 = std::time::Instant::now();
         }
         if last_tick_1.elapsed().as_millis() >= 5000 {
-            state.status = "refreshing…".to_string();
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.status = "refreshing…".to_string();
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
             let url = state.url.clone();
             let tx = tx.clone();
             std::thread::spawn(move || {

@@ -1,14 +1,31 @@
 # Standard library — file I/O and regex. Calls translate `.` to `::`.
 
-from vbrpy import Some, Ok, Err, _vb, _unwrap, FileSystem, Regex
+import sys
+from vbrpy import Ok, Err, _vb, FileSystem, Regex
 
 def main():
-    _unwrap(FileSystem.write('greeting.txt', 'Hello   from   VBR'))
-    text: str = _unwrap(FileSystem.read('greeting.txt'))
+    _t0 = FileSystem.write('greeting.txt', 'Hello   from   Bust')
+    if isinstance(_t0, Err):
+        print(f"Error: {_t0.error}", file=sys.stderr)
+        raise SystemExit(1)
+    _t0.value
+    _t1 = FileSystem.read('greeting.txt')
+    if isinstance(_t1, Err):
+        print(f"Error: {_t1.error}", file=sys.stderr)
+        raise SystemExit(1)
+    text: str = _t1.value
     print(f"file says: {_vb(text)}")
-    cleaned: str = _unwrap(Regex.replaceall('\\s+', text, ' '))
+    _t2 = Regex.replace_all('\\s+', text, ' ')
+    if isinstance(_t2, Err):
+        print(f"Error: {_t2.error}", file=sys.stderr)
+        raise SystemExit(1)
+    cleaned: str = _t2.value
     print(f"cleaned:   {_vb(cleaned)}")
-    _unwrap(FileSystem.delete('greeting.txt'))
+    _t3 = FileSystem.delete('greeting.txt')
+    if isinstance(_t3, Err):
+        print(f"Error: {_t3.error}", file=sys.stderr)
+        raise SystemExit(1)
+    _t3.value
 
 
 if __name__ == "__main__":

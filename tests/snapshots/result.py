@@ -1,10 +1,7 @@
-# Result<T> for fallible functions — propagate with ?, handle with Match
+# Errors propagate automatically. Intercept a call with Handle; fail with RaiseError.
 
+import sys
 from dataclasses import dataclass
-
-@dataclass
-class Some:
-    value: object
 
 @dataclass
 class Ok:
@@ -21,50 +18,52 @@ def _vb(x):
         return str(int(x))
     return str(x)
 
-def _unwrap(x):
-    if isinstance(x, (Some, Ok)):
-        return x.value
-    if isinstance(x, Err):
-        raise Exception(f'unwrapped an Err: {x.error}')
-    if x is None:
-        raise Exception('unwrapped a None')
-    return x
-
 def main():
-    # Handle the outcome explicitly
-    _m0 = divide(10, 2)
-    match _m0:
-        case Ok(value):
-            print(f"10 / 2 = {_vb(value)}")
-        case Err(message):
-            print(f"error: {_vb(message)}")
-    _m1 = divide(7, 0)
-    match _m1:
-        case Ok(value):
-            print(f"7 / 0 = {_vb(value)}")
-        case Err(message):
-            print(f"error: {_vb(message)}")
-    # A function that uses ? to propagate failure
-    _m2 = doublequotient(20, 4)
-    match _m2:
-        case Ok(value):
-            print(f"double of 20 / 4 = {_vb(value)}")
-        case Err(message):
-            print(f"error: {_vb(message)}")
-    # .Unwrap() is allowed, but training wheels
-    known: int = _unwrap(divide(9, 3))
+    value: int = 0
+    _t0 = divide(10, 2)
+    if isinstance(_t0, Err):
+        message = _t0.error
+        print(f"error: {_vb(message)}")
+        return
+    else:
+        value = _t0.value
+    print(f"10 / 2 = {_vb(value)}")
+    bad: int = 0
+    _t1 = divide(7, 0)
+    if isinstance(_t1, Err):
+        message = _t1.error
+        print(f"error: {_vb(message)}")
+        return
+    else:
+        bad = _t1.value
+    print(f"7 / 0 = {_vb(bad)}")
+    # Failure from Divide flows out of DoubleQuotient with no extra syntax
+    doubled: int = 0
+    _t2 = doublequotient(20, 4)
+    if isinstance(_t2, Err):
+        message = _t2.error
+        print(f"error: {_vb(message)}")
+        return
+    else:
+        doubled = _t2.value
+    print(f"double of 20 / 4 = {_vb(doubled)}")
+    _t3 = divide(9, 3)
+    if isinstance(_t3, Err):
+        print(f"Error: {_t3.error}", file=sys.stderr)
+        raise SystemExit(1)
+    known: int = _t3.value
     print(f"9 / 3 = {_vb(known)}")
 
-def divide(numerator: int, denominator: int) -> object:
+def divide(numerator: int, denominator: int) -> int:
     if denominator == 0:
         return Err('cannot divide by zero')
     return Ok(numerator // denominator)
 
-def doublequotient(a: int, b: int) -> object:
-    _t0 = divide(a, b)
-    if isinstance(_t0, Err):
-        return _t0
-    q: int = _t0.value
+def doublequotient(a: int, b: int) -> int:
+    _t4 = divide(a, b)
+    if isinstance(_t4, Err):
+        return _t4
+    q: int = _t4.value
     return Ok(q * 2)
 
 

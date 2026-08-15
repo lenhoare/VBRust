@@ -15,7 +15,7 @@ def _vb(x):
     return str(x)
 
 def main():
-    doc: str = 'name: VBR\nkind: transpiler'
+    doc: str = 'name: Bust\nkind: transpiler'
     # The aliased module is in scope for the inline block — no re-import needed.
     kind = yaml.safe_load(doc)["kind"]
     print(f"kind is {_vb(kind)}")

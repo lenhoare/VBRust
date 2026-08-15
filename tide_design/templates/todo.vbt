@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Add line plus checklist. Sidekick, Things, every todo app.
 Screen Todo
     Title "Tasks"

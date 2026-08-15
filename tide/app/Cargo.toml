@@ -3,7 +3,7 @@ name = "tide"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Turbo Pascal–inspired TUI IDE for VBR, built on tide-editor."
+description = "Turbo Pascal–inspired TUI IDE for Bust, built on tide-editor."
 
 [[bin]]
 name = "tide"

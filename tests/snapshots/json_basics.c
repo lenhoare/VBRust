@@ -160,15 +160,27 @@ static void vbr_json_push(Json* self, Json val) {
 }
 
 int main(void) {
-    Json person = Result_Json_str_unwrap(vbr_json_parse("{\"name\":\"Alice\",\"age\":42}"));
-    printf("%s\n", vbr_concat("name = ", Result_str_str_unwrap(vbr_json_getstring(&person, "name"))));
-    printf("%s\n", vbr_concat("age  = ", vbr_from_ll(Result_longlong_str_unwrap(vbr_json_getint(&person, "age")))));
-    Json doc = Result_Json_str_unwrap(vbr_json_parse("{\"tags\":[\"red\",\"green\",\"blue\"]}"));
-    Vec_Json tags = Result_vec_Json_str_unwrap(vbr_json_getarray(&doc, "tags"));
+    Result_Json_str _t0 = vbr_json_parse("{\"name\":\"Alice\",\"age\":42}");
+    if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
+    Json person = _t0.ok;
+    Result_str_str _t1 = vbr_json_getstring(&person, "name");
+    if (!_t1.is_ok) { fprintf(stderr, "Error: %s\n", _t1.err); return 1; }
+    printf("%s\n", vbr_concat("name = ", _t1.ok));
+    Result_longlong_str _t2 = vbr_json_getint(&person, "age");
+    if (!_t2.is_ok) { fprintf(stderr, "Error: %s\n", _t2.err); return 1; }
+    printf("%s\n", vbr_concat("age  = ", vbr_from_ll(_t2.ok)));
+    Result_Json_str _t3 = vbr_json_parse("{\"tags\":[\"red\",\"green\",\"blue\"]}");
+    if (!_t3.is_ok) { fprintf(stderr, "Error: %s\n", _t3.err); return 1; }
+    Json doc = _t3.ok;
+    Result_vec_Json_str _t4 = vbr_json_getarray(&doc, "tags");
+    if (!_t4.is_ok) { fprintf(stderr, "Error: %s\n", _t4.err); return 1; }
+    Vec_Json tags = _t4.ok;
     printf("%s\n", vbr_concat("tag count: ", vbr_from_ll(tags.len)));
-    for (size_t _i0 = 0; _i0 < tags.len; _i0++) {
-        Json tag = tags.data[_i0];
-        printf("%s\n", vbr_concat("  tag: ", Result_str_str_unwrap(vbr_json_asstring(&tag))));
+    for (size_t _i5 = 0; _i5 < tags.len; _i5++) {
+        Json tag = tags.data[_i5];
+        Result_str_str _t6 = vbr_json_asstring(&tag);
+        if (!_t6.is_ok) { fprintf(stderr, "Error: %s\n", _t6.err); return 1; }
+        printf("%s\n", vbr_concat("  tag: ", _t6.ok));
     }
     return 0;
 }

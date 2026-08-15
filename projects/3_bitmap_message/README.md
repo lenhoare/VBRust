@@ -5,7 +5,7 @@ of a bitmap is replaced by the next character of the message (repeating the
 message as needed); spaces stay spaces. The bitmap and result are
 `Vec<String>` rows. Deterministic.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` taking a `Vec<String>` argument, returning `Vec<String>`
 - `For Each` over a `Vec<String>`; inner `For` with `Mid`/`Len()` per char

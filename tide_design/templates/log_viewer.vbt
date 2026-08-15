@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Filter box over a scrolling log. Tail, Event Viewer, syslog.
 Screen LogViewer
     Title "Log"

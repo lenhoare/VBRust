@@ -180,13 +180,29 @@ fn main() -> std::io::Result<()> {
                                 state.menu_close();
                                 match (m, i) {
                                     (0, 0) => {
-                                        state.log = "File → Beep".to_string();
+                                        {
+                                            let __vbr_event: Result<(), String> = (|| {
+                                                state.log = "File → Beep".to_string();
+                                                Ok(())
+                                            })();
+                                            if let Err(__e) = __vbr_event {
+                                                eprintln!("Error: {}", __e);
+                                            }
+                                        }
                                     }
                                     (0, 2) => {
                                         break;
                                     }
                                     (1, 0) => {
-                                        state.log = "Help → About".to_string();
+                                        {
+                                            let __vbr_event: Result<(), String> = (|| {
+                                                state.log = "Help → About".to_string();
+                                                Ok(())
+                                            })();
+                                            if let Err(__e) = __vbr_event {
+                                                eprintln!("Error: {}", __e);
+                                            }
+                                        }
                                     }
                                     _ => {}
                                 }
@@ -195,7 +211,15 @@ fn main() -> std::io::Result<()> {
                         KeyCode::Char(c) => match (state.menu_open, c.to_ascii_lowercase()) {
                             (Some(0), 'b') => {
                                 state.menu_close();
-                                state.log = "File → Beep".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.log = "File → Beep".to_string();
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             (Some(0), 'q') => {
                                 state.menu_close();
@@ -203,7 +227,15 @@ fn main() -> std::io::Result<()> {
                             }
                             (Some(1), 'a') => {
                                 state.menu_close();
-                                state.log = "Help → About".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.log = "Help → About".to_string();
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             (_, 'f') => state.menu_activate(0),
                             (_, 'h') => state.menu_activate(1),

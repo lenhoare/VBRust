@@ -1,0 +1,33 @@
+id = "raw"
+title = "Raw"
+category = "Procedures"
+kind = "keyword"
+
+syntax = """
+Dim <name> As Result<<T>> = Raw <call>()
+"""
+
+summary = "Takes the underlying Result as a value, instead of propagating."
+
+remarks = """
+A normal call unwraps success into a `T` (and propagates failure). `Raw` skips that: you get the box, which you inspect with `Match` or pass into inline Rust.
+
+Ordinary functions still declare `As Long`, not `As Result<Long>`. `Result` appears only when you asked for the box. `Handle` and `Raw` do not combine.
+"""
+
+example = """
+Function Divide(a As Long, b As Long) As Long
+    If b = 0 Then RaiseError "cannot divide by zero"
+    Return a / b
+End Function
+
+Function Main()
+    Dim r As Result<Long> = Raw Divide(10, 2)
+    Match r
+        Ok(n) => Debug.Print n
+        Err(e) => Debug.Print e
+    End Match
+End Function
+"""
+
+see_also = ["handle", "result", "match", "rust"]

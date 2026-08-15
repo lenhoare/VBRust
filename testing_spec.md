@@ -1,6 +1,6 @@
-# VBR Testing — Spec
+# Bust Testing — Spec
 
-Tests in VBR are **executable specifications**. You write the code and the tests;
+Tests in Bust are **executable specifications**. You write the code and the tests;
 a reader verifies your work by reading the tests — a description they can check
 against without re-deriving the implementation. That makes `vbr test` less a
 language feature than a *trust protocol*: the suite is the contract, and the
@@ -31,7 +31,7 @@ The description is what `vbr test` prints, so write it as the promise being made
 `Assert <expr>` checks a condition. The **operator picks the Rust assertion**, so
 the `=`/`<>` you'd write anyway give operand-level failure messages:
 
-| VBR | Rust | On failure shows |
+| Bust | Rust | On failure shows |
 |-----|------|------------------|
 | `Assert a = b`  | `assert_eq!(a, b)` | `left` and `right` values |
 | `Assert a <> b` | `assert_ne!(a, b)` | the equal values |
@@ -92,7 +92,7 @@ by description:
 ```
 
 A failure shows the operand values and the **`.vbr` line** (translated from the
-generated Rust, like every other VBR error). The process exits non-zero when any
+generated Rust, like every other Bust error). The process exits non-zero when any
 test fails, so `vbr test` drops into CI.
 
 ## Under the hood
@@ -100,7 +100,7 @@ test fails, so `vbr test` drops into CI.
 Each `Test` lowers to a Rust `#[test] fn` (a slug of the description) in a
 `#[cfg(test)] mod`, and `vbr test` runs `cargo test` — so tests get real
 isolation, run in parallel, and panics are caught, all for free, while the output
-is translated back to your descriptions. It also means a VBR test *is* a Rust
+is translated back to your descriptions. It also means a Bust test *is* a Rust
 test: the same discipline, one layer down.
 
 ## Scope

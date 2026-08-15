@@ -11,13 +11,13 @@ arguments = """
 command | String | The command line to launch.
 """
 
-returns = "Result<Process> — Ok with a Process you control, or Err(message) if it couldn't start. The Process has .Wait() (block until it finishes, returning its exit code), .IsRunning() (Boolean), and .Kill()."
+returns = "Process — a Process you control. Fails if it couldn't start. The Process has .Wait() (block until it finishes, returning its exit code), .Is_Running() (Boolean), and .Kill()."
 
 example = """
 Function Main()
-    Dim p As Process = Shell.Start("sleep 1").Unwrap()
+    Dim p As Process = Shell.Start("sleep 1")
 
-    Debug.Print p.IsRunning()   ' True
+    Debug.Print p.Is_Running()   ' True
     Dim code As Long = p.Wait()
     Debug.Print code            ' 0
 End Function

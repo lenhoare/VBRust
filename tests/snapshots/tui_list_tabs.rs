@@ -1,5 +1,5 @@
 // tui_list_tabs.vbr — a selectable List nested inside a Tabs pane. The List
-// is a focusable widget wherever it sits: VBR declares its `<field>_state`
+// is a focusable widget wherever it sits: Bust declares its `<field>_state`
 // (the ratatui ListState) and wires Up/Down/Enter even when the widget only
 // appears in one pane. Switch tabs with Left/Right (or 1/2) when the tab bar
 // is focused; Tab moves focus to the list. Each pane's list keeps its own
@@ -128,13 +128,29 @@ fn main() -> std::io::Result<()> {
                             1 => {
                                 if let Some(i) = state.fruit_state.selected() {
                                     let choice = state.fruit[i].clone();
-                                    state.picked = format!("fruit: {}", choice);
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.picked = format!("fruit: {}", choice);
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             2 => {
                                 if let Some(i) = state.veg_state.selected() {
                                     let choice = state.veg[i].clone();
-                                    state.picked = format!("veg: {}", choice);
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.picked = format!("veg: {}", choice);
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             _ => {}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Install the system libraries the VBR IDE (Tauri v2) needs to build and run on
+# Install the system libraries the Bust IDE (Tauri v2) needs to build and run on
 # a Debian/Ubuntu-based Linux. Ubuntu 24.04 ships WebKitGTK 4.1 (older releases
 # used 4.0 — adjust the package name if you're on one of those).
 #

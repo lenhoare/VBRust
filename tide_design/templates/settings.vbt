@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Preferences: tabbed checkboxes and radios. Control Panel / Options dialog.
 Screen Settings
     Title "Settings"

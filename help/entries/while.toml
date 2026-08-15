@@ -11,10 +11,10 @@ Loop
 
 replaces = "While … Wend"
 
-summary = "The condition that drives a Do loop — VBR has no standalone While…Wend."
+summary = "The condition that drives a Do loop — Bust has no standalone While…Wend."
 
 remarks = """
-If your fingers reach for classic VB's `While … Wend`, note that VBR doesn't have it. Write `Do While <condition> … Loop` instead — same idea, one consistent loop keyword.
+If your fingers reach for classic VB's `While … Wend`, note that Bust doesn't have it. Write `Do While <condition> … Loop` instead — same idea, one consistent loop keyword.
 
 `While` can also sit on the closing line (`Loop While <condition>`) to test *after* each pass, and its opposite is `Until`. See `Do…Loop` for the whole family.
 """

@@ -1,1 +1,1 @@
-✘ [line 3] Date isn't a built-in VBR type — a bare date with no calendar semantics is just a number in disguise. Use `DateTime` from the standard library: `Dim now As DateTime = DateTime.Now()`, then `.AddDays(n)`, `.Format(...)`, etc.
+✘ [line 3] Date isn't a built-in Bust type — a bare date with no calendar semantics is just a number in disguise. Use `DateTime` from the standard library: `Dim now As DateTime = DateTime.Now()`, then `.Add_Days(n)`, `.Format(...)`, etc.

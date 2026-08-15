@@ -12,12 +12,15 @@ def main():
     headers: dict[str, str] = {}
     headers['Authorization'] = f"Bearer {_vb(key)}"
     headers['Content-Type'] = 'application/json'
-    _m0 = Http.post('https://api.example.com/v1/complete', body, headers)
-    match _m0:
-        case Ok(reply):
-            print(f"got {_vb(len(reply))} bytes")
-        case Err(message):
-            print(f"request failed: {_vb(message)}")
+    reply: str = ""
+    _t0 = Http.post('https://api.example.com/v1/complete', body, headers)
+    if isinstance(_t0, Err):
+        message = _t0.error
+        print(f"request failed: {_vb(message)}")
+        return
+    else:
+        reply = _t0.value
+    print(f"got {_vb(len(reply))} bytes")
 
 
 if __name__ == "__main__":

@@ -11,14 +11,14 @@ arguments = """
 path | String | The database file to open. Use ":memory:" for a temporary in-memory database.
 """
 
-returns = "Result<Database> — Ok with a connection to run Execute/Query on, or Err(message) if the file can't be opened."
+returns = "Database — a connection to run Execute/Query on. Fails if the file can't be opened."
 
 example = """
 Function Main()
-    Dim db As Database = Database.Open(":memory:").Unwrap()
+    Dim db As Database = Database.Open(":memory:")
 
-    db.Execute("CREATE TABLE t (n INTEGER)", []).Unwrap()
-    Debug.Print db.Execute("INSERT INTO t VALUES (1)", []).Unwrap()   ' 1 row changed
+    db.Execute("CREATE TABLE t (n INTEGER)", [])
+    Debug.Print db.Execute("INSERT INTO t VALUES (1)", [])   ' 1 row changed
 End Function
 """
 

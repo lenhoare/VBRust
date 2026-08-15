@@ -1,4 +1,4 @@
-' A Godot platformer character in VBR (Godot slice 2).
+' A Godot platformer character in Bust (Godot slice 2).
 '
 ' Shows the wider surface: a different base class (`CharacterBody2D`), the general
 ' property rule (any `Me.<Prop>` reads/writes the base-class property), base-class

@@ -8,12 +8,12 @@ Dim <name> As Option<<T>> = Some(<value>)
 Dim <name> As Option<<T>> = None
 """
 
-replaces = "Nothing / IsNull checks"
+replaces = "Nothing / Is_Null checks"
 
 summary = "A value that might be there — or might be absent — made explicit."
 
 remarks = """
-`Option<T>` holds either `Some(value)` or `None`. It is how VBR says "there might be nothing here" *in the type*, so you can't forget to check — no more accidental `Nothing`/null surprises. Lookups like `HashMap.Get` and `InStr` hand you an `Option`.
+`Option<T>` holds either `Some(value)` or `None`. It is how Bust says "there might be nothing here" *in the type*, so you can't forget to check — no more accidental `Nothing`/null surprises. Lookups like `HashMap.Get` and `InStr` hand you an `Option`.
 
 Get at the value by testing first: `If maybe Is Some(v) Then …`, or a `Match` with `Some`/`None` arms. When you're willing to supply a fallback, `.UnwrapOr(default)` gives the value or the default.
 """
@@ -22,7 +22,6 @@ members = """
 property | .Is_Some()          | True when a value is present.
 property | .Is_None()          | True when it is empty.
 method   | .Unwrap_Or(default) | The value if present, otherwise the given default.
-method   | .Unwrap()           | The value if present — but crashes on None (prefer Is / Match).
 """
 
 example = """
@@ -38,4 +37,4 @@ Function Main()
 End Function
 """
 
-see_also = ["result", "is", "match", "hashmap"]
+see_also = ["handle", "is", "match", "hashmap"]

@@ -1,4 +1,4 @@
-' VBR Screen template — structure only. Open in tide_design.
+' Bust Screen template — structure only. Open in tide_design.
 ' Output memo plus command line. BASIC, Python, SQL, Forth.
 Screen Repl
     Title "Console"

@@ -1,4 +1,4 @@
-' A mixed project: VBR calls into a hand-written Rust module (text.rs).
+' A mixed project: Bust calls into a hand-written Rust module (text.rs).
 Function Main()
     Debug.Print "shout:  " & Text.Shout("hello")
     Debug.Print "repeat: " & Text.Repeat("ab", 3)

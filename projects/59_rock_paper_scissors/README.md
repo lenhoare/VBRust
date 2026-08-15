@@ -6,7 +6,7 @@ player, computer and ties. The computer's move is deterministic (seeded by
 round), so tests and demo agree. All rules live in `rps.vbr` and are
 unit-tested.
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - Single-character keymap (`On Key "r" PlayRock`, `"p"`, `"s"`, `"q"`)

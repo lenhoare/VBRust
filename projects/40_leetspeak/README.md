@@ -5,7 +5,7 @@ Converts plain English into 1337-speak using a fixed character mapping
 picks a random variant per letter; this one is **deterministic** (one
 canonical substitution per letter) so the output is exact and testable.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Mid` / `Len()` per-character loop; `&` string building
 - `LCase()` builtin for case-insensitive lookup

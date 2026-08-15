@@ -1,6 +1,6 @@
 # tide_design
 
-Structural **Screen** designer for VBR — a sibling to [TIDE](../tide/).
+Structural **Screen** designer for Bust — a sibling to [TIDE](../tide/).
 
 > Don't draw the screen. Build its structure quickly and see it continuously.
 
@@ -14,7 +14,7 @@ Two pages, now on the **View** menu next to File: **Screen** (the widget tree) a
 **Menu** (Screen chrome). **F4** still toggles. The menu bar is not a palette
 widget on the Screen page — it lives next to `View` in the emitted Screen.
 
-No pixel dragging. No Window/GUI forms. **Run → Test** (F9) launches the Screen through VBR.
+No pixel dragging. No Window/GUI forms. **Run → Test** (F9) launches the Screen through Bust.
 
 ## Run
 

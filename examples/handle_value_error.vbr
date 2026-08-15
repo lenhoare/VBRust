@@ -1,5 +1,5 @@
 ' An opaque Rust handle may only be passed back into another Rust block —
-' never used as a VBR value. Printing it is an error.
+' never used as a Bust value. Printing it is an error.
 Function Main()
     Dim words = Rust "a b c".split_whitespace() End Rust
     Debug.Print words

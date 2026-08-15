@@ -1,9 +1,9 @@
-id = "dataframe.withcolumn"
-title = "WithColumn"
+id = "dataframe.with_column"
+title = "With_Column"
 category = "DataFrame"
 kind = "method"
 parent = "dataframe"
-anchor = "ns/DataFrame.WithColumn"
+anchor = "ns/DataFrame.With_Column"
 
 summary = "Adds or replaces a column, computed from a formula over the others."
 
@@ -16,10 +16,10 @@ returns = "DataFrame — a new table with the extra column. The formula runs dow
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("sales.csv")
 
-    df = df.WithColumn("total", price * qty)
-    df = df.WithColumn("band", IIf(total >= 100, "big", "small"))
+    df = df.With_Column("total", price * qty)
+    df = df.With_Column("band", IIf(total >= 100, "big", "small"))
 
     df.Print()
 End Function

@@ -6,7 +6,7 @@
 // VALUES (?, NULL) — a list of strings has no null slot. Query rows come back
 // as Json objects keyed by column name, each column with its natural type.
 // A ByVal Database param borrows the connection (&Database) — open once,
-// hand it around. Inside a Result function, `?` chains the fallible calls.
+// hand it around. Fallible calls propagate automatically.
 // text and score are `&str` params. Dropping them straight into the params list
 // fills a `Vec<String>`, so each is owned with `.to_string()` for you — no manual
 // `.clone()` or `CStr(...)`. A literal element (none here) is owned by the list
@@ -23,9 +23,6 @@ typedef struct { cJSON *node; } Json;
 
 typedef struct { sqlite3 *conn; } Database;
 
-typedef struct { bool is_ok; char* err; } Result_unit_str;
-static void Result_unit_str_unwrap(Result_unit_str r) { if (!r.is_ok) { fprintf(stderr, "unwrapped an Err\n"); exit(1); } }
-
 typedef struct { Json* data; size_t len, cap; } Vec_Json;
 static void Vec_Json_push(Vec_Json* v, Json x) {
     if (v->len == v->cap) { v->cap = v->cap ? v->cap * 2 : 4; v->data = realloc(v->data, v->cap * sizeof(Json)); }
@@ -36,6 +33,9 @@ static Vec_Json Vec_Json_of(size_t count, Json* items) {
     for (size_t i = 0; i < count; i++) Vec_Json_push(&v, items[i]);
     return v;
 }
+
+typedef struct { bool is_ok; char* err; } Result_unit_str;
+static void Result_unit_str_unwrap(Result_unit_str r) { if (!r.is_ok) { fprintf(stderr, "unwrapped an Err\n"); exit(1); } }
 
 typedef struct { bool is_ok; long long ok; char* err; } Result_longlong_str;
 static long long Result_longlong_str_unwrap(Result_longlong_str r) { if (!r.is_ok) { fprintf(stderr, "unwrapped an Err\n"); exit(1); } return r.ok; }
@@ -318,19 +318,12 @@ Result_unit_str addscored(Database db, char* text, char* score) {
 }
 
 int main(void) {
-    Result_Database_str _m0 = vbr_db_open("ideas.db");
-    if (_m0.is_ok) {
-        Database db = _m0.ok;
-        Result_unit_str _m1 = run(db);
-        if (_m1.is_ok) {
-            printf("%s\n", "done");
-        } else {
-            char* message = _m1.err;
-            printf("%s\n", vbr_concat("db error: ", message));
-        }
-    } else {
-        char* message = _m0.err;
-        printf("%s\n", vbr_concat("could not open: ", message));
-    }
+    Result_Database_str _t12 = vbr_db_open("ideas.db");
+    if (!_t12.is_ok) { fprintf(stderr, "Error: %s\n", _t12.err); return 1; }
+    Database db = _t12.ok;
+    Result_unit_str _t13 = run(db);
+    if (!_t13.is_ok) { fprintf(stderr, "Error: %s\n", _t13.err); return 1; }
+    (void)0;
+    printf("%s\n", "done");
     return 0;
 }

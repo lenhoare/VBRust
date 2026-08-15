@@ -5,7 +5,7 @@ kind = "method"
 parent = "result"
 anchor = "m/Result.Unwrap_Or"
 
-summary = "The Ok value, or a fallback when it is an Err."
+summary = "The Ok value of a Raw result, or a fallback when it is an Err."
 
 arguments = """
 default | T | The value to use when the result is an Err.
@@ -14,13 +14,18 @@ default | T | The value to use when the result is an Err.
 returns = "T — the Ok value on success, otherwise the default. Never crashes."
 
 example = """
-Function Main()
-    Dim ok As Result<Long> = Ok(8)
-    Debug.Print ok.Unwrap_Or(0)    ' 8
+Function Half(n As Long) As Long
+    If n Mod 2 <> 0 Then RaiseError "not even"
+    Return n / 2
+End Function
 
-    Dim bad As Result<Long> = Err("oops")
+Function Main()
+    Dim ok As Result<Long> = Raw Half(8)
+    Debug.Print ok.Unwrap_Or(0)    ' 4
+
+    Dim bad As Result<Long> = Raw Half(7)
     Debug.Print bad.Unwrap_Or(0)   ' 0
 End Function
 """
 
-see_also = ["result", "result.unwrap", "option.unwrap_or"]
+see_also = ["result", "raw", "handle", "option.unwrap_or"]

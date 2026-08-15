@@ -62,7 +62,9 @@ static DateTime vbr_datetime_addhours(DateTime* d, long long hours) { return vbr
 static DateTime vbr_datetime_addminutes(DateTime* d, long long mins) { return vbr_datetime_shift(d, mins * 60); }
 
 int main(void) {
-    DateTime d = Result_DateTime_str_unwrap(vbr_datetime_parse("2026-07-24 09:30:00", "%Y-%m-%d %H:%M:%S"));
+    Result_DateTime_str _t0 = vbr_datetime_parse("2026-07-24 09:30:00", "%Y-%m-%d %H:%M:%S");
+    if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
+    DateTime d = _t0.ok;
     printf("%s\n", vbr_concat("year:  ", vbr_from_ll(vbr_datetime_year(&d))));
     printf("%s\n", vbr_concat("month: ", vbr_from_ll(vbr_datetime_month(&d))));
     printf("%s\n", vbr_concat("day:   ", vbr_from_ll(vbr_datetime_day(&d))));

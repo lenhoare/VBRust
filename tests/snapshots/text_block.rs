@@ -4,14 +4,22 @@
 // its shallowest line, so it indents with your code without the indentation
 // leaking into the string. Blank lines survive; there is no trailing newline.
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     // The killer use: JSON bodies and SQL — no ""quote doubling"", no escapes.
     let body: String = "{\"model\": \"llama3\",\n \"prompt\": \"say hello\",\n \"stream\": false}".to_string();
     println!("{}", body);
     let sql: String = "SELECT name, score\nFROM ideas\n\nORDER BY score DESC".to_string();
     println!("{}", sql);
     // It's an ordinary string from every other angle — compose with `&`.
-    // (Backslashes stay literal, as in every VBR string: C:\new\table.)
+    // (Backslashes stay literal, as in every Bust string: C:\new\table.)
     let who: String = "world".to_string();
     println!("hello from\nC:\\new\\table -> {}", who);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

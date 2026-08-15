@@ -5,7 +5,7 @@ positions through the alphabet, wrapping at Z (ROT13 is just key 13).
 Non-letters pass through unchanged. `Encrypt` shifts forward; `Decrypt`
 shifts by `26 - key`.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Mid(s, pos, len)` per-character access and `message.Len()`
 - `Chr(code)` builtin
@@ -13,9 +13,9 @@ shifts by `26 - key`.
 - `Do While ... Loop`, `If / ElseIf / Else`
 - String building with `&` in a loop
 - Cross-module qualified calls (`Caesar.Encrypt(...)`) in main and tests
-- Note: VBR has **no `Asc()`** and no `IIf()` — see notes.md. The cipher is
+- Note: Bust has **no `Asc()`** and no `IIf()` — see notes.md. The cipher is
   implemented with an alphabet-string lookup (`FindIn`) instead of character
-  codes, keeping it pure VBR.
+  codes, keeping it pure Bust.
 
 ## Standard-library features tested
 

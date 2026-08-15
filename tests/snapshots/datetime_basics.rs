@@ -3,8 +3,8 @@
 
 use vbr_stdlib::{DateTime};
 
-fn main() {
-    let d: DateTime = DateTime::parse("2026-07-24 09:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+fn vbr_main() -> Result<(), String> {
+    let d: DateTime = DateTime::parse("2026-07-24 09:30:00", "%Y-%m-%d %H:%M:%S")?;
     println!("year:  {}", d.year());
     println!("month: {}", d.month());
     println!("day:   {}", d.day());
@@ -13,4 +13,12 @@ fn main() {
     println!("in 10 days: {}", later.format("%Y-%m-%d"));
     let soon: DateTime = d.add_hours(5);
     println!("in 5 hours: {}", soon.format("%H:%M"));
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

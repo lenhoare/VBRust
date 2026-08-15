@@ -12,7 +12,7 @@ summary = "True when both conditions are true."
 remarks = """
 `And` combines two conditions and is true only when *both* are. It pairs naturally with `Or` (either) and `Not` (negate).
 
-In VBR `And` is a logical test between `Boolean` values — use it in `If`, `Do While`, and the like.
+In Bust `And` is a logical test between `Boolean` values — use it in `If`, `Do While`, and the like.
 """
 
 example = """

@@ -1,7 +1,7 @@
-// Inline Python handles — hold a Python object VBR has no type for, and pass it
+// Inline Python handles — hold a Python object Bust has no type for, and pass it
 // back into later blocks. Each block is its own GIL scope. (Slice 2.)
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     // Load once: a numpy array. No `As` type — it's held as an opaque PyObject.
     let data: pyo3::Py<pyo3::PyAny> = {
         use pyo3::prelude::*;
@@ -66,4 +66,12 @@ _vbr_result = int((data > threshold).sum())
         .expect("the Python block raised an exception")
     };
     println!("{} values exceed {}", above, threshold);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

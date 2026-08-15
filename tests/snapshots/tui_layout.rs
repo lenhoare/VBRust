@@ -19,7 +19,7 @@ impl Default for Dashboard {
 fn view(state: &Dashboard, frame: &mut Frame) {
     let area = frame.area();
     let chunks_status = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(area);
-    let block = Block::bordered().title("VBR TUI Layout");
+    let block = Block::bordered().title("Bust TUI Layout");
     let inner = block.inner(chunks_status[0]);
     frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).split(inner);
@@ -48,13 +48,37 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('1') => {
-                        state.tab = 1;
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.tab = 1;
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Char('2') => {
-                        state.tab = 2;
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.tab = 2;
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Char('3') => {
-                        state.tab = 3;
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.tab = 3;
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                     }
                     KeyCode::Char('q') => {
                         break;

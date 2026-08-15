@@ -1,6 +1,6 @@
 // Arrays — fixed size, 2D, and safe access with .get()
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut scores: [i64; 5] = [0; 5];
     scores[0] = 90;
     scores[1] = 85;
@@ -17,5 +17,13 @@ fn main() {
         None => {
             println!("no first score");
         }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

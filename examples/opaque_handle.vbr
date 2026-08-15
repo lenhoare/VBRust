@@ -1,4 +1,4 @@
-' Opaque handles — hold a Rust value VBR has no type for, and pass it
+' Opaque handles — hold a Rust value Bust has no type for, and pass it
 ' back into later Rust blocks. Here: a Rust iterator, held across blocks.
 Function Main()
     ' No `As` — the type (a SplitWhitespace iterator) lives only in Rust.

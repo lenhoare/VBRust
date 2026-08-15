@@ -8,7 +8,7 @@ Use PyYAML 6.0.1 As yaml
 
 Function Main()
     Dim doc As String = Text
-        name: VBR
+        name: Bust
         kind: transpiler
     End Text
 

@@ -4,7 +4,7 @@ Shows the same integers in decimal, hexadecimal and binary as a padded
 table (0..15). Hand-rolled base conversion (repeated division with `Mod`)
 — no stdlib radix helpers needed.
 
-## VBR language features tested
+## Bust language features tested
 
 - Hand-rolled `ToBinary` / `ToHex` via `Do While` + `Mod` + integer division
 - Prepending digits with `&` (`out = CStr(digit) & out`)

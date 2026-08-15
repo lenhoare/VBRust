@@ -7,23 +7,23 @@ anchor = "ns/Regex"
 summary = "Match and replace text using patterns."
 
 remarks = """
-`Regex` searches text with **regular expressions**. `IsMatch` tests whether a pattern is present; `FindAll` pulls out every match; `Replace` / `ReplaceAll` substitute; `Captures` returns the groups of the first match. Every call takes the **pattern first**, then the text.
+`Regex` searches text with **regular expressions**. `Is_Match` tests whether a pattern is present; `Find_All` pulls out every match; `Replace` / `Replace_All` substitute; `Captures` returns the groups of the first match. Every call takes the **pattern first**, then the text.
 
-They return a **Result** because an invalid pattern is an error. Patterns are ordinary VBR strings, so a backslash class like `\\d` is written just as it looks. Needs the `regex` feature — build as a project.
+They can fail if the pattern is invalid. A normal call propagates; intercept with `Handle err`. Patterns are ordinary Bust strings, so a backslash class like `\\d` is written just as it looks. Needs the `regex` feature — build as a project.
 """
 
 members = """
-method | IsMatch(pattern, text)                 | Whether the pattern matches anywhere. Returns Result<Boolean>.
-method | FindAll(pattern, text)                 | Every match, in order. Returns Result<Vec<String>>.
-method | Replace(pattern, text, replacement)    | Replace the first match. Returns Result<String>.
-method | ReplaceAll(pattern, text, replacement) | Replace every match. Returns Result<String>.
+method | Is_Match(pattern, text)                 | Whether the pattern matches anywhere. Returns Boolean (can fail).
+method | Find_All(pattern, text)                 | Every match, in order. Returns Vec<String> (can fail).
+method | Replace(pattern, text, replacement)    | Replace the first match. Returns String (can fail).
+method | Replace_All(pattern, text, replacement) | Replace every match. Returns String (can fail).
 """
 
 example = """
 Function Main()
-    Dim cleaned As String = Regex.ReplaceAll("o", "foo boo", "0").Unwrap()
+    Dim cleaned As String = Regex.Replace_All("o", "foo boo", "0")
     Debug.Print cleaned   ' f00 b00
 End Function
 """
 
-see_also = ["regex.ismatch", "regex.replaceall", "instr", "replace"]
+see_also = ["regex.is_match", "regex.replace_all", "instr", "replace"]

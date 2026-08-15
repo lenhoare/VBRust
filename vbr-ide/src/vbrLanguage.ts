@@ -67,7 +67,7 @@ export function registerVbrLanguage(monaco: typeof Monaco): void {
       root: [
         // Verbatim blocks open with the bare block word and run until `End X`;
         // their interior is another language (Rust/CSS/Python) or free text, so
-        // don't tokenise it as VBR. Guards keep member access (`.Rust`) and the
+        // don't tokenise it as Bust. Guards keep member access (`.Rust`) and the
         // `Text "widget"` form from opening a block by mistake.
         [/\b(?:Rust|Css)\b(?=\s*$)/, { token: "keyword", next: "@verbatimRustCss" }],
         [/\bPython\b(?=\s*(\(|$))/, { token: "keyword", next: "@verbatimPython" }],

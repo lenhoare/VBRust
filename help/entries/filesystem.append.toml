@@ -12,14 +12,14 @@ path | String | The path of the file to append to.
 text | String | The text to add at the end.
 """
 
-returns = "Result — Ok on success, or Err(message) on failure. Creates the file first if it doesn't exist."
+returns = "Nothing on success. Fails on error. Creates the file first if it doesn't exist."
 
 example = """
 Function Main()
-    FileSystem.Write("log.txt", "start").Unwrap()
-    FileSystem.Append("log.txt", " more").Unwrap()
+    FileSystem.Write("log.txt", "start")
+    FileSystem.Append("log.txt", " more")
 
-    Debug.Print FileSystem.Read("log.txt").Unwrap()   ' start more
+    Debug.Print FileSystem.Read("log.txt")   ' start more
 End Function
 """
 

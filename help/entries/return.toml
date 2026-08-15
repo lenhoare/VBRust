@@ -11,11 +11,11 @@ Return
 summary = "Hands a value back from a Function and stops it."
 
 remarks = """
-`Return <value>` ends a `Function` and gives that value to the caller. Its type must match the function's `As <Type>`.
+`Return <value>` ends a `Function` and gives that success value to the caller. Its type must match the function's `As <Type>`. To fail instead, use `RaiseError`.
 
 A bare `Return` (no value) leaves a `Sub` early.
 
-Note: inside a surface **event** handler, avoid a bare `Return` to bail out — an event lowers differently on each surface. Guard with `If`/`ElseIf` instead, or put the shared logic in a helper `Sub` where `Return` is fine.
+Note: inside a surface **event** handler, a bare `Return` is success (`Ok(())`). An unhandled error ends the event and the app keeps running.
 """
 
 example = """
@@ -31,4 +31,4 @@ Function Main()
 End Function
 """
 
-see_also = ["function", "sub", "if"]
+see_also = ["function", "sub", "raiseerror"]

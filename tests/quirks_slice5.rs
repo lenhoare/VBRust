@@ -23,7 +23,7 @@ fn map_get_borrows_a_string_variable_key() {
          \x20   ages.insert(\"Ada\", 30)\n\
          \x20   Dim who As String = \"Ada\"\n\
          \x20   If ages.contains_key(who) Then\n\
-         \x20       Debug.Print ages.get(who).Unwrap()\n\
+         \x20       Debug.Print ages.get(who).Unwrap_Or(0)\n\
          \x20   End If",
     ));
     assert!(!c.has_errors, "{:?}", c.diagnostics);

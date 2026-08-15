@@ -1,10 +1,10 @@
-# VBR for VB6 Programmers
+# Bust for VB6 Programmers
 
 *The quick on-ramp. If you already know VB6, this is the short list of what's
 different — enough to be productive in an afternoon. For the full story see
 `language_reference.md`; when the two disagree, the reference wins.*
 
-VBR looks like VB and compiles to idiomatic Rust. You write the familiar syntax;
+Bust looks like VB and compiles to idiomatic Rust. You write the familiar syntax;
 out comes real Rust, which is then built and run. The golden rule, whenever VB
 habit and Rust reality collide: **Rust wins.** This guide is just the collisions.
 
@@ -12,13 +12,13 @@ habit and Rust reality collide: **Rust wins.** This guide is just the collisions
 
 ## The five-minute mental shift
 
-| VB6 habit | In VBR |
+| VB6 habit | In Bust |
 |-----------|--------|
 | `Variant`, late binding | Gone. Every value has a static type you name. |
 | `Dim x` with no type | `Dim` always carries `As` — the type is never guessed. |
 | `Integer` is 16-bit | `Integer` is 32-bit (`i32`); `Long` is 64-bit. |
 | `Select Case` | `Match` — no `Case` keyword, and a bare name **binds**, not compares. |
-| `On Error GoTo` | Gone. A failure is a returned value (`Result`). |
+| `On Error GoTo` | Gone. Errors propagate automatically; intercept a call with `Handle err`. |
 | `ReDim`, `scores(i)` | Arrays are fixed; growable lists are `Vec`; index with `scores[i]`. |
 | `New`, manual mutability | Values are made by their declaration; `mut` is inferred for you. |
 | 1-based arrays | Zero-based, like the rest of the modern world. |
@@ -33,7 +33,7 @@ Everything else — `If/Then/Else`, `For/Next`, `Do/Loop`, `&` for concatenation
 
 The primitives are VB's names on Rust's machine types:
 
-| VBR | Rust | | VBR | Rust |
+| Bust | Rust | | Bust | Rust |
 |-----|------|-|-----|------|
 | `Integer` | `i32` | | `Boolean` | `bool` |
 | `Long` / `LongLong` | `i64` | | `Byte` | `u8` |
@@ -77,7 +77,7 @@ just store the result in a `Long` (it truncates: `Dim n As Long = 7 / 2` gives
 `3`). And for an even/odd test reach for `Mod` (`n Mod 2 = 0`), which stays
 integer.
 
-Where VB silently converted numbers, VBR inserts a visible `as` cast — assign a
+Where VB silently converted numbers, Bust inserts a visible `as` cast — assign a
 `Long` into a `Double` and you'll see `as f64` appear. That's a teaching moment,
 not a wart.
 
@@ -111,7 +111,7 @@ Function AddTo(ByRef total As Long, ByVal amount As Long)  ' total is &mut — w
 - A parameter with **no keyword defaults to `ByVal`**, which for a `String` is a
   *read-only borrow*. Read it freely; you just can't reassign it.
 - Reach for **`ByRef`** only when you actually need to change the caller's value.
-  VBR inserts the `&mut` at the call site and marks the caller's variable mutable.
+  Bust inserts the `&mut` at the call site and marks the caller's variable mutable.
 
 Trying to mutate a `ByVal` string is a friendly error that names the fix ("declare
 it `ByRef`"). That nagging is the whole point — it's Rust's ownership, introduced
@@ -153,7 +153,7 @@ Match n
 End Match
 ```
 
-(Keep pattern bindings lowercase — the pattern is raw Rust, the body is VBR, and
+(Keep pattern bindings lowercase — the pattern is raw Rust, the body is Bust, and
 lowercase makes the two halves line up.)
 
 ### Loops
@@ -183,7 +183,7 @@ Function Square(ByVal n As Long) As Long
 End Function
 ```
 
-A `Sub` is just a `Function` with no `As` (no return) — VBR accepts it as familiar
+A `Sub` is just a `Function` with no `As` (no return) — Bust accepts it as familiar
 sugar and reminds you they're the same thing. `Public` makes a function visible to
 other modules in a project (`pub fn`); without it, it's private to its file.
 
@@ -202,7 +202,7 @@ End Type
 Dim p As Person = Person { name: "Ada", age: 36 }   ' built complete, all at once
 ```
 
-Methods carry the type name; `Me` is the receiver. VBR works out `&self` vs
+Methods carry the type name; `Me` is the receiver. Bust works out `&self` vs
 `&mut self` by watching whether you assign to a field:
 
 ```vb
@@ -232,37 +232,31 @@ every `Match` handles every variant.
 ## Errors are values, not jumps
 
 There is no `On Error GoTo`. Rust has no exceptions; **a failure is an ordinary
-returned value.** A function that can fail says so in its type:
+returned value**, but you never write `Result` or `?`. Every function is
+internally fallible. The type you declare is the success value. A normal call
+propagates; intercept one call with `Handle`; fail with `RaiseError`.
 
 ```vb
-Function Divide(ByVal a As Long, ByVal b As Long) As Result<Long>
-    If b = 0 Then Return Err("cannot divide by zero")
-    Return Ok(a / b)
+Function Divide(ByVal a As Long, ByVal b As Long) As Long
+    If b = 0 Then RaiseError "cannot divide by zero"
+    Return a / b
 End Function
 ```
 
-`As Option<T>` (with `Some`/`None`) is the same idea for "a value, or nothing."
-You then do one of three things with the box you get back:
-
 ```vb
-' 1. HANDLE it — examine both outcomes:
-Match Divide(10, 2)
-    Ok(value)   => Debug.Print "got " & value
-    Err(reason) => Debug.Print "failed: " & reason
-End Match
+Dim q As Long = Divide(a, b)              ' propagate
 
-' 2. PROPAGATE it with ? — "not my job to handle":
-Dim q As Long = Divide(a, b)?      ' returns the Err from THIS function on failure
-
-' 3. UNWRAP it (training wheels — crashes on failure):
-Dim v As Long = Divide(10, 2).Unwrap()
+Dim n As Long = Divide(10, 2) Handle err  ' intercept this call
+    Debug.Print err
+    Return
+End Handle
 ```
 
-`?` is only legal where the enclosing function itself returns `Result`/`Option` —
-VBR tells you plainly if you forget.
+`As Option<T>` (with `Some`/`None`) is a different idea — "a value, or nothing,"
+not a failure. Do not treat `None` as an error.
 
-When you only care about the `Some`/`Ok` case, skip the full `Match` and use
-**`If <expr> Is <pattern> Then`** (VBR's `if let`) — `Is` is VB's own word, and it
+When you only care about the `Some` case, skip the full `Match` and use
+**`If <expr> Is <pattern> Then`** (Bust's `if let`) — `Is` is VB's own word, and it
 runs the block only when the value matches, binding what's inside:
 
 ```vb
@@ -276,8 +270,8 @@ It takes an `Else`, and `Do While <expr> Is <pattern>` is the loop version
 Some(item)`.
 
 This shows up in conversions too. `Val(" 42x ")` is the forgiving one (a `Double`,
-`0` for junk, never fails). The strict `CDbl` / `CLng` / `CInt` return a `Result` —
-in VB they raised a runtime error; here that error is a value you catch.
+`0` for junk, never fails). The strict `CDbl` / `CLng` / `CInt` can fail — in VB
+they raised a runtime error; here that error propagates unless you `Handle` it.
 
 ---
 
@@ -310,8 +304,8 @@ Dim big As Vec<Long> = nums.filter(|x| x > 2).map(|x| x * 2).collect()
 
 ## The escape hatch: inline Rust (and Python)
 
-VBR covers a friendly slice of Rust. For *everything else*, splice in a block of
-the real thing. A `Rust … End Rust` block is a **Rust expression**: your VBR
+Bust covers a friendly slice of Rust. For *everything else*, splice in a block of
+the real thing. A `Rust … End Rust` block is a **Rust expression**: your Bust
 variables are already in scope (by their lowercased names), and the block's value
 is its **last line written with no semicolon**.
 
@@ -323,8 +317,8 @@ Dim big As Long = Rust
 End Rust
 ```
 
-This is "inline assembly" for VBR — the door to Rust operators, traits, ranges and
-crates VBR doesn't surface. Declare a crate with `Use rand 0.8`; the trait and
+This is "inline assembly" for Bust — the door to Rust operators, traits, ranges and
+crates Bust doesn't surface. Declare a crate with `Use rand 0.8`; the trait and
 generic complexity stays sealed inside the block, and only a plain value comes
 back. A `Dim` with **no `As`** holds an *opaque handle* (an iterator, a client) you
 can pass back into later blocks.
@@ -342,10 +336,10 @@ End Python
 
 ---
 
-## The mirror: embedding VBR *inside* Rust
+## The mirror: embedding Bust *inside* Rust
 
-If you have a Rust file and want to write a chunk of it in VBR, do the reverse.
-Write VBR inside a `/* vbr … */` block comment, then run `vbr embed <file.rs>`:
+If you have a Rust file and want to write a chunk of it in Bust, do the reverse.
+Write Bust inside a `/* vbr … */` block comment, then run `vbr embed <file.rs>`:
 
 ```rust
 fn main() {
@@ -364,8 +358,8 @@ fn square(n: i64) -> i64 { n * n }
 
 `vbr embed` transpiles the block and writes the Rust into a managed
 `// vbr:gen … // vbr:gen-end` region right after it (re-run any time; it's
-idempotent). Because embedding resolves at build time, the VBR and the Rust share
-one scope — a VBR loop can read Rust variables (`limit`) and call Rust functions
+idempotent). Because embedding resolves at build time, the Bust and the Rust share
+one scope — a Bust loop can read Rust variables (`limit`) and call Rust functions
 (`square`) with no ceremony; rustc checks the seam. In VS Code the ▶ button (or
 **Ctrl+Alt+R**) expands and runs such a file in one click.
 
@@ -384,7 +378,7 @@ high. Each has its own spec in `docs/`.
   `vbr rungodot` and you're moving sprites.
 - **Other backends.** The same core-language file can transpile to **Python**
   (`vbr py`) or **C** (`vbr c`), not just Rust — handy for teaching or for dropping
-  VBR logic into an existing codebase.
+  Bust logic into an existing codebase.
 - **A real standard library.** Namespaced calls for `FileSystem`, `DateTime`,
   `Shell`, `Regex`, `Json`, `Database` (SQLite), `Http`, and a native
   Excel-style `DataFrame` (over polars) — pulled in only when you use them.
@@ -393,7 +387,7 @@ high. Each has its own spec in `docs/`.
 - **Tests and logging.** `vbr test` runs `Test`/`Assert` blocks that read like a
   spec; `Log <expr>` writes a timestamped line even inside a GUI/TUI.
 - **Editor support.** A VS Code extension gives colours, completion, hover,
-  go-to-def, live error squiggles, and a side pane showing the Rust your VBR
+  go-to-def, live error squiggles, and a side pane showing the Rust your Bust
   becomes as you type — the transpiler's whole point, made visible.
 
 ---
@@ -408,18 +402,18 @@ vbr py hello.vbr           # transpile to Python instead
 vbr test hello.vbr         # run the Test blocks
 ```
 
-The generated Rust is never a secret — reading it beside your VBR is the fastest
+The generated Rust is never a secret — reading it beside your Bust is the fastest
 way to actually *learn* Rust, which, when you're ready, is the real destination.
 
 ---
 
 ## One-screen cheat sheet
 
-| VB6 | VBR |
+| VB6 | Bust |
 |-----|-----|
 | `Select Case x` / `Case 1` | `Match x` / `1 => …` (no `Case`; bare name binds) |
-| *(handle one case)* | `If x Is Some(v) Then …` (VBR's `if let`) |
-| `On Error GoTo` | `As Result<T>` + `Match` / `?` / `.Unwrap()` |
+| *(handle one case)* | `If x Is Some(v) Then …` (Bust's `if let`) |
+| `On Error GoTo` | a call propagates; `Handle err` intercepts; `RaiseError` fails |
 | `ReDim arr(n)` | `Dim v As Vec<T>` … `v.push(x)` |
 | `arr(i)` | `arr[i]` (or `arr.get(i)`) |
 | `Dim a, b As Integer` | `Dim a As Integer, b As Integer` |

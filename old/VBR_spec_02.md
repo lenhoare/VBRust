@@ -1,9 +1,9 @@
-## VBR V1.1 Feature Additions
+## Bust V1.1 Feature Additions
 
 
 ## Pattern Matching — Full Support
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `Case Person { name, age }` | `Person { name, age } =>` | Struct destructuring — explicit struct name required |
 | `Case []` | `[] =>` | Empty Vec |
@@ -16,7 +16,7 @@
 
 ## Iterators
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `.filter(\|x\| condition)` | `.filter(\|x\| condition)` | Keep matching elements |
 | `.map(\|x\| expression)` | `.map(\|x\| expression)` | Transform each element |
@@ -29,7 +29,7 @@
 | `.last()` | `.last()` | Last element → Result |
 
 HashMap iterators:
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `.filter(\|_, v\| condition)` | `.filter(\|(_, v)\| condition)` | Filter by value |
 | `.filter(\|k, _\| condition)` | `.filter(\|(k, _)\| condition)` | Filter by key |
@@ -38,7 +38,7 @@ HashMap iterators:
 
 ## Tuples
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `Dim x As (Long, Long) = (1, 2)` | `let x: (i32, i32) = (1, 2)` | Declaration |
 | `x.0` / `x.1` | `x.0` / `x.1` | Element access |
@@ -51,7 +51,7 @@ HashMap iterators:
 
 ## Option\<T\>
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `As Option<Type>` | `Option<Type>` | Return type |
 | `Return Some(value)` | `return Some(value)` | Has value |
@@ -69,7 +69,7 @@ V0 code unchanged — Option never forced on existing code.
 
 ## Format Strings
 
-| VBR | Rust | Notes |
+| Bust | Rust | Notes |
 |---|---|---|
 | `Format(x, "#,###.00")` | ✘ Hard error + example | Use num_format crate |
 

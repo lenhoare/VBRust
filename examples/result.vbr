@@ -1,35 +1,36 @@
-' Result<T> for fallible functions — propagate with ?, handle with Match
+' Errors propagate automatically. Intercept a call with Handle; fail with RaiseError.
 Function Main()
-    ' Handle the outcome explicitly
-    Match Divide(10, 2)
-        Ok(value) => Debug.Print "10 / 2 = " & value
-        Err(message) => Debug.Print "error: " & message
-    End Match
+    Dim value As Long = Divide(10, 2) Handle message
+        Debug.Print "error: " & message
+        Return
+    End Handle
+    Debug.Print "10 / 2 = " & value
 
-    Match Divide(7, 0)
-        Ok(value) => Debug.Print "7 / 0 = " & value
-        Err(message) => Debug.Print "error: " & message
-    End Match
+    Dim bad As Long = Divide(7, 0) Handle message
+        Debug.Print "error: " & message
+        Return
+    End Handle
+    Debug.Print "7 / 0 = " & bad
 
-    ' A function that uses ? to propagate failure
-    Match DoubleQuotient(20, 4)
-        Ok(value) => Debug.Print "double of 20 / 4 = " & value
-        Err(message) => Debug.Print "error: " & message
-    End Match
+    ' Failure from Divide flows out of DoubleQuotient with no extra syntax
+    Dim doubled As Long = DoubleQuotient(20, 4) Handle message
+        Debug.Print "error: " & message
+        Return
+    End Handle
+    Debug.Print "double of 20 / 4 = " & doubled
 
-    ' .Unwrap() is allowed, but training wheels
-    Dim known As Long = Divide(9, 3).Unwrap()
+    Dim known As Long = Divide(9, 3)
     Debug.Print "9 / 3 = " & known
 End Function
 
-Function Divide(ByVal numerator As Long, ByVal denominator As Long) As Result<Long>
+Function Divide(ByVal numerator As Long, ByVal denominator As Long) As Long
     If denominator = 0 Then
-        Return Err("cannot divide by zero")
+        RaiseError "cannot divide by zero"
     End If
-    Return Ok(numerator / denominator)
+    Return numerator / denominator
 End Function
 
-Function DoubleQuotient(ByVal a As Long, ByVal b As Long) As Result<Long>
-    Dim q As Long = Divide(a, b)?
-    Return Ok(q * 2)
+Function DoubleQuotient(ByVal a As Long, ByVal b As Long) As Long
+    Dim q As Long = Divide(a, b)
+    Return q * 2
 End Function

@@ -1,4 +1,4 @@
-# VBR Standard Library — Revised Spec (decisions)
+# Bust Standard Library — Revised Spec (decisions)
 
 A short companion to `VBR_spec_03_stdlib.md` recording the decisions we made
 before implementing. Explanations only — the original file still holds the
@@ -9,10 +9,11 @@ module-by-module code.
 ## 1. Purpose
 
 `vbr_stdlib` is a **separate Rust crate** (its own `Cargo.toml`, not part of the
-transpiler's build) that gives VBR programs friendly, native replacements for
+transpiler's build) that gives Bust programs friendly, native replacements for
 the things VB leaned on COM for — file access, JSON, dates, regex. Every
-fallible function returns `Result<T, String>`, which maps straight onto VBR's
-`As Result<T>`.
+fallible function returns `Result<T, String>`. Bust hides that box: a normal
+call propagates the error; `Handle err` intercepts it; `Raw F()` yields the
+`Result` as a value.
 
 > On the **Python target** (`targets_spec.md`) the same surface is provided by
 > **`vbrpy/`** — the Python analogue of this crate, implemented on Python's own
@@ -141,19 +142,19 @@ with the `bundled` feature** (compiles SQLite from source → no system
 ### Surface
 
 ```vb
-' open (fallible → Result), then run statements on the handle
-Match Database.Open("ideas.db")
-    Ok(db) =>
-        db.Execute("CREATE TABLE ideas (id INTEGER PRIMARY KEY, gen INT, text TEXT, score REAL)", [])
+' open can fail — a normal call propagates; Handle intercepts
+Dim db As Database = Database.Open("ideas.db") Handle message
+    Debug.Print "open failed: " & message
+    Return
+End Handle
+db.Execute("CREATE TABLE ideas (id INTEGER PRIMARY KEY, gen INT, text TEXT, score REAL)", [])
 
-        db.Execute("INSERT INTO ideas (gen, text) VALUES (?, ?)", [CStr(gen), ideaText])
+db.Execute("INSERT INTO ideas (gen, text) VALUES (?, ?)", [CStr(gen), ideaText])
 
-        Dim rows As Vec<Json> = db.Query("SELECT text, score FROM ideas WHERE gen = ? ORDER BY score DESC", [CStr(gen)])
-        For Each row In rows
-            Debug.Print row.GetString("text").Unwrap() & " — " & row.GetFloat("score").Unwrap()
-        Next
-    Err(message) => Debug.Print "open failed: " & message
-End Match
+Dim rows As Vec<Json> = db.Query("SELECT text, score FROM ideas WHERE gen = ? ORDER BY score DESC", [CStr(gen)])
+For Each row In rows
+    Debug.Print row.Get_String("text") & " — " & row.Get_Float("score")
+Next
 ```
 
 | Method | Rust | Returns |
@@ -161,14 +162,14 @@ End Match
 | `Database.Open(path)` | `Database::open(path) -> Result<Database, String>` | the handle |
 | `db.Execute(sql, params)` | `execute(&self, sql, params: Vec<String>) -> Result<i64, String>` | rows affected |
 | `db.Query(sql, params)` | `query(&self, sql, params: Vec<String>) -> Result<Vec<Json>, String>` | one `Json` object per row |
-| `db.LastInsertId()` | `last_insert_id(&self) -> i64` | last auto-increment rowid (for lineage) |
+| `db.Last_Insert_Id()` | `last_insert_id(&self) -> i64` | last auto-increment rowid (for lineage) |
 
 ### Design decisions (settled)
 
 - **Rows come back as `Vec<Json>`**, reusing the `Json` wrapper already taught.
   Each column is mapped to its **natural SQLite storage type** (INTEGER → Json
   int, REAL → Json float, TEXT → Json string, NULL → Json null), so
-  `GetInt`/`GetFloat`/`GetString` return real typed values — no text round-trip
+  `Get_Int`/`Get_Float`/`Get_String` return real typed values — no text round-trip
   on read. No new row type to learn.
 - **Parameters are `Vec<String>`, passed by value** (consumed, like `Http.Post`'s
   headers map — the one shape that needs no reference-plumbing). Bound to `?`
@@ -193,7 +194,7 @@ End Match
 
 `db.Execute(sql, …)` where `sql` is a **String variable** exposed a latent bug:
 a stdlib **wrapper instance** method didn't `&`-reference its owned-String args
-(only stdlib *type* receivers like `Http.`/`FileSystem.` did) — `doc.GetInt(k)`
+(only stdlib *type* receivers like `Http.`/`FileSystem.` did) — `doc.Get_Int(k)`
 with `k As String` emitted `doc.get_int(k)` (String into a `&str` param → won't
 compile); every working example used string *literals*, which hid it. The
 resolver's arg-ref rule now also fires when the receiver's declared type is a
@@ -202,18 +203,18 @@ stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`), fixing
 
 ### Also picked up along the way
 
-- **`Json.IsNull()`** — new: true for JSON null. Needed to spot a NULL column
-  (`row.Get("parent")?.IsNull()`); previously null was only visible as a failed
+- **`Json.Is_Null()`** — new: true for JSON null. Needed to spot a NULL column
+  (`row.Get("parent")?.Is_Null()`); previously null was only visible as a failed
   typed read.
 - **`CStr(x)`** — new alias for `Str(x)` (→ `.to_string()`): `CStr` was VB's
   *recommended* conversion, so it's what a VB6 hand types first.
 - **NULL params:** a `Vec<String>` has no null slot — write NULL in the SQL
-  itself (`VALUES (?, NULL)`). Reading it back: `IsNull`.
+  itself (`VALUES (?, NULL)`). Reading it back: `Is_Null`.
 - **BLOB columns:** a clean `Err` pointing at inline Rust (not silently mangled).
 
 ### Slice-1 scope & known friction
 
-- **In:** `Open`/`Execute`/`Query`/`LastInsertId`, Json rows, string params,
+- **In:** `Open`/`Execute`/`Query`/`Last_Insert_Id`, Json rows, string params,
   bundled rusqlite, feature-gated, hermetic tests (a temp-file db, like `http`'s
   loopback server).
 - **Deferred:** in-memory (`:memory:`) dbs on *browser* surfaces (native holds
@@ -221,7 +222,7 @@ stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`), fixing
   typed/`Json` params, named parameters, a custom failure policy for a failed
   `State` init (today's policy is fixed: message + exit — the rare "show a
   picker window instead" case would need `Run`-args, designed but not built).
-- **Params ergonomics — the inline list literal (BUILT first).** VBR now has an
+- **Params ergonomics — the inline list literal (BUILT first).** Bust now has an
   **inline list literal** `["a", "b"]` → `Vec<T>` (string elements owned,
   numbers typed from the target; empty `[]` allowed), so params read cleanly:
   `db.Execute("INSERT … VALUES (?, ?)", [CStr(gen), ideaText])`. A no-parameter
@@ -243,7 +244,7 @@ feature, like `FileSystem`), so it's always available.
   wait**: VB6's actual `Shell` semantics. The child's stdin/stdout/stderr are
   detached, so a background server can't scribble over a terminal UI. Dropping
   the handle does *not* stop the process — call `Kill`.
-- **`proc.IsRunning()`** → `Boolean` — a snapshot (`try_wait`), safe in a UI
+- **`proc.Is_Running()`** → `Boolean` — a snapshot (`try_wait`), safe in a UI
   event. **`proc.Kill()`** — stop and reap it (a no-op if already dead).
   **`proc.Wait()`** → `Long` — block for the exit code (`-1` when unknowable,
   e.g. after a kill).
@@ -257,7 +258,7 @@ Shell.Run(cmd)` runs off the UI thread, same shape as `Http.Get`).
 `Shell.Start`/`Shell.Run` are fallible `State` initialisers — a `Process` can
 live in a `Screen`'s state, started before the terminal opens with the clean
 `could not start` bail-out (the local-LLM-server shape: `examples/tui_shell.vbr`).
-`Kill`/`Wait`/`IsRunning` are registered mutating methods (`let mut`, `&mut`
+`Kill`/`Wait`/`Is_Running` are registered mutating methods (`let mut`, `&mut`
 through state).
 
 Deferred: capturing a started process's output (a log pane wants a pipe +

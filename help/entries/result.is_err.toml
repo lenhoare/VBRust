@@ -5,15 +5,19 @@ kind = "property"
 parent = "result"
 anchor = "m/Result.Is_Err"
 
-summary = "Whether the result is a failure."
+summary = "Whether a Raw result is a failure."
 
 returns = "Boolean — True for Err, False for Ok."
 
 example = """
+Function Never() As Long
+    RaiseError "nope"
+End Function
+
 Function Main()
-    Dim r As Result<Long> = Err("nope")
+    Dim r As Result<Long> = Raw Never()
     Debug.Print r.Is_Err()   ' True
 End Function
 """
 
-see_also = ["result", "result.is_ok"]
+see_also = ["result", "raw", "result.is_ok"]

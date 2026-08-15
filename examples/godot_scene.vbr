@@ -1,4 +1,4 @@
-' Godot scene-tree access in VBR (Godot slice 4).
+' Godot scene-tree access in Bust (Godot slice 4).
 '
 ' `Me.GetNode("Path")` reaches another node in the scene, typed by the `As` on the
 ' `Dim` — a handle you then call methods on. Here a scoreboard node counts up and

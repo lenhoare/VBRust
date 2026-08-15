@@ -1,2 +1,2 @@
-ℹ VBR names are their lowercase self in Rust — e.g. `Report` becomes `report`. (Functions and variables lowercase, constants uppercase; shown once.)
-✘ `?` can only be used in a function that returns `Result` (or `Option`). It hands the error back to the caller on failure, so this function's signature must allow failure: declare it `As Result<T>`, or handle the error here with `Match` over `Ok`/`Err`.
+✘ [line 7] `?` is gone. Errors propagate automatically — just write the call. To intercept it, use `Handle err` … `End Handle`. To take the `Result` as a value, use `Raw F()`.
+ℹ Bust names are their lowercase self in Rust — e.g. `Report` becomes `report`. (Functions and variables lowercase, constants uppercase; shown once.)

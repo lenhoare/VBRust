@@ -2,7 +2,7 @@
 name = "vbr"
 version = "0.1.0"
 edition = "2021"
-description = "VBR — VBA syntax in, idiomatic Rust out. A teaching transpiler."
+description = "Bust — VBA syntax in, idiomatic Rust out. A teaching transpiler."
 
 [lib]
 name = "vbr"

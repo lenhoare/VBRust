@@ -1,4 +1,4 @@
-' Spawning nodes in VBR (Godot slice 6).
+' Spawning nodes in Bust (Godot slice 6).
 '
 ' `Spawn("res://scene.tscn")` loads a scene and instantiates a fresh node — a
 ' typed `Gd<T>` handle, like `GetNode` but new. Set it up, then `Me.AddChild(it)`

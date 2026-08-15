@@ -1,14 +1,14 @@
-# VBR DataFrame Specification
+# Bust DataFrame Specification
 
-A `DataFrame` is a native, first-class table in VBR — columns of typed data you
+A `DataFrame` is a native, first-class table in Bust — columns of typed data you
 read, transform with **column formulas**, and write back out. It is backed by the
 Rust **polars** crate: pure Rust, no Python, no GIL, self-contained. (This is a
 different track from inline `Python` blocks — see `inline_python_spec` notes — and
 the better home for dataframes because it needs no interpreter.)
 
-> Status: **slices 1–3 BUILT** (read/inspect/`Select`/`WithColumn`/`Filter`/
-> `Sort`/column-out/write + the full column-formula lowering; **GroupBy/Agg**
-> and whole-column scalar aggregations; **joins** with `IsNull` handling).
+> Status: **slices 1–3 BUILT** (read/inspect/`Select`/`With_Column`/`Filter`/
+> `Sort`/column-out/write + the full column-formula lowering; **Group_By/Agg**
+> and whole-column scalar aggregations; **joins** with `Is_Null` handling).
 > Later slices (lazy, more formats) are marked §8 and not yet built.
 
 ---
@@ -20,7 +20,7 @@ the better home for dataframes because it needs no interpreter.)
   down the whole column. This is exactly what polars' expression engine does.
 - **Native and self-contained.** Backed by the `polars` crate — pure Rust. A
   dataframe program needs no Python and links no interpreter.
-- **Readable generated Rust.** The *verbs* (`ReadCsv`, `WithColumn`) are a thin
+- **Readable generated Rust.** The *verbs* (`Read_Csv`, `With_Column`) are a thin
   `vbr_stdlib` wrapper for clean IO and error handling; the *formulas* lower to
   genuine polars expressions (`col`, `lit`, `when/then/otherwise`) — so the
   generated code teaches the real polars engine underneath.
@@ -46,10 +46,10 @@ notice warns on the first build. Dataframe programs are `runproject` programs
 pass it through transforms (each returns a new `DataFrame`):
 
 ```vb
-Dim df = DataFrame.ReadCsv("people.csv")
+Dim df = DataFrame.Read_Csv("people.csv")
 ```
 
-Reading (slice 1: CSV): `DataFrame.ReadCsv(path)`. Later: `ReadParquet`, `ReadJson`.
+Reading (slice 1: CSV): `DataFrame.Read_Csv(path)`. Later: `ReadParquet`, `ReadJson`.
 
 Inspecting:
 
@@ -64,9 +64,9 @@ Inspecting:
 
 ## 4. Column formulas — the heart
 
-The arguments to `Filter`, `WithColumn`, and `Select` are a **column-formula
-context**. Your ordinary VBR expression is read as a formula over columns: it
-applies down the whole column and broadcasts elementwise. The same VBR operators
+The arguments to `Filter`, `With_Column`, and `Select` are a **column-formula
+context**. Your ordinary Bust expression is read as a formula over columns: it
+applies down the whole column and broadcasts elementwise. The same Bust operators
 and grammar you already use — only the meaning of the operands changes:
 
 | You write | Means | Lowers to |
@@ -91,13 +91,13 @@ else)`** is the array-formula `IF`, lowering to polars `when/then/otherwise`.
 Examples and their lowering:
 
 ```vb
-df = df.WithColumn("total", price * qty)
+df = df.With_Column("total", price * qty)
 '   → df.with_columns([(col("price") * col("qty")).alias("total")])
 
 df = df.Filter(age > 30 And active)
 '   → df.filter(col("age").gt(lit(30)).and(col("active")))
 
-df = df.WithColumn("band", IIf(age >= 18, "adult", "minor"))
+df = df.With_Column("band", IIf(age >= 18, "adult", "minor"))
 '   → ... when(col("age").gt_eq(lit(18))).then(lit("adult")).otherwise(lit("minor")).alias("band")
 
 df = df.Filter(Col(selected) = target)          ' dynamic column, injected value
@@ -109,18 +109,18 @@ df = df.Filter(`Order Date` >= start)           ' awkward name, Dim'd value
 
 `Select` takes column names (or formulas): `df.Select("name", "band", "total")`.
 
-### 4b. GroupBy & aggregation
+### 4b. Group_By & aggregation
 
-`df.GroupBy(key, …)` groups rows by one or more key columns (string names, like
+`df.Group_By(key, …)` groups rows by one or more key columns (string names, like
 `Select`); the chained **`.Agg(…)`** says what to compute per group — one
 aggregation per output column. Inside `Agg`, the aggregation functions
 **`Sum` / `Mean` / `Min` / `Max` / `Count`** wrap an ordinary column formula:
 
 ```vb
-Dim byband As DataFrame = df.GroupBy("band").Agg(Count(name), Mean(age), Sum(qty))
+Dim byband As DataFrame = df.Group_By("band").Agg(Count(name), Mean(age), Sum(qty))
 '   → df.group_by(&["band"]).agg(&[col("name").count(), col("age").mean(), col("qty").sum()])
 
-Dim spend As DataFrame = df.GroupBy("band").Agg(Sum(price * qty))
+Dim spend As DataFrame = df.Group_By("band").Agg(Sum(price * qty))
 '   → … .agg(&[(col("price") * col("qty")).sum()])
 ```
 
@@ -128,7 +128,7 @@ Dim spend As DataFrame = df.GroupBy("band").Agg(Sum(price * qty))
   deterministic.
 - An aggregated column keeps its source column's name (aliases are a later
   slice — for now, avoid two aggregations of the same column in one `Agg`).
-- `GroupBy` is used inline with `.Agg(…)` — the grouped intermediate isn't a
+- `Group_By` is used inline with `.Agg(…)` — the grouped intermediate isn't a
   `DataFrame`, so it can't be stored in a variable.
 
 ### 4c. Joins
@@ -138,8 +138,8 @@ which rows survive:
 
 ```vb
 Dim buyers As DataFrame = people.Join(orders, "name")       ' inner: matches only
-Dim everyone As DataFrame = people.LeftJoin(orders, "name") ' all left rows
-Dim union As DataFrame = people.OuterJoin(orders, "name")   ' all rows, both sides
+Dim everyone As DataFrame = people.Left_Join(orders, "name") ' all left rows
+Dim union As DataFrame = people.Outer_Join(orders, "name")   ' all rows, both sides
 ```
 
 - Keys are string column names (several allowed: `Join(other, "a", "b")`); the
@@ -147,15 +147,15 @@ Dim union As DataFrame = people.OuterJoin(orders, "name")   ' all rows, both sid
   `left_on`/`right_on` — are a later slice). Key columns come out **coalesced**:
   one `name` column, not `name` and `name_right`.
 - **Nulls.** Where a key found no match, the new cells are **null** — a state
-  VBR has no type for. `IsNull(col)` in a `Filter` formula finds those rows
-  (`df.Filter(Not IsNull(item))` removes them), and `df.Column(...)` **refuses**
+  Bust has no type for. `Is_Null(col)` in a `Filter` formula finds those rows
+  (`df.Filter(Not Is_Null(item))` removes them), and `df.Column(...)` **refuses**
   a column containing nulls rather than silently returning a shortened `Vec`.
 
 ---
 
 ## 5. Getting data out
 
-Cross the boundary into plain VBR by naming a type — one bulk extraction:
+Cross the boundary into plain Bust by naming a type — one bulk extraction:
 
 ```vb
 Dim ages As Vec<Long> = df.Column("age")
@@ -175,7 +175,7 @@ Debug.Print "mean age: " & df.Mean("age")     ' also Sum / Min / Max
 
 ## 6. Writing
 
-`df.WriteCsv(path)` — write the frame to CSV. Later: `WriteParquet`, `WriteJson`.
+`df.Write_Csv(path)` — write the frame to CSV. Later: `WriteParquet`, `WriteJson`.
 
 ---
 
@@ -204,9 +204,9 @@ surface is proven.
 
 ## 9. Examples
 
-`examples/dataframe_basics.vbr` (read → inspect → `WithColumn`/`Filter`/`Select`
+`examples/dataframe_basics.vbr` (read → inspect → `With_Column`/`Filter`/`Select`
 formulas → `Column` out → write) lands with slice 1;
-`examples/dataframe_groupby.vbr` (scalar aggregations → `GroupBy`/`Agg`,
+`examples/dataframe_groupby.vbr` (scalar aggregations → `Group_By`/`Agg`,
 including a formula inside `Sum`) with slice 2;
 `examples/dataframe_join.vbr` (inner/left joins over `people.csv` +
-`orders.csv`, `IsNull` filtering, column extraction) with slice 3.
+`orders.csv`, `Is_Null` filtering, column extraction) with slice 3.

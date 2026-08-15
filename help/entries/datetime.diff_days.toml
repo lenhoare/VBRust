@@ -1,0 +1,25 @@
+id = "datetime.diff_days"
+title = "Diff_Days"
+category = "DateTime"
+kind = "method"
+parent = "datetime"
+anchor = "ns/DateTime.Diff_Days"
+
+summary = "The whole number of days between two DateTimes."
+
+arguments = """
+other | DateTime | The DateTime to compare against.
+"""
+
+returns = "Long — how many whole days from this DateTime to the other (negative if the other is earlier). Diff_Hours(other) does the same in hours."
+
+example = """
+Function Main()
+    Dim start As DateTime = DateTime.Parse("2026-08-01", "%Y-%m-%d")
+    Dim finish As DateTime = DateTime.Parse("2026-08-14", "%Y-%m-%d")
+
+    Debug.Print start.Diff_Days(finish)   ' 13
+End Function
+"""
+
+see_also = ["datetime", "datetime.add_days"]

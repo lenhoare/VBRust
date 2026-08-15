@@ -1,6 +1,6 @@
-// VBR vertical-slice demo — everything here is in the first milestone
+// Bust vertical-slice demo — everything here is in the first milestone
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let count: i64 = 3;
     let mut total: i64 = 0;
     for i in 1..=count {
@@ -15,5 +15,13 @@ fn main() {
         println!("exactly five");
     } else {
         println!("small");
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

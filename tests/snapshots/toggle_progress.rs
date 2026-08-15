@@ -29,10 +29,26 @@ enum Message {
 fn update(state: &mut Panel, message: Message) {
     match message {
         Message::SetEnabled(value) => {
-            state.enabled = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.enabled = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
         Message::SetLevel(value) => {
-            state.level = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.level = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

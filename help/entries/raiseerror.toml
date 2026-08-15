@@ -1,0 +1,34 @@
+id = "raiseerror"
+title = "RaiseError"
+category = "Procedures"
+kind = "keyword"
+
+syntax = """
+RaiseError "<message>"
+RaiseError <err>
+"""
+
+replaces = "Err.Raise / Error"
+
+summary = "Fails from here — the opposite of Return."
+
+remarks = """
+`Return n` is success. `RaiseError` is failure. A string is the everyday form; passing the name bound by `Handle` re-raises that error.
+
+The failure leaves the current function, the same way an unhandled fallible call does. In `Main` that prints the message and exits; in an event the event ends and the app keeps running.
+"""
+
+example = """
+Function Divide(a As Long, b As Long) As Long
+    If b = 0 Then
+        RaiseError "cannot divide by zero"
+    End If
+    Return a / b
+End Function
+
+Function Main()
+    Debug.Print Divide(10, 2)
+End Function
+"""
+
+see_also = ["handle", "return", "raw"]

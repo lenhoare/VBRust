@@ -6,7 +6,7 @@ digits are joined horizontally with one space. Supports 0–9 and `-`.
 Designed as a reusable module (the book's project 14 Countdown builds on
 this one).
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Type Segment` with three String fields, built complete with the
   `Segment { top: ..., mid: ..., bottom: ... }` literal constructor

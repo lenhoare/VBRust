@@ -1,11 +1,11 @@
 # A5 — Shape Areas
 
-Exercises VBR's **sum types** — an `Enum` whose variants **carry data**.
+Exercises Bust's **sum types** — an `Enum` whose variants **carry data**.
 Each shape is built by calling a variant constructor (`Shape.Circle(2.0)`);
 the only way to read the payload back is to `Match` and unpack it, and the
 compiler guarantees every `Match` handles every variant.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Enum` with payload variants: scalar (`Circle(Double)`), multiple
   (`Rectangle(Double, Double)`), struct (`Point`), and `Vec<Point>` payloads

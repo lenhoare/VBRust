@@ -147,7 +147,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
              initial value.",
         );
     }
-    // The same theme names as the GUI — `Theme "Dracula"` colors a Page like
+    // The same theme names as the GUI — `Theme Dracula` colors a Page like
     // it colors a Window (the palette becomes CSS in the generated index.html).
     if let Some(th) = &p.theme {
         if crate::gui::canonical_theme(th).is_none() {
@@ -156,7 +156,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
                 format!(
                     "Unknown theme `{}`. Built-in themes: {}.",
                     th,
-                    crate::gui::KNOWN_THEMES.join(", ")
+                    crate::gui::known_theme_names()
                 ),
             );
         }
@@ -260,12 +260,12 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
             }
             match split {
                 // Synchronous event: run the whole body.
-                None => surface::emit_event_stmts(
+                None => surface::emit_event_stmts_caught(
                     &e.body, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
                 ),
                 // Async kick-off: pre-await body, snapshot state, send the future.
                 Some(s) => {
-                    surface::emit_event_stmts(
+                    surface::emit_event_stmts_caught(
                         &s.pre, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
                     );
                     for snap in &s.snapshots {
@@ -282,7 +282,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
             // The continuation arm for an async event.
             if let Some(s) = split {
                 out.push_str(&format!("            Message::{}Done({}) => {{\n", e.name, s.bind));
-                surface::emit_event_stmts(
+                surface::emit_event_stmts_caught(
                     &s.cont, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
                 );
                 out.push_str("            }\n");
@@ -807,12 +807,15 @@ pub fn page_assets(program: &Program) -> Vec<String> {
     assets
 }
 
-/// A built-in theme as CSS: the palette (matching Iced 0.13's of the same
-/// name) as custom properties, plus base rules for the page body and the
+/// A built-in theme as CSS: the palette (Iced 0.13 names, plus NightOwl and
+/// JellyFish) as custom properties, plus base rules for the page body and the
 /// generated `vbr-*` controls. A `Css` block can override any of it — it comes
 /// later in the stylesheet.
 fn theme_css(name: &str) -> Option<String> {
-    let (bg, text, primary) = theme_palette(crate::gui::canonical_theme(name)?)?;
+    let spec = crate::theme::lookup(name)?;
+    let bg = spec.hex_bg();
+    let text = spec.hex_text();
+    let primary = spec.hex_primary();
     Some(format!(
         ":root {{\n  --vbr-background: {bg};\n  --vbr-text: {text};\n  --vbr-primary: {primary};\n}}\n\
          body {{\n  margin: 0;\n  min-height: 100vh;\n  background: var(--vbr-background);\n  \
@@ -826,35 +829,4 @@ fn theme_css(name: &str) -> Option<String> {
          .vbr-frame {{\n  border: 1px solid var(--vbr-primary);\n  border-radius: 4px;\n  \
          padding: 8px;\n  margin: 0;\n}}\n"
     ))
-}
-
-/// (background, text, primary) for each built-in theme — the hex values of
-/// Iced 0.13's palettes (core/src/theme/palette.rs), so the browser Dracula
-/// is the desktop Dracula.
-fn theme_palette(canon: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    Some(match canon {
-        "Light" => ("#ffffff", "#000000", "#5e7ce2"),
-        "Dark" => ("#202225", "#e6e6e6", "#5e7ce2"),
-        "Dracula" => ("#282a36", "#f8f8f2", "#bd93f9"),
-        "Nord" => ("#2e3440", "#eceff4", "#8fbcbb"),
-        "SolarizedLight" => ("#fdf6e3", "#657b83", "#2aa198"),
-        "SolarizedDark" => ("#002b36", "#839496", "#2aa198"),
-        "GruvboxLight" => ("#fbf1c7", "#282828", "#458588"),
-        "GruvboxDark" => ("#282828", "#fbf1c7", "#458588"),
-        "CatppuccinLatte" => ("#eff1f5", "#4c4f69", "#1e66f5"),
-        "CatppuccinFrappe" => ("#303446", "#c6d0f5", "#8caaee"),
-        "CatppuccinMacchiato" => ("#24273a", "#cad3f5", "#8aadf4"),
-        "CatppuccinMocha" => ("#1e1e2e", "#cdd6f4", "#89b4fa"),
-        "TokyoNight" => ("#1a1b26", "#9aa5ce", "#2ac3de"),
-        "TokyoNightStorm" => ("#24283b", "#9aa5ce", "#2ac3de"),
-        "TokyoNightLight" => ("#d5d6db", "#565a6e", "#166775"),
-        "KanagawaWave" => ("#363646", "#dcd7ba", "#2d4f67"),
-        "KanagawaDragon" => ("#181616", "#c5c9c5", "#223249"),
-        "KanagawaLotus" => ("#f2ecbc", "#545464", "#c9cbd1"),
-        "Moonfly" => ("#080808", "#bdbdbd", "#80a0ff"),
-        "Nightfly" => ("#011627", "#bdc1c6", "#82aaff"),
-        "Oxocarbon" => ("#232323", "#d0d0d0", "#00b4ff"),
-        "Ferra" => ("#2b292d", "#fecdb2", "#d1d1e0"),
-        _ => return None,
-    })
 }

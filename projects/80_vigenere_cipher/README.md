@@ -5,7 +5,7 @@ key derived from a repeating keyword (A=0, B=1, ... Z=25). `Encrypt` shifts
 forward, `Decrypt` shifts backward. Non-letters pass through unchanged and
 do **not** advance the key position. Case is preserved.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` with a `Boolean` mode flag
 - Alphabet-string lookup (`FindIn` via `Mid`) — no `Asc()` needed

@@ -1,10 +1,10 @@
-fn fruits() -> Vec<String> {
+fn fruits() -> Result<Vec<String>, String> {
     let mut v: Vec<String> = Vec::new();
     v.push("Apple".to_string());
     v.push("Banana".to_string());
     v.push("Cherry".to_string());
     v.push("Date".to_string());
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -20,7 +20,7 @@ struct Menu {
 
 impl Default for Menu {
     fn default() -> Self {
-        let fruits = fruits();
+        let fruits = fruits()?;
         let choice = "(none yet)".to_string();
         Menu {
             fruits,
@@ -66,7 +66,15 @@ fn main() -> std::io::Result<()> {
                     KeyCode::Enter => {
                         if let Some(i) = state.fruits_state.selected() {
                             let item = state.fruits[i].clone();
-                            state.choice = item;
+                            {
+                                let __vbr_event: Result<(), String> = (|| {
+                                    state.choice = item;
+                                    Ok(())
+                                })();
+                                if let Err(__e) = __vbr_event {
+                                    eprintln!("Error: {}", __e);
+                                }
+                            }
                         }
                     }
                     _ => {}

@@ -2,8 +2,6 @@
 // Tab completes, Enter opens a file or enters a folder (Save As returns even
 // a new name), Esc cancels and returns "". Then FileSystem.Read / Write.
 
-use vbr_stdlib::{FileSystem};
-
 use ratatui::widgets::{Block, Paragraph, Clear};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -147,6 +145,8 @@ fn view(state: &mut Scratch, frame: &mut Frame) {
 
 
 mod file_dialog {
+    const DIALOG_BG: ratatui::style::Color = ratatui::style::Color::Cyan;
+    const DIALOG_FG: ratatui::style::Color = ratatui::style::Color::Black;
     use std::path::{Path, PathBuf};
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
     use ratatui::layout::Rect;
@@ -238,12 +238,12 @@ mod file_dialog {
         };
         frame.render_widget(Clear, rect);
         let style = Style::new()
-            .bg(ratatui::style::Color::Cyan)
-            .fg(ratatui::style::Color::Black);
+            .bg(DIALOG_BG)
+            .fg(DIALOG_FG);
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::default().fg(ratatui::style::Color::Black))
+            .border_style(Style::default().fg(DIALOG_FG))
             .style(style);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
@@ -455,29 +455,43 @@ fn main() -> std::io::Result<()> {
                                 state.menu_close();
                                 match (m, i) {
                                     (0, 0) => {
-                                        let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
-                                        if picked != "" {
-                                            match FileSystem::read(&picked) {
-                                                Ok ( text ) => {
+                                        {
+                                            let __vbr_event: Result<(), String> = (|| {
+                                                let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
+                                                if picked != "" {
+                                                    let mut text: String;
+                                                    text = match FileSystem::read(&picked) {
+                                                        Ok(__vbr_ok) => __vbr_ok,
+                                                        Err(e) => {
+                                                            state.notes = format!("Could not read: {}", e);
+                                                            return Ok(());
+                                                        }
+                                                    };
                                                     state.notes = text;
                                                     state.path = picked;
                                                 }
-                                                Err ( e ) => {
-                                                    state.notes = format!("Could not read: {}", e);
-                                                }
+                                                Ok(())
+                                            })();
+                                            if let Err(__e) = __vbr_event {
+                                                eprintln!("Error: {}", __e);
                                             }
                                         }
                                     }
                                     (0, 1) => {
-                                        let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
-                                        if picked != "" {
-                                            match FileSystem::write(&picked, &state.notes) {
-                                                Ok ( _ ) => {
+                                        {
+                                            let __vbr_event: Result<(), String> = (|| {
+                                                let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
+                                                if picked != "" {
+                                                    if let Err(e) = FileSystem::write(&picked, &state.notes) {
+                                                        state.notes = format!("Could not save: {}", e);
+                                                        return Ok(());
+                                                    }
                                                     state.path = picked;
                                                 }
-                                                Err ( e ) => {
-                                                    state.notes = format!("Could not save: {}", e);
-                                                }
+                                                Ok(())
+                                            })();
+                                            if let Err(__e) = __vbr_event {
+                                                eprintln!("Error: {}", __e);
                                             }
                                         }
                                     }
@@ -491,30 +505,44 @@ fn main() -> std::io::Result<()> {
                         KeyCode::Char(c) => match (state.menu_open, c.to_ascii_lowercase()) {
                             (Some(0), 'o') => {
                                 state.menu_close();
-                                let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
-                                if picked != "" {
-                                    match FileSystem::read(&picked) {
-                                        Ok ( text ) => {
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
+                                        if picked != "" {
+                                            let mut text: String;
+                                            text = match FileSystem::read(&picked) {
+                                                Ok(__vbr_ok) => __vbr_ok,
+                                                Err(e) => {
+                                                    state.notes = format!("Could not read: {}", e);
+                                                    return Ok(());
+                                                }
+                                            };
                                             state.notes = text;
                                             state.path = picked;
                                         }
-                                        Err ( e ) => {
-                                            state.notes = format!("Could not read: {}", e);
-                                        }
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
                                     }
                                 }
                             }
                             (Some(0), 's') => {
                                 state.menu_close();
-                                let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
-                                if picked != "" {
-                                    match FileSystem::write(&picked, &state.notes) {
-                                        Ok ( _ ) => {
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
+                                        if picked != "" {
+                                            if let Err(e) = FileSystem::write(&picked, &state.notes) {
+                                                state.notes = format!("Could not save: {}", e);
+                                                return Ok(());
+                                            }
                                             state.path = picked;
                                         }
-                                        Err ( e ) => {
-                                            state.notes = format!("Could not save: {}", e);
-                                        }
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
                                     }
                                 }
                             }

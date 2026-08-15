@@ -1,9 +1,9 @@
 
-Yes. Looking at this with your current TUI model in mind, I think there are four historical design traditions, and the best VBR designer is probably a hybrid of two of them.
+Yes. Looking at this with your current TUI model in mind, I think there are four historical design traditions, and the best Bust designer is probably a hybrid of two of them.
 
 The first is the classic resource/dialog editor: empty form, palette of controls, place them, resize them, edit properties, then test. Borland Resource Workshop worked this way, and modern descendants still do. It solved the problem, but I agree with your instinct: mouse positioning becomes fiddly and starts making the designer itself the work. 
 
-The second is much more interesting for VBR: structural form design. You edit the hierarchy and properties rather than drawing pixels. Clarion's designers were strongly oriented around controls plus properties, and Turbo Vision had third-party interactive dialog designers that generated actual Pascal/C++ dialog source. 
+The second is much more interesting for Bust: structural form design. You edit the hierarchy and properties rather than drawing pixels. Clarion's designers were strongly oriented around controls plus properties, and Turbo Vision had third-party interactive dialog designers that generated actual Pascal/C++ dialog source. 
 
 Your existing TUI language is unusually well suited to this because the screen already is a tree:
 
@@ -159,7 +159,7 @@ Error Dialog
 
 That becomes surprisingly powerful without introducing a component framework into the language itself. It's simply source-tree generation.
 
-One thing I would not do is invent a separate .form or designer-resource format if you can avoid it. Borland/Windows historically needed resources because GUI descriptions and source code were fairly different worlds. Your VBR View syntax is already a nice declarative screen description. The designer should preferably edit the actual VBR AST/source. Turbo Vision dialog designers that generated source are a useful precedent here. 
+One thing I would not do is invent a separate .form or designer-resource format if you can avoid it. Borland/Windows historically needed resources because GUI descriptions and source code were fairly different worlds. Your Bust View syntax is already a nice declarative screen description. The designer should preferably edit the actual Bust AST/source. Turbo Vision dialog designers that generated source are a useful precedent here. 
 
 So you get this lovely relationship:
 
@@ -179,7 +179,7 @@ End View
 
 There isn't really a "designer file". They're simply two views onto the same program.
 
-And that leads to what I think is the particularly nice VBR idea:
+And that leads to what I think is the particularly nice Bust idea:
 
 F10 toggles Code / Designer for the current Screen, exactly like old Delphi-style Code/Form switching, but both sides remain textual/TUI experiences. Modern RAD Studio still explicitly exposes this Code/Design relationship. 
 

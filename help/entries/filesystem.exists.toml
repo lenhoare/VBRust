@@ -17,7 +17,7 @@ example = """
 Function Main()
     Debug.Print FileSystem.Exists("out.txt")   ' False
 
-    FileSystem.Write("out.txt", "hi").Unwrap()
+    FileSystem.Write("out.txt", "hi")
     Debug.Print FileSystem.Exists("out.txt")   ' True
 End Function
 """

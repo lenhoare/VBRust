@@ -1,1 +1,1 @@
-ℹ VBR names are their lowercase self in Rust — e.g. `MakeBars` becomes `makebars`. (Functions and variables lowercase, constants uppercase; shown once.)
+ℹ Bust names are their lowercase self in Rust — e.g. `MakeBars` becomes `makebars`. (Functions and variables lowercase, constants uppercase; shown once.)

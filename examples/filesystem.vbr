@@ -1,14 +1,14 @@
 ' FileSystem from the standard library — write a file, read it back, check it
-' exists, then delete it. Every fallible call returns a Result you `Unwrap` (or
-' `Match`). Backed by stdio + POSIX; the same program transpiles to Rust, Python
-' and C.
+' exists, then delete it. Fallible calls propagate automatically; a missing file
+' prints and exits from Main. Backed by stdio + POSIX; the same program
+' transpiles to Rust, Python and C.
 Function Main()
-    FileSystem.Write("vbr_fs_demo.txt", "Hello from VBR").Unwrap()
+    FileSystem.Write("vbr_fs_demo.txt", "Hello from Bust")
 
-    Dim text As String = FileSystem.Read("vbr_fs_demo.txt").Unwrap()
+    Dim text As String = FileSystem.Read("vbr_fs_demo.txt")
     Debug.Print "file says:    " & text
     Debug.Print "exists:       " & FileSystem.Exists("vbr_fs_demo.txt")
 
-    FileSystem.Delete("vbr_fs_demo.txt").Unwrap()
+    FileSystem.Delete("vbr_fs_demo.txt")
     Debug.Print "after delete: " & FileSystem.Exists("vbr_fs_demo.txt")
 End Function

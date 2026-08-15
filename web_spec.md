@@ -1,4 +1,4 @@
-# VBR Web Specification
+# Bust Web Specification
 
 A `Page` is a **browser application**: the same State/View/Events model as a
 `Window` (GUI) and a `Screen` (TUI), rendered to real HTML in a real browser.
@@ -17,14 +17,14 @@ compiled to **WebAssembly**, and served by **trunk**.
 ## 1. Design goals
 
 - **The same machine, a third dress.** A `Page` uses the very blocks you know
-  from `Window` and `Screen`. A Yew *struct component* is VBR's model verbatim —
+  from `Window` and `Screen`. A Yew *struct component* is Bust's model verbatim —
   a state struct, a `Message` enum, an `update` that changes state, a `view`
   derived from it — so the generated Rust reads like the GUI output and the
   knowledge transfers.
 - **Real DOM, readable output.** The view lowers to Yew's `html!` macro —
   actual HTML elements (`<p>`, `<button>`, flexbox `<div>`s), not a canvas.
 - **Shareable.** The point of a web page: run `vbr runweb`, get a URL.
-- **The framework is an implementation detail.** You write VBR, not Yew; the
+- **The framework is an implementation detail.** You write Bust, not Yew; the
   backend pins Yew 0.21 and could swap renderers without user code changing.
 
 ## 2. The model
@@ -57,7 +57,7 @@ End Function
   (`self.count` in the generated Rust).
 - Each `Event` becomes a `Message` variant and an `update` arm; `update`
   returns `true`, telling Yew to re-render the view from the new state.
-- Event bodies are ordinary VBR — the same resolver pass as a function body
+- Event bodies are ordinary Bust — the same resolver pass as a function body
   (string/numeric coercions, iterator chains, teaching diagnostics), shared
   with the GUI/TUI backends (`src/surface.rs`).
 - `Theme` works like the GUI's (`Theme Dracula`) — the palette becomes CSS in
@@ -128,7 +128,8 @@ End Event
 - The event **splits** exactly as in a `Window`: everything before the `Await`
   runs in the kick-off (so `"loading…"` shows immediately), and the code after
   it lands in a generated `<Event>Done(result)` continuation that runs when
-  the response arrives. `Dim r As Result<String, String> = Await …` works too.
+  the response arrives. `Dim r As String = Await …` works too (failure hits the
+  event sink unless you `Handle` it). `Match Await` still matches `Ok`/`Err`.
 - The kick-off hands the future to the component with
   `ctx.link().send_future(…)` — Yew's equivalent of Iced's `Task::perform`.
 - **`Http.Get` here is the browser's `fetch`**, not the native stdlib (which
@@ -170,7 +171,7 @@ desktop Dracula) as CSS custom properties — `--vbr-background`, `--vbr-text`,
 22 GUI theme names work; an unknown name is the same teaching error.
 
 **`Css … End Css` — the escape hatch.** Real CSS, verbatim, at the top level
-of the `.vbr` file (like an inline `Rust` block — the inside isn't VBR):
+of the `.vbr` file (like an inline `Rust` block — the inside isn't Bust):
 
 ```vb
 Css
@@ -221,7 +222,7 @@ installed — skipped with a notice otherwise. (Dracula's Theme/Css land in
 
 ## 9. Backend mapping
 
-| VBR | Yew |
+| Bust | Yew |
 |-----|-----|
 | `Page X` | `struct X` + `impl Component for X` |
 | `State` fields | fields on `X` (`self.field`) |

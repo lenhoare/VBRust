@@ -1,5 +1,5 @@
 Screen Dashboard
-    Title "VBR TUI Layout"
+    Title "Bust TUI Layout"
 
     State
         Dim tab As Integer = 1

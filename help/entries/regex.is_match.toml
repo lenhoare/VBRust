@@ -1,0 +1,24 @@
+id = "regex.is_match"
+title = "Is_Match"
+category = "Regex"
+kind = "method"
+parent = "regex"
+anchor = "ns/Regex.Is_Match"
+
+summary = "Whether a pattern is found anywhere in the text."
+
+arguments = """
+pattern | String | The regular expression to search for.
+text | String | The text to search in.
+"""
+
+returns = "Boolean — True if the pattern matches, False if not. Fails if the pattern is invalid."
+
+example = """
+Function Main()
+    Debug.Print Regex.Is_Match("cat", "the cat sat")   ' True
+    Debug.Print Regex.Is_Match("dog", "the cat sat")   ' False
+End Function
+"""
+
+see_also = ["regex", "regex.find_all"]

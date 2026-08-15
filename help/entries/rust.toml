@@ -1,0 +1,49 @@
+id = "rust"
+title = "Rust … End Rust"
+category = "Escape hatches"
+kind = "keyword"
+
+syntax = """
+Dim <name> As <Type> = Rust
+    <rust>
+End Rust
+
+Dim <handle> = Rust
+    <rust>
+End Rust
+"""
+
+summary = "Splices a block of real Rust into the program. The last line is the value."
+
+remarks = """
+Bust covers a friendly slice of Rust. For everything else, this is the door: a `Rust … End Rust` block is a Rust *expression*, spliced in where you write it. Think of it as inline assembly for Bust — a deliberate, visible drop into the lower level, used in small doses.
+
+Your Bust variables are already in scope inside the block, by their lowercased names (`myValue` is `myvalue`; underscores stay). The last line, written **without** a semicolon, is the value. `As Long` (or whatever you declared) is the type that line must produce, and that value flows back into Bust.
+
+A `Dim` with **no `As`** holds an opaque handle — an iterator, a client, anything Bust has no type for. You cannot print it or compare it; the one thing you may do is hand it back into another `Rust` block. State inside it survives from one block to the next.
+
+Need a crate Bust does not ship? `Use rand 0.8` (or any `Use crate version`) writes the Cargo.toml line. The trait and generic complexity stays sealed inside the block; only a plain value comes back.
+"""
+
+example = """
+Function Main()
+    Dim a As Long = 5
+    Dim b As Long = 7
+
+    Dim sum As Long = Rust
+        a + b
+    End Rust
+    Debug.Print "sum is " & sum
+
+    Dim big As Long = Rust
+        let mut total = 0;
+        for i in 1..=100 {
+            total += i;
+        }
+        total
+    End Rust
+    Debug.Print "1 to 100 = " & big
+End Function
+"""
+
+see_also = ["python", "dim", "raw"]

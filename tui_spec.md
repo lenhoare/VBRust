@@ -1,4 +1,4 @@
-# VBR TUI Specification
+# Bust TUI Specification
 
 A `Screen` is a terminal (text) user interface, the counterpart to a `Window`
 (the graphical GUI — see `gui_spec.md`). It compiles to a **ratatui** application.
@@ -103,8 +103,9 @@ after the handler is the **hotkey label** on the bottom status bar
 
 ### 2.4 Status line
 
-A Screen draws a cyan bar along the bottom of the terminal (Turbo Vision style):
-reversed key caps, then the label. `On Key` bindings appear automatically;
+A Screen draws a bar along the bottom of the terminal (Turbo Vision style):
+reversed key caps, then the label. Unthemed, it is cyan-on-black; a `Theme`
+recolours it. `On Key` bindings appear automatically;
 Tab / Enter / Up-Down / Left-Right are added when those built-ins apply. `Status <expr>`
 puts live text on the left of the same bar:
 
@@ -118,7 +119,24 @@ On Key "q" Quit "quit"
 `Status` is Screen-only. A screen with no keys, no focusable widgets, no menu bar,
 and no `Status` line has no bar (the view keeps the full height).
 
-### 2.5 Menu bar
+### 2.5 Theme
+
+`Theme <Name>` under the Title restyles the Screen — the same names as a Window
+(`Dracula`, `Nord`, …) plus **`NightOwl`** and **`JellyFish`**. It colours the
+status bar, menu bar, outer border, text, chart series, gauges, and the file
+prompt. Omit it and chrome stays cyan-on-black.
+
+```vb
+Screen Counter
+    Title "Night Owl"
+    Theme NightOwl
+    …
+End Screen
+```
+
+`Theme Night_Owl` is the same name. An unknown name lists every built-in.
+
+### 2.6 Menu bar
 
 A Screen may declare a **menu bar** next to `View` — chrome, like `Title` and
 `Status`, not a widget inside the Column. One-level dropdowns (no nested
@@ -157,7 +175,7 @@ In the browser the bar draws but isn't interactive yet (`tui-web-menu`).
 Example: `examples/tui_menu.vbr`. In tide_design, **F4** switches the Menu page
 (the view tree stays on View).
 
-Event bodies are ordinary VBR — the same resolution pass a function body gets
+Event bodies are ordinary Bust — the same resolution pass a function body gets
 (stdlib methods, string/numeric coercions, iterator chains, teaching
 diagnostics), with the screen's state fields in scope — at any statement depth:
 state fields inside `For`/`For Each`/`Do` bodies, `Match` arms, and `If`
@@ -165,7 +183,7 @@ branches all rewrite to `state.field` (`examples/tui_life.vbr`). This is shared
 with the GUI backend (`src/surface.rs`); a `Screen` event and a `Window` event
 lower identically. *(BUILT — 2026-07-04.)*
 
-### 2.6 File dialogs
+### 2.7 File dialogs
 
 `GetOpenFilename()` / `GetSaveAsFilename()` (optional initial path) pop a path
 prompt over the live Screen — the same Open / Save As box TIDE uses, as a
@@ -464,7 +482,7 @@ lowers to a plain "kick off the work, resume in the continuation" pair with no
 hidden state machine, keeping the generated loop readable. To guard the call, put
 the check *before* the `Await` (`If busy Then Return`, or set a flag first), or
 move the guard into the awaited helper (return early). Nesting an `Await` earns a
-teaching error that points at these options — VBR keeps async simple on purpose;
+teaching error that points at these options — Bust keeps async simple on purpose;
 reach for real Rust when you need more.
 
 ---
@@ -479,7 +497,7 @@ terminal (not piped), and it restores on exit. Adding a `Screen` pulls in
 
 ### 8.0 Diagnosing a running screen — `Log`, not `Debug.Print`
 
-A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — VBR warns
+A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — Bust warns
 and sends you to **`Log`**. `Log "message"` (composes with `&` like
 `Debug.Print`) appends a timestamped line to `build/vbr.log`; open a second
 terminal and `tail -f build/vbr.log` to watch the app think while it runs. `Log`
@@ -556,4 +574,5 @@ widget set including focus/Input/List/Table, `Every` timers, and async
 `tui_tabs.vbr` (Tabs widget), `tui_list_tabs.vbr` (lists in panes), `tui_dashboard.vbr`
 (Gauge/Sparkline/BarChart), `tui_chart.vbr` / `tui_multichart.vbr` (XY charts),
 `tui_fetch.vbr` (async), `tui_monitor.vbr` (timers + async), `tui_pulse.vbr`
-(timer-driven animation, terminal + browser).
+(timer-driven animation, terminal + browser), `tui_nightowl.vbr` / `tui_jellyfish.vbr`
+(`Theme` on a Screen).

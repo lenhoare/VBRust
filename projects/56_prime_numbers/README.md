@@ -4,7 +4,7 @@ Brute-force prime finding. `IsPrime` tests odd numbers for divisibility up
 to the square root (2 handled specially); `FirstPrimes` collects a run; a
 `RangePrimes` helper in main.vbr scans an interval. Deterministic and fast.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning `Boolean` and `Vec<Long>`
 - Square-root-bound `Do While` with `Mod`, odd-only stepping (`i = i + 2`)

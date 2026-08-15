@@ -1,8 +1,8 @@
-//! Native dataframes for VBR, wrapping the `polars` crate. A `DataFrame` is a
+//! Native dataframes for Bust, wrapping the `polars` crate. A `DataFrame` is a
 //! table of typed columns you read, transform, and write.
 //!
 //! Transforms are expressed with polars **expressions** — `col`, `lit`,
-//! `when/then/otherwise` — which VBR generates from *column formulas* (e.g.
+//! `when/then/otherwise` — which Bust generates from *column formulas* (e.g.
 //! `price * qty`, `IIf(age >= 18, "adult", "minor")`). Each transform returns a
 //! new eager `DataFrame`; internally it runs through polars' lazy engine and
 //! collects, so the model stays simple (each step materialises) while still using
@@ -10,12 +10,12 @@
 
 use polars::prelude::*;
 
-// The expression builders VBR's generated code calls directly. `len` is the
+// The expression builders Bust's generated code calls directly. `len` is the
 // per-group row count behind a bare `Count()` aggregation.
 pub use polars::prelude::{col, len, lit, when};
 
 /// A table of columns. A thin newtype over polars' `DataFrame` that hides
-/// `PolarsResult` and builder boilerplate behind clean, VBR-friendly methods.
+/// `PolarsResult` and builder boilerplate behind clean, Bust-friendly methods.
 #[derive(Clone)]
 pub struct DataFrame(polars::prelude::DataFrame);
 
@@ -201,7 +201,7 @@ impl DataFrame {
         self.scalar_agg(col(name).max(), "Max")
     }
 
-    /// One whole-column aggregation, cast to `f64` (VBR's `Double`) so every
+    /// One whole-column aggregation, cast to `f64` (Bust's `Double`) so every
     /// scalar aggregation comes back as the same simple number type.
     fn scalar_agg(&self, e: Expr, what: &str) -> f64 {
         let out = self
@@ -261,7 +261,7 @@ impl GroupedFrame {
 }
 
 /// Extract a polars column into a typed Rust `Vec`. Implemented for the element
-/// types a VBR `Vec<T>` can hold. Assumes the column has no null values.
+/// types a Bust `Vec<T>` can hold. Assumes the column has no null values.
 pub trait FromColumn {
     fn from_column(c: &Column) -> Vec<Self>
     where

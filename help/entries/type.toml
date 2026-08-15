@@ -15,7 +15,7 @@ summary = "Defines a record — a value that groups several named fields togethe
 remarks = """
 `Type` bundles related fields into one named value (a `struct` in Rust). Reach for it whenever you find yourself passing the same few variables around together.
 
-Create one by listing every field at once — `Point { X: 1, Y: 2 }`. VBR does not let you declare an empty record and fill it in later; giving all fields up front means a value is never half-built. Read or assign a field with dot notation, `p.X`.
+Create one by listing every field at once — `Point { X: 1, Y: 2 }`. Bust does not let you declare an empty record and fill it in later; giving all fields up front means a value is never half-built. Read or assign a field with dot notation, `p.X`.
 """
 
 example = """

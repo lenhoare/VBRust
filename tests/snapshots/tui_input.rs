@@ -1,8 +1,8 @@
-fn seed() -> Vec<String> {
+fn seed() -> Result<Vec<String>, String> {
     let mut v: Vec<String> = Vec::new();
     v.push("buy milk".to_string());
     v.push("call Ada".to_string());
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -21,7 +21,7 @@ struct Notes {
 impl Default for Notes {
     fn default() -> Self {
         let entry = "".to_string();
-        let notes = seed();
+        let notes = seed()?;
         let status = "type a note, Enter to add".to_string();
         Notes {
             entry,
@@ -81,14 +81,30 @@ fn main() -> std::io::Result<()> {
                         match state.focus_index {
                             0 => {
                                 let text = state.entry.clone();
-                                state.status = format!("added: {}", text);
-                                state.notes.push(text);
-                                state.entry = "".to_string();
+                                {
+                                    let __vbr_event: Result<(), String> = (|| {
+                                        state.status = format!("added: {}", text);
+                                        state.notes.push(text);
+                                        state.entry = "".to_string();
+                                        Ok(())
+                                    })();
+                                    if let Err(__e) = __vbr_event {
+                                        eprintln!("Error: {}", __e);
+                                    }
+                                }
                             }
                             1 => {
                                 if let Some(i) = state.notes_state.selected() {
                                     let item = state.notes[i].clone();
-                                    state.status = format!("selected: {}", item);
+                                    {
+                                        let __vbr_event: Result<(), String> = (|| {
+                                            state.status = format!("selected: {}", item);
+                                            Ok(())
+                                        })();
+                                        if let Err(__e) = __vbr_event {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                    }
                                 }
                             }
                             _ => {}

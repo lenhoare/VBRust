@@ -5,7 +5,7 @@ number is n/2 if n is even, else 3n+1; the sequence is believed to always
 reach 1. This example computes and prints full sequences for 12, 19 and 27
 (the famous long one), and exposes a length function for tests.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning a `Vec<Long>`, built with `seq.Push(n)`
 - `Do While ... Loop` with `Exit` conditions, `Mod` and integer division

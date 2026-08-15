@@ -6,7 +6,7 @@ placing X and O using the number keys 1–9 (keypad layout: 1=top-left …
 and illegal moves are handled; `r` restarts, `q` quits. All rules live in
 `ttt.vbr` and are unit-tested; main.vbr only renders and wires keys.
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - Keymap with digit keys (`On Key "1" Move1` … `On Key "9" Move9`)

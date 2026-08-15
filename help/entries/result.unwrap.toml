@@ -7,15 +7,23 @@ anchor = "m/Result.Unwrap"
 
 caution = ["unwrap-training-wheels"]
 
-summary = "The Ok value — but crashes on Err."
+summary = "Gone. Errors propagate automatically."
 
-returns = "T — the Ok value. Stops the program on an Err, so prefer the ? operator, Unwrap_Or, or Match unless you are certain it succeeded."
+returns = "Do not write `.Unwrap()`. A normal call already yields T. To intercept a call, use Handle err."
 
 example = """
+Function Half(n As Long) As Long
+    If n Mod 2 <> 0 Then RaiseError "not even"
+    Return n / 2
+End Function
+
 Function Main()
-    Dim r As Result<Long> = Ok(9)
-    Debug.Print r.Unwrap()   ' 9
+    Dim h As Long = Half(10) Handle err
+        Debug.Print err
+        Return
+    End Handle
+    Debug.Print h
 End Function
 """
 
-see_also = ["result", "result.unwrap_or", "question", "match"]
+see_also = ["handle", "raiseerror", "result", "result.unwrap_or"]

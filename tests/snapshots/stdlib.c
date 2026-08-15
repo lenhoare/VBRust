@@ -108,11 +108,19 @@ static Result_str_str vbr_regex_replaceall(char* pattern, char* text, char* repl
 }
 
 int main(void) {
-    Result_unit_str_unwrap(vbr_fs_write("greeting.txt", "Hello   from   VBR"));
-    char* text = Result_str_str_unwrap(vbr_fs_read("greeting.txt"));
+    Result_unit_str _t0 = vbr_fs_write("greeting.txt", "Hello   from   Bust");
+    if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
+    (void)0;
+    Result_str_str _t1 = vbr_fs_read("greeting.txt");
+    if (!_t1.is_ok) { fprintf(stderr, "Error: %s\n", _t1.err); return 1; }
+    char* text = _t1.ok;
     printf("%s\n", vbr_concat("file says: ", text));
-    char* cleaned = Result_str_str_unwrap(vbr_regex_replaceall("\\s+", text, " "));
+    Result_str_str _t2 = vbr_regex_replaceall("\\s+", text, " ");
+    if (!_t2.is_ok) { fprintf(stderr, "Error: %s\n", _t2.err); return 1; }
+    char* cleaned = _t2.ok;
     printf("%s\n", vbr_concat("cleaned:   ", cleaned));
-    Result_unit_str_unwrap(vbr_fs_delete("greeting.txt"));
+    Result_unit_str _t3 = vbr_fs_delete("greeting.txt");
+    if (!_t3.is_ok) { fprintf(stderr, "Error: %s\n", _t3.err); return 1; }
+    (void)0;
     return 0;
 }

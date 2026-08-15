@@ -1,7 +1,7 @@
 // Rust number methods pass through too — same deal as strings. Each returns the
 // receiver's own type, so casts and concatenation still line up.
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let n: i64 = -42;
     // Integer methods.
     println!("abs:     {}", n.abs());
@@ -20,4 +20,12 @@ fn main() {
     // The inferred type still drives coercion: abs() of a Long stays a Long.
     let size: i64 = n.abs();
     println!("size+1:  {}", size + 1);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

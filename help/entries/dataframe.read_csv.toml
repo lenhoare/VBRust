@@ -1,9 +1,9 @@
-id = "dataframe.readcsv"
-title = "ReadCsv"
+id = "dataframe.read_csv"
+title = "Read_Csv"
 category = "DataFrame"
 kind = "method"
 parent = "dataframe"
-anchor = "ns/DataFrame.ReadCsv"
+anchor = "ns/DataFrame.Read_Csv"
 
 summary = "Loads a CSV file into a DataFrame."
 
@@ -15,9 +15,9 @@ returns = "DataFrame — the table, with each column's type inferred from its va
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("people.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("people.csv")
     df.Print()
 End Function
 """
 
-see_also = ["dataframe", "dataframe.withcolumn", "dataframe.column"]
+see_also = ["dataframe", "dataframe.with_column", "dataframe.column"]

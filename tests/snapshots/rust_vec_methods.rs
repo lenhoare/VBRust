@@ -2,7 +2,7 @@
 // accessors (first/last/get) pair naturally with Match over Some/None —
 // the safe way to reach into a list.
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut nums: Vec<i64> = Vec::new();
     nums.push(3);
     nums.push(1);
@@ -35,4 +35,12 @@ fn main() {
     words.push("Ada".to_string());
     words.push("Grace".to_string());
     println!("names  = {}", words.join(" & "));
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

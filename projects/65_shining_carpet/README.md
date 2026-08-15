@@ -5,7 +5,7 @@ design from *The Shining*) as ASCII rows. Hexagons are 6 rows tall × 6
 columns wide; even row-groups tile them side by side, odd row-groups offset
 them by half a hexagon (3 columns), producing the brickwork interlock.
 
-## VBR language features tested
+## Bust language features tested
 
 - Nested `For` loops building rows and columns
 - `Public Function` returning `Vec<String>`; cross-module qualified calls

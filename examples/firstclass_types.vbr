@@ -8,10 +8,8 @@ Function Main()
         None => Debug.Print "no words"
     End Match
 
-    Match Lines("a,b,c")
-        Ok(parts) => Debug.Print "parts = " & parts.len()
-        Err(message) => Debug.Print "error: " & message
-    End Match
+    Dim parts As Vec<String> = Lines("a,b,c")
+    Debug.Print "parts = " & parts.len()
 End Function
 
 ' Returns a Vec by value.
@@ -33,12 +31,12 @@ Function FirstWord(ByVal text As String) As Option<String>
     Return Some(text)
 End Function
 
-' A nested wrapper: Result<Vec<String>>.
-Function Lines(ByVal text As String) As Result<Vec<String>>
+' A nested wrapper: a function that returns Vec<String>, and can fail.
+Function Lines(ByVal text As String) As Vec<String>
     If Len(text) = 0 Then
-        Return Err("empty input")
+        RaiseError "empty input"
     End If
     Dim parts As Vec<String>
     parts.push(text)
-    Return Ok(parts)
+    Return parts
 End Function

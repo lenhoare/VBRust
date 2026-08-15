@@ -5,7 +5,7 @@ A desktop GUI (`Window` on Iced) version of the Magic 8-Ball toy: click
 by shake count) so the demo and tests agree. All logic lives in
 `fortune.vbr` and is unit-tested.
 
-## VBR language features tested
+## Bust language features tested
 
 **GUI (`Window`):**
 - `Button "Shake"` + `On Click ShakeBall` — a single-button app

@@ -5,7 +5,7 @@ order. Uses the classic optimisation: test divisors only up to the square
 root, pushing both the divisor and its quotient (avoiding a duplicate for
 perfect squares), then sorts ascending.
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning `Vec<Long>`; square-root-bound `Do While` loop
 - `Public Sub` with `ByRef xs As Vec<Long>` — mutating the caller's list in

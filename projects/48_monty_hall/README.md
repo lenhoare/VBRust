@@ -6,7 +6,7 @@ then stay or switch. Scores track wins/losses across rounds. All rules
 live in `monty.vbr` and are unit-tested; the Window is a state machine
 over three phases (pick → stay/switch → reveal).
 
-## VBR language features tested
+## Bust language features tested
 
 **GUI (`Window`):**
 - `Button "Door 1"` … `On Click Pick0` — three pick events; a `Row` of

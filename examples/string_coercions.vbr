@@ -1,8 +1,8 @@
-' String ownership coercions: VBR inserts `.to_string()` wherever an owned String
-' is expected but a &str is supplied — Ok(...) payloads, Vec<String>.push, Mid
+' String ownership coercions: Bust inserts `.to_string()` wherever an owned String
+' is expected but a &str is supplied — function returns, Vec<String>.push, Mid
 ' results, and assigning a literal to a String variable.
-Function Validate(ByVal name As String) As Result<String>
-    Return Ok(name)
+Function Validate(ByVal name As String) As String
+    Return name
 End Function
 
 Function FirstChar(ByVal text As String) As String
@@ -25,8 +25,5 @@ Function Main()
     Debug.Print "first char  : " & FirstChar("world")
     Debug.Print "ch          : " & ch
     Debug.Print "names count : " & names.Len()
-    Match Validate("Ada")
-        Ok(v) => Debug.Print "validated   : " & v
-        Err(e) => Debug.Print "err         : " & e
-    End Match
+    Debug.Print "validated   : " & Validate("Ada")
 End Function

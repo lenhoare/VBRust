@@ -7,18 +7,27 @@ struct Person {
 }
 
 impl Person {
-    fn greet(&self) -> String {
-        format!("Hi, I'm {} ({})", self.name, self.age)
+    fn greet(&self) -> Result<String, String> {
+        Ok(format!("Hi, I'm {} ({})", self.name, self.age))
     }
 
-    fn havebirthday(&mut self) {
+    fn havebirthday(&mut self) -> Result<(), String> {
         self.age = self.age + 1;
+        Ok(())
     }
 }
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut alice: Person = Person { name: "Alice".to_string(), age: 30 };
-    println!("{}", alice.greet());
-    alice.havebirthday();
-    println!("{}", alice.greet());
+    println!("{}", alice.greet()?);
+    alice.havebirthday()?;
+    println!("{}", alice.greet()?);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

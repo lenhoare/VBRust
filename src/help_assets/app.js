@@ -115,8 +115,8 @@
 
   var WELCOME =
     '<div class="welcome">'
-    + '<h1>VBR Help</h1>'
-    + '<p class="summary">VBR is a modern dialect of Visual Basic that compiles to clean, '
+    + '<h1>Bust Help</h1>'
+    + '<p class="summary">Bust is a modern dialect of Visual Basic that compiles to clean, '
     +   'idiomatic Rust. You write in the familiar <code>Sub</code>/<code>Function</code>, '
     +   '<code>Dim … As</code>, <code>If … Then</code> shape of VB6 and VBA — and out comes '
     +   'real Rust you can read, run, and learn from.</p>'
@@ -125,9 +125,9 @@
     +   'example is compiled, and the generated Rust is printed beneath it.</p>'
     + '<p>Pick a topic on the left (tap <b>☰</b> on a phone), or press <kbd>/</kbd> to search.</p>'
 
-    + '<h2>How VBR differs from VB</h2>'
+    + '<h2>How Bust differs from VB</h2>'
     + '<p>If you know VB6 or VBA most of this will feel like home. A handful of things are '
-    +   'deliberately different — usually because VBR leans on Rust’s type system instead of '
+    +   'deliberately different — usually because Bust leans on Rust’s type system instead of '
     +   'the old runtime.</p>'
     + '<table class="members"><tbody>'
     + row('Static types, no <code>Variant</code>',
@@ -140,9 +140,9 @@
     + row('<code>Is</code> binds patterns',
           '<code>If total Is Some(v) Then …</code> unwraps an <code>Option</code>/'
         + '<code>Result</code> inline — VB’s <code>Is</code> now does Rust’s <i>if-let</i>.')
-    + row('Errors are values',
-          'Fallible work returns a <code>Result</code> you handle explicitly (<code>.Unwrap</code>, '
-        + 'match, or propagate) — there is no <code>On Error GoTo</code>.')
+    + row('Errors propagate',
+          'A call that can fail just… fails, unless you intercept it with <code>Handle err</code>. '
+        + '<code>RaiseError</code> fails from here. There is no <code>On Error GoTo</code>.')
     + row('Methods keep their Rust names',
           'A method <i>is</i> its Rust name: <code>Is_Empty</code>, <code>Unwrap_Or</code>, '
         + '<code>Contains_Key</code>. Letters are case-insensitive; the underscores are literal.')

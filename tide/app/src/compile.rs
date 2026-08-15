@@ -1,4 +1,4 @@
-//! In-process VBR compile for Watch + Rust pane (errors → jump-to-line).
+//! In-process Bust compile for Watch + Rust pane (errors → jump-to-line).
 
 use ratatui::style::{Color, Modifier, Style};
 use tide_editor::Decoration;
@@ -14,7 +14,7 @@ pub enum DiagLevel {
 pub struct TideDiag {
     pub level: DiagLevel,
     pub message: String,
-    /// 1-based VBR line when known.
+    /// 1-based Bust line when known.
     pub line: Option<usize>,
     /// 0-based start/end columns on that line (chars), when a span is known.
     pub start_col: Option<usize>,
@@ -126,7 +126,7 @@ pub fn jump_target(diag: &TideDiag) -> Option<(usize, usize)> {
     Some((line, col))
 }
 
-/// 0-based inclusive Rust line range generated from a 1-based VBR line.
+/// 0-based inclusive Rust line range generated from a 1-based Bust line.
 pub fn rust_span_for_vbr(
     map: &[(usize, usize)],
     vbr_1: usize,
@@ -158,7 +158,7 @@ pub fn rust_span_for_vbr(
         return Some((s0, e0.max(s0)));
     }
 
-    // Nearest earlier checkpoint (same rule as rustc→VBR attribution).
+    // Nearest earlier checkpoint (same rule as rustc→Bust attribution).
     let (r, _) = map
         .iter()
         .rev()
@@ -168,7 +168,7 @@ pub fn rust_span_for_vbr(
     Some((r0, r0))
 }
 
-/// 1-based VBR line for a 1-based Rust line (last checkpoint at or before it).
+/// 1-based Bust line for a 1-based Rust line (last checkpoint at or before it).
 pub fn vbr_line_for_rust(map: &[(usize, usize)], rust_1: usize) -> Option<usize> {
     map.iter()
         .take_while(|(r, _)| *r <= rust_1)
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn rust_span_covers_multi_line_region() {
-        // Checkpoints: rust lines 10,14,20 from VBR 3,3,5
+        // Checkpoints: rust lines 10,14,20 from Bust 3,3,5
         let map = vec![(10, 3), (14, 3), (20, 5)];
         let (s, e) = rust_span_for_vbr(&map, 3, 40).unwrap();
         assert_eq!(s, 9); // 10-1

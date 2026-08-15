@@ -6,7 +6,7 @@ kind = "type"
 summary = "Classic VB's fixed-point money type — not supported; use Double or integer cents."
 
 remarks = """
-VB's `Currency` was a fixed-point type for money. Rust has no built-in equivalent, so VBR does not support it.
+VB's `Currency` was a fixed-point type for money. Rust has no built-in equivalent, so Bust does not support it.
 
 You have two good options. For approximate amounts where a rounding penny won't hurt, use `Double`. For exact money, store the **minor units** — cents — as a whole number in a `Long` or `LongLong`, and divide by 100 only when you display it. Integer arithmetic never drifts.
 """

@@ -29,10 +29,26 @@ enum Message {
 fn update(state: &mut Settings, message: Message) {
     match message {
         Message::SetAgreed(value) => {
-            state.agreed = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.agreed = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
         Message::SetVolume(value) => {
-            state.volume = value;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    state.volume = value;
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
+                }
+            }
         }
     }
 }

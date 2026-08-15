@@ -31,10 +31,26 @@ impl Component for Settings {
     fn update(&mut self, _ctx: &Context<Self>, message: Self::Message) -> bool {
         match message {
             Message::SetAgreed(value) => {
-                self.agreed = value;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.agreed = value;
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
             Message::SetVolume(value) => {
-                self.volume = value;
+                {
+                    let __vbr_event: Result<(), String> = (|| {
+                        self.volume = value;
+                        Ok(())
+                    })();
+                    if let Err(__e) = __vbr_event {
+                        eprintln!("Error: {}", __e);
+                    }
+                }
             }
         }
         true // state changed — re-render the view

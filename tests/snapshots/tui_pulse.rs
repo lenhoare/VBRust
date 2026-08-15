@@ -53,17 +53,25 @@ fn main() -> std::io::Result<()> {
     loop {
         terminal.draw(|frame| view(&state, frame))?;
         if last_tick_0.elapsed().as_millis() >= 100 {
-            if state.rising {
-                state.level += 5;
-                if state.level >= 100 {
-                    state.rising = false;
-                    state.beats += 1;
-                    state.history.push(state.level);
-                }
-            } else {
-                state.level -= 5;
-                if state.level <= 0 {
-                    state.rising = true;
+            {
+                let __vbr_event: Result<(), String> = (|| {
+                    if state.rising {
+                        state.level += 5;
+                        if state.level >= 100 {
+                            state.rising = false;
+                            state.beats += 1;
+                            state.history.push(state.level);
+                        }
+                    } else {
+                        state.level -= 5;
+                        if state.level <= 0 {
+                            state.rising = true;
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(__e) = __vbr_event {
+                    eprintln!("Error: {}", __e);
                 }
             }
             last_tick_0 = std::time::Instant::now();

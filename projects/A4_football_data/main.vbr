@@ -3,12 +3,12 @@
 ' the match columns, runs the Elo engine (elo.vbr) and prints the final
 ' ranking.
 '
-' DataFrame features exercised: ReadCsv, Sort (by timestamp so matches are
+' DataFrame features exercised: Read_Csv, Sort (by timestamp so matches are
 ' processed chronologically), Column extraction into Vec<String>/Vec<Long>.
 Function Main()
-    ' The trimmed CSV (raw file has N/A values that abort ReadCsv — see
+    ' The trimmed CSV (raw file has N/A values that abort Read_Csv — see
     ' notes.md; pl_trim.csv keeps only the five numeric/name columns).
-    Dim df As DataFrame = DataFrame.ReadCsv("/home/len/dev/vbrprojects/VBRust/projects/A4_football_data/pl_trim.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("/home/len/dev/vbrprojects/VBRust/projects/A4_football_data/pl_trim.csv")
     df = df.Sort("timestamp")
 
     Dim homes As Vec<String> = df.Column("home_team_name")

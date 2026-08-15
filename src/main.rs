@@ -1,4 +1,4 @@
-//! VBR command-line driver.
+//! Bust command-line driver.
 //!
 //!   vbr run <file.vbr>        transpile, compile with rustc, and run (single file,
 //!                             no standard library or external crates)
@@ -54,7 +54,7 @@ fn usage() {
          \tvbr test [path]         run the program's `Test` blocks and report ✓ / ✗\n\
          \tvbr transpile <file>    write the generated Rust to <file>.rs (or -o <file>)\n\
          \tvbr emit <file.vbr>     print the generated Rust (use -o <file> to write it)\n\
-         \tvbr embed [--check] <file.rs>  expand VBR in `/* vbr … */` block comments in place (--check: verify only, for CI)\n\
+         \tvbr embed [--check] <file.rs>  expand Bust in `/* vbr … */` block comments in place (--check: verify only, for CI)\n\
          \tvbr py <file.vbr>       transpile to Python (core language; -o <file> to write it)\n\
          \tvbr c <file.vbr>        transpile to C (core language; -o <file> to write it)\n\
          \tvbr graduate <file.vbr> replace a module with the Rust it became — permanently.\n\
@@ -185,19 +185,19 @@ fn cmd_emit(args: &[String]) {
     }
 }
 
-/// `vbr embed <file.rs>` — VBR embedded in Rust. VBR written inside a `/* vbr …
+/// `vbr embed <file.rs>` — Bust embedded in Rust. Bust written inside a `/* vbr …
 /// */` block comment is transpiled and the resulting Rust written into a managed
 /// `// vbr:gen … // vbr:gen-end` region right after, indented to match the `/*
 /// vbr` marker. Re-running overwrites that region, so it's idempotent; the `.rs`
-/// always compiles (the VBR stays a comment). The Rust the fragment becomes is
+/// always compiles (the Bust stays a comment). The Rust the fragment becomes is
 /// spliced in as plain statements — call Rust functions, leave values in scope,
 /// all in one flat function body.
 ///
-/// Caveat: block comments end at the first `*/`, so embedded VBR can't contain a
+/// Caveat: block comments end at the first `*/`, so embedded Bust can't contain a
 /// literal `*/` (only realistic inside a string — split it, e.g. `"a*" & "/b"`).
 fn cmd_embed(args: &[String]) {
     // `--check` verifies without writing — for a pre-commit hook or CI to catch a
-    // stale generated region (VBR edited but `vbr embed` not re-run).
+    // stale generated region (Bust edited but `vbr embed` not re-run).
     let mut check = false;
     let mut file: Option<PathBuf> = None;
     for a in args {
@@ -226,7 +226,7 @@ fn cmd_embed(args: &[String]) {
 
     if check {
         if !errors.is_empty() {
-            eprintln!("✘ {}: embedded VBR has errors:", input.display());
+            eprintln!("✘ {}: embedded Bust has errors:", input.display());
             for e in &errors {
                 eprintln!("    {}", e);
             }
@@ -240,7 +240,7 @@ fn cmd_embed(args: &[String]) {
             );
             exit(1);
         }
-        eprintln!("✔ {}: embedded VBR is up to date.", input.display());
+        eprintln!("✔ {}: embedded Bust is up to date.", input.display());
         return;
     }
 
@@ -249,7 +249,7 @@ fn cmd_embed(args: &[String]) {
         exit(1);
     }
     eprintln!(
-        "✔ Expanded {} VBR block{} in {}",
+        "✔ Expanded {} Bust block{} in {}",
         expanded,
         if expanded == 1 { "" } else { "s" },
         input.display()
@@ -275,7 +275,7 @@ fn expand_embedded(text: &str) -> (String, usize, Vec<String>) {
 
     while i < lines.len() {
         let line = lines[i];
-        // An opener is `/* vbr` (optionally with VBR trailing on the same line).
+        // An opener is `/* vbr` (optionally with Bust trailing on the same line).
         let opener = line.trim_start().strip_prefix("/* vbr").filter(|rest| {
             rest.is_empty() || rest.starts_with(char::is_whitespace) || rest.starts_with("*/")
         });
@@ -290,7 +290,7 @@ fn expand_embedded(text: &str) -> (String, usize, Vec<String>) {
         out.push(line.to_string()); // keep the opener line verbatim
         i += 1;
 
-        // Collect the VBR (verbatim — no per-line prefix to strip), up to `*/`.
+        // Collect the Bust (verbatim — no per-line prefix to strip), up to `*/`.
         let mut vbr: Vec<String> = Vec::new();
         let mut unterminated = false;
         if let Some(idx) = first_rest.find("*/") {
@@ -310,7 +310,7 @@ fn expand_embedded(text: &str) -> (String, usize, Vec<String>) {
                     break;
                 }
                 let l = lines[i];
-                out.push(l.to_string()); // keep the VBR/closer line verbatim
+                out.push(l.to_string()); // keep the Bust/closer line verbatim
                 i += 1;
                 if let Some(idx) = l.find("*/") {
                     let before = l[..idx].trim();
@@ -845,7 +845,7 @@ struct TestRec {
 
 /// `vbr test`: generate the project (its `Test` blocks are already emitted as
 /// `#[cfg(test)]` `#[test] fn`s), build the test binary, run it, and translate
-/// `cargo test`'s output back to the VBR descriptions and `.vbr` lines.
+/// `cargo test`'s output back to the Bust descriptions and `.vbr` lines.
 fn cmd_test(args: &[String]) {
     let entry = match resolve_entry(args.first().map(String::as_str).unwrap_or(".")) {
         Some(e) => e,
@@ -919,7 +919,7 @@ fn cmd_test(args: &[String]) {
     exit(if run.status.success() { 0 } else { 1 });
 }
 
-/// Translate libtest's plain output into VBR terms: one `✓ / ✗` line per test,
+/// Translate libtest's plain output into Bust terms: one `✓ / ✗` line per test,
 /// keyed by the human description, with the failure's operand values and the
 /// `.vbr` line beneath a `✗`. Tests are shown in **source order** (libtest runs
 /// them in parallel, but the suite reads as a spec, so order matters).
@@ -1421,7 +1421,7 @@ fn godot_project_file(name: &str) -> String {
     )
 }
 
-/// A starter scene: the VBR node class as the root, with a coloured box child so
+/// A starter scene: the Bust node class as the root, with a coloured box child so
 /// there's something visible to move. `type="<Class>"` resolves once Godot loads
 /// the GDExtension.
 fn godot_main_scene(base: &str, class: &str) -> String {
@@ -1486,13 +1486,13 @@ fn project_logs(build: &Path) -> bool {
 
 /// `vbr graduate <file.vbr>` — replace a module with the Rust it generates.
 ///
-/// VBR's end goal is that you stop needing it: the generated Rust *is* the
+/// Bust's end goal is that you stop needing it: the generated Rust *is* the
 /// curriculum, and graduation is the day one file of it becomes yours. The
 /// module's generated `.rs` — exactly what `build/` has been compiling all
 /// along, no rewriting, no drift — is placed next to the sources, the `.vbr`
 /// is retired to `.vbr.graduated`, and the project is rebuilt (tests and all)
 /// to prove nothing changed. From then on you maintain that file in Rust; the
-/// remaining VBR modules keep calling it. Graduate `main.vbr` last: that
+/// remaining Bust modules keep calling it. Graduate `main.vbr` last: that
 /// finishes the journey, and `build/` is a plain cargo project you own.
 fn cmd_graduate(args: &[String]) {
     let Some(path_arg) = args.iter().find(|a| !a.starts_with("--")) else {
@@ -1507,7 +1507,7 @@ fn cmd_graduate(args: &[String]) {
     }
     if file_name.ends_with(".test.vbr") {
         eprintln!(
-            "✘ A `.test.vbr` module stays VBR — its Test blocks are the readable \
+            "✘ A `.test.vbr` module stays Bust — its Test blocks are the readable \
              spec. Graduate the modules it tests instead."
         );
         exit(1);
@@ -1521,7 +1521,7 @@ fn cmd_graduate(args: &[String]) {
     // own project of one.
     let is_entry = file_name.eq_ignore_ascii_case("main.vbr") || !main_vbr.is_file();
 
-    // The other modules still written in VBR (tests don't count — they stay).
+    // The other modules still written in Bust (tests don't count — they stay).
     let mut vbr_siblings: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {
@@ -1538,7 +1538,7 @@ fn cmd_graduate(args: &[String]) {
     if is_entry && !vbr_siblings.is_empty() {
         vbr_siblings.sort();
         eprintln!(
-            "✘ The entry graduates last — these modules are still VBR:\n      {}\n  \
+            "✘ The entry graduates last — these modules are still Bust:\n      {}\n  \
              Graduate them first, then come back for {}.",
             vbr_siblings.join(", "),
             file_name
@@ -1576,8 +1576,8 @@ fn cmd_graduate(args: &[String]) {
         }
     };
     let graduated = format!(
-        "// Graduated from {} — this is the Rust your VBR became, now yours to keep.\n\
-         // (The retired original beside it tells the build how VBR callers pass\n\
+        "// Graduated from {} — this is the Rust your Bust became, now yours to keep.\n\
+         // (The retired original beside it tells the build how Bust callers pass\n\
          // arguments here; it stops mattering once the whole project is Rust.)\n\n{}",
         file_name, rust
     );
@@ -1592,7 +1592,7 @@ fn cmd_graduate(args: &[String]) {
         retire(&path);
         eprintln!("🎓 {} → {} — the last module. The journey is complete.", file_name, target.display());
         eprintln!(
-            "   Every module is Rust now; nothing here needs VBR any more. The cargo\n   \
+            "   Every module is Rust now; nothing here needs Bust any more. The cargo\n   \
              project in build/ compiles exactly these files — it's yours:\n       \
              cd {} && cargo run",
             build.display()
@@ -1602,7 +1602,7 @@ fn cmd_graduate(args: &[String]) {
 
     // A sibling module: promote, then prove the project still builds with the
     // graduated file compiled verbatim (and its tests still passing). The one
-    // honest risk is a caller that leaned on VBR's argument sugar toward this
+    // honest risk is a caller that leaned on Bust's argument sugar toward this
     // module — cargo is the ground truth, and failure rolls everything back.
     write_or_die(&target, &graduated);
     retire(&path);
@@ -1613,7 +1613,7 @@ fn cmd_graduate(args: &[String]) {
         let _ = fs::remove_file(&target);
         eprintln!(
             "✘ Graduation rolled back — nothing changed. (Most likely another module \
-             relies on VBR's argument treatment when calling this one; the errors \
+             relies on Bust's argument treatment when calling this one; the errors \
              above show where.)"
         );
         exit(1);
@@ -1622,7 +1622,7 @@ fn cmd_graduate(args: &[String]) {
     eprintln!(
         "   The Rust it generated is now the source you keep — the other modules\n   \
          still call it; nothing changed but ownership. The original stays beside\n   \
-         it as {}.graduated: it teaches the build how VBR callers pass\n   \
+         it as {}.graduated: it teaches the build how Bust callers pass\n   \
          arguments to this module, so keep it until the whole project graduates.",
         file_name
     );
@@ -1758,7 +1758,7 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
 
     // Pass 1: harvest each `.vbr` module's interface (public functions and
     // constants), so pass 2 can give a qualified call the same argument
-    // treatment as a local one. Verbatim `.rs` modules have no VBR interface —
+    // treatment as a local one. Verbatim `.rs` modules have no Bust interface —
     // their calls stay name-qualified only.
     let mut interfaces = vbr::resolver::ProjectInterfaces::new();
     for (file, name) in vbr_files.iter().zip(&vbr_names) {
@@ -1766,11 +1766,11 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
             interfaces.insert(name.clone(), vbr::module_interface(&source));
         }
     }
-    // A graduated module (`life.rs` beside `life.vbr.graduated`) keeps its VBR
-    // interface: the retired file records how VBR callers treat its arguments
+    // A graduated module (`life.rs` beside `life.vbr.graduated`) keeps its Bust
+    // interface: the retired file records how Bust callers treat its arguments
     // (`ByRef` → `&mut`, collections borrow), so the calls other modules
     // generate don't change on graduation day. It stops mattering — and can be
-    // deleted — once nothing in VBR calls the module (or you've adjusted the
+    // deleted — once nothing in Bust calls the module (or you've adjusted the
     // callers by hand).
     for p in &graduated_files {
         let stem = p
@@ -1938,7 +1938,7 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     deps.dedup_by(|a, b| a.0 == b.0);
     for (krate, version) in &deps {
         if krate == "iced" {
-            // VBR GUIs render in software (tiny-skia) rather than wgpu: it builds
+            // Bust GUIs render in software (tiny-skia) rather than wgpu: it builds
             // far faster and runs everywhere (WSL2, modest/no GPU) — the right
             // trade for a teaching tool, since forms don't need GPU acceleration.
             // An async GUI also needs `tokio` (blocking work via spawn_blocking);
@@ -2020,7 +2020,7 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
         let title = entry_compiled
             .web_title
             .clone()
-            .unwrap_or_else(|| "VBR app".to_string());
+            .unwrap_or_else(|| "Bust app".to_string());
         let html = if entry_compiled.rust.contains("ratzilla::") {
             format!(
                 "<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
@@ -2195,7 +2195,7 @@ fn pkg_name(entry: &Path) -> String {
 
 // ── Translating rustc errors back to .vbr lines ─────────────────────────────
 //
-// The transpiler records (generated-Rust line → VBR line) checkpoints as it
+// The transpiler records (generated-Rust line → Bust line) checkpoints as it
 // emits. rustc runs with `--error-format=json`; each error's primary span is
 // mapped through the checkpoints back to the .vbr source, quoted, and — for
 // the classic Rust stumbling blocks — given a teaching hint. The raw rustc
@@ -2259,7 +2259,7 @@ fn error_from_json(v: &serde_json::Value) -> Option<RustcError> {
     })
 }
 
-/// The VBR line a generated-Rust line came from: the last checkpoint at or
+/// The Bust line a generated-Rust line came from: the last checkpoint at or
 /// before it (checkpoints are recorded in ascending emission order).
 fn vbr_line_for(map: &[(usize, usize)], rust_line: usize) -> Option<usize> {
     map.iter()
@@ -2274,7 +2274,7 @@ fn vbr_line_for(map: &[(usize, usize)], rust_line: usize) -> Option<usize> {
 /// tell apart — e.g. a .NET/Java habit reaching for `.Length` on a `Vec`.
 fn message_hint(message: &str) -> Option<&'static str> {
     if message.contains("no field `length`") || message.contains("no method named `length`") {
-        return Some("A collection's length in VBR is `.Len()` (or `.Count()`), not `.Length`.");
+        return Some("A collection's length in Bust is `.Len()` (or `.Count()`), not `.Length`.");
     }
     None
 }
@@ -2296,12 +2296,12 @@ fn teaching_hint(code: &str) -> Option<&'static str> {
         }
         "E0425" => {
             "Rust can't find that name. Inside `Rust … End Rust` blocks and `Match` \
-             patterns you're writing real Rust, so use the lowercase spelling — VBR's \
+             patterns you're writing real Rust, so use the lowercase spelling — Bust's \
              `myTotal` is `mytotal` there."
         }
         "E0599" => {
             "No method with that name on this type. Method calls pass straight through \
-             to Rust — check the name against Rust's String/Vec docs (VBR lowercases it)."
+             to Rust — check the name against Rust's String/Vec docs (Bust lowercases it)."
         }
         _ => return None,
     })
@@ -2311,7 +2311,7 @@ fn teaching_hint(code: &str) -> Option<&'static str> {
 /// error; anything it can't place falls back to rustc's own rendering.
 fn report_errors(errors: &[RustcError], locate: impl Fn(&RustcError) -> Option<(PathBuf, Vec<(usize, usize)>)>) {
     if errors.is_empty() {
-        eprintln!("✘ rustc rejected the generated Rust (and produced no diagnostics VBR could read).");
+        eprintln!("✘ rustc rejected the generated Rust (and produced no diagnostics Bust could read).");
         return;
     }
     if std::env::var_os("VBR_RUSTC_RAW").is_some() {

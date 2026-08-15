@@ -6,7 +6,7 @@ small common-word list, then reports the best guess. Self-contained (it
 re-implements the Caesar shift locally — each project folder is its own
 world).
 
-## VBR language features tested
+## Bust language features tested
 
 - `Public Function` returning `Vec<String>` of all 26 candidates
 - Alphabet-string lookup (`FindIn` + `Mid`) for the shift — same idiom as

@@ -7,23 +7,21 @@ anchor = "ns/Http"
 summary = "Fetch and send data over the web."
 
 remarks = """
-`Http.Get(url)` fetches a page or API response as text; `Http.Post(url, body, headers)` sends data. Both return a **Result** — the network can fail — so handle it with `Match`.
+`Http.Get(url)` fetches a page or API response as text; `Http.Post(url, body, headers)` sends data. The network can fail: a normal call propagates; intercept with `Handle err`.
 
 HTTPS works out of the box, no setup. In a **Window** or **Screen** event, a web request must be run with **`Await`** so the interface doesn't freeze (see the surface guide); in an ordinary `Function` it simply blocks until the reply arrives. Needs the `http` feature — build as a project.
 """
 
 members = """
-method | Get(url)                 | Fetch the response at a URL as text. Returns Result<String>.
-method | Post(url, body, headers) | Send body to a URL with request headers. Returns Result<String>.
+method | Get(url)                 | Fetch the response at a URL as text. Returns String (can fail).
+method | Post(url, body, headers) | Send body to a URL with request headers. Returns String (can fail).
 """
 
 example = """
 Function Main()
-    Match Http.Get("https://example.com")
-        Ok(body) => Debug.Print "got " & Len(body) & " bytes"
-        Err(e)   => Debug.Print "error: " & e
-    End Match
+    Dim body As String = Http.Get("https://example.com")
+    Debug.Print "got " & Len(body) & " bytes"
 End Function
 """
 
-see_also = ["http.get", "http.post", "json", "await"]
+see_also = ["http.get", "http.post", "json", "await", "handle"]

@@ -1,9 +1,9 @@
-id = "dataframe.groupby"
-title = "GroupBy"
+id = "dataframe.group_by"
+title = "Group_By"
 category = "DataFrame"
 kind = "method"
 parent = "dataframe"
-anchor = "ns/DataFrame.GroupBy"
+anchor = "ns/DataFrame.Group_By"
 
 summary = "Groups rows by a column, then summarises each group with Agg."
 
@@ -15,9 +15,9 @@ returns = "DataFrame — always chained with .Agg(...), which produces one row p
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("sales.csv")
 
-    Dim byBand As DataFrame = df.GroupBy("band").Agg(Sum(qty), Mean(price), Count())
+    Dim byBand As DataFrame = df.Group_By("band").Agg(Sum(qty), Mean(price), Count())
 
     byBand.Print()
 End Function

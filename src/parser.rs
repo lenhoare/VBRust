@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
             let found = self.peek().clone();
             let msg = match crate::lexer::keyword_word(&found) {
                 Some(kw) => format!(
-                    "`{kw}` is a VBR keyword, so it can't be used as a name {ctx}. \
+                    "`{kw}` is a Bust keyword, so it can't be used as a name {ctx}. \
                      Pick another (for example a more descriptive word, or a `_` suffix \
                      like `{}_`).",
                     kw.to_ascii_lowercase()
@@ -260,7 +260,7 @@ impl<'a> Parser<'a> {
                         self.line(),
                         format!(
                             "Top level may only contain functions, found {:?}. \
-                             Every VBR program starts at `Function Main()`.",
+                             Every Bust program starts at `Function Main()`.",
                             other
                         ),
                     );
@@ -546,7 +546,7 @@ impl<'a> Parser<'a> {
             self.diags.warn_once(
                 "sub-is-function",
                 line,
-                "`Sub` works, but in VBR it's just a `Function` with no return value — both \
+                "`Sub` works, but in Bust it's just a `Function` with no return value — both \
                  become a Rust `fn`. You can write `Function` everywhere if you prefer.",
             );
         } else {
@@ -596,8 +596,21 @@ impl<'a> Parser<'a> {
             }
             None
         } else if self.eat(&Tok::As) {
-            // `Function Foo() As Long` / `As Result<Long>` / `As Option<String>`
-            Some(self.parse_decl_type()?)
+            // `Function Foo() As Long` / `As Option<String>`. `As Result<T>` is
+            // rejected — fallibility is implicit (see VBR_Errors_2_Final.md).
+            let t = self.parse_decl_type()?;
+            if let DeclType::Result(inner, _) = t {
+                self.diags.error(
+                    line,
+                    "Functions don't declare `As Result<T>`. Fallibility is implicit: write \
+                     `As Integer` (the success type), `RaiseError \"…\"` to fail, and \
+                     `Handle err` at a call site to intercept. `Raw F()` yields the \
+                     underlying `Result` as a value.",
+                );
+                Some(*inner)
+            } else {
+                Some(t)
+            }
         } else {
             None
         };
@@ -800,6 +813,7 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::Newline, "after the screen name")?;
 
         let mut title = None;
+        let mut theme = None;
         let mut status = None;
         let mut menu = None;
         let mut state = Vec::new();
@@ -827,6 +841,11 @@ impl<'a> Parser<'a> {
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
                     self.advance();
                     title = Some(self.expect_string("after `Title`")?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Theme") => {
+                    self.advance();
+                    theme = Some(self.expect_ident("for the theme name, e.g. `Theme NightOwl`")?);
                     self.eat(&Tok::Newline);
                 }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Status") => {
@@ -908,7 +927,7 @@ impl<'a> Parser<'a> {
                         self.span(),
                         self.line(),
                         format!(
-                            "Unexpected {:?} inside a Screen — expected Title, Status, Menu, State, View, \
+                            "Unexpected {:?} inside a Screen — expected Title, Theme, Status, Menu, State, View, \
                              `On Key`, `Every`, Event, Sub, or `End Screen`.",
                             other
                         ),
@@ -925,7 +944,7 @@ impl<'a> Parser<'a> {
                 return None;
             }
         };
-        Some(Screen { name, title, status, menu, state, view, keys, timers, events, subs })
+        Some(Screen { name, title, theme, status, menu, state, view, keys, timers, events, subs })
     }
 
     /// `Menu` … `Menu "File"` … `Item "Quit" Quit` … `End Menu` … `End Menu`.
@@ -2364,9 +2383,9 @@ impl<'a> Parser<'a> {
     fn reject_date(&mut self, line: usize) {
         self.diags.error(
             line,
-            "Date isn't a built-in VBR type — a bare date with no calendar semantics is \
+            "Date isn't a built-in Bust type — a bare date with no calendar semantics is \
              just a number in disguise. Use `DateTime` from the standard library: \
-             `Dim now As DateTime = DateTime.Now()`, then `.AddDays(n)`, `.Format(...)`, etc.",
+             `Dim now As DateTime = DateTime.Now()`, then `.Add_Days(n)`, `.Format(...)`, etc.",
         );
     }
 
@@ -2645,10 +2664,8 @@ impl<'a> Parser<'a> {
                 self.diags.error_at(
                     self.span(),
                     self.line(),
-                    "`On Error` is not supported. Rust signals failure through return values, \
-                     not jumps. Make the function return `As Result<T>`, `Return Err(\"...\")` on \
-                     failure, and handle it at the call site with the `?` operator or \
-                     `Match` over `Ok`/`Err`.",
+                    "`On Error` is not supported. Errors propagate automatically; intercept a \
+                     call with `Handle err` … `End Handle`, or fail with `RaiseError \"…\"`.",
                 );
                 // Swallow the rest of the line so we don't cascade more errors.
                 while !matches!(self.peek(), Tok::Newline | Tok::Eof) {
@@ -2798,15 +2815,15 @@ impl<'a> Parser<'a> {
                 names.push(self.expect_ident("for the destructured name")?);
             }
             // `Dim a, b As Integer` is VBA's old habit, where `a` is silently a
-            // Variant. VBR has no Variant, so a shared trailing `As` is a trap
+            // Variant. Bust has no Variant, so a shared trailing `As` is a trap
             // rather than a shorthand — steer to a type on each variable.
             if matches!(self.peek(), Tok::As) {
                 self.diags.error_at(
                     self.span(),
                     self.line(),
-                    "In VBR every variable needs its own type: \
+                    "In Bust every variable needs its own type: \
                      `Dim a As Long, b As Integer`. VBA's `Dim a, b As Integer` \
-                     would leave `a` an untyped Variant, which VBR doesn't have.",
+                     would leave `a` an untyped Variant, which Bust doesn't have.",
                 );
                 return None;
             }
@@ -2816,7 +2833,7 @@ impl<'a> Parser<'a> {
         }
 
         // `Dim name = Rust … End Rust` — an opaque handle. The only `As`-less
-        // single `Dim`: the type is whatever Rust infers, hidden from VBR.
+        // single `Dim`: the type is whatever Rust infers, hidden from Bust.
         if self.eat(&Tok::Eq) {
             if let Tok::InlineRust(raw) = self.peek().clone() {
                 self.advance();
@@ -2824,7 +2841,7 @@ impl<'a> Parser<'a> {
             }
             // `Dim h = Python … End Python` (no `As`) — an opaque `PyObject` handle,
             // the Python counterpart of the inline-Rust handle above. Holds a value
-            // VBR has no type for; pass it back into a later `Python(h)` block.
+            // Bust has no type for; pass it back into a later `Python(h)` block.
             if let Tok::InlinePython { args, body } = self.peek().clone() {
                 let span = self.span();
                 self.advance();
@@ -2846,7 +2863,7 @@ impl<'a> Parser<'a> {
                 line,
                 "A `Dim` needs a type: `Dim x As Long`. The one exception is \
                  `Dim h = Rust … End Rust`, which makes an opaque Rust handle whose \
-                 type Rust infers — VBR can pass it back into another `Rust` block but \
+                 type Rust infers — Bust can pass it back into another `Rust` block but \
                  can't use it as a value.",
             );
             return None;
@@ -2919,11 +2936,34 @@ impl<'a> Parser<'a> {
             // Fixed arrays are auto-zeroed.
             DeclType::Array(..) | DeclType::Array2D(..) => None,
         };
+        // `Dim x As T = F() Handle err` — declare `x`, then intercept the call.
+        if let Some(call) = init {
+            if self.at_handle() {
+                let target = ExprKind::Ident(name.clone()).at(name_span);
+                if let Some(handle) = self.parse_handle(Some(target), call) {
+                    self.dim_overflow.push(handle);
+                }
+                return Some(Stmt::Dim {
+                    name,
+                    name_span,
+                    ty,
+                    init: None,
+                    line,
+                });
+            }
+            return Some(Stmt::Dim {
+                name,
+                name_span,
+                ty,
+                init: Some(call),
+                line,
+            });
+        }
         Some(Stmt::Dim {
             name,
             name_span,
             ty,
-            init,
+            init: None,
             line,
         })
     }
@@ -2971,12 +3011,12 @@ impl<'a> Parser<'a> {
     /// parameter, return). Handles `Result<T>`, `Option<T>`, `Vec<T>`,
     /// `HashMap<K, V>`, tuples, primitives, and named structs, nested freely.
     fn parse_decl_type(&mut self) -> Option<DeclType> {
-        // `New` is a VB-ism with no meaning in VBR (Rust has no uninitialised
+        // `New` is a VB-ism with no meaning in Bust (Rust has no uninitialised
         // objects) — accept it out of habit, but nudge toward dropping it.
         if self.eat(&Tok::New) {
             self.diags.warn(
                 self.line(),
-                "`New` isn't needed in VBR — a value is created by its declaration. \
+                "`New` isn't needed in Bust — a value is created by its declaration. \
                  Write `Dim v As Vec<T>` / `As HashMap<K, V>` without `New`.",
             );
         }
@@ -3057,7 +3097,7 @@ impl<'a> Parser<'a> {
         let mutable = self.eat(&Tok::Mut);
         let name = self.expect_ident("after `Set`")?;
         self.expect(&Tok::Eq, "in a `Set` borrow")?;
-        // `Set x = Nothing` is the VB6 object-release habit. In VBR `Set` binds a
+        // `Set x = Nothing` is the VB6 object-release habit. In Bust `Set` binds a
         // borrow (a Rust reference), not an assignment — so steer to the plain
         // form `x = Nothing`, which is what actually releases the value.
         if matches!(self.peek(), Tok::Nothing) {
@@ -3065,7 +3105,7 @@ impl<'a> Parser<'a> {
                 set_span,
                 self.line(),
                 format!(
-                    "`Set` in VBR binds a borrow, not a VB6 object assignment. To release \
+                    "`Set` in Bust binds a borrow, not a VB6 object assignment. To release \
                      a value, drop the `Set` — write `{} = Nothing`.",
                     name
                 ),
@@ -3082,6 +3122,12 @@ impl<'a> Parser<'a> {
 
     /// An identifier at statement start is either `Debug.Print expr` or `name = expr`.
     fn parse_ident_stmt(&mut self, name: String) -> Option<Stmt> {
+        // `RaiseError "…"` / `RaiseError err` — fail from this function.
+        if name.eq_ignore_ascii_case("raiseerror") {
+            self.advance();
+            return Some(Stmt::RaiseError(self.parse_expr()?));
+        }
+
         // Drawing verbs (only meaningful in a `Draw` block / paint function). We
         // treat them as draw commands when they lead an operand rather than an
         // assignment, so a variable named `Text`/`Fill`/`Stroke` still assigns.
@@ -3118,7 +3164,7 @@ impl<'a> Parser<'a> {
             self.advance(); // MsgBox
             self.diags.note(
                 "msgbox-cli",
-                "MsgBox has no window in a terminal app, so VBR prints it to the terminal \
+                "MsgBox has no window in a terminal app, so Bust prints it to the terminal \
                  (like Debug.Print). InputBox reads a line of input back.",
             );
             let value = self.parse_expr()?;
@@ -3157,14 +3203,54 @@ impl<'a> Parser<'a> {
                 return None;
             }
             let value = self.parse_expr()?;
-            Some(Stmt::Assign { target, value, op: None })
+            if self.at_handle() {
+                self.parse_handle(Some(target), value)
+            } else {
+                Some(Stmt::Assign { target, value, op: None })
+            }
         } else if let Some(op) = self.compound_assign_op() {
             self.advance();
             let value = self.parse_expr()?;
             Some(Stmt::Assign { target, value, op: Some(op) })
+        } else if self.at_handle() {
+            self.parse_handle(None, target)
         } else {
             Some(Stmt::Expr(target))
         }
+    }
+
+    fn at_handle(&self) -> bool {
+        matches!(self.peek(), Tok::Ident(w) if w.eq_ignore_ascii_case("handle"))
+    }
+
+    /// `… Handle err` newline body `End Handle`.
+    fn parse_handle(&mut self, target: Option<Expr>, call: Expr) -> Option<Stmt> {
+        let line = self.line();
+        self.advance(); // `Handle`
+        let err_name = self.expect_ident("for the error binding (`Handle err`)")?;
+        self.expect(&Tok::Newline, "after `Handle err`")?;
+        let body = self.parse_block()?;
+        self.expect(&Tok::End, "to close the Handle")?;
+        match self.peek() {
+            Tok::Ident(w) if w.eq_ignore_ascii_case("handle") => {
+                self.advance();
+            }
+            _ => {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    "Expected `Handle` after `End`.",
+                );
+                return None;
+            }
+        }
+        Some(Stmt::HandleErr {
+            target,
+            call,
+            err_name,
+            body,
+            line,
+        })
     }
 
     /// `+=` / `-=` / `*=` / `/=` at the current position → its arithmetic op.
@@ -3557,6 +3643,16 @@ impl<'a> Parser<'a> {
             let span = start.to(inner.span);
             return Some(ExprKind::Await(Box::new(inner)).at(span));
         }
+        // `Raw F()` — contextual prefix (only when the next token is a name).
+        if matches!(self.peek(), Tok::Ident(w) if w.eq_ignore_ascii_case("raw"))
+            && matches!(self.peek2(), Tok::Ident(_))
+        {
+            let start = self.span();
+            self.advance();
+            let inner = self.parse_expr()?;
+            let span = start.to(inner.span);
+            return Some(ExprKind::Raw(Box::new(inner)).at(span));
+        }
         self.parse_or()
     }
 
@@ -3741,9 +3837,16 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Tok::Question => {
+                    let span = self.span();
+                    let line = self.line();
                     self.advance();
-                    let span = e.span.to(self.prev_span());
-                    e = ExprKind::Try(Box::new(e)).at(span);
+                    self.diags.error_at(
+                        span,
+                        line,
+                        "`?` is gone. Errors propagate automatically — just write the call. \
+                         To intercept it, use `Handle err` … `End Handle`. To take the \
+                         `Result` as a value, use `Raw F()`.",
+                    );
                 }
                 // `expr[index]` — array/Vec indexing (chainable for 2D).
                 Tok::LBracket => {

@@ -1,4 +1,4 @@
-//! VBR — VBA syntax in, idiomatic Rust out.
+//! Bust — VBA syntax in, idiomatic Rust out.
 //!
 //! The whole pipeline is exposed here so it can be driven both by the CLI
 //! (`src/main.rs`) and by the integration tests.
@@ -18,6 +18,7 @@ pub mod python;
 pub mod resolver;
 pub mod span;
 pub mod surface;
+pub mod theme;
 pub mod transpiler;
 pub mod types;
 pub mod tui;
@@ -25,7 +26,7 @@ pub mod web;
 
 use diagnostics::Diagnostics;
 
-/// The result of transpiling one VBR source string.
+/// The result of transpiling one Bust source string.
 pub struct Compiled {
     /// The generated Rust source.
     pub rust: String,
@@ -41,7 +42,7 @@ pub struct Compiled {
     /// The structured diagnostics (level, message, line) — for tools like the
     /// language server that need more than the pre-rendered strings.
     pub diagnostic_items: Vec<diagnostics::Diagnostic>,
-    /// (generated-Rust line, VBR source line) checkpoints, ascending — used to
+    /// (generated-Rust line, Bust source line) checkpoints, ascending — used to
     /// translate rustc errors back to the `.vbr` source. Empty for GUI/TUI
     /// programs (their emitters don't keep line order yet).
     pub line_map: Vec<(usize, usize)>,
@@ -69,7 +70,7 @@ pub struct Compiled {
     pub symbols: Vec<diagnostics::SymbolInfo>,
 }
 
-/// One `Test` block's identity, bridging the VBR source and the generated
+/// One `Test` block's identity, bridging the Bust source and the generated
 /// `#[test] fn`.
 #[derive(Debug, Clone)]
 pub struct TestInfo {
@@ -94,8 +95,8 @@ pub fn compile_web(source: &str) -> Compiled {
     compile_with(source, &[], &resolver::ProjectInterfaces::new(), true, true)
 }
 
-/// The Rust a VBR *fragment* becomes — a sequence of statements, not a whole
-/// program. Used to embed VBR inside Rust (`vbr embed`, and later a `vbr!{}`
+/// The Rust a Bust *fragment* becomes — a sequence of statements, not a whole
+/// program. Used to embed Bust inside Rust (`vbr embed`, and later a `vbr!{}`
 /// macro): the statements are spliced straight into a Rust function body.
 pub struct Fragment {
     /// The generated Rust statements (dedented one level, no `fn` wrapper).
@@ -106,7 +107,7 @@ pub struct Fragment {
     pub has_errors: bool,
 }
 
-/// Transpile a VBR fragment (statements) to a Rust statement block. The trick:
+/// Transpile a Bust fragment (statements) to a Rust statement block. The trick:
 /// wrap it in `Function Main()`, run the normal pipeline, then lift out the body
 /// of the generated `fn main`. So a fragment reuses the whole compiler. A
 /// fragment that would need *top-level* items (imports/helpers) can't be inlined
@@ -169,16 +170,25 @@ fn fragment_diagnostics(items: &[diagnostics::Diagnostic]) -> Vec<String> {
         .collect()
 }
 
-/// Lift the statements out of a generated `fn main() { … }`, dedented one level.
-/// Returns `None` if there is any top-level item before `fn main` (which can't
-/// live inside a Rust block).
+/// Lift the statements out of the generated `fn vbr_main` (falling back to
+/// `fn main` for hosts that don't wrap). Returns `None` if any top-level item
+/// precedes the entry function (those can't live inside a Rust block).
 fn extract_fn_main_body(rust: &str) -> Option<String> {
     let lines: Vec<&str> = rust.lines().collect();
-    let start = lines.iter().position(|l| l.trim() == "fn main() {")?;
+    let start = lines
+        .iter()
+        .position(|l| l.trim().starts_with("fn vbr_main("))
+        .or_else(|| lines.iter().position(|l| l.trim() == "fn main() {"))?;
     if lines[..start].iter().any(|l| !l.trim().is_empty()) {
-        return None; // top-level items precede main — not inlineable
+        return None; // top-level items precede the entry — not inlineable
     }
-    let end = lines.iter().rposition(|l| l.trim() == "}")?;
+    // Close of this function: the first column-0 `}`, not the later `fn main` wrapper.
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find(|(_, l)| **l == "}")
+        .map(|(i, _)| i)?;
     if end <= start {
         return None;
     }
@@ -328,7 +338,7 @@ pub fn module_name(stem: &str) -> String {
     transpiler::rust_name(stem)
 }
 
-/// The result of transpiling one VBR source string to **Python** (an alternative
+/// The result of transpiling one Bust source string to **Python** (an alternative
 /// target to Rust — the core language, not the GUI/TUI/Web surfaces).
 pub struct PyCompiled {
     /// The generated Python source.
@@ -375,7 +385,7 @@ pub fn compile_python(source: &str) -> PyCompiled {
     }
 }
 
-/// The result of transpiling one VBR source string to **C** (a third target
+/// The result of transpiling one Bust source string to **C** (a third target
 /// beside Rust and Python — slice 1: the core language over scalars + strings).
 pub struct CCompiled {
     /// The generated C source (a single self-contained `.c` with the runtime

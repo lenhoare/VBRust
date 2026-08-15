@@ -1,13 +1,13 @@
-// Embedding VBR inside Rust.
+// Embedding Bust inside Rust.
 //
-// Write VBR in a `/* vbr … */` block comment, then run
+// Write Bust in a `/* vbr … */` block comment, then run
 //
 //     cargo run -- embed examples/rust_embedding/sum_of_squares.rs
 //
 // and the transpiler fills the `// vbr:gen … // vbr:gen-end` region below it with
-// the Rust your VBR became — re-running just overwrites that region. Because the
-// VBR stays a comment, this file always compiles; the generated Rust is real code
-// spliced into the same function, so the VBR can call Rust functions (`square`),
+// the Rust your Bust became — re-running just overwrites that region. Because the
+// Bust stays a comment, this file always compiles; the generated Rust is real code
+// spliced into the same function, so the Bust can call Rust functions (`square`),
 // read Rust variables in scope (`limit`), and leave its own variables (`total`)
 // for the Rust around it to use.
 

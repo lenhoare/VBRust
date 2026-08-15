@@ -13,11 +13,11 @@ End Function
 summary = "Defines a reusable procedure that can take arguments and return a value."
 
 remarks = """
-A `Function` groups statements under a name. Parameters are declared `name As Type`; the optional `As <ReturnType>` after the parentheses is the type of the value it hands back with `Return`.
+A `Function` groups statements under a name. Parameters are declared `name As Type`; the optional `As <ReturnType>` after the parentheses is the success type it hands back with `Return`. Every function can fail: use `RaiseError` to fail, and `Handle err` at a call site to intercept.
 
-Use a `Sub` instead when the procedure does something but has nothing to return.
+Use a `Sub` instead when the procedure does something but has nothing to return. Do not write `As Result<T>`.
 
-`Function Main()` is special: it is where the program starts.
+`Function Main()` is special: it is where the program starts. An unhandled error in Main prints and exits.
 """
 
 example = """
@@ -31,4 +31,4 @@ Function Main()
 End Function
 """
 
-see_also = ["sub", "return", "dim"]
+see_also = ["sub", "return", "raiseerror", "handle"]

@@ -10,7 +10,7 @@ Function Main()
     bmp.Push("xxx         xxx")
     bmp.Push("  xxx     xxx  ")
 
-    Dim msg As String = "VBR"
+    Dim msg As String = "Bust"
     Debug.Print "Bitmap message (" & msg & "):"
     Dim rows As Vec<String> = Bitmap.Display(msg, bmp)
     For Each row In rows

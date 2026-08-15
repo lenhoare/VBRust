@@ -13,12 +13,12 @@ End Match
 
 replaces = "Select … Case"
 
-summary = "Chooses a branch by matching a value against patterns — VBR's Select Case."
+summary = "Chooses a branch by matching a value against patterns — Bust's Select Case."
 
 remarks = """
 `Match` compares one expression against a list of patterns and runs the arm whose pattern fits. Each arm is written `pattern => body`; `_` is the catch-all that matches anything.
 
-Patterns can be literals, enum variants, or ranges. Matching an `Enum` is especially natural — one arm per variant — and VBR checks you have covered them.
+Patterns can be literals, enum variants, or ranges. Matching an `Enum` is especially natural — one arm per variant — and Bust checks you have covered them.
 
 `Match` replaces classic `Select Case`; there is no `Case` keyword.
 """

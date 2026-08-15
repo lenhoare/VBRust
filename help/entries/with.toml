@@ -6,7 +6,7 @@ kind = "keyword"
 summary = "Classic VB's shorthand block — not supported; write the name each time."
 
 remarks = """
-VB let you write `With obj … .Field = 1 … End With` to save repeating the object name. VBR doesn't support `With`.
+VB let you write `With obj … .Field = 1 … End With` to save repeating the object name. Bust doesn't support `With`.
 
 Write the name out in full instead — `p.X = 1` / `p.Y = 2`. It is a little more typing, but it is always clear exactly which value each line touches, which matters more than the brevity. Modern editors autocomplete the name anyway.
 """

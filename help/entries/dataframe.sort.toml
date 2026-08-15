@@ -15,7 +15,7 @@ returns = "DataFrame — a new table with the rows in order."
 
 example = """
 Function Main()
-    Dim df As DataFrame = DataFrame.ReadCsv("sales.csv")
+    Dim df As DataFrame = DataFrame.Read_Csv("sales.csv")
 
     df = df.Sort("total")
     df.Print()

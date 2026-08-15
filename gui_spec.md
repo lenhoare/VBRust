@@ -1,14 +1,14 @@
-# VBR GUI Specification
+# Bust GUI Specification
 
 Status: Draft V0.1  
 Target backend: Iced  
-Purpose: Define the first GUI model for VBR using a VB-like surface syntax and a modern state/message/view architecture.
+Purpose: Define the first GUI model for Bust using a VB-like surface syntax and a modern state/message/view architecture.
 
 ---
 
 ## 1. Design Goals
 
-The VBR GUI system should provide a simple, productive way to build desktop applications while preserving VBR's core philosophy:
+The Bust GUI system should provide a simple, productive way to build desktop applications while preserving Bust's core philosophy:
 
 - VB-like approachability.
 - Rust-powered implementation.
@@ -19,7 +19,7 @@ The VBR GUI system should provide a simple, productive way to build desktop appl
 
 The GUI system should feel familiar to a Visual Basic programmer, but it should not reproduce the old mutable-control-object model internally.
 
-Instead, VBR GUI programs use:
+Instead, Bust GUI programs use:
 
 ```text
 State
@@ -35,7 +35,7 @@ Events update the state.
 
 ## 2. Conceptual Model
 cargo run -- run examples/hello.vbr
-A VBR GUI window consists of:
+A Bust GUI window consists of:
 
 ```text
 Window
@@ -69,7 +69,7 @@ Controls should not normally be mutated directly. Instead, controls display and 
 
 **Fallible initialisers.** A field's initialiser may be a *fallible* call — a
 stdlib constructor (`Database.Open`, `Json.Parse`, `DateTime.Parse`,
-`FileSystem.Read`/`ReadLines`) or one of your own `Result`-returning functions:
+`FileSystem.Read`/`Read_Lines`) or one of your own `Result`-returning functions:
 
 ```vb
 State
@@ -84,7 +84,7 @@ Events use the ready value (`db` is `state.db`); passing it to one of your
 functions borrows it (`&Database`). This is native-only — a browser `Page` or
 `Screen` has no startup moment to fail in, and gets a teaching error.
 
-More generally, an initialiser is **ordinary VBR** — it runs the same
+More generally, an initialiser is **ordinary Bust** — it runs the same
 resolution pass as a function-body `Dim`, so calling your own functions works
 with full argument treatment (`Dim living As Long = CountLive(SeedGrid())`
 borrows the ByVal `Vec` exactly as anywhere else).
@@ -288,25 +288,25 @@ Rules:
 
 ## 3. Backend Mapping
 
-The VBR GUI model is intended to compile naturally to Iced.
+The Bust GUI model is intended to compile naturally to Iced.
 
-A VBR window maps approximately to:
+A Bust window maps approximately to:
 
 ```rust
 struct WindowState {
-    // VBR State fields
+    // Bust State fields
 }
 
 enum Message {
-    // VBR Events and generated control messages
+    // Bust Events and generated control messages
 }
 
 fn update(state: &mut WindowState, message: Message) {
-    // VBR Event bodies
+    // Bust Event bodies
 }
 
 fn view(state: &WindowState) -> Element<Message> {
-    // VBR View tree
+    // Bust View tree
 }
 ```
 
@@ -319,7 +319,7 @@ The compiler may generate additional internal messages for bound controls such a
 The V1 GUI library should include the following controls.
 
 **Naming principle:** controls take their **Iced names**, not VB history —
-`TextInput` (not `TextBox`), `Checkbox`, `Slider`, etc. VBR is a stepping stone
+`TextInput` (not `TextBox`), `Checkbox`, `Slider`, etc. Bust is a stepping stone
 to Rust, so the names you learn here are the ones you'll meet in real Iced code.
 (Where this spec still shows older VB-flavoured names for unbuilt controls, those
 will be renamed to their Iced equivalent when built.)
@@ -696,7 +696,7 @@ canvas — a different event model — and are the next step if canvases grow up
 
 ## 5. Layout Controls
 
-Layout is not optional. VBR GUI should avoid absolute positioning in V1.
+Layout is not optional. Bust GUI should avoid absolute positioning in V1.
 
 The V1 layout controls are:
 
@@ -914,13 +914,13 @@ End Event
 
 Events may update window state.
 
-Events may call normal VBR procedures.
+Events may call normal Bust procedures.
 
 Events may call inline Rust if allowed elsewhere in the language.
 
-An event body is ordinary VBR — it runs the same resolution pass as a function
+An event body is ordinary Bust — it runs the same resolution pass as a function
 body, with the window's state fields and the event's parameters in scope. So
-stdlib methods (`now.AddDays(30)`), string/numeric coercions, iterator chains
+stdlib methods (`now.Add_Days(30)`), string/numeric coercions, iterator chains
 (`nums.Iter().Sum()`), and the usual teaching diagnostics all work inside an
 event exactly as they do in a function. *(BUILT — 2026-07-04.)*
 
@@ -930,7 +930,7 @@ event exactly as they do in a function. *(BUILT — 2026-07-04.)*
 
 Internally, every event maps to a backend message.
 
-Example VBR:
+Example Bust:
 
 ```vb
 Button "Increment"
@@ -960,7 +960,7 @@ fn update(state: &mut AppState, message: Message) {
 
 For bound controls, messages may be generated automatically.
 
-Example VBR:
+Example Bust:
 
 ```vb
 TextBox name
@@ -986,8 +986,9 @@ state.name = value;
 
 A window may set a built-in **`Theme`** *(BUILT — slice 9)* — one of Iced's
 ~20 palettes (`Dark`, `Light`, `Dracula`, `Nord`, `GruvboxDark`,
-`CatppuccinMocha`, `TokyoNight`, …). It restyles the **whole** window — Iced
-themes cascade to every widget, so there's no per-control styling:
+`CatppuccinMocha`, `TokyoNight`, …) plus Bust's **`NightOwl`** and **`JellyFish`**.
+It restyles the **whole** window — Iced themes cascade to every widget, so there's
+no per-control styling:
 
 ```vb
 Window Counter
@@ -997,10 +998,11 @@ Window Counter
 End Window
 ```
 
-→ `iced::application(…, update, view).theme(|_| iced::Theme::Dracula).run()`. An
-unknown name is a friendly error listing the built-ins. (Loading a *custom*
-theme from a document — a small palette of colours — is a future low-touch
-addition; per-widget styling is intentionally out of scope.)
+→ `iced::application(…, update, view).theme(|_| iced::Theme::Dracula).run()`.
+`NightOwl` / `JellyFish` lower to `iced::Theme::custom(...)`. An unknown name is
+a friendly error listing the built-ins. The same `Theme` line colours a `Screen`
+(ratatui RGB) and a `Page` (CSS). (Loading a *document* of extra palettes is a
+future low-touch addition; per-widget styling is intentionally out of scope.)
 
 A complete window has this structure:
 
@@ -1262,7 +1264,7 @@ Way down the line, maybe
 CustomControl
 ```
 
-Some of these map to existing Iced widgets or common extension patterns, but they are not required for the first usable VBR GUI layer.
+Some of these map to existing Iced widgets or common extension patterns, but they are not required for the first usable Bust GUI layer.
 
 ---
 
@@ -1282,7 +1284,7 @@ GuiModule
             Bindings
 ```
 
-This avoids coupling the VBR syntax directly to Iced and leaves open the possibility of future backends.
+This avoids coupling the Bust syntax directly to Iced and leaves open the possibility of future backends.
 
 The Iced backend should be the first supported backend.
 
@@ -1299,7 +1301,7 @@ Inline Rust may be supported inside events...
 
 ## 17. Summary
 
-VBR GUI V1 should provide:
+Bust GUI V1 should provide:
 
 ```text
 Text
@@ -1331,4 +1333,4 @@ View displays state.
 Events change state.
 ```
 
-This gives VBR a GUI system that feels approachable like classic Visual Basic, but compiles cleanly to a modern Rust/Iced architecture.
+This gives Bust a GUI system that feels approachable like classic Visual Basic, but compiles cleanly to a modern Rust/Iced architecture.

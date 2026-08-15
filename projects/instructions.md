@@ -1,9 +1,9 @@
-# VBR Example-Project Instructions
+# Bust Example-Project Instructions
 
 You are helping build generated example projects for a new programming language
-called **VBR: Visual Basic Rust**.
+called **Bust: Visual Basic Rust**.
 
-The parent directory home/len/dev/vbrprojects/VBRust contains the VBR language specification. **Read it first and
+The parent directory home/len/dev/vbrprojects/VBRust contains the Bust language specification. **Read it first and
 follow it strictly.** The most relevant specs are:
 
 - `language_spec.md` / `language_reference.md` — the core language.
@@ -26,12 +26,12 @@ home/len/dev/vbrprojects/VBRust/projects/
 - **Absolutely do not edit files ending in `.rs`.**
 - Do **not** commit anything to git or github.
 
-The purpose of this exercise is to **test the existing VBR transpiler**, not to
+The purpose of this exercise is to **test the existing Bust transpiler**, not to
 improve or change the transpiler itself.
 
-Prefer writing VBR code wherever possible. Avoid inline Rust unless it is
-absolutely necessary. The point is to test VBR syntax, VBR semantics, and the
-existing VBR standard library.
+Prefer writing Bust code wherever possible. Avoid inline Rust unless it is
+absolutely necessary. The point is to test Bust syntax, Bust semantics, and the
+existing Bust standard library.
 
 ---
 
@@ -48,7 +48,7 @@ projects/
 ```
 The list of projects is in project_list.md choose the next project that hasnt been attempted in a new directory.
 
-A **folder is a VBR project**: every `.vbr` file in it is a *module* named after
+A **folder is a Bust project**: every `.vbr` file in it is a *module* named after
 the file (`receipt.vbr` → module `Receipt`). Cross-module calls are **qualified**
 (`Receipt.Total(...)`). For every project create:
 
@@ -94,13 +94,13 @@ Public Function Total(ByVal price As Long, ByVal qty As Long) As Long
 End Function
 ```
 
-Each `main.vbr` should be a small, runnable VBR program. Keep it deterministic.
+Each `main.vbr` should be a small, runnable Bust program. Keep it deterministic.
 
 ---
 
 ## Testing — use the real `Test` / `Assert` harness
 
-VBR has a **built-in test harness** (`vbr test`). **Do not** hand-roll PASS/FAIL
+Bust has a **built-in test harness** (`vbr test`). **Do not** hand-roll PASS/FAIL
 helper subs or print your own results — use the language mechanism, which reports
 `✓ / ✗` by description, shows the failing operands, and exits non-zero on failure
 (so it drops straight into CI).
@@ -149,7 +149,7 @@ A `.test.vbr` file is compiled **only** by `vbr test`; `vbr run` / `vbr build` /
 Explain, briefly:
 
 - what the example does,
-- which **VBR language** features it tests,
+- which **Bust language** features it tests,
 - which **standard-library** features it tests, if any,
 - how to run the example,
 - how to run the tests.
@@ -199,8 +199,8 @@ simpler implementation. **Do not invent syntax that is not in the spec.**
 - Do **not** touch `examples/`.
 - Do **not** touch any Rust files. Do **not** edit `.rs` files.
 - Do **not** modify the transpiler or add Rust stdlib implementation code.
-- Use the existing VBR language and existing stdlib only.
-- Prefer pure VBR over inline Rust.
+- Use the existing Bust language and existing stdlib only.
+- Prefer pure Bust over inline Rust.
 - Keep examples deterministic: no live network, no unseeded randomness, no
   wall-clock-dependent output in tests.
 - Produce clear, boring, deterministic examples useful for regression testing.

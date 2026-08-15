@@ -2,7 +2,16 @@
 # with `Shape.Circle(r)`; pull the data back out by matching. This is the same
 # shape as Option/Result — now you can define your own.
 
+import sys
 from dataclasses import dataclass
+
+@dataclass
+class Ok:
+    value: object
+
+@dataclass
+class Err:
+    error: object
 
 def _vb(x):
     if isinstance(x, bool):
@@ -31,18 +40,31 @@ def area(s: Shape) -> float:
     _m0 = s
     match _m0:
         case Circle(r):
-            return (3.14159 * r) * r
+            return Ok((3.14159 * r) * r)
         case Rectangle(w, h):
-            return w * h
+            return Ok(w * h)
         case Empty():
-            return 0.0
+            return Ok(0.0)
+    return Ok(None)
 
 def main():
     c: Shape = Circle(2.0)
     r: Shape = Rectangle(3.0, 4.0)
-    print(f"circle area = {_vb(area(c))}")
-    print(f"rect area   = {_vb(area(r))}")
-    print(f"empty area  = {_vb(area(Empty()))}")
+    _t0 = area(c)
+    if isinstance(_t0, Err):
+        print(f"Error: {_t0.error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"circle area = {_vb(_t0.value)}")
+    _t1 = area(r)
+    if isinstance(_t1, Err):
+        print(f"Error: {_t1.error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"rect area   = {_vb(_t1.value)}")
+    _t2 = area(Empty())
+    if isinstance(_t2, Err):
+        print(f"Error: {_t2.error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"empty area  = {_vb(_t2.value)}")
 
 
 if __name__ == "__main__":

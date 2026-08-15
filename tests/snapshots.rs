@@ -1,4 +1,4 @@
-//! Snapshot tests for the VBR transpiler.
+//! Snapshot tests for the Bust transpiler.
 //!
 //! Each example in `examples/` is locked against a stored snapshot:
 //!   * happy-path programs   → their generated Rust (`tests/snapshots/<name>.rs`)
@@ -81,7 +81,7 @@ const HAPPY: &[&str] = &[
 /// here — they need a feature not yet built, or an external crate (vbr_stdlib)
 /// that our rustc-only compile check can't link.
 const TRANSPILE_ONLY: &[&str] =
-    &["string_options", "stdlib", "json_basics", "datetime_basics", "datetime_json", "http_post", "tui_post", "database", "tui_ideas", "shell", "tui_shell", "counter", "greeting", "settings", "fetch", "view_if", "toggle_progress", "radio_choice", "notes", "spacing", "dracula", "converter", "await_fn", "logo", "canvas", "plot", "gui_layout", "showcase", "gui_event_stdlib", "tui_counter", "tui_layout", "tui_list", "tui_panels", "tui_frame", "tui_table", "tui_input", "tui_memo", "tui_menu", "tui_file", "tui_tabs", "tui_list_tabs", "tui_dashboard", "tui_chart", "tui_multichart", "tui_controls", "tui_fetch", "tui_monitor", "tui_pulse", "tui_life", "python_scalar", "python_handle", "python_tuple", "dataframe_basics", "dataframe_groupby", "dataframe_join", "web_counter", "web_greeting", "web_settings", "web_fetch", "web_dracula"];
+    &["string_options", "stdlib", "json_basics", "datetime_basics", "datetime_json", "http_post", "tui_post", "database", "tui_ideas", "shell", "tui_shell", "counter", "greeting", "settings", "fetch", "view_if", "toggle_progress", "radio_choice", "notes", "spacing", "dracula", "converter", "await_fn", "logo", "canvas", "plot", "gui_layout", "showcase", "gui_event_stdlib", "tui_counter", "tui_layout", "tui_list", "tui_panels", "tui_frame", "tui_table", "tui_input", "tui_memo", "tui_menu", "tui_file", "tui_tabs", "tui_list_tabs", "tui_dashboard", "tui_chart", "tui_multichart", "tui_controls", "tui_fetch", "tui_monitor", "tui_pulse", "tui_life", "tui_nightowl", "tui_jellyfish", "python_scalar", "python_handle", "python_tuple", "dataframe_basics", "dataframe_groupby", "dataframe_join", "web_counter", "web_greeting", "web_settings", "web_fetch", "web_dracula"];
 
 /// `Screen` programs also compiled for the browser (`vbr runweb` → Ratzilla):
 /// the same example file, second snapshot. The State struct and `view` are
@@ -376,7 +376,7 @@ fn mixed_rs_project_compiles() {
     let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
     let text_rs = fs::read_to_string(proj.join("text.rs")).unwrap();
     let modules = vec![vbr::module_name("text")];
-    // A verbatim `.rs` module has no VBR interface to harvest — its calls stay
+    // A verbatim `.rs` module has no Bust interface to harvest — its calls stay
     // name-qualified, matching the Rust side by hand.
     let interfaces = vbr::resolver::ProjectInterfaces::new();
 

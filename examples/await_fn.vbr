@@ -1,6 +1,6 @@
 ' Await your own function: a (pretend-slow) computation runs off the UI thread
 ' via Await, and its Result comes back in the generated continuation. No stdlib
-' needed — VBR knows the function's return type, so it can build the message.
+' needed — Bust knows the function's return type, so it can build the message.
 Window Worker
     Title "Worker"
 
@@ -38,9 +38,9 @@ Window Worker
     End Event
 End Window
 
-Function SumTo(ByVal n As Integer) As Result<Integer>
+Function SumTo(ByVal n As Integer) As Integer
     If n < 0 Then
-        Return Err("negative input")
+        RaiseError "negative input"
     End If
     Dim total As Integer = 0
     Dim i As Integer = 1
@@ -48,7 +48,7 @@ Function SumTo(ByVal n As Integer) As Result<Integer>
         total = total + i
         i = i + 1
     Loop
-    Return Ok(total)
+    Return total
 End Function
 
 Function Main()

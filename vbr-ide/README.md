@@ -1,13 +1,13 @@
-# VBR IDE
+# Bust IDE
 
-A desktop editor for VBR: type VB-flavoured source on the left, watch the
+A desktop editor for Bust: type VB-flavoured source on the left, watch the
 idiomatic Rust appear on the right — the whole point of the language, in one
 window. It's a thin shell around the `vbr` compiler itself, so the Rust you see
 is exactly what the CLI would produce.
 
 **Status: a working editor.** What's in:
 
-- **Two live panes** — editable VBR left, read-only generated Rust right,
+- **Two live panes** — editable Bust left, read-only generated Rust right,
   updating as you type, with a draggable divider to resize them.
 - **Inline diagnostics** — squiggles on the exact offending span (teaching
   message on hover), a summary strip you can click to jump to the problem, and

@@ -3,7 +3,7 @@
 '  - a ByRef collection forwarded into another ByRef call is already the
 '    `&mut` the callee wants — it passes bare, and Rust reborrows;
 '  - `Dim i As Long` ahead of `For i = …` would be a dead `let` (the For makes
-'    its own binding), so VBR drops it;
+'    its own binding), so Bust drops it;
 '  - an owned-String needle (`Mid` returns a String) borrows for
 '    contains/starts_with — a bare String isn't a Pattern;
 '  - `Dim x = lines[i]` clones the element out of a Vec instead of moving it.

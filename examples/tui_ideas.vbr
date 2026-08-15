@@ -24,20 +24,20 @@ Screen Ideas
     On Key "q" Quit
 
     Event Add
-        Match AddIdea(db)
-            Ok(n) =>
-                count = n
-                status = "added — " & n & " ideas now (+" & BonusPoints() & " bonus)"
-            Err(e) => status = "error: " & e
-        End Match
+        Dim n As Long = AddIdea(db) Handle e
+            status = "error: " & e
+            Return
+        End Handle
+        count = n
+        status = "added — " & n & " ideas now (+" & BonusPoints() & " bonus)"
     End Event
 End Screen
 
-Function AddIdea(ByVal db As Database) As Result<Long>
-    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", [])?
-    db.Execute("INSERT INTO ideas (text) VALUES (?)", ["a fresh idea"])?
-    Dim rows As Vec<Json> = db.Query("SELECT COUNT(*) AS n FROM ideas", [])?
-    Return Ok(rows[0].GetInt("n")?)
+Function AddIdea(ByVal db As Database) As Long
+    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", [])
+    db.Execute("INSERT INTO ideas (text) VALUES (?)", ["a fresh idea"])
+    Dim rows As Vec<Json> = db.Query("SELECT COUNT(*) AS n FROM ideas", [])
+    Return rows[0].Get_Int("n")
 End Function
 
 ' A HashMap built inside a plain helper (not an event) still needs the file-top

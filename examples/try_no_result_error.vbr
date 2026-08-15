@@ -1,7 +1,4 @@
-' MEANT to fail — `?` propagates a failure to the caller, so it's only allowed
-' in a function that can itself fail (returns Result/Option). `Report` returns
-' nothing, so it can't propagate. (`Main` is the one exception: use `?` there
-' and VBR gives it a Result return for you.)
+' MEANT to fail — `?` is gone. Errors propagate automatically; write the call.
 Function Main()
     Report()
 End Function
@@ -11,6 +8,6 @@ Function Report()
     Debug.Print x
 End Function
 
-Function MightFail() As Result<Long>
-    Return Ok(5)
+Function MightFail() As Long
+    Return 5
 End Function

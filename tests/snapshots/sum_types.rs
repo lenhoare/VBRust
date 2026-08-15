@@ -15,24 +15,32 @@ impl std::fmt::Display for Shape {
     }
 }
 
-fn area(s: &Shape) -> f64 {
+fn area(s: &Shape) -> Result<f64, String> {
     match s {
         Shape :: Circle ( r ) => {
-            return 3.14159 * r * r;
+            return Ok(3.14159 * r * r);
         }
         Shape :: Rectangle ( w , h ) => {
-            return w * h;
+            return Ok(w * h);
         }
         Shape :: Empty => {
-            return 0.0;
+            return Ok(0.0);
         }
     }
 }
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let c: Shape = Shape::Circle(2.0);
     let r: Shape = Shape::Rectangle(3.0, 4.0);
-    println!("circle area = {}", area(&c));
-    println!("rect area   = {}", area(&r));
-    println!("empty area  = {}", area(&Shape::Empty));
+    println!("circle area = {}", area(&c)?);
+    println!("rect area   = {}", area(&r)?);
+    println!("empty area  = {}", area(&Shape::Empty)?);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
 }

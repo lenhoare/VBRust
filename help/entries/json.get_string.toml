@@ -1,0 +1,23 @@
+id = "json.get_string"
+title = "Get_String"
+category = "Json"
+kind = "method"
+parent = "json"
+anchor = "ns/Json.Get_String"
+
+summary = "The string value stored at a key."
+
+arguments = """
+key | String | The key whose value to read.
+"""
+
+returns = "String — the string. Fails if the key is missing or isn't a string. Get_Int, Get_Float and Get_Bool work the same way for those types."
+
+example = """
+Function Main()
+    Dim doc As Json = Json.Parse("{""city"": ""London""}")
+    Debug.Print doc.Get_String("city")   ' London
+End Function
+"""
+
+see_also = ["json", "json.get_int", "json.get", "json.has_key"]

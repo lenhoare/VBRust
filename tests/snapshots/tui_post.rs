@@ -61,14 +61,22 @@ fn main() -> std::io::Result<()> {
         while let Ok(msg) = rx.try_recv() {
             match msg {
                 Message::SendDone(result) => {
-                    match result {
-                        Ok ( text ) => {
-                            state.status = "ok".to_string();
-                            state.reply = text;
-                        }
-                        Err ( message ) => {
-                            state.status = "failed".to_string();
-                            state.reply = message;
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( text ) => {
+                                    state.status = "ok".to_string();
+                                    state.reply = text;
+                                }
+                                Err ( message ) => {
+                                    state.status = "failed".to_string();
+                                    state.reply = message;
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
                         }
                     }
                 }
@@ -81,11 +89,19 @@ fn main() -> std::io::Result<()> {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Enter => {
-                        state.status = "sending…".to_string();
-                        let mut headers: HashMap<String, String> = HashMap::new();
-                        headers.insert("Authorization".to_string(), format!("Bearer {}", state.key));
-                        headers.insert("Content-Type".to_string(), "application/json".to_string());
-                        let body: String = "{\"prompt\": \"hello\"}".to_string();
+                        {
+                            let __vbr_event: Result<(), String> = (|| {
+                                state.status = "sending…".to_string();
+                                let mut headers: HashMap<String, String> = HashMap::new();
+                                headers.insert("Authorization".to_string(), format!("Bearer {}", state.key));
+                                headers.insert("Content-Type".to_string(), "application/json".to_string());
+                                let body: String = "{\"prompt\": \"hello\"}".to_string();
+                                Ok(())
+                            })();
+                            if let Err(__e) = __vbr_event {
+                                eprintln!("Error: {}", __e);
+                            }
+                        }
                         let endpoint = state.endpoint.clone();
                         let tx = tx.clone();
                         std::thread::spawn(move || {

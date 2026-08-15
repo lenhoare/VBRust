@@ -1,7 +1,7 @@
 # A1 — Temperature Converter
 
 The first of the A-series projects: simple, deterministic programs written to
-shake out the VBR transpiler end to end (project layout → transpile → build →
+shake out the Bust transpiler end to end (project layout → transpile → build →
 run → test) before tackling the numbered list.
 
 ## What it does
@@ -20,7 +20,7 @@ projects/A1_temperature_converter/
   expected_output.txt exact stdout of running main.vbr
 ```
 
-## Which VBR language features it tests
+## Which Bust language features it tests
 
 - A **multi-module project**: `main.vbr` calls the sibling module with a
   **qualified name** — `Temps.CtoF(...)`.
@@ -31,7 +31,7 @@ projects/A1_temperature_converter/
 - **`If / ElseIf / Else`** in the `Describe` classifier.
 - **`For … Step`** loop building the conversion table, with the loop counter
   widened into a `Double` before it crosses into the module (`Dim d As Double
-  = c` — VBR emits the `as f64` cast for you).
+  = c` — Bust emits the `as f64` cast for you).
 - **String concatenation** with `&` (numbers are formatted automatically).
 - The **`Test` / `Assert` harness**: `Assert a = b` lowers to `assert_eq!`, so
   a failure shows both operands and the `.vbr` line.

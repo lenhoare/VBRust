@@ -22,7 +22,7 @@ Function Main()
     Debug.Print sql
 
     ' It's an ordinary string from every other angle — compose with `&`.
-    ' (Backslashes stay literal, as in every VBR string: C:\new\table.)
+    ' (Backslashes stay literal, as in every Bust string: C:\new\table.)
     Dim who As String = "world"
     Debug.Print Text
         hello from

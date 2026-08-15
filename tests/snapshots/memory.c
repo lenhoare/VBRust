@@ -1,5 +1,5 @@
 // Manual memory, made visible. A heap string is released early with `x = Nothing`
-// — VB6's object-release idiom, carried over as VBR's explicit "I'm done with
+// — VB6's object-release idiom, carried over as Bust's explicit "I'm done with
 // this" hook. It matters most on the C target, where nothing is freed for you:
 // • C      → free(greeting); greeting = NULL;
 // • Rust   → drop(greeting);   (the compiler usually inserts this at scope end)

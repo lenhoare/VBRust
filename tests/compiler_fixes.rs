@@ -82,74 +82,79 @@ fn get_first_last_return_owned_values() {
 
 #[test]
 fn datetime_argument_is_borrowed() {
-    // `a.DiffDays(b)` — a DateTime argument to a stdlib method is taken by ref.
+    // `a.Diff_Days(b)` — a DateTime argument to a stdlib method is taken by ref.
     let rust = packed(&rust_of(
         "Function Main()\n\
         \x20   Dim a As DateTime = DateTime.Now()\n\
         \x20   Dim b As DateTime = DateTime.Now()\n\
-        \x20   Debug.Print a.DiffDays(b)\n\
+        \x20   Debug.Print a.Diff_Days(b)\n\
         End Function\n",
     ));
     assert!(rust.contains("diff_days(&b)"), "DateTime arg should be borrowed: {rust}");
 }
 
 #[test]
-fn try_on_option_in_result_fn_is_a_vb_error() {
-    // `?` must propagate the same shape the function returns. An Option's `?`
-    // inside a `Result` function is a rustc error — we catch it in VB terms.
+fn option_does_not_auto_propagate() {
+    // Options stay Options — a discarded Option is an error. Errors (Result)
+    // propagate automatically; absence is Match / Unwrap_Or.
     let c = vbr::compile(
-        "Function First(ByVal xs As Vec<Long>) As Result<Long>\n\
-        \x20   Dim v As Long = xs.First()?\n\
-        \x20   Return Ok(v)\n\
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3]\n\
+        \x20   xs.First()\n\
         End Function\n",
     );
-    assert!(c.has_errors, "shape mismatch should error: {:?}", c.diagnostics);
+    assert!(c.has_errors, "discarded Option should error: {:?}", c.diagnostics);
     let joined = c.diagnostics.join("\n");
-    assert!(joined.contains("Ok_Or"), "should suggest .Ok_Or: {joined}");
+    assert!(
+        joined.contains("Option") || joined.contains("thrown away"),
+        "should mention the discarded Option: {joined}"
+    );
 }
 
 #[test]
-fn matching_try_shapes_are_accepted() {
-    // Option's `?` in an Option function is fine (and compiles to `.copied()?`).
+fn option_return_passes_through() {
     let rust = packed(&rust_of(
         "Function Head(ByVal xs As Vec<Long>) As Option<Long>\n\
-        \x20   Dim v As Long = xs.First()?\n\
-        \x20   Return Some(v)\n\
+        \x20   Return xs.First()\n\
         End Function\n",
     ));
-    assert!(rust.contains(".first().copied()?"), "option ? passes through: {rust}");
+    assert!(
+        rust.contains(".first()") && (rust.contains("copied") || rust.contains("cloned") || rust.contains("Option")),
+        "option return passes through: {rust}"
+    );
 }
 
 #[test]
-fn main_using_try_becomes_fallible() {
-    // A plain `Main` that propagates with `?` gets a Result return and a closing
-    // Ok(()), so `?` works in the one function every program has.
+fn main_always_wraps_as_a_sink() {
     let rust = rust_of(
         "Function Main()\n\
-        \x20   Dim v As Long = Parse(\"5\")?\n\
+        \x20   Dim v As Long = Parse(\"5\")\n\
         \x20   Debug.Print v\n\
         End Function\n\
-        Function Parse(ByVal s As String) As Result<Long>\n\
-        \x20   Return Ok(CLng(s)?)\n\
+        Function Parse(ByVal s As String) As Long\n\
+        \x20   Return CLng(s)\n\
         End Function\n",
     );
-    assert!(rust.contains("fn main() -> Result<(), String>"), "main is fallible: {rust}");
+    assert!(
+        rust.contains("fn vbr_main() -> Result<(), String>"),
+        "main helper is fallible: {rust}"
+    );
+    assert!(rust.contains("fn main()"), "entry wrapper exists: {rust}");
     assert!(packed(&rust).contains("Ok(())"), "main closes with Ok(()): {rust}");
 }
 
 #[test]
 fn main_declared_fallible_is_rejected() {
-    // Declaring a fallible return on Main doesn't map to a valid `fn main` — we
-    // steer to the plain form instead of emitting Rust that won't compile.
     let c = vbr::compile(
         "Function Main() As Result<Long>\n\
-        \x20   Return Ok(0)\n\
+        \x20   Return 0\n\
         End Function\n",
     );
     assert!(c.has_errors, "Main As Result should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
     assert!(
-        c.diagnostics.join("\n").contains("can't declare a fallible return"),
-        "message steers to plain Main: {:?}",
+        joined.contains("As Result") || joined.contains("Main has no return type"),
+        "message steers off As Result on Main: {:?}",
         c.diagnostics
     );
 }

@@ -1,2 +1,2 @@
-ℹ VBR names are their lowercase self in Rust — e.g. `Append` becomes `append`. (Functions and variables lowercase, constants uppercase; shown once.)
+ℹ Bust names are their lowercase self in Rust — e.g. `Append` becomes `append`. (Functions and variables lowercase, constants uppercase; shown once.)
 ✘ 's' is passed read-only (ByVal), so it can't be changed here. To modify the caller's string, declare it `ByRef s As String`.

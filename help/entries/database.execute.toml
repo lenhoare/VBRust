@@ -12,16 +12,16 @@ sql | String | The SQL to run, with ? placeholders for any values.
 params | Vec<String> | The values to fill the ? placeholders, in order. Pass [] for none.
 """
 
-returns = "Result<Long> — Ok with the number of rows changed, or Err(message) if the SQL fails."
+returns = "Long — the number of rows changed. Fails if the SQL fails."
 
 example = """
 Function Main()
-    Dim db As Database = Database.Open(":memory:").Unwrap()
-    db.Execute("CREATE TABLE users (name TEXT)", []).Unwrap()
+    Dim db As Database = Database.Open(":memory:")
+    db.Execute("CREATE TABLE users (name TEXT)", [])
 
-    Dim changed As Long = db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"]).Unwrap()
+    Dim changed As Long = db.Execute("INSERT INTO users (name) VALUES (?)", ["Ada"])
     Debug.Print changed   ' 1
 End Function
 """
 
-see_also = ["database", "database.query", "database.lastinsertid"]
+see_also = ["database", "database.query", "database.last_insert_id"]

@@ -4,6 +4,17 @@
 # like Rust. String elements are owned automatically; numbers take their type
 # from the target.
 
+import sys
+from dataclasses import dataclass
+
+@dataclass
+class Ok:
+    value: object
+
+@dataclass
+class Err:
+    error: object
+
 def _vb(x):
     if isinstance(x, bool):
         return "true" if x else "false"
@@ -15,14 +26,18 @@ def total(xs: list[int]) -> int:
     sum: int = 0
     for x in xs:
         sum = sum + x
-    return sum
+    return Ok(sum)
 
 def main():
     names: list[str] = ['alice', 'bob', 'carol']
     print(f"first = {_vb(names[0])}, of {_vb(len(names))}")
     # A list literal passed straight into a function (the common case for, e.g.,
     # query parameters).
-    print(f"total = {_vb(total([10, 20, 30]))}")
+    _t0 = total([10, 20, 30])
+    if isinstance(_t0, Err):
+        print(f"Error: {_t0.error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"total = {_vb(_t0.value)}")
     empty: list[str] = []
     print(f"empty count = {_vb(len(empty))}")
 

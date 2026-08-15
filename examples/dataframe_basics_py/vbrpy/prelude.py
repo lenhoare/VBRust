@@ -1,4 +1,4 @@
-"""The shared VBR runtime prelude — the Python analogue of the inlined
+"""The shared Bust runtime prelude — the Python analogue of the inlined
 `_vb`/`_unwrap`/`Some`/`Ok`/`Err` helpers a single-file `vbr py` program carries.
 
 In a project (a stdlib-using program) these live here instead, so `main.py` and

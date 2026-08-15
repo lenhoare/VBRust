@@ -1,10 +1,10 @@
-# VBR — Alternative Targets: Python & C
+# Bust — Alternative Targets: Python & C
 
-VBR is a **Rust-first** language: the semantics are Rust's, the language was
+Bust is a **Rust-first** language: the semantics are Rust's, the language was
 designed around Rust, and `run`/`runproject` (→ `rustc`/Cargo) is the primary,
 fully-featured path. Everything in `language_spec.md` describes that target.
 
-On top of that, VBR can transpile the **same source** to two other languages:
+On top of that, Bust can transpile the **same source** to two other languages:
 
 - **Python** — `vbr py <file.vbr>`
 - **C** — `vbr c <file.vbr>`
@@ -39,7 +39,7 @@ duplication between them, not designed up front:
 
 Each backend *parses, types and analyses* through these, then renders its own
 way. Adding a construct (a new pattern shape, a new iterator adapter) is a
-one-place change both targets can then lower. This is VBR's lightweight "IR": the
+one-place change both targets can then lower. This is Bust's lightweight "IR": the
 AST plus a shared semantic layer, lowered per target.
 
 ---
@@ -63,11 +63,12 @@ Idiomatic Python 3, on Python's batteries (no pip installs for the stdlib).
 
 - **Coverage:** the **entire core language** — functions, `Dim`, arithmetic (with
   the widening rules), `If`/`For`/`Do`, `Match`, `Enum`, `Type`/methods, `Const`,
-  `Vec`/`HashMap`, iterators, `Option`/`Result`/`?` — **and the full standard
+  `Vec`/`HashMap`, iterators, `Option`/`Handle`/`RaiseError` — **and the full standard
   library**.
 - **Idioms:** `Type` → `@dataclass`; `Match` → `match`/`case`; iterator chains →
-  **comprehensions/generators**; `Option`/`Result` → a tiny `Some`/`Ok`/`Err`
-  prelude (`None` is Python's own); `?` and `.Unwrap()` supported. Output prints
+  **comprehensions/generators**; `Option` → a tiny `Some` prelude (`None` is
+  Python's own); fallible calls propagate like the Rust target (`Handle` /
+  `RaiseError` / `Raw`). Output prints
   byte-identically to Rust (a `_vb()` display helper matches Rust's `Display`:
   `true`/`false`, whole floats without `.0`).
 
@@ -110,7 +111,7 @@ cc hello.c -lm && ./a.out
 
 - **Coverage:** the **entire core language** — scalars/strings, `If`/`For`/`Do`,
   `Type`/methods, `Const`, `Match`/`Enum`, `Vec`/`HashMap`, iterators,
-  `Option`/`Result`/`?` — **plus the standard library** (see below).
+  `Option`/`Result`/`Handle` — **plus the standard library** (see below).
 - **Idioms:**
   - `Type` → a `typedef struct`; methods → free functions taking a `Struct* self`
     (`Me.field` → `self->field`).
@@ -120,9 +121,9 @@ cc hello.c -lm && ./a.out
   - `Vec<T>`/`HashMap<K,V>` are **monomorphised** — each instantiation gets its
     own typed struct + functions (`Vec_longlong`, `Map_str_longlong`, …).
   - Iterator chains have no C expression form, so they become **explicit loops**.
-  - `Option<T>`/`Result<T,E>` → small `{ is_some/is_ok, … }` structs; `?` →
-    check-and-early-return (re-wrapping into the function's return type);
-    `.Unwrap()` → a generated `_unwrap` that aborts, like Rust's panic.
+  - `Option<T>`/`Result<T,E>` → small `{ is_some/is_ok, … }` structs; fallible
+    calls propagate with an early return; `Handle` is a match; `Raw` yields the
+    struct.
 - **Float formatting** matches Rust byte-for-byte via shortest-round-trip
   (increasing `%g` precision until it re-parses to the same bits).
 
@@ -171,7 +172,7 @@ warns rather than lowering.
 
 ### Memory model — `x = Nothing`
 
-C has no ownership and no GC, so VBR takes the deliberately-simple, **teaching**
+C has no ownership and no GC, so Bust takes the deliberately-simple, **teaching**
 stance: **leak by default, release explicitly.** This is exactly what makes a C
 target worth having — it puts on the page the manual-memory cost Rust's ownership
 hides.
@@ -189,7 +190,7 @@ anything a C slice doesn't cover yet.
 
 ## 5. `x = Nothing` — explicit release (all targets)
 
-`x = Nothing` releases a heap value early. It is a first-class VBR statement, not
+`x = Nothing` releases a heap value early. It is a first-class Bust statement, not
 a C-only construct, and lowers idiomatically everywhere:
 
 | Target  | Lowering                    | Note                                        |
@@ -199,7 +200,7 @@ a C-only construct, and lowers idiomatically everywhere:
 | C       | `free(x); x = NULL;`        | the real work — the reason the hook exists  |
 
 `Nothing` is only valid as an assignment right-hand side on a plain variable
-(`x = Nothing`). Because VBR repurposed `Set` to mean **borrow** (not VB6's object
+(`x = Nothing`). Because Bust repurposed `Set` to mean **borrow** (not VB6's object
 assignment), writing **`Set x = Nothing`** is a teaching error that steers you to
 the plain form.
 

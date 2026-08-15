@@ -12,7 +12,7 @@ summary = "A piece of text."
 remarks = """
 `String` holds text of any length. Join two with `&` (`first & " " & last`), and reach for the string functions — `Len`, `Left`, `Right`, `Mid`, `UCase`, `Replace`, and friends — to pick it apart.
 
-VBR strings are proper Unicode text, so `Len` and `Mid` count *characters*, not bytes — they stay correct with accents and emoji.
+Bust strings are proper Unicode text, so `Len` and `Mid` count *characters*, not bytes — they stay correct with accents and emoji.
 """
 
 members = """

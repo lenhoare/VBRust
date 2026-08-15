@@ -3,12 +3,12 @@
 Builds printable monthly calendars as text grids (Monday-first, ISO
 weeks), for any year and month. Uses the **DateTime** stdlib for weekday
 calculation (deterministic via `Parse`, not `Now`), with leap-year and
-days-per-month logic in pure VBR.
+days-per-month logic in pure Bust.
 
-## VBR language features tested
+## Bust language features tested
 
 **Standard library — DateTime (first project to use it):**
-- `DateTime.Parse(text, pattern).Unwrap()` — build a fixed moment
+- `DateTime.Parse(text, pattern)` — build a fixed moment
 - `d.Format("%u")` — ISO weekday (1=Mon..7=Sun); the only date piece
   needed, so no wall-clock dependence
 - Deterministic: no `Now()` anywhere, so output is reproducible

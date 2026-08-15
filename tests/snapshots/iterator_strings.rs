@@ -2,7 +2,7 @@
 // chain (`.iter().cloned()`, a real copy), filter's closure sees each item by
 // reference, and find returns an Option you Match.
 
-fn main() {
+fn vbr_main() -> Result<(), String> {
     let mut names: Vec<String> = Vec::new();
     names.push("Ada".to_string());
     names.push("Grace".to_string());
@@ -22,5 +22,13 @@ fn main() {
         None => {
             println!("no match");
         }
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
     }
 }

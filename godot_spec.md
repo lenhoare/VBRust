@@ -1,16 +1,16 @@
-# VBR Godot Specification
+# Bust Godot Specification
 
 A **`Node2D` (…) block** is a **Godot game object** — one node class the Godot
 engine instantiates and drives. It compiles to a **GDExtension**: a Rust `cdylib`
 (via [godot-rust / gdext](https://godot-rust.github.io/)) that the Godot editor
-loads. You write VBR; Godot owns the scene and the game loop.
+loads. You write Bust; Godot owns the scene and the game loop.
 
-> **Godot is an optional extra, not a core VBR target.** VBR's heart is
+> **Godot is an optional extra, not a core Bust target.** Bust's heart is
 > VB-flavoured source → idiomatic Rust, with the GUI/TUI/Web surfaces and the
 > Python/C targets. Godot is a bolt-on for people who want to make 2D games — the
 > same way the standard-library namespaces bolt onto the language. It's built on
 > the same machinery (the resolver runs on node bodies just like the other
-> surfaces), so it feels like the rest of VBR, but you can ignore it entirely.
+> surfaces), so it feels like the rest of Bust, but you can ignore it entirely.
 
 > Status: **slices 1–9 BUILT + verified live on Godot 4.7.1** (2026-08-05) — nodes
 > and lifecycle events, the general property/method passthrough, signals (declare,
@@ -22,16 +22,16 @@ loads. You write VBR; Godot owns the scene and the game loop.
 
 ## 1. Design goals
 
-- **It reads like the rest of VBR.** A node is a familiar-looking block with
-  `Export` fields and `On <Event>` bodies; inside a body you write ordinary VBR.
+- **It reads like the rest of Bust.** A node is a familiar-looking block with
+  `Export` fields and `On <Event>` bodies; inside a body you write ordinary Bust.
   The one Godot-ish idea is *inversion of control* — Godot calls your events; you
   don't write a `Main`.
-- **Passthrough over wrapping.** Godot's API is enormous. VBR doesn't wrap it —
+- **Passthrough over wrapping.** Godot's API is enormous. Bust doesn't wrap it —
   it forwards calls straight to gdext (`Me.MoveAndSlide()` → `move_and_slide()`),
   so the whole API is reachable without per-method work. A wrong name is caught by
   the Rust compiler and translated back to your `.vbr` line.
 - **The engine owns the scene.** You build scenes, lay out nodes, and import
-  assets in the Godot editor; VBR contributes the *behaviour scripts*. A `.tscn`
+  assets in the Godot editor; Bust contributes the *behaviour scripts*. A `.tscn`
   you make in Godot is yours; `rungodot` never overwrites it.
 
 ## 2. A node
@@ -65,7 +65,7 @@ End Node2D
 
 ### Lifecycle events
 
-| VBR | Runs |
+| Bust | Runs |
 |-----|------|
 | `On Ready` | once, when the node enters the tree |
 | `On Process(delta)` | every frame (`delta` = seconds since last, a `Single`) |

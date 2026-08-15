@@ -42,7 +42,7 @@ int main(void) {
     Map_str_longlong ages = {0};
     Map_str_longlong_insert(&ages, "Alice", 30);
     Map_str_longlong_insert(&ages, "Bob", 25);
-    printf("%s\n", vbr_concat("Alice is ", vbr_from_ll((*Map_str_longlong_get(&ages, "Alice")))));
+    printf("%s\n", vbr_concat("has Alice? ", vbr_from_bool(Map_str_longlong_contains(&ages, "Alice"))));
     printf("%s\n", vbr_concat("has Bob?   ", vbr_from_bool(Map_str_longlong_contains(&ages, "Bob"))));
     printf("%s\n", vbr_concat("has Carol? ", vbr_from_bool(Map_str_longlong_contains(&ages, "Carol"))));
     for (size_t _i0 = 0; _i0 < ages.len; _i0++) {

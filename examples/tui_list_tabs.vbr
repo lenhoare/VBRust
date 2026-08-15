@@ -1,5 +1,5 @@
 ' tui_list_tabs.vbr — a selectable List nested inside a Tabs pane. The List
-' is a focusable widget wherever it sits: VBR declares its `<field>_state`
+' is a focusable widget wherever it sits: Bust declares its `<field>_state`
 ' (the ratatui ListState) and wires Up/Down/Enter even when the widget only
 ' appears in one pane. Switch tabs with Left/Right (or 1/2) when the tab bar
 ' is focused; Tab moves focus to the list. Each pane's list keeps its own

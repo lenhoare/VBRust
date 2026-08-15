@@ -4,13 +4,13 @@ struct Point {
     pub y: f64,
 }
 
-fn curve() -> Vec<Point> {
+fn curve() -> Result<Vec<Point>, String> {
     let mut v: Vec<Point> = Vec::new();
     for x in 0..=20 {
         let xd: f64 = x as f64;
         v.push(Point { x: xd, y: xd * xd / 10.0 });
     }
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -24,7 +24,7 @@ struct Plot {
 
 impl Default for Plot {
     fn default() -> Self {
-        let curve = curve();
+        let curve = curve()?;
         Plot {
             curve,
         }

@@ -1,6 +1,6 @@
 ' 53 — Periodic Table logic module.
 ' Pure parsing + lookup logic, unit-testable without the FileSystem
-' stdlib: main.vbr feeds the CSV lines (read via FileSystem.ReadLines) and
+' stdlib: main.vbr feeds the CSV lines (read via FileSystem.Read_Lines) and
 ' these functions parse and query them.
 '
 ' A row is "number,symbol,name,mass,state".
@@ -40,7 +40,7 @@ Public Function SplitCsv(ByVal line As String) As Vec<String>
 End Function
 
 ' The element with this symbol, or Nothing (checked by the caller via
-' FoundFlag). Returns the found state through a ByRef flag — VBR has no
+' FoundFlag). Returns the found state through a ByRef flag — Bust has no
 ' null element, so this is the idiomatic "maybe absent" for a struct.
 Public Function FindBySymbol(ByVal elements As Vec<Element>, ByVal symbol As String, ByRef found As Boolean) As Element
     Dim i As Long = 0

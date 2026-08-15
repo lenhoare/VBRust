@@ -1,5 +1,5 @@
-# Result<()> — a fallible action that returns no value on success. `Ok(())` is
-# the unit success; failure carries the error as usual.
+# A fallible action that returns no value on success. RaiseError fails; a
+# bare End Function is success. Intercept at the call with Handle.
 
 from dataclasses import dataclass
 
@@ -18,24 +18,24 @@ def _vb(x):
         return str(int(x))
     return str(x)
 
-def save(ok: bool) -> object:
+def save(ok: bool):
     if not (ok):
         return Err('save failed')
     return Ok(None)
 
 def main():
-    _m0 = save(True)
-    match _m0:
-        case Ok(_):
-            print('saved')
-        case Err(e):
-            print(f"error: {_vb(e)}")
-    _m1 = save(False)
-    match _m1:
-        case Ok(_):
-            print('saved')
-        case Err(e):
-            print(f"error: {_vb(e)}")
+    _t0 = save(True)
+    if isinstance(_t0, Err):
+        e = _t0.error
+        print(f"error: {_vb(e)}")
+        return
+    print('saved')
+    _t1 = save(False)
+    if isinstance(_t1, Err):
+        e = _t1.error
+        print(f"error: {_vb(e)}")
+        return
+    print('saved')
 
 
 if __name__ == "__main__":

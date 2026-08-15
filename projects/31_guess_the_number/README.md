@@ -5,7 +5,7 @@ computer picks 1..100, the player types guesses into an **Input** widget and
 presses Enter; the hint line says "too high" / "too low" / "correct", ten
 guesses allowed. First project to exercise TUI text input.
 
-## VBR language features tested
+## Bust language features tested
 
 **TUI (`Screen`):**
 - `Input <field>` widget with `On Submit` — the event receives the typed

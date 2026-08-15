@@ -1,10 +1,10 @@
-## VBR Standard Library — Specification for Code Generation
+## Bust Standard Library — Specification for Code Generation
 
 ---
 
 IMPORTANT NOTE:
-At first I agreed that VBR should follow Rust and use :: rather than . when referring to external libraries.
-But I have changed my mind and would like VBR to just use .
+At first I agreed that Bust should follow Rust and use :: rather than . when referring to external libraries.
+But I have changed my mind and would like Bust to just use .
 Please ask to clarify when we come to implement.
 
 I guess we create with Set fs= New FileSystem
@@ -34,7 +34,7 @@ vbr_stdlib/
 name = "vbr_stdlib"
 version = "0.1.0"
 edition = "2021"
-description = "VBR Standard Library — friendly wrappers for common Rust operations"
+description = "Bust Standard Library — friendly wrappers for common Rust operations"
 license = "MIT"
 
 [dependencies]
@@ -53,9 +53,9 @@ tokio = { version = "1", features = ["full"] }
 ## lib.rs
 
 ```rust
-// VBR Standard Library
+// Bust Standard Library
 // A collection of friendly wrappers for common Rust operations
-// designed for VBA developers learning Rust via VBR.
+// designed for VBA developers learning Rust via Bust.
 //
 // Each module wraps a standard Rust library or crate.
 // Reading the source of each module is encouraged —

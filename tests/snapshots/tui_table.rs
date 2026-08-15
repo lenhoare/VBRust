@@ -5,12 +5,12 @@ struct Person {
     pub city: String,
 }
 
-fn roster() -> Vec<Person> {
+fn roster() -> Result<Vec<Person>, String> {
     let mut v: Vec<Person> = Vec::new();
     v.push(Person { name: "Ada".to_string(), age: 36, city: "London".to_string() });
     v.push(Person { name: "Bjarne".to_string(), age: 60, city: "Aarhus".to_string() });
     v.push(Person { name: "Grace".to_string(), age: 79, city: "New York".to_string() });
-    v
+    Ok(v)
 }
 
 use ratatui::widgets::{Block, Paragraph};
@@ -26,7 +26,7 @@ struct People {
 
 impl Default for People {
     fn default() -> Self {
-        let people = roster();
+        let people = roster()?;
         let status = "(select a row)".to_string();
         People {
             people,
@@ -74,7 +74,15 @@ fn main() -> std::io::Result<()> {
                     KeyCode::Enter => {
                         if let Some(i) = state.people_state.selected() {
                             let who = state.people[i].clone();
-                            state.status = format!("{} is {}, from {}", who.name, who.age, who.city);
+                            {
+                                let __vbr_event: Result<(), String> = (|| {
+                                    state.status = format!("{} is {}, from {}", who.name, who.age, who.city);
+                                    Ok(())
+                                })();
+                                if let Err(__e) = __vbr_event {
+                                    eprintln!("Error: {}", __e);
+                                }
+                            }
                         }
                     }
                     _ => {}
