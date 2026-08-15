@@ -272,6 +272,19 @@ pub fn struct_field<'a>(structs: &'a StructTable, name: &str, field: &str) -> Op
         .map(|(_, t)| t)
 }
 
+/// Field type of `struct_name.field`, from this file or a sibling's Public Type.
+fn field_decl(ctx: &Ctx, struct_name: &str, field: &str) -> Option<DeclType> {
+    if let Some(t) = struct_field(ctx.structs, struct_name, field) {
+        return Some(t.clone());
+    }
+    for iface in ctx.interfaces.values() {
+        if let Some(t) = struct_field(&iface.structs, struct_name, field) {
+            return Some(t.clone());
+        }
+    }
+    None
+}
+
 /// Module-constant original name → (its SCREAMING_SNAKE_CASE Rust name, its
 /// declared numeric/scalar type). The type lets `infer` treat a constant like a
 /// typed variable, so `Dim d As Double = K` (K a `Long` const) casts and
@@ -2269,9 +2282,19 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 }
             }
         }
-        ExprKind::StructLit { fields, .. } => {
-            for (_, v) in fields.iter_mut() {
+        ExprKind::StructLit { name, fields } => {
+            let struct_name = name.clone();
+            for (fname, v) in fields.iter_mut() {
                 resolve_expr(v, ctx);
+                if let Some(DeclType::Plain(t)) = field_decl(ctx, &struct_name, fname) {
+                    maybe_cast(v, t, ctx);
+                    if t == Type::Text
+                        && infer(v, ctx) == VType::Str
+                        && !matches!(&v.kind, ExprKind::Str(_))
+                    {
+                        to_owned_string(v);
+                    }
+                }
             }
         }
         // Inline Rust/Python are opaque — no resolution.

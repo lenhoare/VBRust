@@ -92,7 +92,7 @@ pub fn emit_gui_program(
         out.push('\n');
     }
     for s in &program.sketches {
-        out.push_str(&emit_sketch(s, &t, &paint_fns, &std_top, &program.functions, diags));
+        out.push_str(&emit_sketch(s, &t, &paint_fns, &std_top, &program.functions, &program.constants, diags));
         out.push('\n');
     }
     let launched_window = launched(program, |name| {
@@ -176,6 +176,7 @@ fn emit_sketch(
     paint_fns: &HashSet<String>,
     std_top: &[String],
     helpers: &[Function],
+    constants: &[ConstDef],
     diags: &mut Diagnostics,
 ) -> String {
     let mut out = String::new();
@@ -357,6 +358,23 @@ fn emit_sketch(
         out.push_str("}\n\n");
     }
 
+    let mut shader_ok = false;
+    if let Some(gpu_draw) = &s.gpu_draw {
+        let gpu_fns: Vec<&Function> = helpers.iter().filter(|f| f.gpu).collect();
+        if let Some(rt) = crate::gpu::emit_shader_program(
+            &s.name,
+            gpu_draw,
+            &gpu_fns,
+            &s.state,
+            constants,
+            diags,
+        ) {
+            out.push_str(&rt);
+            out.push('\n');
+            shader_ok = true;
+        }
+    }
+
     let idents = canvas_idents(&s.draw);
     let snap: Vec<String> = s
         .state
@@ -383,27 +401,49 @@ fn emit_sketch(
     } else {
         format!("{}Canvas {{ {} }}", s.name, inits.join(", "))
     };
+    let overlay = !s.draw.is_empty();
+    let kernel_reads_state = shader_ok && s.state.iter().any(|f| crate::gpu::is_gpu_uniform(&f.ty));
     out.push_str(&format!("fn view(state: &{}) -> Element<'_, {}> {{\n", ty, msg_ty));
-    if snap.is_empty() && s.state.is_empty() {
-        out.push_str("    let _ = state;\n");
-    } else if snap.is_empty() {
+    if snap.is_empty() && !kernel_reads_state {
         out.push_str("    let _ = state;\n");
     }
-    out.push_str(&format!(
-        "    iced::widget::Canvas::new({}).width(iced::Length::Fill).height(iced::Length::Fill).into()\n",
-        canvas_new
-    ));
+    if shader_ok {
+        let shader = format!(
+            "iced::widget::shader({}).width(iced::Length::Fill).height(iced::Length::Fill)",
+            crate::gpu::kernel_new_expr(&s.name, &s.state)
+        );
+        if overlay {
+            out.push_str(&format!(
+                "    iced::widget::stack([\n        {shader}.into(),\n        \
+                 iced::widget::Canvas::new({canvas_new}).width(iced::Length::Fill).height(iced::Length::Fill).into(),\n    \
+                 ]).width(iced::Length::Fill).height(iced::Length::Fill).into()\n"
+            ));
+        } else {
+            out.push_str(&format!("    {shader}.into()\n"));
+        }
+    } else {
+        out.push_str(&format!(
+            "    iced::widget::Canvas::new({}).width(iced::Length::Fill).height(iced::Length::Fill).into()\n",
+            canvas_new
+        ));
+    }
     out.push_str("}\n\n");
 
-    let bg = match &s.background {
-        Some(e) => crate::transpiler::render_color(e, diags),
-        None => "iced::Color::BLACK".to_string(),
-    };
-    let cv = CanvasDef {
-        name: s.name.clone(),
-        body: s.draw.clone(),
-    };
-    emit_canvas_program(&cv, &snap, Some(&bg), &fields, &field_ty, t, paint_fns, diags, &mut out);
+    if overlay || !shader_ok {
+        let bg = if shader_ok {
+            None
+        } else {
+            Some(match &s.background {
+                Some(e) => crate::transpiler::render_color(e, diags),
+                None => "iced::Color::BLACK".to_string(),
+            })
+        };
+        let cv = CanvasDef {
+            name: s.name.clone(),
+            body: s.draw.clone(),
+        };
+        emit_canvas_program(&cv, &snap, bg.as_deref(), &fields, &field_ty, t, paint_fns, diags, &mut out);
+    }
 
     out
 }
@@ -1491,13 +1531,13 @@ fn paint_fn_set(program: &Program) -> HashSet<String> {
     let mut set: HashSet<String> = program
         .functions
         .iter()
-        .filter(|f| f.receiver.is_none() && body_has_draw(&f.body))
+        .filter(|f| f.receiver.is_none() && !f.gpu && body_has_draw(&f.body))
         .map(|f| rust_name(&f.name))
         .collect();
     loop {
         let mut changed = false;
         for f in &program.functions {
-            if f.receiver.is_some() {
+            if f.receiver.is_some() || f.gpu {
                 continue;
             }
             let n = rust_name(&f.name);
@@ -1524,6 +1564,13 @@ fn body_has_pixel(stmts: &[Stmt]) -> bool {
 fn stmt_has_pixel(s: &Stmt) -> bool {
     match s {
         Stmt::Draw(DrawCmd::Pixel { .. }) => true,
+        // `Path::circle` is cubic Béziers; a few hundred filled ones crash WSLg
+        // (`Io error: Connection reset by peer`). Stamp disks into the pixel
+        // buffer instead, same path as `Set Pixel`.
+        Stmt::Draw(DrawCmd::Fill {
+            shape: Shape::Circle(..),
+            ..
+        }) => true,
         Stmt::If { branches, else_body } => {
             branches.iter().any(|(_, b)| body_has_pixel(b))
                 || else_body.as_ref().map_or(false, |b| body_has_pixel(b))

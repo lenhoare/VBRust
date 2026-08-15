@@ -8,6 +8,7 @@ pub mod c;
 pub mod complete;
 pub mod diagnostics;
 pub mod godot;
+pub mod gpu;
 pub mod gui;
 pub mod help;
 pub mod iter;

@@ -1954,12 +1954,12 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     deps.dedup_by(|a, b| a.0 == b.0);
     for (krate, version) in &deps {
         if krate == "iced" {
-            // Bust GUIs render in software (tiny-skia) rather than wgpu: it builds
-            // far faster and runs everywhere (WSL2, modest/no GPU) — the right
-            // trade for a teaching tool, since forms don't need GPU acceleration.
-            // An async GUI also needs `tokio` (blocking work via spawn_blocking);
-            // an `Image` needs the `image` feature.
-            let mut feats = vec!["\"tiny-skia\""];
+            // iced's default is wgpu with tiny-skia as fallback. Software-only
+            // (tiny-skia → softbuffer) dies on WSLg for some animated 640×480
+            // sketches (`Io error: Connection reset by peer`). wgpu uses the
+            // GPU present path and survives; tiny-skia remains if wgpu cannot
+            // init (no adapter).
+            let mut feats = vec!["\"wgpu\"", "\"tiny-skia\""];
             if async_gui || uses_time {
                 feats.push("\"tokio\"");
             }

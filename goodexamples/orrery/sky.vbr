@@ -24,13 +24,10 @@ End Function
 
 Public Function Place(ByVal t As Double, ByVal orbit As Double, ByVal speed As Double, ByVal size As Long, ByVal cr As Long, ByVal cg As Long, ByVal cb As Long) As Body
     Dim a As Double = t * speed
-    Dim x As Long = Int(CX + Cos(a) * orbit)
-    Dim y As Long = Int(CY + Sin(a) * orbit)
-    Dim ring As Long = Int(orbit)
     Return Body {
-        x: x,
-        y: y,
-        orbit: ring,
+        x: Int(CX + Cos(a) * orbit),
+        y: Int(CY + Sin(a) * orbit),
+        orbit: Int(orbit),
         size: size,
         cr: cr,
         cg: cg,
@@ -51,7 +48,5 @@ End Function
 
 Public Function Moon(ByVal t As Double, ByVal earth As Body) As Peg
     Dim a As Double = t * 13.0
-    Dim x As Long = Int(earth.X + Cos(a) * 16.0)
-    Dim y As Long = Int(earth.Y + Sin(a) * 16.0)
-    Return Peg { x: x, y: y }
+    Return Peg { x: Int(earth.X + Cos(a) * 16.0), y: Int(earth.Y + Sin(a) * 16.0) }
 End Function

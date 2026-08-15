@@ -1,0 +1,42 @@
+' A fragment kernel — nested For y / For x / Set Pixel, compiled to the GPU.
+' Run:  vbr runproject goodexamples/plasma
+
+Sketch Pane
+    Title "Plasma"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim nx As Double = x / width
+                Dim ny As Double = y / height
+                Dim k As Double = Wave(nx * 12.0, t) + Wave(ny * 10.0, 0.0 - t * 0.7) + Wave((nx + ny) * 8.0, t * 0.4)
+                Dim shade As Double = (k + 3.0) * 42.0
+                Set Pixel x, y, Color(shade, 40 + shade / 2, 180 - shade / 3)
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "plasma", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.05
+    End Event
+End Sketch
+
+Gpu Function Wave(ByVal p As Double, ByVal phase As Double) As Double
+    Return Sin(p + phase)
+End Function
+
+Function Main()
+    Pane.Run
+End Function

@@ -17,7 +17,8 @@ End Function
 
 Public Function At(ByVal t As Double) As Peg
     Dim k As Double = (BIG - SMALL) / SMALL
-    Dim x As Long = Int(CX + (BIG - SMALL) * Cos(t) + PEN * Cos(k * t))
-    Dim y As Long = Int(CY + (BIG - SMALL) * Sin(t) - PEN * Sin(k * t))
-    Return Peg { x: x, y: y }
+    Return Peg {
+        x: Int(CX + (BIG - SMALL) * Cos(t) + PEN * Cos(k * t)),
+        y: Int(CY + (BIG - SMALL) * Sin(t) - PEN * Sin(k * t))
+    }
 End Function

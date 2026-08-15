@@ -138,13 +138,38 @@ impl<'a> Parser<'a> {
                         uses.push(u);
                     }
                 }
-                Tok::Function => match self.parse_function(false, false) {
+                Tok::Function => match self.parse_function(false, false, false) {
                     Some(f) => functions.push(f),
                     // Error already recorded — resync at the next item so the
                     // rest of the file still gets diagnostics.
                     None => self.recover_to_item(),
                 },
-                Tok::Sub => match self.parse_function(false, true) {
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Gpu") => {
+                    self.advance();
+                    match self.peek() {
+                        Tok::Function => match self.parse_function(false, false, true) {
+                            Some(f) => functions.push(f),
+                            None => self.recover_to_item(),
+                        },
+                        Tok::Sub => {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                "`Gpu Sub` isn't a thing — write `Gpu Function` (it can still return nothing).",
+                            );
+                            self.recover_to_item();
+                        }
+                        _ => {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                "Expected `Gpu Function` or, inside a Sketch, `Gpu Draw`.",
+                            );
+                            self.recover_to_item();
+                        }
+                    }
+                },
+                Tok::Sub => match self.parse_function(false, true, false) {
                     Some(f) => functions.push(f),
                     None => self.recover_to_item(),
                 },
@@ -164,11 +189,28 @@ impl<'a> Parser<'a> {
                     let public = matches!(self.peek(), Tok::Public);
                     self.advance();
                     match self.peek() {
-                        Tok::Function => match self.parse_function(public, false) {
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Gpu") => {
+                            self.advance();
+                            match self.peek() {
+                                Tok::Function => match self.parse_function(public, false, true) {
+                                    Some(f) => functions.push(f),
+                                    None => self.recover_to_item(),
+                                },
+                                _ => {
+                                    self.diags.error_at(
+                                        self.span(),
+                                        self.line(),
+                                        "Expected `Gpu Function` after `Public Gpu`.",
+                                    );
+                                    self.recover_to_item();
+                                }
+                            }
+                        }
+                        Tok::Function => match self.parse_function(public, false, false) {
                             Some(f) => functions.push(f),
                             None => self.recover_to_item(),
                         },
-                        Tok::Sub => match self.parse_function(public, true) {
+                        Tok::Sub => match self.parse_function(public, true, false) {
                             Some(f) => functions.push(f),
                             None => self.recover_to_item(),
                         },
@@ -548,7 +590,7 @@ impl<'a> Parser<'a> {
         Some(TestBlock { description, body, line })
     }
 
-    fn parse_function(&mut self, public: bool, is_sub: bool) -> Option<Function> {
+    fn parse_function(&mut self, public: bool, is_sub: bool, gpu: bool) -> Option<Function> {
         let line = self.line();
         if is_sub {
             self.expect(&Tok::Sub, "to start a sub")?;
@@ -639,6 +681,7 @@ impl<'a> Parser<'a> {
             ret,
             body,
             line,
+            gpu,
         })
     }
 
@@ -1242,6 +1285,7 @@ impl<'a> Parser<'a> {
         let mut background = None;
         let mut state = Vec::new();
         let mut timers = Vec::new();
+        let mut gpu_draw = None;
         let mut draw = None;
         let mut events = Vec::new();
         let mut subs = Vec::new();
@@ -1299,6 +1343,15 @@ impl<'a> Parser<'a> {
                     self.expect(&Tok::Newline, "after `State`")?;
                     state = self.parse_state_block()?;
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Gpu") => {
+                    self.advance();
+                    self.expect_kw_ident("Draw")?;
+                    self.expect(&Tok::Newline, "after `Gpu Draw`")?;
+                    gpu_draw = Some(self.parse_block()?);
+                    self.expect(&Tok::End, "to close `Gpu Draw`")?;
+                    self.expect_kw_ident("Draw")?;
+                    self.eat(&Tok::Newline);
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Draw") => {
                     self.advance();
                     self.expect(&Tok::Newline, "after `Draw`")?;
@@ -1338,7 +1391,7 @@ impl<'a> Parser<'a> {
                         self.line(),
                         format!(
                             "Unexpected {:?} inside a Sketch — expected Title, Size, Background, \
-                             State, Draw, Every, Event, Sub, or `End Sketch`.",
+                             State, Draw, Gpu Draw, Every, Event, Sub, or `End Sketch`.",
                             other
                         ),
                     );
@@ -1347,14 +1400,15 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let draw = match draw {
-            Some(b) => b,
-            None => {
-                self.diags
-                    .error_at(self.span(), self.line(), "A Sketch needs a `Draw` block.");
-                return None;
-            }
-        };
+        let draw = draw.unwrap_or_default();
+        if gpu_draw.is_none() && draw.is_empty() {
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                "A Sketch needs a `Draw` block or a `Gpu Draw` block.",
+            );
+            return None;
+        }
         Some(Sketch {
             name,
             title,
@@ -1363,6 +1417,7 @@ impl<'a> Parser<'a> {
             background,
             state,
             timers,
+            gpu_draw,
             draw,
             events,
             subs,

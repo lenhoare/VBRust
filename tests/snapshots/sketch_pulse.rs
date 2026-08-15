@@ -76,14 +76,23 @@ impl<Message> iced::widget::canvas::Program<Message> for PulseCanvas {
             let frame = &mut frame;
             let _ = &frame;
             frame.fill(&iced::widget::canvas::Path::rectangle(iced::Point::ORIGIN, bounds.size()), iced::Color::from_rgb8(0, 0, 0));
+            let pw = bounds.size().width.max(1.0).round() as u32;
+            let ph = bounds.size().height.max(1.0).round() as u32;
+            let mut pix = vec![0u8; pw as usize * ph as usize * 4];
+            let mut pix_dirty = false;
+            let width = pw as i32;
+            let height = ph as i32;
+            let _ = (width, height);
             let __vbr_draw: Result<(), String> = (|| {
-                frame.fill(&iced::widget::canvas::Path::circle(iced::Point::new((320) as f32, (240) as f32), (self.radius) as f32), iced::Color::from_rgb8(0, 255, 255));
-                frame.fill_text(iced::widget::canvas::Text { content: format!("{}", format!("radius = {}", self.radius)), position: iced::Point::new((16) as f32, (20) as f32), color: iced::Color::from_rgb8(255, 255, 255), ..Default::default() });
+                { let __cx = ((320) as f32) as i32; let __cy = ((240) as f32) as i32; let __cr = ((self.radius) as f32) as i32; let __cc = iced::Color::from_rgb8(0, 255, 255); let __rr = __cr.max(0); let mut __dy = -__rr; while __dy <= __rr { let __w = ((__rr * __rr - __dy * __dy) as f32).sqrt() as i32; let mut __dx = -__w; while __dx <= __w { let __px = __cx + __dx; let __py = __cy + __dy; if __px >= 0 && __py >= 0 && (__px as u32) < pw && (__py as u32) < ph { let __i = ((__py as u32 * pw + __px as u32) * 4) as usize; pix[__i] = (__cc.r * 255.0) as u8; pix[__i + 1] = (__cc.g * 255.0) as u8; pix[__i + 2] = (__cc.b * 255.0) as u8; pix[__i + 3] = 255; pix_dirty = true; } __dx += 1; } __dy += 1; } }
+                if pix_dirty { let __h = iced::widget::image::Handle::from_rgba(pw, ph, pix.clone()); frame.draw_image(iced::Rectangle::new(iced::Point::ORIGIN, bounds.size()), iced::widget::canvas::Image::new(__h).filter_method(iced::widget::image::FilterMethod::Nearest).snap(true)); pix.fill(0); pix_dirty = false; }
+            frame.fill_text(iced::widget::canvas::Text { content: format!("{}", format!("radius = {}", self.radius)), position: iced::Point::new((16) as f32, (20) as f32), color: iced::Color::from_rgb8(255, 255, 255), ..Default::default() });
                 Ok(())
             })();
             if let Err(__e) = __vbr_draw {
                 eprintln!("Error: {}", __e);
             }
+            if pix_dirty { let __h = iced::widget::image::Handle::from_rgba(pw, ph, pix); frame.draw_image(iced::Rectangle::new(iced::Point::ORIGIN, bounds.size()), iced::widget::canvas::Image::new(__h).filter_method(iced::widget::image::FilterMethod::Nearest).snap(true)); }
         }
         vec![frame.into_geometry()]
     }

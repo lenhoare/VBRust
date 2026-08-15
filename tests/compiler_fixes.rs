@@ -571,3 +571,232 @@ fn if_both_branches_leave_has_no_trailing_ok() {
     );
     assert_rustc_clean("if_both_leave", &rust);
 }
+
+#[test]
+fn stroke_circle_is_a_polyline_not_beziers() {
+    // `Path::circle` is cubic Béziers; stroking them crashes WSLg's compositor
+    // (`Io error: Connection reset by peer`). A closed polyline does not.
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Draw\n\
+        \x20       Stroke Circle(100, 100, 40), Color.White, 1\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("Path::line") && rust.contains("while __i < 64"),
+        "stroked circle should be line chords: {rust}"
+    );
+    assert!(
+        !rust.contains("Path::circle") && !rust.contains("Path::new"),
+        "stroked circle must not use Path::circle / a closed path: {rust}"
+    );
+}
+
+#[test]
+fn fill_circle_is_a_pixel_stamp_not_beziers() {
+    // Hundreds of `Path::circle` fills crash WSLg (bloom). A packed RGBA disk
+    // is the same primitive `Set Pixel` already uses.
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Draw\n\
+        \x20       Fill Circle(100, 100, 20), Color.White\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("pix[") && rust.contains("pix_dirty"),
+        "filled circle should stamp pixels: {rust}"
+    );
+    assert!(
+        !rust.contains("Path::circle"),
+        "filled circle must not use Path::circle: {rust}"
+    );
+}
+
+#[test]
+fn fill_circles_do_not_flush_the_buffer_between_stamps() {
+    // Painter's order: disks accumulate in `pix`. Flushing (and zeroing) before
+    // each `Fill Circle` used to emit one full-window image per disk.
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Draw\n\
+        \x20       Fill Circle(10, 10, 3), Color.White\n\
+        \x20       Fill Circle(40, 40, 3), Color.Red\n\
+        \x20       Text \"x\", 0, 0\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    let flushes = rust.matches("pix.fill(0)").count();
+    assert_eq!(
+        flushes, 1,
+        "exactly one flush, before Text, not between disks: {rust}"
+    );
+}
+
+#[test]
+fn int_in_struct_literal_narrows_to_field_type() {
+    // `Int(...)` is `.floor()` (f64). A Long field must get the same `as i64`
+    // that `Dim x As Long = Int(...)` already inserts.
+    let rust = rust_of(
+        "Public Type Peg\n\
+        \x20   Public X As Long\n\
+        \x20   Public Y As Long\n\
+        End Type\n\
+        Function Make() As Peg\n\
+        \x20   Return Peg { x: Int(3.9), y: Int(1.1) }\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Dim p As Peg = Make()\n\
+        \x20   Debug.Print p.X\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(
+        p.contains("asi64"),
+        "Int() in a Long struct field should narrow: {rust}"
+    );
+    assert_rustc_clean("int_struct_lit", &rust);
+}
+
+#[test]
+fn byval_param_assigned_in_body_is_mut() {
+    // VBA ByVal is a local copy; assigning to it is legal, so the binding is mut.
+    let rust = rust_of(
+        "Function Nudge(ByVal zr As Double) As Double\n\
+        \x20   zr = zr + 1.0\n\
+        \x20   Return zr\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Debug.Print Nudge(1.0)\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(
+        p.contains("fnnudge(mutzr:f64)"),
+        "ByVal param written in the body should be mut: {rust}"
+    );
+    assert_rustc_clean("byval_mut", &rust);
+}
+
+fn gpu_sketch(body: &str) -> String {
+    format!(
+        "Sketch S\n\
+        \x20   Gpu Draw\n\
+        {body}\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n"
+    )
+}
+
+#[test]
+fn gpu_draw_emits_an_iced_shader() {
+    let rust = rust_of(&gpu_sketch(
+        "        For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Set Pixel x, y, Color.Red\n\
+        \x20           Next x\n\
+        \x20       Next y\n",
+    ));
+    assert!(
+        rust.contains("iced::widget::shader"),
+        "Gpu Draw should place an iced Shader widget: {rust}"
+    );
+    assert!(
+        rust.contains("ShaderSource::Wgsl"),
+        "Gpu Draw should embed WGSL: {rust}"
+    );
+    assert!(
+        !rust.contains("iced::widget::Canvas::new"),
+        "a kernel-only Gpu Draw should not emit a CPU canvas: {rust}"
+    );
+}
+
+#[test]
+fn gpu_function_is_wgsl_not_rust() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Gpu Draw\n\
+        \x20       For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Set Pixel x, y, Color(Wave(x), 0, 0)\n\
+        \x20           Next x\n\
+        \x20       Next y\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Gpu Function Wave(ByVal p As Double) As Double\n\
+        \x20   Return Sin(p)\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(
+        p.contains("fnwave(_p:f32)"),
+        "Gpu Function should lower to a WGSL helper: {rust}"
+    );
+    assert!(
+        !p.contains("fnwave(p:f64)"),
+        "Gpu Function must not be emitted as a Rust fn: {rust}"
+    );
+}
+
+#[test]
+fn gpu_draw_rejects_fill_and_stroke() {
+    let c = vbr::compile(&gpu_sketch(
+        "        For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Fill Rect(0, 0, 1, 1), Color.Red\n\
+        \x20               Set Pixel x, y, Color.White\n\
+        \x20           Next x\n\
+        \x20       Next y\n",
+    ));
+    assert!(c.has_errors, "Fill in Gpu Draw should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("CPU `Draw`") || joined.contains("Gpu Draw"),
+        "should point Fill/Stroke at CPU Draw: {joined}"
+    );
+}
+
+#[test]
+fn gpu_draw_with_text_overlay_stacks() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Gpu Draw\n\
+        \x20       For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Set Pixel x, y, Color.Navy\n\
+        \x20           Next x\n\
+        \x20       Next y\n\
+        \x20   End Draw\n\
+        \x20   Draw\n\
+        \x20       Text \"hi\", 16, 22, Color.Gray\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("iced::widget::stack"),
+        "CPU Text over a kernel should stack: {rust}"
+    );
+    assert!(
+        rust.contains("iced::widget::shader"),
+        "overlay sketch still has the shader: {rust}"
+    );
+}

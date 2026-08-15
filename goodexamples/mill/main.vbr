@@ -20,7 +20,10 @@ Sketch Mill
         For i = 0 To 7
             Dim p As Peg = Wheel.Paddle(t, i)
             Stroke Line(240, 220, p.X, p.Y), Color(90, 62, 36), 5
-            Fill Circle(p.X, p.Y, 16), Color(120, 86, 48)
+        Next
+        For i = 0 To 7
+            Dim q As Peg = Wheel.Paddle(t, i)
+            Fill Circle(q.X, q.Y, 16), Color(120, 86, 48)
         Next
         Fill Circle(240, 220, 22), Color(160, 120, 70)
         Text "mill", 16, 22, Color.Gray

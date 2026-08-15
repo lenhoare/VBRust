@@ -39,6 +39,21 @@ fn pixel_flush_on() -> bool {
     PIXEL_FLUSH.with(|c| c.get())
 }
 
+/// Pixel-buffer paints. Flushing before these would blit and clear between
+/// stamps (`Fill Circle` used to be a vector `Path::circle`, so it inherited
+/// the flush). Consecutive disks belong in one buffer; flush only before a
+/// real vector command (`Stroke`, `Fill Rect`, `Text`).
+fn draw_cmd_writes_pixels(cmd: &DrawCmd) -> bool {
+    matches!(
+        cmd,
+        DrawCmd::Pixel { .. }
+            | DrawCmd::Fill {
+                shape: Shape::Circle(..),
+                ..
+            }
+    )
+}
+
 /// CLI stand-in for VB's InputBox: print the prompt, read a line, return it.
 /// The `Log <expr>` sink: a timestamped line appended to `vbr.log` in the working
 /// directory (for a project run, that's `build/vbr.log`). Std-only — no crate,
@@ -793,12 +808,6 @@ pub(crate) fn emit_fn(
     let pad = "    ".repeat(base_indent);
     let name = rust_fn_name(&func.name, func.line, diags);
 
-    let mut params: Vec<String> = Vec::new();
-    if let Some(sp) = self_param {
-        params.push(sp.to_string());
-    }
-    params.extend(func.params.iter().map(|p| render_param_ty(p, Some(enums))));
-
     let is_main = name == "main";
     if is_main && func.ret.is_some() {
         diags.error(
@@ -828,12 +837,6 @@ pub(crate) fn emit_fn(
     };
     // `Public Function` → `pub fn`, so other modules can call it.
     let vis = if func.public { "pub " } else { "" };
-    // Checkpoint the header too, so signature-level rustc errors map back.
-    diags.map_line(out.matches('\n').count() + 1, func.line);
-    out.push_str(&format!(
-        "{}{}fn {}({}){} {{\n",
-        pad, vis, rust_name_out, params.join(", "), ret
-    ));
 
     // `FunctionName = value` is really a return — rewrite it before emitting.
     let mut body = func.body.clone();
@@ -872,6 +875,28 @@ pub(crate) fn emit_fn(
     let mut mutated = HashSet::new();
     collect_mutated(&body, &mut mutated);
     mutated.extend(passed_by_ref);
+
+    // ByVal parameters are local copies — assigning to one is legal in VB, so
+    // the binding is `mut` when the body writes it. ByRef is already `&mut`.
+    let mut params: Vec<String> = Vec::new();
+    if let Some(sp) = self_param {
+        params.push(sp.to_string());
+    }
+    params.extend(func.params.iter().map(|p| {
+        let s = render_param_ty(p, Some(enums));
+        if p.mode == ParamMode::ByVal && mutated.contains(&rust_name(&p.name)) {
+            format!("mut {}", s)
+        } else {
+            s
+        }
+    }));
+
+    // Checkpoint the header too, so signature-level rustc errors map back.
+    diags.map_line(out.matches('\n').count() + 1, func.line);
+    out.push_str(&format!(
+        "{}{}fn {}({}){} {{\n",
+        pad, vis, rust_name_out, params.join(", "), ret
+    ));
 
     emit_fn_body(
         &body,
@@ -1990,10 +2015,48 @@ fn render_path(shape: &Shape) -> String {
     }
 }
 
+/// Filled disk into the `Set Pixel` buffer. `Path::circle` is cubic Béziers;
+/// a few hundred of those (bloom's sunflower) crash WSLg with
+/// `Io error: Connection reset by peer`. A packed RGBA stamp does not.
+fn fill_circle_stamp(cx: &str, cy: &str, r: &str, color: &str) -> String {
+    format!(
+        "{{ let __cx = ({cx}) as i32; let __cy = ({cy}) as i32; let __cr = ({r}) as i32; \
+         let __cc = {color}; let __rr = __cr.max(0); let mut __dy = -__rr; \
+         while __dy <= __rr {{ \
+         let __w = ((__rr * __rr - __dy * __dy) as f32).sqrt() as i32; \
+         let mut __dx = -__w; \
+         while __dx <= __w {{ \
+         let __px = __cx + __dx; let __py = __cy + __dy; \
+         if __px >= 0 && __py >= 0 && (__px as u32) < pw && (__py as u32) < ph {{ \
+         let __i = ((__py as u32 * pw + __px as u32) * 4) as usize; \
+         pix[__i] = (__cc.r * 255.0) as u8; pix[__i + 1] = (__cc.g * 255.0) as u8; \
+         pix[__i + 2] = (__cc.b * 255.0) as u8; pix[__i + 3] = 255; pix_dirty = true; }} \
+         __dx += 1; }} __dy += 1; }} }}"
+    )
+}
+
+/// `Stroke Circle` as 64 `Path::line` chords. `Path::circle` (and a closed
+/// polyline of it) is cubic/joined geometry that crashes WSLg's weston/pixman;
+/// the client then dies with `Io error: Connection reset by peer`. Fill Circle
+/// and Stroke Line are fine — mill already strokes lines this way.
+fn stroke_circle_chords(cx: &str, cy: &str, r: &str, color: &str, width: &str) -> String {
+    format!(
+        "{{ let __c = iced::Point::new({cx}, {cy}); let __r = {r}; \
+         let __s = iced::widget::canvas::Stroke::default().with_color({color}).with_width({width}); \
+         let mut __i = 0i32; while __i < 64 {{ \
+         let __a0 = (__i as f32) * std::f32::consts::TAU / 64.0; \
+         let __a1 = ((__i + 1) as f32) * std::f32::consts::TAU / 64.0; \
+         frame.stroke(&iced::widget::canvas::Path::line(\
+         iced::Point::new(__c.x + __r * __a0.cos(), __c.y + __r * __a0.sin()), \
+         iced::Point::new(__c.x + __r * __a1.cos(), __c.y + __r * __a1.sin())), __s); \
+         __i += 1; }} }}"
+    )
+}
+
 /// A drawing verb → the Rust statement that applies it to the ambient `frame`
 /// (a `&mut Frame`, so fills/strokes and nested paint-function calls both work).
 pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String {
-    let flush = if pixel_flush_on() && !matches!(cmd, DrawCmd::Pixel { .. }) {
+    let flush = if pixel_flush_on() && !draw_cmd_writes_pixels(cmd) {
         "if pix_dirty { let __h = iced::widget::image::Handle::from_rgba(pw, ph, pix.clone()); frame.draw_image(iced::Rectangle::new(iced::Point::ORIGIN, bounds.size()), iced::widget::canvas::Image::new(__h).filter_method(iced::widget::image::FilterMethod::Nearest).snap(true)); pix.fill(0); pix_dirty = false; }\n            "
     } else {
         ""
@@ -2006,16 +2069,28 @@ pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String 
                     "A Line has no area to fill — draw it with `Stroke Line(...)` instead.",
                 );
             }
-            format!("frame.fill(&{}, {});", render_path(shape), render_color(color, diags))
+            let col = render_color(color, diags);
+            match shape {
+                Shape::Circle(cx, cy, r) if pixel_flush_on() => {
+                    fill_circle_stamp(&coord(cx), &coord(cy), &coord(r), &col)
+                }
+                _ => format!("frame.fill(&{}, {});", render_path(shape), col),
+            }
         }
         DrawCmd::Stroke { shape, color, width } => {
             let w = width.as_ref().map(coord).unwrap_or_else(|| "1.0".to_string());
-            format!(
-                "frame.stroke(&{}, iced::widget::canvas::Stroke::default().with_color({}).with_width({}));",
-                render_path(shape),
-                render_color(color, diags),
-                w
-            )
+            let col = render_color(color, diags);
+            match shape {
+                Shape::Circle(cx, cy, r) => {
+                    stroke_circle_chords(&coord(cx), &coord(cy), &coord(r), &col, &w)
+                }
+                _ => format!(
+                    "frame.stroke(&{}, iced::widget::canvas::Stroke::default().with_color({}).with_width({}));",
+                    render_path(shape),
+                    col,
+                    w
+                ),
+            }
         }
         DrawCmd::Text { text, x, y, color } => {
             let col = match color {

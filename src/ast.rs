@@ -243,7 +243,10 @@ pub struct Sketch {
     pub background: Option<Expr>,
     pub state: Vec<StateField>,
     pub timers: Vec<Timer>,
-    /// The `Draw` block — same verbs as a `Canvas` (`Fill` / `Stroke` / `Text` / `Set Pixel`).
+    /// `Gpu Draw` — per-pixel kernel, compiled to a fragment shader. Optional.
+    pub gpu_draw: Option<Vec<Stmt>>,
+    /// The CPU `Draw` block — `Fill` / `Stroke` / `Text` / `Set Pixel`. May be
+    /// empty when `gpu_draw` is the picture (a `Text` overlay still lives here).
     pub draw: Vec<Stmt>,
     pub events: Vec<GuiEvent>,
     pub subs: Vec<GuiEvent>,
@@ -598,6 +601,8 @@ pub struct Function {
     pub ret: Option<DeclType>,
     pub body: Vec<Stmt>,
     pub line: usize,
+    /// `Gpu Function` — GPU subset, compiled into a `Gpu Draw` shader. Not emitted as Rust.
+    pub gpu: bool,
 }
 
 /// The one recursive type expression — used wherever a type is written: `Dim`,

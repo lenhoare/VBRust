@@ -17,7 +17,10 @@ Sketch Desk
         For i = 0 To 4
             Dim p As Body = Sky.Planet(t, i)
             Stroke Circle(320, 250, p.Orbit), Color(28, 32, 58), 1
-            Fill Circle(p.X, p.Y, p.Size), Color(p.Cr, p.Cg, p.Cb)
+        Next
+        For i = 0 To 4
+            Dim q As Body = Sky.Planet(t, i)
+            Fill Circle(q.X, q.Y, q.Size), Color(q.Cr, q.Cg, q.Cb)
         Next
         Dim earth As Body = Sky.Planet(t, 2)
         Dim m As Peg = Sky.Moon(t, earth)

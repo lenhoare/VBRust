@@ -117,7 +117,7 @@ pub(crate) fn emit_shared_items(
 
     let is_main = |f: &Function| f.receiver.is_none() && f.name.eq_ignore_ascii_case("Main");
     for f in &program.functions {
-        if !is_main(f) {
+        if !is_main(f) && !f.gpu {
             note_builtins(&f.body, diags);
         }
     }
@@ -139,6 +139,9 @@ pub(crate) fn emit_shared_items(
     }
     // Free functions, except `Main`.
     for f in program.functions.iter().filter(|f| f.receiver.is_none() && !is_main(f)) {
+        if f.gpu {
+            continue;
+        }
         if !special_fn(f, diags, out) {
             emit_fn(
                 f, &t.fns, &t.methods, &t.consts, &t.modules, &t.interfaces, &t.enums, &t.structs,

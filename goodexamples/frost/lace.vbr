@@ -12,9 +12,7 @@ Public Function ImagAt(ByVal y As Long, ByVal h As Long) As Double
     Return -1.15 + y * 2.3 / h
 End Function
 
-Public Function Escape(ByVal zr0 As Double, ByVal zi0 As Double) As Long
-    Dim zr As Double = zr0
-    Dim zi As Double = zi0
+Public Function Escape(ByVal zr As Double, ByVal zi As Double) As Long
     Dim n As Long = 0
     Do While n < MAXITER And zr * zr + zi * zi < 4.0
         Dim tmp As Double = zr * zr - zi * zi + CRE
