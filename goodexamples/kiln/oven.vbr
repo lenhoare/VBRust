@@ -1,0 +1,50 @@
+' A bottle kiln. Heat drifts toward the target; opening the door too hot
+' RaiseError's. History is a sparkline of the last firings of the cone.
+
+Public Const CEILING As Integer = 1280
+
+Public Function ClampTarget(ByVal n As Integer) As Integer
+    If n < 0 Then
+        Return 0
+    End If
+    If n > CEILING Then
+        Return CEILING
+    End If
+    Return n
+End Function
+
+Public Function OpenDoor(ByVal heat As Integer, ByRef door As Boolean)
+    If door Then
+        door = False
+        Return
+    End If
+    If heat > 200 Then
+        RaiseError "too hot to open — wait until the cone drops below 200"
+    End If
+    door = True
+End Function
+
+Public Function Beat(ByRef heat As Integer, ByVal target As Integer, ByVal door As Boolean, ByRef history As Vec<Integer>)
+    If door Then
+        If heat > 8 Then
+            heat = heat - 8
+        Else
+            heat = 0
+        End If
+    ElseIf heat < target Then
+        heat = heat + 5
+        If heat > target Then
+            heat = target
+        End If
+    ElseIf heat > target Then
+        heat = heat - 3
+        If heat < target Then
+            heat = target
+        End If
+    End If
+    history.Push(heat)
+    If history.Len() > 48 Then
+        history.Clear()
+        history.Push(heat)
+    End If
+End Function

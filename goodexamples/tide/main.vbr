@@ -1,0 +1,37 @@
+' A harbour swell. Two sine waves stacked; Draw paints them, Tick advances
+' the phase. No Rnd — the sea is clockwork.
+' Run:  vbr runproject goodexamples/tide
+
+Sketch Harbour
+    Title "Tide"
+    Size 640, 480
+    Background Color(8, 18, 42)
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 32 Tick
+
+    Draw
+        Dim x As Long
+        For x = 0 To 42
+            Dim y As Long = Int(Sea.Height(t, x))
+            Dim foamY As Long = Int(Sea.Foam(t, x))
+            Fill Circle(x * 16 + 8, y + 24, 18), Color(18, 48, 110)
+            Fill Circle(x * 16 + 8, y, 14), Color(36, 92, 168)
+            Fill Circle(x * 16 + 8, foamY, 6), Color(180, 210, 230)
+        Next
+        Fill Circle(528, 72, 26), Color(230, 228, 210)
+        Fill Circle(538, 64, 18), Color(8, 18, 42)
+        Text "harbour", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = Sea.Advance(t)
+    End Event
+End Sketch
+
+Function Main()
+    Harbour.Run
+End Function

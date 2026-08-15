@@ -1,0 +1,16 @@
+' A harbour swell. Two sine waves stacked; Draw paints them, Tick advances
+' the phase. No Rnd — the sea is clockwork.
+
+Public Function Advance(ByVal t As Double) As Double
+    Return t + 0.07
+End Function
+
+Public Function Height(ByVal t As Double, ByVal x As Long) As Double
+    Dim a As Double = Sin(t + x * 0.16) * 54.0
+    Dim b As Double = Sin(t * 0.45 + x * 0.07) * 22.0
+    Return 310.0 + a + b
+End Function
+
+Public Function Foam(ByVal t As Double, ByVal x As Long) As Double
+    Return Height(t, x) - 16.0 - Abs(Sin(t * 1.3 + x * 0.4)) * 8.0
+End Function

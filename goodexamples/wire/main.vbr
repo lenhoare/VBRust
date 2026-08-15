@@ -1,0 +1,82 @@
+' A telegraph key. Unknown letters RaiseError; Handle prints them and you
+' keep sending. Run:  vbr runproject goodexamples/wire
+
+Function Main()
+    Debug.Print "Wire — Morse key"
+    Debug.Print "commands: send <text> | read <tape> | sample | quit"
+    Debug.Print ""
+
+    Do
+        Dim line As String = Trim(InputBox("> "))
+        If line = "" Then
+            Continue
+        End If
+        Dim words As Vec<String> = SplitSpaces(line)
+        Dim cmd As String = LCase(words[0])
+        If cmd = "q" Or cmd = "quit" Then
+            Debug.Print "73"
+            Return
+        End If
+        Dispatch(words) Handle err
+            Debug.Print "  ! " & err
+        End Handle
+    Loop
+End Function
+
+Function Dispatch(ByVal words As Vec<String>)
+    Dim cmd As String = LCase(words[0])
+    If cmd = "send" Or cmd = "encode" Then
+        If words.Len() < 2 Then
+            RaiseError "usage: send cq de bust"
+        End If
+        Dim text As String = JoinFrom(words, 1, words.Len() - 1)
+        Debug.Print Morse.Encode(text)
+    ElseIf cmd = "read" Or cmd = "decode" Then
+        If words.Len() < 2 Then
+            RaiseError "usage: read -.-. --.- / -.. . / -... ..- ... -"
+        End If
+        Dim tape As String = JoinFrom(words, 1, words.Len() - 1)
+        Debug.Print Morse.Decode(tape)
+    ElseIf cmd = "sample" Then
+        Dim tape As String = Morse.SampleTape()
+        Debug.Print tape
+        Debug.Print "  → " & Morse.Decode(tape)
+    ElseIf cmd = "help" Or cmd = "?" Then
+        Debug.Print "send cq de bust   read .... . .-.. .-.. ---   sample   quit"
+    Else
+        RaiseError "unknown command '" & cmd & "' — try help"
+    End If
+End Function
+
+Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function
+
+Function JoinFrom(ByVal words As Vec<String>, ByVal startAt As Long, ByVal endAt As Long) As String
+    If endAt < startAt Then
+        RaiseError "missing words"
+    End If
+    Dim out As String = words[startAt]
+    Dim i As Long
+    For i = startAt + 1 To endAt
+        out = out & " " & words[i]
+    Next
+    Return out
+End Function

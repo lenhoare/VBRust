@@ -1,0 +1,87 @@
+' Fire a kiln. Up/Down set the cone, o opens the door, space stokes.
+' Run:  vbr runproject goodexamples/kiln
+
+Screen Kiln
+    Title "Kiln"
+    Status status
+
+    State
+        Dim heat As Integer = 40
+        Dim target As Integer = 200
+        Dim door As Boolean = False
+        Dim doorLabel As String = "shut"
+        Dim history As Vec<Integer> = SeedHistory()
+        Dim status As String = "up/down target · space stoke · o door · q quits"
+    End State
+
+    View
+        Column
+            Length 1
+            Text " cone " & target & "   door " & doorLabel
+            Length 3
+            Gauge 0..=1280, heat
+            Fill
+            Sparkline history
+            Length 1
+            Text " " & status
+        End Column
+    End View
+
+    Every 200 Pulse
+    On Key Up Hotter
+    On Key Down Cooler
+    On Key " " Stoke
+    On Key "o" ToggleDoor
+    On Key "q" Quit
+    On Key Esc Quit
+
+    Event Pulse
+        Oven.Beat(heat, target, door, history)
+        If door Then
+            doorLabel = "open"
+            status = "door open — heat dumping"
+        Else
+            doorLabel = "shut"
+            status = "firing toward " & target
+        End If
+    End Event
+
+    Event Hotter
+        target = Oven.ClampTarget(target + 40)
+        status = "cone " & target
+    End Event
+
+    Event Cooler
+        target = Oven.ClampTarget(target - 40)
+        status = "cone " & target
+    End Event
+
+    Event Stoke
+        target = Oven.ClampTarget(target + 80)
+        status = "stoked to " & target
+    End Event
+
+    Event ToggleDoor
+        Oven.OpenDoor(heat, door) Handle err
+            status = err
+            Return
+        End Handle
+        If door Then
+            doorLabel = "open"
+            status = "door open"
+        Else
+            doorLabel = "shut"
+            status = "door shut — firing"
+        End If
+    End Event
+End Screen
+
+Function SeedHistory() As Vec<Integer>
+    Dim h As Vec<Integer>
+    h.Push(40)
+    Return h
+End Function
+
+Function Main()
+    Kiln.Run
+End Function

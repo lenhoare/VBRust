@@ -1,0 +1,95 @@
+' Stow crates in a hold. Overweight RaiseError's; Handle prints and the loop
+' keeps going. Run:  vbr runproject goodexamples/hold
+
+Function Main()
+    Dim path As String = "hold.txt"
+    Dim bay As Hold = Cargo.Load(path) Handle err
+        Debug.Print "could not read " & path & ": " & err
+        Return
+    End Handle
+
+    Debug.Print "Hold — " & bay.Weight() & " / " & Cargo.CAPACITY & " kg"
+    Debug.Print "commands: stow <name> <dest> <kg> | list | dest | save | quit"
+    Debug.Print ""
+
+    Do
+        Dim line As String = Trim(InputBox("> "))
+        If line = "" Then
+            Continue
+        End If
+        Dim words As Vec<String> = SplitSpaces(line)
+        Dim cmd As String = LCase(words[0])
+        If cmd = "q" Or cmd = "quit" Then
+            bay.Save(path) Handle err
+                Debug.Print "could not save: " & err
+            End Handle
+            Debug.Print "bye. " & bay.Weight() & " kg aboard"
+            Return
+        End If
+        Dispatch(bay, words) Handle err
+            Debug.Print "  ! " & err
+        End Handle
+    Loop
+End Function
+
+Function Dispatch(ByRef bay As Hold, ByVal words As Vec<String>)
+    Dim cmd As String = LCase(words[0])
+    If cmd = "stow" Or cmd = "add" Then
+        DoStow(bay, words)
+    ElseIf cmd = "list" Or cmd = "ls" Then
+        Debug.Print bay.Dump()
+    ElseIf cmd = "dest" Or cmd = "ports" Then
+        Debug.Print bay.ByDest()
+    ElseIf cmd = "save" Then
+        bay.Save("hold.txt")
+        Debug.Print "saved."
+    ElseIf cmd = "help" Or cmd = "?" Then
+        Debug.Print "stow coffee london 120   list   dest   save   quit"
+    Else
+        RaiseError "unknown command '" & cmd & "' — try help"
+    End If
+End Function
+
+Function DoStow(ByRef bay As Hold, ByVal words As Vec<String>)
+    If words.Len() < 4 Then
+        RaiseError "usage: stow coffee london 120"
+    End If
+    Dim kg As Long = CLng(words[words.Len() - 1])
+    Dim dest As String = words[words.Len() - 2]
+    Dim name As String = JoinFrom(words, 1, words.Len() - 3)
+    Cargo.Stow(bay, name, dest, kg)
+    Debug.Print "  stowed. " & bay.Weight() & " / " & Cargo.CAPACITY & " kg"
+End Function
+
+Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function
+
+Function JoinFrom(ByVal words As Vec<String>, ByVal startAt As Long, ByVal endAt As Long) As String
+    If endAt < startAt Then
+        RaiseError "usage: stow coffee london 120"
+    End If
+    Dim out As String = words[startAt]
+    Dim i As Long
+    For i = startAt + 1 To endAt
+        out = out & " " & words[i]
+    Next
+    Return out
+End Function

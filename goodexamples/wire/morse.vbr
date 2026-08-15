@@ -1,0 +1,144 @@
+' International Morse. Unknown letters RaiseError so the key can Handle them
+' and keep taking traffic. Space is `/`. A letter gap is a space.
+
+Public Function Encode(ByVal text As String) As String
+    Dim s As String = Trim(text)
+    If s = "" Then
+        RaiseError "nothing to send"
+    End If
+    Dim out As String = ""
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim ch As String = Mid(s, i, 1)
+        If out <> "" Then
+            out = out & " "
+        End If
+        out = out & CodeOf(ch)
+    Next
+    Return out
+End Function
+
+Public Function Decode(ByVal tape As String) As String
+    Dim s As String = Trim(tape)
+    If s = "" Then
+        RaiseError "tape is blank"
+    End If
+    Dim codes As Vec<String> = SplitSpaces(s)
+    Dim out As String = ""
+    Dim i As Long
+    For i = 0 To codes.Len() - 1
+        out = out & LetterOf(codes[i])
+    Next
+    Return out
+End Function
+
+Public Function SampleTape() As String
+    Return Encode("cq de bust")
+End Function
+
+Function CodeOf(ByVal ch As String) As String
+    Match UCase(ch)
+        "A" => Return ".-"
+        "B" => Return "-..."
+        "C" => Return "-.-."
+        "D" => Return "-.."
+        "E" => Return "."
+        "F" => Return "..-."
+        "G" => Return "--."
+        "H" => Return "...."
+        "I" => Return ".."
+        "J" => Return ".---"
+        "K" => Return "-.-"
+        "L" => Return ".-.."
+        "M" => Return "--"
+        "N" => Return "-."
+        "O" => Return "---"
+        "P" => Return ".--."
+        "Q" => Return "--.-"
+        "R" => Return ".-."
+        "S" => Return "..."
+        "T" => Return "-"
+        "U" => Return "..-"
+        "V" => Return "...-"
+        "W" => Return ".--"
+        "X" => Return "-..-"
+        "Y" => Return "-.--"
+        "Z" => Return "--.."
+        "0" => Return "-----"
+        "1" => Return ".----"
+        "2" => Return "..---"
+        "3" => Return "...--"
+        "4" => Return "....-"
+        "5" => Return "....."
+        "6" => Return "-...."
+        "7" => Return "--..."
+        "8" => Return "---.."
+        "9" => Return "----."
+        " " => Return "/"
+        _ => RaiseError "no Morse for '" & ch & "'"
+    End Match
+End Function
+
+Function LetterOf(ByVal code As String) As String
+    Match code
+        ".-" => Return "A"
+        "-..." => Return "B"
+        "-.-." => Return "C"
+        "-.." => Return "D"
+        "." => Return "E"
+        "..-." => Return "F"
+        "--." => Return "G"
+        "...." => Return "H"
+        ".." => Return "I"
+        ".---" => Return "J"
+        "-.-" => Return "K"
+        ".-.." => Return "L"
+        "--" => Return "M"
+        "-." => Return "N"
+        "---" => Return "O"
+        ".--." => Return "P"
+        "--.-" => Return "Q"
+        ".-." => Return "R"
+        "..." => Return "S"
+        "-" => Return "T"
+        "..-" => Return "U"
+        "...-" => Return "V"
+        ".--" => Return "W"
+        "-..-" => Return "X"
+        "-.--" => Return "Y"
+        "--.." => Return "Z"
+        "-----" => Return "0"
+        ".----" => Return "1"
+        "..---" => Return "2"
+        "...--" => Return "3"
+        "....-" => Return "4"
+        "....." => Return "5"
+        "-...." => Return "6"
+        "--..." => Return "7"
+        "---.." => Return "8"
+        "----." => Return "9"
+        "/" => Return " "
+        _ => RaiseError "cannot read '" & code & "'"
+    End Match
+End Function
+
+Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function

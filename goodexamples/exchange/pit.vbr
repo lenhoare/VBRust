@@ -1,0 +1,91 @@
+' A trading pit. Lots sit on the board; taking one that is gone RaiseError's.
+
+Public Type Lot
+    Public Kind As String
+    Public Bags As Long
+    Public Bid As Double
+End Type
+
+Public Function LabelOf(ByVal lot As Lot) As String
+    Return lot.Bags & " bags  " & lot.Kind & "  @ " & lot.Bid
+End Function
+
+Public Function OpenBoard() As Vec<Lot>
+    Dim lots As Vec<Lot>
+    lots.Push(Lot { kind: "wheat", bags: 40, bid: 4.5 })
+    lots.Push(Lot { kind: "barley", bags: 18, bid: 3.25 })
+    lots.Push(Lot { kind: "hops", bags: 6, bid: 12.0 })
+    lots.Push(Lot { kind: "salt", bags: 22, bid: 1.8 })
+    Return lots
+End Function
+
+Public Function RowLabels(ByVal lots As Vec<Lot>) As Vec<String>
+    Dim rows As Vec<String>
+    For Each lot In lots
+        rows.Push(LabelOf(lot))
+    Next
+    Return rows
+End Function
+
+Public Function ListLot(ByRef lots As Vec<Lot>, ByVal line As String)
+    Dim words As Vec<String> = SplitSpaces(line)
+    If words.Len() < 3 Then
+        RaiseError "list a lot as: wheat 12 4.50"
+    End If
+    Dim kind As String = LCase(Trim(words[0]))
+    Dim bags As Long = CLng(words[1])
+    Dim bid As Double = CDbl(words[2])
+    If kind = "" Then
+        RaiseError "the lot needs a name"
+    End If
+    If bags <= 0 Then
+        RaiseError "bags must be positive"
+    End If
+    If bid <= 0.0 Then
+        RaiseError "bid must be positive"
+    End If
+    lots.Push(Lot { kind: kind, bags: bags, bid: bid })
+End Function
+
+Public Function Take(ByRef lots As Vec<Lot>, ByVal label As String)
+    Dim i As Long
+    For i = 0 To lots.Len() - 1
+        If LabelOf(lots[i]) = label Then
+            Dim kept As Vec<Lot>
+            Dim j As Long
+            For j = 0 To lots.Len() - 1
+                If j <> i Then
+                    kept.Push(lots[j])
+                End If
+            Next
+            lots.Clear()
+            Dim k As Long
+            For k = 0 To kept.Len() - 1
+                lots.Push(kept[k])
+            Next
+            Return
+        End If
+    Next
+    RaiseError "that lot is no longer on the board"
+End Function
+
+Function SplitSpaces(ByVal line As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(line)
+        Dim ch As String = Mid(line, i, 1)
+        If ch = " " Then
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        Else
+            cur = cur & ch
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function
