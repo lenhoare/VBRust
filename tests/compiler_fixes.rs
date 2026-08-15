@@ -800,3 +800,139 @@ fn gpu_draw_with_text_overlay_stacks() {
         "overlay sketch still has the shader: {rust}"
     );
 }
+
+#[test]
+fn gpu_copy_clear_and_pixels_emit_runtime() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   State\n\
+        \x20       Dim spr As Pixels = Pixels.Of(18, 18)\n\
+        \x20   End State\n\
+        \x20   Gpu Draw\n\
+        \x20       Clear Color.Navy\n\
+        \x20       Copy frame, 3, 1\n\
+        \x20       Copy spr, 10, 20\n\
+        \x20       Copy spr, 40, 40, 36, 36, Blend Add\n\
+        \x20       Copy spr, 80, 80, ColorKey, Color.Magenta\n\
+        \x20       For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Set Pixel x, y, Color.Red\n\
+        \x20           Next x\n\
+        \x20       Next y\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("struct Pixels"),
+        "Pixels type should be generated: {rust}"
+    );
+    assert!(
+        rust.contains("Pixels::of(18, 18)"),
+        "Pixels.Of should lower to Pixels::of: {rust}"
+    );
+    assert!(rust.contains("fs_copy_"), "Copy should emit a fragment: {rust}");
+    assert!(rust.contains("fs_clear_"), "Clear should emit a fragment: {rust}");
+    assert!(rust.contains("fs_blit"), "paper blit should be present: {rust}");
+    assert!(
+        rust.contains("BlendFactor::One"),
+        "Blend Add should set an additive pipeline: {rust}"
+    );
+    assert!(
+        rust.contains("distance(c.rgb, key.rgb)"),
+        "ColorKey should land in WGSL: {rust}"
+    );
+}
+
+#[test]
+fn gpu_copy_in_cpu_draw_is_an_error() {
+    let c = vbr::compile(
+        "Sketch S\n\
+        \x20   Draw\n\
+        \x20       Copy frame, 3, 1\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Copy in CPU Draw should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Gpu Draw") || joined.contains("CPU"),
+        "should point Copy at Gpu Draw: {joined}"
+    );
+}
+
+#[test]
+fn gpu_copy_using_mask_binds_a_second_texture() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   State\n\
+        \x20       Dim spr As Pixels = Pixels.Of(8, 8)\n\
+        \x20       Dim mask As Pixels = Pixels.Of(8, 8)\n\
+        \x20   End State\n\
+        \x20   Gpu Draw\n\
+        \x20       Copy spr, 0, 0, Using mask\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("mask_tex"),
+        "Using mask should sample a second texture: {rust}"
+    );
+    assert!(
+        rust.contains("layout01m") || rust.contains("bind_group_layouts: &[&bgl0, &bgl1m]"),
+        "masked Copy should share group 1 (iced max_bind_groups is 2): {rust}"
+    );
+    assert!(
+        rust.contains("bind_tex_mask") && rust.contains("bg_copy_"),
+        "masked Copy should bind src+mask in one group: {rust}"
+    );
+    assert!(
+        !rust.contains("set_bind_group(2,"),
+        "masked Copy must not use bind group 2: {rust}"
+    );
+}
+
+#[test]
+fn gpu_into_pixels_writes_a_named_target() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   State\n\
+        \x20       Dim hole As Pixels = Pixels.Of(32, 32)\n\
+        \x20   End State\n\
+        \x20   Gpu Draw\n\
+        \x20       Into hole\n\
+        \x20           Clear Color.Black\n\
+        \x20           For y = 0 To height - 1\n\
+        \x20               For x = 0 To width - 1\n\
+        \x20                   Set Pixel x, y, Color.White\n\
+        \x20               Next x\n\
+        \x20           Next y\n\
+        \x20       End Into\n\
+        \x20       Copy hole, 10, 10\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("pipe.view_hole"),
+        "Into hole should render onto that Pixels: {rust}"
+    );
+    assert!(
+        rust.contains("pipe.ubg_hole"),
+        "Into hole should use hole-sized uniforms: {rust}"
+    );
+    assert!(
+        rust.contains("fs_kernel_"),
+        "Into should still emit a fragment kernel: {rust}"
+    );
+}

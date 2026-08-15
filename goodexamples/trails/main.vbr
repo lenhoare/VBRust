@@ -1,0 +1,46 @@
+' Last frame + a white Pixels stamp, all on the GPU.
+' Copy frame smears the paper; the kernel only paints the comet (unwritten
+' pixels stay see-through so the smear shows). Pixels.Of is a white rectangle.
+' Run:  vbr runproject goodexamples/trails
+
+Sketch Pane
+    Title "Trails"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+        Dim spr As Pixels = Pixels.Of(18, 18)
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        Copy frame, 3, 1
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim cx As Double = width / 2 + Cos(t) * 180
+                Dim cy As Double = height / 2 + Sin(t * 1.3) * 120
+                Dim dx As Double = x - cx
+                Dim dy As Double = y - cy
+                If dx * dx + dy * dy <= 64 Then
+                    Set Pixel x, y, Color(255, 190, 70)
+                End If
+            Next x
+        Next y
+        Copy spr, 24, 24
+        Copy spr, 560, 24, 36, 36, Blend Add
+    End Draw
+
+    Draw
+        Text "trails", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.08
+    End Event
+End Sketch
+
+Function Main()
+    Pane.Run
+End Function

@@ -1,5 +1,7 @@
-' How fast can a Sketch tick? Every 1ms, 320 hailstones, FPS from the
-' wall clock's second. Run:  vbr runproject goodexamples/hail
+' Hail on the GPU — 320 stones reconstructed in the kernel from ticks
+' (v1 has no Vec uniform). CPU Draw only prints the FPS line.
+' Velocities are still clockwork from the index, folded into a bounce.
+' Run:  vbr runproject goodexamples/hail
 
 Sketch Squall
     Title "Hail"
@@ -7,7 +9,7 @@ Sketch Squall
     Background Color(8, 12, 28)
 
     State
-        Dim stones As Vec<Stone> = Storm.Seed()
+        Dim ticks As Long = 0
         Dim frames As Long = 0
         Dim fps As Long = 0
         Dim sec As String = "-"
@@ -15,17 +17,31 @@ Sketch Squall
 
     Every 1 Tick
 
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Set Pixel x, y, Color(8, 12, 28)
+                For i = 0 To 319
+                    Dim sx As Double = StoneX(i, ticks)
+                    Dim sy As Double = StoneY(i, ticks)
+                    Dim r As Double = 2.0 + (i Mod 3)
+                    Dim dx As Double = x - sx
+                    Dim dy As Double = y - sy
+                    If dx * dx + dy * dy <= r * r Then
+                        Dim shade As Long = 160 + (i Mod 80)
+                        Set Pixel x, y, Color(shade, shade, 255)
+                    End If
+                Next
+            Next x
+        Next y
+    End Draw
+
     Draw
-        Dim i As Long
-        For i = 0 To stones.Len() - 1
-            Dim s As Stone = stones[i]
-            Fill Circle(Int(s.X), Int(s.Y), s.R), Color(s.Shade, s.Shade, 255)
-        Next
         Text fps & " fps   320 stones   every 1ms", 16, 22, Color.Gray
     End Draw
 
     Event Tick
-        Storm.Fall(stones)
+        ticks = ticks + 1
         frames = frames + 1
         Dim now As DateTime = DateTime.Now()
         Dim nowSec As String = now.Format("%S")
@@ -36,6 +52,36 @@ Sketch Squall
         End If
     End Event
 End Sketch
+
+Gpu Function Bounce(ByVal start As Double, ByVal vel As Double, ByVal lo As Double, ByVal hi As Double, ByVal n As Double) As Double
+    Dim span As Double = hi - lo
+    Dim p As Double = (start - lo) + vel * n
+    Dim cycle As Double = span * 2.0
+    Dim m As Double = p - cycle * Int(p / cycle)
+    If m < 0.0 Then
+        m = m + cycle
+    End If
+    If m <= span Then
+        Return lo + m
+    Else
+        Return hi - (m - span)
+    End If
+End Function
+
+Gpu Function StoneX(ByVal i As Double, ByVal n As Double) As Double
+    Dim col As Double = i Mod 20
+    Dim vx As Double = 2.4 - (i Mod 7) * 0.7
+    If vx = 0.0 Then
+        vx = 1.8
+    End If
+    Return Bounce(16.0 + col * 38.0, vx, 6.0, 794.0, n)
+End Function
+
+Gpu Function StoneY(ByVal i As Double, ByVal n As Double) As Double
+    Dim row As Double = Int(i / 20.0)
+    Dim vy As Double = 1.6 + (i Mod 5) * 0.5
+    Return Bounce(16.0 + row * 28.0, vy, 6.0, 474.0, n)
+End Function
 
 Function Main()
     Squall.Run

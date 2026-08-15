@@ -1551,9 +1551,95 @@ impl<'a> Parser<'a> {
                 let color = self.parse_expr()?;
                 DrawCmd::Pixel { x, y, color }
             }
+            "clear" => {
+                let color = self.parse_expr()?;
+                DrawCmd::Clear { color }
+            }
+            "copy" => self.parse_copy_cmd()?,
             _ => unreachable!(),
         };
         Some(Stmt::Draw(cmd))
+    }
+
+    /// `Copy spr, dx, dy` / `Copy spr, dx, dy, dw, dh` / `Copy spr, dx, dy, sx, sy, w, h`
+    /// then optional `Using mask`, `ColorKey, color`, `Blend Add|Multiply`.
+    fn parse_copy_cmd(&mut self) -> Option<DrawCmd> {
+        let src = self.expect_ident("for the buffer to Copy — a `Pixels` name, or `frame`")?;
+        let mut args = Vec::new();
+        let mut mask = None;
+        let mut color_key = None;
+        let mut blend = GpuBlend::Replace;
+        while self.eat(&Tok::Comma) {
+            if let Tok::Ident(w) = self.peek().clone() {
+                let lw = w.to_ascii_lowercase();
+                if lw == "using" || lw == "colorkey" || lw == "blend" {
+                    self.parse_copy_clause(&mut mask, &mut color_key, &mut blend)?;
+                    while self.eat(&Tok::Comma) {
+                        self.parse_copy_clause(&mut mask, &mut color_key, &mut blend)?;
+                    }
+                    break;
+                }
+            }
+            args.push(self.parse_expr()?);
+        }
+        if args.len() != 2 && args.len() != 4 && args.len() != 6 {
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                "`Copy` is `Copy spr, x, y` or `Copy spr, dx, dy, dw, dh` or \
+                 `Copy spr, dx, dy, sx, sy, w, h`.",
+            );
+            return None;
+        }
+        Some(DrawCmd::Copy {
+            src,
+            args,
+            mask,
+            color_key,
+            blend,
+        })
+    }
+
+    fn parse_copy_clause(
+        &mut self,
+        mask: &mut Option<String>,
+        color_key: &mut Option<Expr>,
+        blend: &mut GpuBlend,
+    ) -> Option<()> {
+        let w = self.expect_ident("for `Using`, `ColorKey`, or `Blend`")?;
+        match w.to_ascii_lowercase().as_str() {
+            "using" => {
+                *mask = Some(self.expect_ident("for the mask `Pixels`")?);
+            }
+            "colorkey" => {
+                self.eat(&Tok::Comma);
+                *color_key = Some(self.parse_expr()?);
+            }
+            "blend" => {
+                let mode = self.expect_ident("for `Blend Add` or `Blend Multiply`")?;
+                *blend = match mode.to_ascii_lowercase().as_str() {
+                    "add" => GpuBlend::Add,
+                    "multiply" => GpuBlend::Multiply,
+                    other => {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            format!("`Blend {other}` isn't GPU-legal — use `Add` or `Multiply`."),
+                        );
+                        return None;
+                    }
+                };
+            }
+            other => {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    format!("Unexpected `{other}` after `Copy` — expected Using, ColorKey, or Blend."),
+                );
+                return None;
+            }
+        }
+        Some(())
     }
 
     /// A drawing shape: `Circle(cx, cy, r)`, `Rect(x, y, w, h)`, `Line(x1, y1, x2, y2)`.
@@ -3378,12 +3464,28 @@ impl<'a> Parser<'a> {
             return Some(Stmt::RaiseError(self.parse_expr()?));
         }
 
+        if name.eq_ignore_ascii_case("into")
+            && matches!(self.peek2(), Tok::Ident(_))
+            && !matches!(
+                self.peek3(),
+                Tok::Eq | Tok::PlusEq | Tok::MinusEq | Tok::StarEq | Tok::SlashEq | Tok::Dot | Tok::LParen
+            )
+        {
+            self.advance(); // Into
+            let target = self.expect_ident("for the `Pixels` to draw into — `Into spr`")?;
+            self.eat(&Tok::Newline);
+            let body = self.parse_block()?;
+            self.expect(&Tok::End, "to close `Into`")?;
+            self.expect_kw_ident("Into")?;
+            return Some(Stmt::GpuInto { name: target, body });
+        }
+
         // Drawing verbs (only meaningful in a `Draw` block / paint function). We
         // treat them as draw commands when they lead an operand rather than an
         // assignment, so a variable named `Text`/`Fill`/`Stroke` still assigns.
         let is_draw_verb = matches!(
             name.to_ascii_lowercase().as_str(),
-            "fill" | "stroke" | "text" | "pixel"
+            "fill" | "stroke" | "text" | "pixel" | "copy" | "clear"
         ) && !matches!(
             self.peek2(),
             Tok::Eq | Tok::PlusEq | Tok::MinusEq | Tok::StarEq | Tok::SlashEq | Tok::Dot

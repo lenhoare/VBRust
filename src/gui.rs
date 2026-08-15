@@ -218,6 +218,11 @@ fn emit_sketch(
     }
     out.push('\n');
 
+    if s.state.iter().any(|f| crate::gpu::is_pixels(&f.ty)) {
+        out.push_str(crate::gpu::PIXELS_TYPE);
+        out.push('\n');
+    }
+
     // ── State struct ──
     if s.state.is_empty() {
         out.push_str(&format!("struct {};\n\n", ty));
@@ -402,7 +407,10 @@ fn emit_sketch(
         format!("{}Canvas {{ {} }}", s.name, inits.join(", "))
     };
     let overlay = !s.draw.is_empty();
-    let kernel_reads_state = shader_ok && s.state.iter().any(|f| crate::gpu::is_gpu_uniform(&f.ty));
+    let kernel_reads_state = shader_ok
+        && s.state
+            .iter()
+            .any(|f| crate::gpu::is_gpu_uniform(&f.ty) || crate::gpu::is_pixels(&f.ty));
     out.push_str(&format!("fn view(state: &{}) -> Element<'_, {}> {{\n", ty, msg_ty));
     if snap.is_empty() && !kernel_reads_state {
         out.push_str("    let _ = state;\n");
@@ -1579,6 +1587,7 @@ fn stmt_has_pixel(s: &Stmt) -> bool {
             body_has_pixel(body)
         }
         Stmt::Match { arms, .. } => arms.iter().any(|a| body_has_pixel(&a.body)),
+        Stmt::GpuInto { body, .. } => body_has_pixel(body),
         _ => false,
     }
 }
@@ -1594,6 +1603,7 @@ fn stmt_has_draw(s: &Stmt) -> bool {
             body_has_draw(body)
         }
         Stmt::Match { arms, .. } => arms.iter().any(|a| body_has_draw(&a.body)),
+        Stmt::GpuInto { body, .. } => body_has_draw(body),
         _ => false,
     }
 }
@@ -1712,6 +1722,10 @@ fn rewrite_canvas_stmt(
             }
         }
         Stmt::Draw(cmd) => Stmt::Draw(rewrite_draw_cmd(cmd, fields, enums)),
+        Stmt::GpuInto { name, body } => Stmt::GpuInto {
+            name,
+            body: body.into_iter().map(rec).collect(),
+        },
         Stmt::Print(e) => Stmt::Print(re(e)),
         Stmt::Log(level, e) => Stmt::Log(level, re(e)),
         Stmt::Assign { target, value, op } => Stmt::Assign { target: re(target), value: re(value), op },
@@ -1796,6 +1810,20 @@ fn rewrite_draw_cmd(cmd: DrawCmd, fields: &HashSet<String>, enums: &HashSet<Stri
         }
         DrawCmd::Paint { name, args } => DrawCmd::Paint { name, args: args.into_iter().map(re).collect() },
         DrawCmd::Pixel { x, y, color } => DrawCmd::Pixel { x: re(x), y: re(y), color: re(color) },
+        DrawCmd::Clear { color } => DrawCmd::Clear { color: re(color) },
+        DrawCmd::Copy {
+            src,
+            args,
+            mask,
+            color_key,
+            blend,
+        } => DrawCmd::Copy {
+            src,
+            args: args.into_iter().map(re).collect(),
+            mask,
+            color_key: color_key.map(re),
+            blend,
+        },
     }
 }
 

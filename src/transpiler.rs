@@ -1137,6 +1137,7 @@ fn emit_block(
 pub(crate) fn collect_stmt_idents(s: &Stmt, out: &mut HashSet<String>) {
     match s {
         Stmt::Draw(cmd) => collect_drawcmd_idents(cmd, out),
+        Stmt::GpuInto { body, .. } => body.iter().for_each(|s| collect_stmt_idents(s, out)),
         Stmt::Dim { init: Some(e), .. } => collect_expr_idents(e, out),
         Stmt::Set { value, .. } | Stmt::DestructureDim { value, .. } => {
             collect_expr_idents(value, out)
@@ -1229,6 +1230,15 @@ pub(crate) fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
             collect_expr_idents(x, out);
             collect_expr_idents(y, out);
             collect_expr_idents(color, out);
+        }
+        DrawCmd::Clear { color } => collect_expr_idents(color, out),
+        DrawCmd::Copy { args, color_key, .. } => {
+            for a in args {
+                collect_expr_idents(a, out);
+            }
+            if let Some(c) = color_key {
+                collect_expr_idents(c, out);
+            }
         }
     }
 }
@@ -1918,6 +1928,12 @@ pub(crate) fn emit_stmt(
         Stmt::Draw(cmd) => {
             out.push_str(&format!("{}{}\n", pad, render_draw_cmd(cmd, diags)));
         }
+        Stmt::GpuInto { .. } => {
+            diags.error_once(
+                "gpu-into-cpu",
+                "`Into spr` belongs in `Gpu Draw`, not ordinary code.",
+            );
+        }
         // `Assert <expr>` → the Rust assertion whose shape matches the operator,
         // so `=`/`<>` give operand-level failure messages ("left: .., right: ..").
         Stmt::Assert(e) => {
@@ -2118,6 +2134,13 @@ pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String 
                 render_color(color, diags)
             )
         }
+        DrawCmd::Clear { .. } | DrawCmd::Copy { .. } => {
+            diags.error_once(
+                "gpu-copy-cpu",
+                "`Clear` and `Copy` belong in `Gpu Draw`, not the CPU overlay.",
+            );
+            String::new()
+        }
         DrawCmd::Paint { name, args } => {
             let mut a = vec!["frame".to_string()];
             a.extend(args.iter().map(|e| render_expr(e, None)));
@@ -2235,6 +2258,7 @@ pub(crate) fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
                     note_builtins(&arm.body, diags);
                 }
             }
+            Stmt::GpuInto { body, .. } => note_builtins(body, diags),
             _ => {}
         }
     }
@@ -2891,6 +2915,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             let m = rust_name(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
             if let ExprKind::Ident(name) = &(&**recv).kind {
+                if name.eq_ignore_ascii_case("Pixels") && m == "of" {
+                    let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
+                    return format!("Pixels::of({})", rendered.join(", "));
+                }
                 if let Some(canon) = stdlib_type(name) {
                     let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                     return format!("{}::{}({})", canon, m, rendered.join(", "));

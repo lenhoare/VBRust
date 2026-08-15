@@ -1,0 +1,59 @@
+' A round badge: paint a Pixels, punch it with another, stamp onto last frame.
+' `Into hole` draws the circle mask; `Copy stamp … Using hole` keeps only that.
+' Run:  vbr runproject goodexamples/badge
+
+Sketch Pane
+    Title "Badge"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+        Dim stamp As Pixels = Pixels.Of(64, 64)
+        Dim hole As Pixels = Pixels.Of(64, 64)
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        Into hole
+            Clear Color.Black
+            For y = 0 To height - 1
+                For x = 0 To width - 1
+                    Dim cx As Double = width / 2
+                    Dim cy As Double = height / 2
+                    Dim dx As Double = x - cx
+                    Dim dy As Double = y - cy
+                    If dx * dx + dy * dy <= 28 * 28 Then
+                        Set Pixel x, y, Color.White
+                    End If
+                Next x
+            Next y
+        End Into
+
+        Into stamp
+            For y = 0 To height - 1
+                For x = 0 To width - 1
+                    Dim nx As Double = x / width
+                    Dim ny As Double = y / height
+                    Set Pixel x, y, Color(40 + nx * 180, 80 + ny * 80, 200 - nx * 80)
+                Next x
+            Next y
+        End Into
+
+        Copy frame, 2, 1
+        Copy stamp, 288 + Cos(t) * 140, 208 + Sin(t * 0.9) * 90, Using hole
+    End Draw
+
+    Draw
+        Text "badge", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.06
+    End Event
+End Sketch
+
+Function Main()
+    Pane.Run
+End Function

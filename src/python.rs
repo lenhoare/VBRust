@@ -1779,6 +1779,7 @@ fn stmt_name(s: &Stmt) -> &'static str {
         Stmt::ForEach { .. } => "For Each",
         Stmt::Match { .. } => "Match",
         Stmt::Draw(_) => "Draw",
+        Stmt::GpuInto { .. } => "Into",
         Stmt::Assert(_) => "Assert",
         Stmt::RaiseError(_) => "RaiseError",
         Stmt::HandleErr { .. } => "Handle",

@@ -682,6 +682,7 @@ pub(crate) fn coerce_state_strings(
         | Stmt::Break
         | Stmt::Continue
         | Stmt::Draw(_)
+        | Stmt::GpuInto { .. }
         // `Assert` only appears in a `Test` block, never a surface event body.
         | Stmt::Assert(_)
         | Stmt::Comment(_)
@@ -1399,6 +1400,7 @@ pub(crate) fn rewrite_stmt(
         | Stmt::Continue
         | Stmt::Destroy { .. }
         | Stmt::Draw(_)
+        | Stmt::GpuInto { .. }
         // `Assert` only appears in a `Test` block, never a surface event body.
         | Stmt::Assert(_)
         | Stmt::Comment(_)

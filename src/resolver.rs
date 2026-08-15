@@ -1034,6 +1034,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
             }
             Stmt::Draw(cmd) => resolve_draw_cmd(cmd, ctx),
+            Stmt::GpuInto { body, .. } => resolve_stmts(body, ctx),
             // A LineMark is bookkeeping for the emitter, nothing to resolve.
             Stmt::Return(None) | Stmt::Comment(_) | Stmt::LineMark(_) => {}
             Stmt::If { branches, else_body } => {
@@ -1219,6 +1220,19 @@ fn resolve_draw_cmd(cmd: &mut DrawCmd, ctx: &mut Ctx) {
             resolve_expr(x, ctx);
             resolve_expr(y, ctx);
             resolve_expr(color, ctx);
+        }
+        DrawCmd::Clear { color } => resolve_expr(color, ctx),
+        DrawCmd::Copy {
+            args,
+            color_key,
+            ..
+        } => {
+            for a in args {
+                resolve_expr(a, ctx);
+            }
+            if let Some(c) = color_key {
+                resolve_expr(c, ctx);
+            }
         }
         DrawCmd::Paint { args, .. } => {
             for a in args {

@@ -277,10 +277,28 @@ pub enum DrawCmd {
     Text { text: Expr, x: Expr, y: Expr, color: Option<Expr> },
     /// `Set Pixel <x>, <y>, <color>` — write one pixel into the Draw buffer.
     Pixel { x: Expr, y: Expr, color: Expr },
+    /// `Clear <color>` — fill the GPU paper without a pixel loop (`Gpu Draw`).
+    Clear { color: Expr },
+    /// `Copy spr, x, y` / source rect / dest size — a GPU rectangle copy (`Gpu Draw`).
+    Copy {
+        src: String,
+        args: Vec<Expr>,
+        mask: Option<String>,
+        color_key: Option<Expr>,
+        blend: GpuBlend,
+    },
     /// A call to a paint function — *not* produced by the parser; the canvas
     /// codegen rewrites a plain call to a paint function into this so the shared
     /// `frame` is threaded through (`draw_grid(frame, …)?`).
     Paint { name: String, args: Vec<Expr> },
+}
+
+/// How a `Copy` combines with the paper. Default is overwrite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuBlend {
+    Replace,
+    Add,
+    Multiply,
 }
 
 /// A drawable shape (coordinates are any numeric expression; codegen casts to f32).
@@ -799,6 +817,9 @@ pub enum Stmt {
     },
     /// A drawing verb inside a `Draw` block / paint function (canvas codegen).
     Draw(DrawCmd),
+    /// `Into spr` … `End Into` inside `Gpu Draw` — the body writes a named
+    /// `Pixels` texture rather than the window paper.
+    GpuInto { name: String, body: Vec<Stmt> },
     /// `Assert <expr>` inside a `Test` block. The expression's shape picks the
     /// Rust assertion: `a = b` → `assert_eq!`, `a <> b` → `assert_ne!`, anything
     /// else → `assert!` — so the `=`/`<>` you'd write anyway give operand-level
