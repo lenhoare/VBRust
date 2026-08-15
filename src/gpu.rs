@@ -30,6 +30,7 @@ pub fn emit_shader_program(
         );
         return None;
     }
+    let sample_names = collect_sample_srcs(gpu_draw, gpu_fns, state, diags)?;
     for f in state {
         let r = rust_name(&f.name);
         if (is_gpu_uniform(&f.ty) || is_pixels(&f.ty)) && RESERVED_UNIFORM.contains(&r.as_str()) {
@@ -57,7 +58,7 @@ pub fn emit_shader_program(
         .collect();
 
     let mut wgsl = String::new();
-    wgsl.push_str("struct Uniforms {\n    origin: vec2<f32>,\n    scale: f32,\n    _pad: f32,\n    size: vec2<f32>,\n");
+    wgsl.push_str("struct Uniforms {\n    origin: vec2<f32>,\n    scale: f32,\n    _pad: f32,\n    size: vec2<f32>,\n    mouse: vec2<f32>,\n");
     for f in state {
         if is_gpu_uniform(&f.ty) {
             wgsl.push_str(&format!("    {}: f32,\n", rust_name(&f.name)));
@@ -70,7 +71,15 @@ pub fn emit_shader_program(
     wgsl.push_str("}\n@group(0) @binding(0) var<uniform> u: Uniforms;\n");
     wgsl.push_str("@group(1) @binding(0) var src_tex: texture_2d<f32>;\n");
     wgsl.push_str("@group(1) @binding(1) var src_samp: sampler;\n");
-    wgsl.push_str("@group(1) @binding(2) var mask_tex: texture_2d<f32>;\n\n");
+    wgsl.push_str("@group(1) @binding(2) var mask_tex: texture_2d<f32>;\n");
+    for (i, name) in sample_names.iter().enumerate() {
+        wgsl.push_str(&format!(
+            "@group(1) @binding({}) var samptex_{}: texture_2d<f32>;\n",
+            3 + i,
+            sample_tex_name(name)
+        ));
+    }
+    wgsl.push_str(NOISE_WGSL);
 
     for c in constants {
         if is_gpu_numeric_type(&c.ty) {
@@ -178,7 +187,13 @@ pub fn emit_shader_program(
          return textureSample(src_tex, src_samp, uv);\n}\n",
     );
 
-    Some(rust_runtime(sketch_name, &wgsl, state, &runtime_passes))
+    Some(rust_runtime(
+        sketch_name,
+        &wgsl,
+        state,
+        &runtime_passes,
+        &sample_names,
+    ))
 }
 
 pub(crate) fn is_gpu_uniform(ty: &DeclType) -> bool {
@@ -189,6 +204,178 @@ pub(crate) fn is_pixels(ty: &DeclType) -> bool {
     matches!(ty, DeclType::Named(n) if n.eq_ignore_ascii_case("pixels"))
 }
 
+fn sample_tex_name(name: &str) -> String {
+    if name.eq_ignore_ascii_case("frame") {
+        "frame".into()
+    } else {
+        rust_name(name)
+    }
+}
+
+fn collect_sample_srcs(
+    gpu_draw: &[Stmt],
+    gpu_fns: &[&Function],
+    state: &[StateField],
+    diags: &mut Diagnostics,
+) -> Option<Vec<String>> {
+    let mut names: Vec<String> = Vec::new();
+    let mut ok = true;
+    let mut add = |e: &Expr| {
+        let ExprKind::Call { name, args } = &e.kind else {
+            return;
+        };
+        if !name.eq_ignore_ascii_case("sample") {
+            return;
+        }
+        if args.len() != 3 {
+            diags.error_once(
+                "gpu-sample",
+                "`Sample(spr, u, v)` needs a `Pixels` (or `frame`) and two coordinates.",
+            );
+            ok = false;
+            return;
+        }
+        match &args[0].kind {
+            ExprKind::Ident(s) => {
+                let r = rust_name(s);
+                let known = r == "frame"
+                    || s.eq_ignore_ascii_case("frame")
+                    || state.iter().any(|f| rust_name(&f.name) == r && is_pixels(&f.ty));
+                if !known {
+                    diags.error_once(
+                        "gpu-sample-src",
+                        format!("`Sample({s}, …)` needs a `Pixels` State field, or `frame`."),
+                    );
+                    ok = false;
+                } else if !names.iter().any(|n| sample_tex_name(n) == r) {
+                    names.push(s.clone());
+                }
+            }
+            _ => {
+                diags.error_once(
+                    "gpu-sample",
+                    "`Sample(spr, u, v)` needs a `Pixels` name (or `frame`) and two coordinates.",
+                );
+                ok = false;
+            }
+        }
+    };
+    for s in gpu_draw {
+        walk_stmt_exprs(s, &mut add);
+    }
+    for f in gpu_fns {
+        for s in &f.body {
+            walk_stmt_exprs(s, &mut add);
+        }
+    }
+    if ok {
+        Some(names)
+    } else {
+        None
+    }
+}
+
+fn walk_stmt_exprs(s: &Stmt, add: &mut impl FnMut(&Expr)) {
+    match s {
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Set { value: e, .. }
+        | Stmt::Return(Some(e)) => walk_expr(e, add),
+        Stmt::Assign { target, value, .. } => {
+            walk_expr(target, add);
+            walk_expr(value, add);
+        }
+        Stmt::If {
+            branches,
+            else_body,
+        } => {
+            for (c, body) in branches {
+                walk_expr(c, add);
+                for s in body {
+                    walk_stmt_exprs(s, add);
+                }
+            }
+            if let Some(body) = else_body {
+                for s in body {
+                    walk_stmt_exprs(s, add);
+                }
+            }
+        }
+        Stmt::For {
+            from, to, step, body, ..
+        } => {
+            walk_expr(from, add);
+            walk_expr(to, add);
+            if let Some(st) = step {
+                walk_expr(st, add);
+            }
+            for s in body {
+                walk_stmt_exprs(s, add);
+            }
+        }
+        Stmt::DoLoop { cond, body } => {
+            if let Some(c) = cond {
+                match c {
+                    DoCond::PreWhile(e) | DoCond::PreUntil(e) | DoCond::PostWhile(e) | DoCond::PostUntil(e) => {
+                        walk_expr(e, add);
+                    }
+                }
+            }
+            for s in body {
+                walk_stmt_exprs(s, add);
+            }
+        }
+        Stmt::Draw(DrawCmd::Pixel { x, y, color }) => {
+            walk_expr(x, add);
+            walk_expr(y, add);
+            walk_expr(color, add);
+        }
+        Stmt::GpuInto { body, .. } => {
+            for s in body {
+                walk_stmt_exprs(s, add);
+            }
+        }
+        Stmt::Draw(DrawCmd::Copy { args, color_key, .. }) => {
+            for a in args {
+                walk_expr(a, add);
+            }
+            if let Some(c) = color_key {
+                walk_expr(c, add);
+            }
+        }
+        Stmt::Draw(DrawCmd::Clear { color }) => walk_expr(color, add),
+        _ => {}
+    }
+}
+
+fn walk_expr(e: &Expr, add: &mut impl FnMut(&Expr)) {
+    add(e);
+    match &e.kind {
+        ExprKind::Not(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Try(inner) => walk_expr(inner, add),
+        ExprKind::Binary { lhs, rhs, .. } => {
+            walk_expr(lhs, add);
+            walk_expr(rhs, add);
+        }
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                walk_expr(a, add);
+            }
+        }
+        ExprKind::Field(recv, _) => walk_expr(recv, add),
+        ExprKind::MethodCall { recv, args, .. } => {
+            walk_expr(recv, add);
+            for a in args {
+                walk_expr(a, add);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn is_gpu_numeric_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -197,8 +384,40 @@ fn is_gpu_numeric_type(ty: &Type) -> bool {
 }
 
 const RESERVED_UNIFORM: &[&str] = &[
-    "origin", "scale", "size", "_pad", "u", "col", "pos", "logical", "frame",
+    "origin", "scale", "size", "_pad", "u", "col", "pos", "logical", "frame", "mouse",
+    "mouse_x", "mouse_y",
 ];
+
+const NOISE_WGSL: &str = r#"
+fn vbr_hash22(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+fn vbr_hash33(p: vec3<f32>) -> f32 {
+    var p3 = fract(p * 0.1031);
+    p3 += dot(p3, p3.zyx + 31.32);
+    return fract((p3.x + p3.y) * p3.z);
+}
+fn vbr_noise2(x: f32, y: f32) -> f32 {
+    let p = vec2(x, y);
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(vbr_hash22(i), vbr_hash22(i + vec2(1.0, 0.0)), u.x), mix(vbr_hash22(i + vec2(0.0, 1.0)), vbr_hash22(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+fn vbr_noise3(x: f32, y: f32, z: f32) -> f32 {
+    let p = vec3(x, y, z);
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(mix(vbr_hash33(i), vbr_hash33(i + vec3(1.0, 0.0, 0.0)), u.x), mix(vbr_hash33(i + vec3(0.0, 1.0, 0.0)), vbr_hash33(i + vec3(1.0, 1.0, 0.0)), u.x), u.y),
+        mix(mix(vbr_hash33(i + vec3(0.0, 0.0, 1.0)), vbr_hash33(i + vec3(1.0, 0.0, 1.0)), u.x), mix(vbr_hash33(i + vec3(0.0, 1.0, 1.0)), vbr_hash33(i + vec3(1.0, 1.0, 1.0)), u.x), u.y),
+        u.z);
+}
+
+"#;
 
 enum GpuPass {
     Clear { color: Expr, target: Option<String> },
@@ -544,6 +763,13 @@ fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Di
         Stmt::Comment(_) | Stmt::LineMark(_) => Some(String::new()),
         Stmt::Dim { name, init, .. } => {
             let n = rust_name(name);
+            if RESERVED_UNIFORM.contains(&n.as_str()) {
+                diags.error_once(
+                    "gpu-local-name",
+                    format!("`{name}` is a Gpu Draw name. Pick another."),
+                );
+                return None;
+            }
             match init {
                 Some(e) => Some(format!("{pad}var {n} = {};\n", wgsl_expr(e, uniforms, diags)?)),
                 None => Some(format!("{pad}var {n} = 0.0;\n")),
@@ -725,6 +951,10 @@ fn wgsl_expr(e: &Expr, uniforms: &HashSet<String>, diags: &mut Diagnostics) -> O
                 Some("u.size.x".into())
             } else if r == "height" {
                 Some("u.size.y".into())
+            } else if r == "mouse_x" {
+                Some("u.mouse.x".into())
+            } else if r == "mouse_y" {
+                Some("u.mouse.y".into())
             } else if uniforms.contains(&r) {
                 Some(format!("u.{r}"))
             } else {
@@ -797,6 +1027,26 @@ fn wgsl_expr(e: &Expr, uniforms: &HashSet<String>, diags: &mut Diagnostics) -> O
 
 fn wgsl_call(name: &str, args: &[Expr], uniforms: &HashSet<String>, diags: &mut Diagnostics) -> Option<String> {
     let n = name.to_ascii_lowercase();
+    if n == "sample" {
+        return wgsl_sample(args, uniforms, diags);
+    }
+    if n == "noise" {
+        let a: Vec<String> = args
+            .iter()
+            .map(|e| wgsl_expr(e, uniforms, diags))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(match a.len() {
+            2 => format!("vbr_noise2({}, {})", a[0], a[1]),
+            3 => format!("vbr_noise3({}, {}, {})", a[0], a[1], a[2]),
+            _ => {
+                diags.error_once(
+                    "gpu-noise",
+                    "`Noise(x, y)` or `Noise(x, y, t)` — two or three numbers, 0 to 1.",
+                );
+                return None;
+            }
+        });
+    }
     let a: Vec<String> = args
         .iter()
         .map(|e| wgsl_expr(e, uniforms, diags))
@@ -822,6 +1072,37 @@ fn wgsl_call(name: &str, args: &[Expr], uniforms: &HashSet<String>, diags: &mut 
         ),
         _ => format!("{}({})", rust_name(name), a.join(", ")),
     })
+}
+
+fn wgsl_sample(args: &[Expr], uniforms: &HashSet<String>, diags: &mut Diagnostics) -> Option<String> {
+    if args.len() != 3 {
+        diags.error_once(
+            "gpu-sample",
+            "`Sample(spr, u, v)` needs a `Pixels` (or `frame`) and two coordinates.",
+        );
+        return None;
+    }
+    let src = match &args[0].kind {
+        ExprKind::Ident(s) => s,
+        _ => {
+            diags.error_once(
+                "gpu-sample",
+                "`Sample(spr, u, v)` needs a `Pixels` name (or `frame`) and two coordinates.",
+            );
+            return None;
+        }
+    };
+    let u = wgsl_expr(&args[1], uniforms, diags)?;
+    let v = wgsl_expr(&args[2], uniforms, diags)?;
+    let tex = sample_tex_name(src);
+    let (w, h) = if tex == "frame" {
+        ("u.size.x".to_string(), "u.size.y".to_string())
+    } else {
+        (format!("u.{tex}_w"), format!("u.{tex}_h"))
+    };
+    Some(format!(
+        "textureSample(samptex_{tex}, src_samp, vec2(({u}) / ({w}), ({v}) / ({h})))"
+    ))
 }
 
 /// Generated `Pixels` type — emitted before the Sketch `State` so a
@@ -892,34 +1173,102 @@ fn dest_first(target: &Option<String>) -> String {
     }
 }
 
+fn sample_runtime(names: &[String]) -> (String, String, String, String, String) {
+    if names.is_empty() {
+        return (
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+    }
+    let mut layout_entries = String::from(
+        "                shader::wgpu::BindGroupLayoutEntry {\n                    \
+         binding: 1,\n                    visibility: shader::wgpu::ShaderStages::FRAGMENT,\n                    \
+         ty: shader::wgpu::BindingType::Sampler(shader::wgpu::SamplerBindingType::Filtering),\n                    \
+         count: None,\n                },\n",
+    );
+    let tex_entry = |binding: usize| {
+        format!(
+            "                shader::wgpu::BindGroupLayoutEntry {{\n                    \
+             binding: {binding},\n                    visibility: shader::wgpu::ShaderStages::FRAGMENT,\n                    \
+             ty: shader::wgpu::BindingType::Texture {{\n                        \
+             sample_type: shader::wgpu::TextureSampleType::Float {{ filterable: true }},\n                        \
+             view_dimension: shader::wgpu::TextureViewDimension::D2,\n                        \
+             multisampled: false,\n                    }},\n                    count: None,\n                }},\n"
+        )
+    };
+    let mut bg_new_entries = String::from(
+        "            shader::wgpu::BindGroupEntry {\n                binding: 1,\n                \
+         resource: shader::wgpu::BindingResource::Sampler(&samp),\n            },\n",
+    );
+    let mut bg_prep_entries = String::from(
+        "            shader::wgpu::BindGroupEntry {\n                binding: 1,\n                \
+         resource: shader::wgpu::BindingResource::Sampler(&pipe.samp),\n            },\n",
+    );
+    for (i, name) in names.iter().enumerate() {
+        let b = 3 + i;
+        layout_entries.push_str(&tex_entry(b));
+        bg_new_entries.push_str(&format!(
+            "            shader::wgpu::BindGroupEntry {{\n                binding: {b},\n                \
+             resource: shader::wgpu::BindingResource::TextureView(&{}),\n            }},\n",
+            tex_view(name, ""),
+        ));
+        bg_prep_entries.push_str(&format!(
+            "            shader::wgpu::BindGroupEntry {{\n                binding: {b},\n                \
+             resource: shader::wgpu::BindingResource::TextureView(&{}),\n            }},\n",
+            tex_view(name, "pipe."),
+        ));
+    }
+    let fields = "    bgl1s: shader::wgpu::BindGroupLayout,\n    bg_samp: shader::wgpu::BindGroup,\n".to_string();
+    let layout = format!(
+        "        let bgl1s = device.create_bind_group_layout(&shader::wgpu::BindGroupLayoutDescriptor {{\n            \
+         label: Some(\"vbr gpu samp\"),\n            entries: &[\n{layout_entries}            ],\n        }});\n        \
+         let layout01s = device.create_pipeline_layout(&shader::wgpu::PipelineLayoutDescriptor {{\n            \
+         label: Some(\"vbr gpu layout01s\"),\n            bind_group_layouts: &[&bgl0, &bgl1s],\n            \
+         push_constant_ranges: &[],\n        }});\n"
+    );
+    let bg = |entries: &str, assign: &str, layout_ref: &str| {
+        format!(
+            "        {assign} device.create_bind_group(&shader::wgpu::BindGroupDescriptor {{\n            \
+             label: Some(\"vbr gpu samp\"),\n            layout: {layout_ref},\n            entries: &[\n{entries}            ],\n        }});\n"
+        )
+    };
+    let bg_new = bg(&bg_new_entries, "let bg_samp =", "&bgl1s");
+    let bg_prep = bg(&bg_prep_entries, "pipe.bg_samp =", "&pipe.bgl1s");
+    let init = "            bgl1s,\n            bg_samp,\n".to_string();
+    (fields, layout, bg_new, bg_prep, init)
+}
+
 fn rust_runtime(
     sketch_name: &str,
     wgsl: &str,
     state: &[StateField],
     passes: &[RuntimePass],
+    sample_names: &[String],
 ) -> String {
     let extras = extra_uniform_names(state);
-    let nfloats = 6 + extras.len();
+    let nfloats = 8 + extras.len();
     let nbytes = ((nfloats * 4 + 15) / 16) * 16;
     let struct_fields: String = extras.iter().map(|r| format!("    {r}: f32,\n")).collect();
+    let prim_fields = format!("{struct_fields}    mouse_x: f32,\n    mouse_y: f32,\n");
     let (kernel_ty, prim_ty, pipe_ty) = (
         format!("{sketch_name}Kernel"),
         format!("{sketch_name}Prim"),
         format!("{sketch_name}Pipe"),
     );
     let kernel_def = if extras.is_empty() {
-        format!("#[derive(Debug, Clone, Copy, Default)]\nstruct {kernel_ty};\n\n#[derive(Debug)]\nstruct {prim_ty};\n")
+        format!("#[derive(Debug, Clone, Copy, Default)]\nstruct {kernel_ty};\n\n#[derive(Debug)]\nstruct {prim_ty} {{\n    mouse_x: f32,\n    mouse_y: f32,\n}}\n")
     } else {
         format!(
-            "#[derive(Debug, Clone, Copy)]\nstruct {kernel_ty} {{\n{struct_fields}}}\n\n#[derive(Debug)]\nstruct {prim_ty} {{\n{struct_fields}}}\n"
+            "#[derive(Debug, Clone, Copy)]\nstruct {kernel_ty} {{\n{struct_fields}}}\n\n#[derive(Debug)]\nstruct {prim_ty} {{\n{prim_fields}}}\n"
         )
     };
-    let prim_from = if extras.is_empty() {
-        format!("{prim_ty}")
-    } else {
-        let fs: String = extras.iter().map(|r| format!("            {r}: self.{r},\n")).collect();
-        format!("{prim_ty} {{\n{fs}        }}")
-    };
+    let extra_prim: String = extras.iter().map(|r| format!("            {r}: self.{r},\n")).collect();
+    let prim_from = format!(
+        "{prim_ty} {{\n{extra_prim}            mouse_x,\n            mouse_y,\n        }}"
+    );
     let extra_writes: String = extras.iter().map(|r| format!("            self.{r},\n")).collect();
     let pad_zeros = "0.0, ".repeat((nbytes / 4).saturating_sub(nfloats));
     let nwords = nbytes / 4;
@@ -989,8 +1338,13 @@ fn rust_runtime(
             }
             RuntimePass::Kernel { fs, .. } => {
                 copy_fields.push_str(&format!("    kernel_{i}: shader::wgpu::RenderPipeline,\n"));
+                let layout = if sample_names.is_empty() {
+                    "layout0"
+                } else {
+                    "layout01s"
+                };
                 copy_new.push_str(&format!(
-                    "        let kernel_{i} = pipe_fs(\"{fs}\", &layout0, shader::wgpu::BlendState::REPLACE);\n"
+                    "        let kernel_{i} = pipe_fs(\"{fs}\", &{layout}, shader::wgpu::BlendState::REPLACE);\n"
                 ));
                 copy_init.push_str(&format!("            kernel_{i},\n"));
             }
@@ -1023,6 +1377,9 @@ fn rust_runtime(
         })
         .collect();
     let pix_tex_new = pix_tex_new + &mask_bg_new;
+    let (sample_fields, sample_layout, sample_bg_new, sample_bg_prep, sample_init) =
+        sample_runtime(sample_names);
+    let pix_tex_new = pix_tex_new + &sample_bg_new;
     let pix_tex_init: String = pixel_fields
         .iter()
         .map(|r| format!("            tex_{r}, view_{r}, bg_{r}, uniforms_{r}, ubg_{r},\n"))
@@ -1034,11 +1391,14 @@ fn rust_runtime(
     let mut render_passes = first_inits;
     for (i, p) in passes.iter().enumerate() {
         let (pipe_field, groups, target) = match p {
-            RuntimePass::Kernel { target, .. } => (
-                format!("pipe.kernel_{i}"),
-                String::new(),
-                target,
-            ),
+            RuntimePass::Kernel { target, .. } => {
+                let g = if sample_names.is_empty() {
+                    String::new()
+                } else {
+                    "            pass.set_bind_group(1, &pipe.bg_samp, &[]);\n".into()
+                };
+                (format!("pipe.kernel_{i}"), g, target)
+            }
             RuntimePass::Clear { target, .. } => (
                 format!("pipe.clear_{i}"),
                 String::new(),
@@ -1089,13 +1449,13 @@ fn rust_runtime(
             )
         })
         .collect();
-    let resize_spr = resize_spr + &mask_bg_prep;
+    let resize_spr = resize_spr + &mask_bg_prep + &sample_bg_prep;
     let pix_uniform_writes: String = pixel_fields
         .iter()
         .map(|r| {
             format!(
                 "        let data_{r}: [f32; {nwords}] = [\n            0.0, 0.0, 1.0, 0.0,\n            \
-                 self.{r}_w, self.{r}_h,\n{extra_writes}            {pad_zeros}\n        ];\n        \
+                 self.{r}_w, self.{r}_h,\n            self.mouse_x, self.mouse_y,\n{extra_writes}            {pad_zeros}\n        ];\n        \
                  let bytes_{r} = unsafe {{\n            std::slice::from_raw_parts(data_{r}.as_ptr() as *const u8, std::mem::size_of_val(&data_{r}))\n        }};\n        \
                  queue.write_buffer(&pipe.uniforms_{r}, 0, bytes_{r});\n"
             )
@@ -1107,14 +1467,34 @@ use iced::widget::shader;
 
 {kernel_def}
 impl<Message> shader::Program<Message> for {kernel_ty} {{
-    type State = ();
+    type State = (f32, f32);
     type Primitive = {prim_ty};
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: shader::Event,
+        bounds: iced::Rectangle,
+        cursor: iced::mouse::Cursor,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+    ) -> (iced::event::Status, Option<Message>) {{
+        if let shader::Event::Mouse(iced::mouse::Event::CursorMoved {{ .. }}) = event {{
+            if let Some(p) = cursor.position_in(bounds) {{
+                *state = (p.x, p.y);
+            }}
+            shell.request_redraw(iced::window::RedrawRequest::NextFrame);
+        }}
+        (iced::event::Status::Ignored, None)
+    }}
     fn draw(
         &self,
-        _state: &Self::State,
-        _cursor: iced::mouse::Cursor,
-        _bounds: iced::Rectangle,
+        state: &Self::State,
+        cursor: iced::mouse::Cursor,
+        bounds: iced::Rectangle,
     ) -> Self::Primitive {{
+        let (mouse_x, mouse_y) = match cursor.position_in(bounds) {{
+            Some(p) => (p.x, p.y),
+            None => *state,
+        }};
         {prim_from}
     }}
 }}
@@ -1124,7 +1504,7 @@ struct {pipe_ty} {{
     format: shader::wgpu::TextureFormat,
     bgl1: shader::wgpu::BindGroupLayout,
     bgl1m: shader::wgpu::BindGroupLayout,
-    ubg: shader::wgpu::BindGroup,
+{sample_fields}    ubg: shader::wgpu::BindGroup,
     uniforms: shader::wgpu::Buffer,
     samp: shader::wgpu::Sampler,
     blit: shader::wgpu::RenderPipeline,
@@ -1143,6 +1523,7 @@ struct {pipe_ty} {{
         prim_from = prim_from,
         copy_fields = copy_fields,
         pix_tex_fields = pix_tex_fields,
+        sample_fields = sample_fields,
     ) + &format!(
         r#"
 impl shader::Primitive for {prim_ty} {{
@@ -1181,6 +1562,8 @@ impl shader::Primitive for {prim_ty} {{
             0.0,
             bounds.width,
             bounds.height,
+            self.mouse_x,
+            self.mouse_y,
 {extra_writes}            {pad_zeros}
         ];
         let bytes = unsafe {{
@@ -1229,6 +1612,8 @@ impl shader::Primitive for {prim_ty} {{
         &copy_init,
         &pix_tex_new,
         &pix_tex_init,
+        &sample_layout,
+        &sample_init,
     )
 }
 
@@ -1240,6 +1625,8 @@ fn gpu_helpers(
     copy_init: &str,
     pix_tex_new: &str,
     pix_tex_init: &str,
+    sample_layout: &str,
+    sample_init: &str,
 ) -> String {
     format!(
         r#"
@@ -1491,6 +1878,7 @@ impl {pipe_ty} {{
             bind_group_layouts: &[&bgl0],
             push_constant_ranges: &[],
         }});
+        let _ = &layout0;
         let layout01 = device.create_pipeline_layout(&shader::wgpu::PipelineLayoutDescriptor {{
             label: Some("vbr gpu layout01"),
             bind_group_layouts: &[&bgl0, &bgl1],
@@ -1502,7 +1890,7 @@ impl {pipe_ty} {{
             push_constant_ranges: &[],
         }});
         let _ = &layout01m;
-        let pipe_fs = |entry: &str, layout: &shader::wgpu::PipelineLayout, blend: shader::wgpu::BlendState| {{
+{sample_layout}        let pipe_fs = |entry: &str, layout: &shader::wgpu::PipelineLayout, blend: shader::wgpu::BlendState| {{
             device.create_render_pipeline(&shader::wgpu::RenderPipelineDescriptor {{
                 label: Some("vbr gpu pipeline"),
                 layout: Some(layout),
@@ -1535,7 +1923,7 @@ impl {pipe_ty} {{
             format,
             bgl1,
             bgl1m,
-            ubg,
+{sample_init}            ubg,
             uniforms,
             samp,
             blit,
@@ -1556,6 +1944,8 @@ impl {pipe_ty} {{
         pix_tex_new = pix_tex_new,
         copy_init = copy_init,
         pix_tex_init = pix_tex_init,
+        sample_layout = sample_layout,
+        sample_init = sample_init,
     )
 }
 

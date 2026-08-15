@@ -1,5 +1,5 @@
-' Frost on the pane — a Julia set, now a Gpu Draw kernel.
-' Helpers live in this file (v1 shaders can't pull lace.vbr into WGSL).
+' Frost on the pane — a Julia set, Gpu Draw kernel.
+' Helpers live in lace.vbr (Public Gpu Function).
 ' Run:  vbr runproject goodexamples/frost
 
 Sketch Pane
@@ -10,9 +10,9 @@ Sketch Pane
     Gpu Draw
         For y = 0 To height - 1
             For x = 0 To width - 1
-                Dim zr As Double = RealAt(x, width)
-                Dim zi As Double = ImagAt(y, height)
-                Dim n As Long = Escape(zr, zi)
+                Dim zr As Double = Lace.RealAt(x, width)
+                Dim zi As Double = Lace.ImagAt(y, height)
+                Dim n As Long = Lace.Escape(zr, zi)
                 If n < 80 Then
                     Dim t As Long = (n * 255) / 80
                     Set Pixel x, y, Color(t / 2, t, 255 - t)
@@ -25,29 +25,6 @@ Sketch Pane
         Text "frost", 16, 22, Color.Gray
     End Draw
 End Sketch
-
-Const CRE As Double = -0.74543
-Const CIM As Double = 0.11301
-Const MAXITER As Long = 80
-
-Gpu Function RealAt(ByVal x As Long, ByVal w As Long) As Double
-    Return -1.55 + x * 3.1 / w
-End Function
-
-Gpu Function ImagAt(ByVal y As Long, ByVal h As Long) As Double
-    Return -1.15 + y * 2.3 / h
-End Function
-
-Gpu Function Escape(ByVal zr As Double, ByVal zi As Double) As Long
-    Dim n As Long = 0
-    Do While n < MAXITER And zr * zr + zi * zi < 4.0
-        Dim tmp As Double = zr * zr - zi * zi + CRE
-        zi = 2.0 * zr * zi + CIM
-        zr = tmp
-        n = n + 1
-    Loop
-    Return n
-End Function
 
 Function Main()
     Pane.Run

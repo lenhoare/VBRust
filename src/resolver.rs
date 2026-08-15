@@ -63,6 +63,12 @@ pub struct ModuleInterface {
     pub private_consts: HashSet<String>,
     /// Private `Type`/`Enum` names, for the visibility diagnostic.
     pub private_types: HashSet<String>,
+    /// Public `Gpu Function`s with bodies — inlined into a Sketch's WGSL, since
+    /// they are not emitted as Rust and interfaces otherwise drop the body.
+    pub gpu_fns: Vec<Function>,
+    /// Numeric consts from a module that has `Gpu Function`s (public or private),
+    /// so sibling helpers can see `CRE` / `MAXITER` in the shader.
+    pub gpu_consts: Vec<ConstDef>,
 }
 
 /// Module (Rust) name → its interface. A verbatim `.rs` module has no entry —
@@ -76,11 +82,21 @@ pub const CRATE_ROOT: &str = "<crate>";
 
 /// Harvest a module's interface from its parsed program.
 pub fn module_interface(program: &Program) -> ModuleInterface {
+    let mut gpu_fns = Vec::new();
+    let mut gpu_consts = Vec::new();
     let mut fns = FnTable::new();
     let mut private_fns = HashSet::new();
     for f in &program.functions {
         // Methods belong to their struct, not the module surface.
         if f.receiver.is_some() {
+            continue;
+        }
+        if f.gpu {
+            if f.public {
+                gpu_fns.push(f.clone());
+            } else {
+                private_fns.insert(snake(&f.name));
+            }
             continue;
         }
         if f.public {
@@ -94,6 +110,16 @@ pub fn module_interface(program: &Program) -> ModuleInterface {
             );
         } else {
             private_fns.insert(snake(&f.name));
+        }
+    }
+    if program.functions.iter().any(|f| f.gpu) {
+        for c in &program.constants {
+            if matches!(
+                c.ty,
+                Type::Integer | Type::Long | Type::LongLong | Type::Single | Type::Double | Type::Byte
+            ) {
+                gpu_consts.push(c.clone());
+            }
         }
     }
     let mut consts = HashMap::new();
@@ -155,6 +181,8 @@ pub fn module_interface(program: &Program) -> ModuleInterface {
         private_fns,
         private_consts,
         private_types,
+        gpu_fns,
+        gpu_consts,
     }
 }
 

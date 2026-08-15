@@ -1,0 +1,44 @@
+' A pond: Noise in the kernel, Sample of last frame, mouse as uniforms.
+' The blob follows the pointer; the water keeps a smear.
+' Run:  vbr runproject goodexamples/pond
+
+Sketch Pond
+    Title "Pond"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim n As Double = Noise(x * 0.03, y * 0.03, t)
+                Dim ux As Double = x + (n - 0.5) * 10
+                Dim vy As Double = y + (Noise(y * 0.03, x * 0.03, t) - 0.5) * 10
+                Dim dx As Double = x - mouse_x
+                Dim dy As Double = y - mouse_y
+                If dx * dx + dy * dy < 22 * 22 Then
+                    Set Pixel x, y, Color(30 + n * 40, 140 + n * 80, 220)
+                Else
+                    Set Pixel x, y, Sample(frame, ux, vy)
+                End If
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "pond", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.05
+    End Event
+End Sketch
+
+Function Main()
+    Pond.Run
+End Function

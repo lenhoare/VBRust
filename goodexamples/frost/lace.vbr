@@ -1,0 +1,25 @@
+' Julia helpers for frost — Public Gpu Functions, compiled into the sketch shader.
+' Run:  vbr runproject goodexamples/frost
+
+Public Const CRE As Double = -0.74543
+Public Const CIM As Double = 0.11301
+Public Const MAXITER As Long = 80
+
+Public Gpu Function RealAt(ByVal x As Long, ByVal w As Long) As Double
+    Return -1.55 + x * 3.1 / w
+End Function
+
+Public Gpu Function ImagAt(ByVal y As Long, ByVal h As Long) As Double
+    Return -1.15 + y * 2.3 / h
+End Function
+
+Public Gpu Function Escape(ByVal zr As Double, ByVal zi As Double) As Long
+    Dim n As Long = 0
+    Do While n < MAXITER And zr * zr + zi * zi < 4.0
+        Dim tmp As Double = zr * zr - zi * zi + CRE
+        zi = 2.0 * zr * zi + CIM
+        zr = tmp
+        n = n + 1
+    Loop
+    Return n
+End Function

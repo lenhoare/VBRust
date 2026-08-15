@@ -36,7 +36,7 @@ So it is the software present path at particular buffer sizes, not the planets. 
 
 ## Gpu Draw
 
-`Gpu Draw` is the same nested `For y` / `For x` / `Set Pixel` picture as frost, compiled to one fragment shader. Same-file `Gpu Function` helpers go into WGSL, not Rust. CPU `Draw` (`Text` / `Fill` / `Stroke`) stacks on top. State numbers become uniforms (`t`, …). A `Gpu Function` in another file is not wired yet (interfaces don't carry bodies). `goodexamples/plasma` is the first kernel; frost's Julia is the same shape (`RealAt` / `ImagAt` / `Escape` live in `main.vbr` as `Gpu Function`s). Hail's 320 stones are reconstructed in the kernel from a tick uniform (no `Vec` on the GPU yet); the FPS line stays CPU `Text`.
+`Gpu Draw` is the same nested `For y` / `For x` / `Set Pixel` picture as frost, compiled to one fragment shader. `Gpu Function` helpers go into WGSL, not Rust — including a `Public Gpu Function` in another file (`goodexamples/frost` pulls `lace.vbr`). CPU `Draw` (`Text` / `Fill` / `Stroke`) stacks on top. State numbers become uniforms (`t`, …). `mouse_x` / `mouse_y` are uniforms too (sketch pixels; last position if the pointer leaves). `Noise(x, y)` / `Noise(x, y, t)` is 0-to-1 value noise. `Sample(spr, u, v)` (or `frame`) reads a `Pixels` in the kernel. `goodexamples/plasma` is the first kernel; frost's Julia is the same shape. Hail's 320 stones are reconstructed in the kernel from a tick uniform (no `Vec` on the GPU yet); the FPS line stays CPU `Text`.
 
 `Copy` / `Clear` / `Pixels` / last `frame` sit beside that kernel as extra GPU passes (not a CPU overlay):
 
@@ -48,4 +48,4 @@ So it is the software present path at particular buffer sizes, not the planets. 
 - `Into spr` … `End Into` paints that `Pixels` (`Clear` / kernel / `Copy`). `width` / `height` inside are the buffer's size, not the window's.
 - `Copy spr, x, y, Using mask` samples a second `Pixels` (white keeps, black skips — coverage is the mask's RGB, so opaque black punches a hole).
 
-`goodexamples/trails` is Copy + `frame` + a stamp. `goodexamples/badge` paints a `Pixels`, punches it with `Using hole`, and smears.
+`goodexamples/trails` is Copy + `frame` + a stamp. `goodexamples/badge` paints a `Pixels`, punches it with `Using hole`, and smears. `goodexamples/pond` is `Noise` + `Sample(frame, …)` + `mouse_x` / `mouse_y`.

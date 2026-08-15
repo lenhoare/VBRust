@@ -365,13 +365,29 @@ fn emit_sketch(
 
     let mut shader_ok = false;
     if let Some(gpu_draw) = &s.gpu_draw {
-        let gpu_fns: Vec<&Function> = helpers.iter().filter(|f| f.gpu).collect();
+        let mut gpu_owned: Vec<Function> = helpers.iter().filter(|f| f.gpu).cloned().collect();
+        let mut gpu_consts: Vec<ConstDef> = constants.to_vec();
+        for iface in t.interfaces.values() {
+            for f in &iface.gpu_fns {
+                let n = rust_name(&f.name);
+                if !gpu_owned.iter().any(|g| rust_name(&g.name) == n) {
+                    gpu_owned.push(f.clone());
+                }
+            }
+            for c in &iface.gpu_consts {
+                let n = rust_name(&c.name);
+                if !gpu_consts.iter().any(|g| rust_name(&g.name) == n) {
+                    gpu_consts.push(c.clone());
+                }
+            }
+        }
+        let gpu_fns: Vec<&Function> = gpu_owned.iter().collect();
         if let Some(rt) = crate::gpu::emit_shader_program(
             &s.name,
             gpu_draw,
             &gpu_fns,
             &s.state,
-            constants,
+            &gpu_consts,
             diags,
         ) {
             out.push_str(&rt);

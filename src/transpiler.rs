@@ -229,7 +229,9 @@ pub fn transpile_module(
     // Fire the one-time teaching notes for builtins before generating code,
     // keeping the rendering functions pure.
     for func in &program.functions {
-        note_builtins(&func.body, diags);
+        if !func.gpu {
+            note_builtins(&func.body, diags);
+        }
     }
     for test in &program.tests {
         note_builtins(&test.body, diags);
@@ -253,6 +255,9 @@ pub fn transpile_module(
     }
     if !program.leading_comments.is_empty() {
         out.push('\n');
+    }
+    if !program.functions.is_empty() && program.functions.iter().all(|f| f.gpu) {
+        out.push_str("#![allow(dead_code)]\n\n");
     }
     // The crate root declares each sibling module (alphabetical, for stable output).
     if is_entry && !modules.is_empty() {
@@ -343,7 +348,7 @@ pub fn transpile_module(
         );
     }
 
-    for func in program.functions.iter().filter(|f| f.receiver.is_none()) {
+    for func in program.functions.iter().filter(|f| f.receiver.is_none() && !f.gpu) {
         sep(&mut out);
         emit_fn(
             func, &fns, &methods, &consts, &module_set, interfaces, &enum_set, &structs, diags,
@@ -573,7 +578,7 @@ pub(crate) fn emit_impl(
     for f in program
         .functions
         .iter()
-        .filter(|f| f.receiver.as_deref() == Some(recv))
+        .filter(|f| f.receiver.as_deref() == Some(recv) && !f.gpu)
     {
         if !first {
             out.push('\n');

@@ -936,3 +936,103 @@ fn gpu_into_pixels_writes_a_named_target() {
         "Into should still emit a fragment kernel: {rust}"
     );
 }
+
+#[test]
+fn gpu_noise_and_mouse_are_kernel_builtins() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Gpu Draw\n\
+        \x20       For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Dim n As Double = Noise(x * 0.1, y * 0.1, mouse_x)\n\
+        \x20               Set Pixel x, y, Color(n * 255, mouse_y, 40)\n\
+        \x20           Next x\n\
+        \x20       Next y\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("vbr_noise3") && rust.contains("u.mouse"),
+        "Noise and mouse_x/y should lower to WGSL: {rust}"
+    );
+    assert!(
+        rust.contains("iced::advanced::Shell") || rust.contains("CursorMoved"),
+        "mouse uniforms should track the pointer: {rust}"
+    );
+}
+
+#[test]
+fn gpu_sample_binds_a_named_texture() {
+    let rust = rust_of(
+        "Sketch S\n\
+        \x20   Gpu Draw\n\
+        \x20       For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Set Pixel x, y, Sample(frame, x + 1, y)\n\
+        \x20           Next x\n\
+        \x20       Next y\n\
+        \x20   End Draw\n\
+        End Sketch\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("samptex_frame") && rust.contains("layout01s"),
+        "Sample(frame, u, v) should bind last paper as a texture: {rust}"
+    );
+    assert!(
+        rust.contains("set_bind_group(1, &pipe.bg_samp"),
+        "kernel Sample should bind the sample group: {rust}"
+    );
+}
+
+#[test]
+fn gpu_function_from_sibling_is_inlined_wgsl() {
+    let lace = "\
+Public Const CRE As Double = -0.5\n\
+Public Gpu Function Escape(ByVal zr As Double, ByVal zi As Double) As Long\n\
+    Return zr * zr + zi * zi + CRE\n\
+End Function\n";
+    let main = "\
+Sketch S\n\
+    Gpu Draw\n\
+        For y = 0 To height - 1\n\
+            For x = 0 To width - 1\n\
+                Dim n As Long = Lace.Escape(x, y)\n\
+                Set Pixel x, y, Color(n, 0, 0)\n\
+            Next x\n\
+        Next y\n\
+    End Draw\n\
+End Sketch\n\
+Function Main()\n\
+    S.Run\n\
+End Function\n";
+    let mut interfaces = vbr::resolver::ProjectInterfaces::new();
+    interfaces.insert("lace".into(), vbr::module_interface(lace));
+    let compiled = vbr::compile_module(main, &["lace".into()], &interfaces, true);
+    assert!(
+        !compiled.has_errors,
+        "sibling Gpu Function must compile: {:?}",
+        compiled.diagnostics
+    );
+    let p = packed(&compiled.rust);
+    assert!(
+        p.contains("fnescape(_zr:f32,_zi:f32)") || compiled.rust.contains("fn escape("),
+        "sibling Gpu Function should lower to WGSL: {}",
+        compiled.rust
+    );
+    assert!(
+        compiled.rust.contains("const cre") || p.contains("constcre:f32"),
+        "sibling numeric Const should land in WGSL: {}",
+        compiled.rust
+    );
+    assert!(
+        !p.contains("pubfnescape(") && !compiled.rust.contains("pub fn escape("),
+        "Gpu Function must not be emitted as Rust on the sketch: {}",
+        compiled.rust
+    );
+}
