@@ -1822,8 +1822,9 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     // An async GUI (an event with `Await`) runs blocking work via tokio, so Iced
     // needs its `tokio` feature; an `Image` needs Iced's `image` feature.
     let async_gui = entry_compiled.rust.contains("spawn_blocking");
-    let uses_image = entry_compiled.rust.contains("iced::widget::image(");
+    let uses_image = entry_compiled.rust.contains("iced::widget::image");
     let uses_canvas = entry_compiled.rust.contains("iced::widget::Canvas::new(");
+    let uses_time = entry_compiled.rust.contains("iced::time::every");
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
     let mut stdlib_ns: Vec<String> = entry_compiled.stdlib_used.clone();
 
@@ -1944,7 +1945,7 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
             // An async GUI also needs `tokio` (blocking work via spawn_blocking);
             // an `Image` needs the `image` feature.
             let mut feats = vec!["\"tiny-skia\""];
-            if async_gui {
+            if async_gui || uses_time {
                 feats.push("\"tokio\"");
             }
             if uses_image {

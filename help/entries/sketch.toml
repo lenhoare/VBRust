@@ -1,0 +1,64 @@
+id = "sketch"
+title = "Sketch"
+category = "Surfaces"
+kind = "keyword"
+anchor = "kw/Sketch"
+
+syntax = """
+Sketch <Name>
+    Title "<title>"
+    Size <width>, <height>
+    Background <color>
+
+    State
+        Dim <name> As <Type> = <init>
+    End State
+
+    Every <ms> <Event>
+
+    Draw
+        Fill <shape>, <color>
+        Stroke <shape>, <color>[, <width>]
+        Text <string>, <x>, <y>[, <color>]
+        Set Pixel <x>, <y>, <color>
+    End Draw
+
+    Event <Event>
+        ...
+    End Event
+End Sketch
+"""
+
+summary = "A desktop window that is a drawing — charts, pictures, animations. No buttons."
+
+remarks = """
+A `Sketch` is a pixel window. There is no `View` and there are no widgets: the sketch *is* the canvas. `Draw` paints the whole picture from `State` on every frame (`Fill`, `Stroke`, `Text`, `Circle`, `Rect`, `Line`).
+
+`Set Pixel x, y, Color.Red` writes one pixel. Inside a Draw that uses it, `width` and `height` are the live canvas size in pixels — loop `For y = 0 To height - 1`. Unwritten pixels stay transparent so `Background` shows through. Pixels flush before a later `Fill`/`Stroke`, so you can plot a field and stroke axes on top.
+
+`Background Color.Navy` (or `Color(r, g, b)`) is the paper. Omit it and the paper is black. `Size 800, 600` is the opening window; omit that too and you get 800×600. The canvas fills the window if you resize it.
+
+A still image is a `Draw` with no timer. An animation is `Every 16 Tick` plus an `Event Tick` that updates state — next frame, `Draw` runs again.
+
+This is the place for mathematical pictures: plots, attractors, Mandelbrot, cellular automata. For buttons and sliders around a drawing, use a `Window` with a `Canvas` instead.
+"""
+
+example = """
+Sketch Circles
+    Title "Circles"
+    Size 640, 480
+    Background Color.Navy
+
+    Draw
+        Fill Circle(320, 240, 120), Color.Cyan
+        Stroke Circle(320, 240, 180), Color.White, 2
+        Text "a sketch", 20, 24, Color.White
+    End Draw
+End Sketch
+
+Function Main()
+    Circles.Run
+End Function
+"""
+
+see_also = ["theme", "await"]

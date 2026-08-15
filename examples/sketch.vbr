@@ -1,0 +1,16 @@
+' A Sketch is a window that is the drawing — no buttons, no View.
+Sketch Circles
+    Title "Circles"
+    Size 640, 480
+    Background Color.Navy
+
+    Draw
+        Fill Circle(320, 240, 120), Color.Cyan
+        Stroke Circle(320, 240, 180), Color.White, 2
+        Text "a sketch", 20, 24, Color.White
+    End Draw
+End Sketch
+
+Function Main()
+    Circles.Run
+End Function

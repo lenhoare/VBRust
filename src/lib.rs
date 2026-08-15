@@ -252,7 +252,7 @@ fn compile_with(
         .map(|u| (u.crate_name.clone(), u.version.clone()))
         .collect();
     // A GUI program needs Iced (a project build, like the stdlib/crate cases).
-    if !program.windows.is_empty() {
+    if !program.windows.is_empty() || !program.sketches.is_empty() {
         dependencies.push(("iced".to_string(), "0.13".to_string()));
     }
     // A TUI program (a `Screen`) needs ratatui (crossterm comes with it) — or,

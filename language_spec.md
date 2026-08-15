@@ -176,7 +176,7 @@ End Function
   `Const`.
 - **Entry point:** `Function Main()` → `fn main()`.
 - A `Sub` may also be declared **inside** a surface block (`Screen`/`Window`/
-  `Page`), where it becomes a *helper method on the state* — reachable from
+  `Page`/`Sketch`), where it becomes a *helper method on the state* — reachable from
   events and other helpers, with direct field access. This is how events share
   logic; see `gui_spec.md` §2.3.
 
@@ -465,7 +465,7 @@ and `console.log` for a browser `Page`.)*
 ### Pausing
 `Sleep ms` (paren-less, like VB6's kernel32 `Declare Sub Sleep` — no Declare
 needed) or `Sleep(ms)` → `std::thread::sleep`. Milliseconds. Rejected inside a
-`Window`/`Screen`/`Page` **event** with a teaching error (it would freeze the
+`Window`/`Screen`/`Page`/`Sketch` **event** with a teaching error (it would freeze the
 UI) — the surface way to run something later is a timer, `Every <ms> <Event>`.
 
 ---

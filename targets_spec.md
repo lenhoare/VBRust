@@ -49,7 +49,7 @@ AST plus a shared semantic layer, lowered per target.
 The GUI/TUI/Web surfaces are **Rust-only by design** — they *are* their host
 frameworks (Iced, ratatui, Yew) and have nothing neutral to lower to:
 
-- `Window` (GUI), `Screen` (TUI), `Page` (Web), `Canvas`/`Draw`.
+- `Window` (GUI), `Screen` (TUI), `Page` (Web), `Sketch` (draw/animate), `Canvas`/`Draw`.
 
 `vbr py`/`vbr c` on a program that uses one emits a `⚠` warning and skips it. The
 alternative targets are for the **core language and computation**, not the app

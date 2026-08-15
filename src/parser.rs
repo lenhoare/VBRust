@@ -116,6 +116,7 @@ impl<'a> Parser<'a> {
         let mut uses = Vec::new();
         let mut windows = Vec::new();
         let mut canvases = Vec::new();
+        let mut sketches = Vec::new();
         let mut screens = Vec::new();
         let mut godot_nodes = Vec::new();
         let mut pages = Vec::new();
@@ -224,6 +225,13 @@ impl<'a> Parser<'a> {
                         self.recover_to_item();
                     }
                 }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Sketch") => {
+                    if let Some(sk) = self.parse_sketch() {
+                        sketches.push(sk);
+                    } else {
+                        self.recover_to_item();
+                    }
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Screen") => {
                     if let Some(sc) = self.parse_screen() {
                         screens.push(sc);
@@ -280,6 +288,7 @@ impl<'a> Parser<'a> {
             functions,
             windows,
             canvases,
+            sketches,
             screens,
             godot_nodes,
             pages,
@@ -1221,6 +1230,168 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `Sketch Name` … `End Sketch` — a pixel window that is the drawing.
+    fn parse_sketch(&mut self) -> Option<Sketch> {
+        self.advance(); // `Sketch`
+        let name = self.expect_ident("for the sketch name")?;
+        self.expect(&Tok::Newline, "after the sketch name")?;
+
+        let mut title = None;
+        let mut width = 800u32;
+        let mut height = 600u32;
+        let mut background = None;
+        let mut state = Vec::new();
+        let mut timers = Vec::new();
+        let mut draw = None;
+        let mut events = Vec::new();
+        let mut subs = Vec::new();
+
+        loop {
+            self.skip_newlines();
+            match self.peek().clone() {
+                Tok::End => {
+                    self.advance();
+                    self.expect_kw_ident("Sketch")?;
+                    self.eat(&Tok::Newline);
+                    break;
+                }
+                Tok::Comment(_) => {
+                    self.advance();
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Title") => {
+                    self.advance();
+                    title = Some(self.expect_string("after `Title`")?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Size") => {
+                    self.advance();
+                    width = self.parse_pixel_size()?;
+                    self.expect(&Tok::Comma, "between width and height — `Size 800, 600`")?;
+                    height = self.parse_pixel_size()?;
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Background") => {
+                    self.advance();
+                    background = Some(self.parse_expr()?);
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Theme") => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "A Sketch is coloured with `Background Color.Navy`, not Theme. \
+                         Theme restyles a Window, Screen, or Page.",
+                    );
+                    return None;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("View") => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "A Sketch has no View — it *is* the drawing. Put shapes in a `Draw` \
+                         block. For buttons and sliders, use a `Window` with a `Canvas`.",
+                    );
+                    return None;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("State") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `State`")?;
+                    state = self.parse_state_block()?;
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Draw") => {
+                    self.advance();
+                    self.expect(&Tok::Newline, "after `Draw`")?;
+                    draw = Some(self.parse_block()?);
+                    self.expect(&Tok::End, "to close `Draw`")?;
+                    self.expect_kw_ident("Draw")?;
+                    self.eat(&Tok::Newline);
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Every") => {
+                    self.advance();
+                    let interval_ms = self.parse_array_size()? as u64;
+                    let handler = self.expect_ident("for the timer's handler event")?;
+                    self.eat(&Tok::Newline);
+                    timers.push(Timer { interval_ms, handler });
+                }
+                Tok::Ident(w) if w.eq_ignore_ascii_case("Event") => {
+                    self.advance();
+                    let ev_name = self.expect_ident("for the event name")?;
+                    let params = if self.eat(&Tok::LParen) {
+                        self.parse_params_until_rparen()?
+                    } else {
+                        Vec::new()
+                    };
+                    self.expect(&Tok::Newline, "after the event name")?;
+                    let body = self.parse_block()?;
+                    self.expect(&Tok::End, "to close the event")?;
+                    self.expect_kw_ident("Event")?;
+                    self.eat(&Tok::Newline);
+                    events.push(GuiEvent { name: ev_name, params, body });
+                }
+                Tok::Sub => {
+                    subs.push(self.parse_gui_sub()?);
+                }
+                other => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!(
+                            "Unexpected {:?} inside a Sketch — expected Title, Size, Background, \
+                             State, Draw, Every, Event, Sub, or `End Sketch`.",
+                            other
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+
+        let draw = match draw {
+            Some(b) => b,
+            None => {
+                self.diags
+                    .error_at(self.span(), self.line(), "A Sketch needs a `Draw` block.");
+                return None;
+            }
+        };
+        Some(Sketch {
+            name,
+            title,
+            width,
+            height,
+            background,
+            state,
+            timers,
+            draw,
+            events,
+            subs,
+        })
+    }
+
+    fn parse_pixel_size(&mut self) -> Option<u32> {
+        if let Tok::Int(n) = self.peek() {
+            let n = *n;
+            self.advance();
+            if n <= 0 {
+                self.diags.error_at(
+                    self.prev_span(),
+                    self.line(),
+                    "A Size must be a positive pixel count, e.g. `Size 800, 600`.",
+                );
+                return None;
+            }
+            Some(n as u32)
+        } else {
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                "A Size must be a positive pixel count, e.g. `Size 800, 600`.",
+            );
+            None
+        }
+    }
+
     /// `Canvas Name` … `Draw` … `End Draw` … `End Canvas` — a drawing surface.
     fn parse_canvas(&mut self) -> Option<CanvasDef> {
         self.advance(); // `Canvas`
@@ -1316,6 +1487,14 @@ impl<'a> Parser<'a> {
                     None
                 };
                 DrawCmd::Text { text, x, y, color }
+            }
+            "pixel" => {
+                let x = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after x — `Pixel <x>, <y>, <color>`")?;
+                let y = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after y — `Pixel <x>, <y>, <color>`")?;
+                let color = self.parse_expr()?;
+                DrawCmd::Pixel { x, y, color }
             }
             _ => unreachable!(),
         };
@@ -2512,7 +2691,7 @@ impl<'a> Parser<'a> {
         let surface_kw = |w: &str| {
             matches!(
                 w.to_ascii_lowercase().as_str(),
-                "window" | "screen" | "page" | "canvas" | "test"
+                "window" | "screen" | "page" | "canvas" | "sketch" | "test"
             )
         };
         loop {
@@ -3094,6 +3273,18 @@ impl<'a> Parser<'a> {
     fn parse_set(&mut self) -> Option<Stmt> {
         let set_span = self.span();
         self.expect(&Tok::Set, "")?;
+        // `Set Pixel x, y, color` — a drawing verb (the raster cousin of Fill).
+        if let Tok::Ident(w) = self.peek().clone() {
+            if w.eq_ignore_ascii_case("Pixel") && !matches!(self.peek2(), Tok::Eq) {
+                self.advance(); // Pixel
+                let x = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after x — `Set Pixel <x>, <y>, <color>`")?;
+                let y = self.parse_expr()?;
+                self.expect(&Tok::Comma, "after y — `Set Pixel <x>, <y>, <color>`")?;
+                let color = self.parse_expr()?;
+                return Some(Stmt::Draw(DrawCmd::Pixel { x, y, color }));
+            }
+        }
         let mutable = self.eat(&Tok::Mut);
         let name = self.expect_ident("after `Set`")?;
         self.expect(&Tok::Eq, "in a `Set` borrow")?;
@@ -3133,7 +3324,7 @@ impl<'a> Parser<'a> {
         // assignment, so a variable named `Text`/`Fill`/`Stroke` still assigns.
         let is_draw_verb = matches!(
             name.to_ascii_lowercase().as_str(),
-            "fill" | "stroke" | "text"
+            "fill" | "stroke" | "text" | "pixel"
         ) && !matches!(
             self.peek2(),
             Tok::Eq | Tok::PlusEq | Tok::MinusEq | Tok::StarEq | Tok::SlashEq | Tok::Dot

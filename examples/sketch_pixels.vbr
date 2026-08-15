@@ -1,0 +1,18 @@
+' Per-pixel drawing — Set Pixel writes the raster buffer.
+Sketch Gradient
+    Title "Pixels"
+    Size 400, 240
+    Background Color.Black
+
+    Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Set Pixel x, y, Color((x * 255) / width, (y * 255) / height, 80)
+            Next x
+        Next y
+    End Draw
+End Sketch
+
+Function Main()
+    Gradient.Run
+End Function

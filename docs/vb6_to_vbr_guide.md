@@ -371,9 +371,9 @@ These exist; you don't need them to start, but it's good to know the ceiling is
 high. Each has its own spec in `docs/`.
 
 - **Whole apps, same language.** A `Window` block builds a desktop GUI (over Iced),
-  a `Screen` block a terminal TUI (over ratatui), and a `Page` block a web app
-  (over Yew) — all sharing one `State` / `View` / `Events` core. There's even a
-  visual form designer in the IDE.
+  a `Screen` block a terminal TUI (over ratatui), a `Page` block a web app
+  (over Yew), and a `Sketch` block a pixel window for charts and animation — no
+  buttons, just `Draw` and `Every`. There's even a visual form designer in the IDE.
 - **Games.** A `Node2D` / `Node3D` block compiles to a Godot 4 extension —
   `vbr rungodot` and you're moving sprites.
 - **Other backends.** The same core-language file can transpile to **Python**

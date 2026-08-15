@@ -660,6 +660,7 @@ End Canvas
 Fill   <shape>, <color>
 Stroke <shape>, <color>[, <width>]     ' width default 1
 Text   <string>, <x>, <y>[, <color>]   ' color default Black
+Set Pixel <x>, <y>, <color>            ' one pixel; Draw block only
 ```
 
 **Shapes:**
@@ -676,7 +677,8 @@ Orange, Purple, Navy, Cyan, Magenta) or an explicit `Color(r, g, b)` (0–255).
 **Paint functions.** You can factor drawing into ordinary functions the `Draw`
 block calls — a function that draws (or calls one that does) automatically
 receives the `frame`, so it can only be called from a `Draw` block or another
-paint function:
+paint function. `Set Pixel` stays in the `Draw` block (it writes a raster
+buffer); a helper that *computes* a colour is an ordinary `Function`.
 
 ```vb
 Function DrawGrid()
@@ -691,6 +693,82 @@ Placing a `Canvas` auto-adds Iced's **`canvas`** feature to the project.
 **Deferred:** interaction (mouse/keyboard → messages), gradients, per-shape
 transforms, `Clear`/caching. Those are the `Program::update` half of Iced's
 canvas — a different event model — and are the next step if canvases grow up.
+
+---
+
+### 4.5 Sketch  *(a surface — drawing / animation, no widgets)*
+
+A `Sketch` is a desktop window that *is* the drawing. No `View`, no buttons:
+`Draw` is the picture, `Every` animates it, `Background` paints the paper.
+Linux and Windows (Iced canvas filling the window). Use it for charts, plots,
+attractors, cellular automata — mathematical pictures.
+
+```vb
+Sketch Circles
+    Title "Circles"
+    Size 640, 480
+    Background Color.Navy
+
+    Draw
+        Fill Circle(320, 240, 120), Color.Cyan
+        Stroke Circle(320, 240, 180), Color.White, 2
+        Text "a sketch", 20, 24, Color.White
+    End Draw
+End Sketch
+
+Function Main()
+    Circles.Run
+End Function
+```
+
+An animation is the same shape plus a timer:
+
+```vb
+Sketch Pulse
+    Title "Pulse"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim radius As Integer = 20
+        Dim growing As Boolean = True
+    End State
+
+    Every 16 Tick
+
+    Draw
+        Fill Circle(320, 240, radius), Color.Cyan
+    End Draw
+
+    Event Tick
+        If growing Then
+            radius = radius + 2
+            If radius >= 160 Then growing = False
+        Else
+            radius = radius - 2
+            If radius <= 20 Then growing = True
+        End If
+    End Event
+End Sketch
+```
+
+**Members**
+
+| Line | Meaning |
+|---|---|
+| `Title "…"` | window title (default: the sketch name) |
+| `Size w, h` | opening size in pixels (default 800×600). The canvas fills if you resize. |
+| `Background <color>` | the paper: `Color.Navy` or `Color(r, g, b)`. Default black. |
+| `State` … | same as a Window — `Draw` reads it, events write it |
+| `Every <ms> <Event>` | fire that event on an interval (Screen's timer, on a Sketch) |
+| `Draw` … | `Fill` / `Stroke` / `Text` / `Set Pixel`. `width` and `height` are the live canvas size when you use pixels. |
+| `Event` / `Sub` | same as a Window |
+
+`Set Pixel x, y, Color.Red` writes one pixel into a buffer the size of the window (clipped, nearest-neighbour). The buffer is composited in painter's order: a `Fill` after some pixels flushes them first, so overlays sit on top. See `examples/sketch_pixels.vbr` (gradient) and `examples/sketch_mandelbrot.vbr`.
+
+`Theme` is a teaching error — colour the paper with `Background`, not a widget palette. A `View` is a teaching error — for buttons around a drawing, use a `Window` with a `Canvas`.
+
+See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), and `examples/sketch_mandelbrot.vbr`.
 
 ---
 

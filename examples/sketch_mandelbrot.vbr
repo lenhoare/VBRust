@@ -1,0 +1,42 @@
+' The Mandelbrot set, one pixel at a time.
+' Mapping onto the complex plane needs a float cast; Draw doesn't insert `as`,
+' so those two lines are a tiny Rust hatch. The loop and Set Pixel are Bust.
+Sketch Mandelbrot
+    Title "Mandelbrot"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim maxIter As Integer = 80
+    End State
+
+    Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim cre As Double = Rust
+                    -2.2 + (x as f64) * 3.0 / (width as f64)
+                End Rust
+                Dim cim As Double = Rust
+                    -1.2 + (y as f64) * 2.4 / (height as f64)
+                End Rust
+                Dim zr As Double = 0.0
+                Dim zi As Double = 0.0
+                Dim n As Integer = 0
+                Do While n < maxIter And zr * zr + zi * zi < 4.0
+                    Dim tmp As Double = zr * zr - zi * zi + cre
+                    zi = 2.0 * zr * zi + cim
+                    zr = tmp
+                    n = n + 1
+                Loop
+                If n < maxIter Then
+                    Dim t As Integer = (n * 255) / maxIter
+                    Set Pixel x, y, Color(t, t / 2, 255 - t)
+                End If
+            Next x
+        Next y
+    End Draw
+End Sketch
+
+Function Main()
+    Mandelbrot.Run
+End Function

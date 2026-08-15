@@ -30,4 +30,4 @@ Function Main()
 End Function
 """
 
-see_also = ["await"]
+see_also = ["await", "sketch"]

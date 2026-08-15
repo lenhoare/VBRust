@@ -178,9 +178,9 @@ impl Emitter {
             .map(|f| rust_name(&f.name))
             .collect();
 
-        if !program.windows.is_empty() || !program.screens.is_empty() || !program.pages.is_empty() {
+        if !program.windows.is_empty() || !program.screens.is_empty() || !program.pages.is_empty() || !program.sketches.is_empty() {
             self.warn(
-                "GUI/TUI/Web surfaces (`Window`/`Screen`/`Page`) are Rust-only — \
+                "GUI/TUI/Web surfaces (`Window`/`Screen`/`Page`/`Sketch`) are Rust-only — \
                  the Python target is for the core language.",
             );
         }

@@ -5,7 +5,7 @@
 //!    (Rust requires it; VB never made you think about it);
 //!  * identifier renaming to snake_case, consistently at declaration and use.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
@@ -20,6 +20,23 @@ pub(crate) struct FileDialogCtx {
 
 thread_local! {
     pub(crate) static FILE_DIALOG_CTX: RefCell<Option<FileDialogCtx>> = RefCell::new(None);
+    /// When true, `Fill`/`Stroke`/`Text` flush the `Set Pixel` buffer first so
+    /// painter's order is preserved (pixels already written appear under the
+    /// vector command). Set around a canvas `Draw` body that uses `Set Pixel`.
+    static PIXEL_FLUSH: Cell<bool> = Cell::new(false);
+}
+
+pub(crate) fn with_pixel_flush<R>(f: impl FnOnce() -> R) -> R {
+    PIXEL_FLUSH.with(|c| {
+        let prev = c.replace(true);
+        let r = f();
+        c.set(prev);
+        r
+    })
+}
+
+fn pixel_flush_on() -> bool {
+    PIXEL_FLUSH.with(|c| c.get())
 }
 
 /// CLI stand-in for VB's InputBox: print the prompt, read a line, return it.
@@ -55,6 +72,7 @@ pub(crate) fn program_uses_log(program: &Program) -> bool {
     program.functions.iter().any(|f| any(&f.body))
         || program.tests.iter().any(|t| any(&t.body))
         || program.windows.iter().any(|w| w.events.iter().any(|e| any(&e.body)))
+        || program.sketches.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
         || program.screens.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
         || program.pages.iter().any(|p| p.events.iter().any(|e| any(&e.body)))
 }
@@ -148,10 +166,10 @@ pub fn transpile_module(
     }
     // A web program (one with a `Page`) compiles to a Yew (WebAssembly) app.
     if !program.pages.is_empty() {
-        if !program.windows.is_empty() || !program.screens.is_empty() {
+        if !program.windows.is_empty() || !program.screens.is_empty() || !program.sketches.is_empty() {
             diags.error_once(
                 "mixed-surfaces",
-                "A program can't mix `Page` with `Window`/`Screen` — each program is one \
+                "A program can't mix `Page` with `Window`/`Screen`/`Sketch` — each program is one \
                  kind of app. Split them into separate programs.",
             );
         }
@@ -159,10 +177,17 @@ pub fn transpile_module(
         diags.clear_line_map();
         return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
     }
-    // A GUI program (one with a `Window`) compiles to an Iced application: the
-    // window definitions plus a `fn main` that launches the one `Function Main()`
-    // names with `<Window>.Run`.
-    if !program.windows.is_empty() {
+    // A GUI program (one with a `Window` or `Sketch`) compiles to an Iced
+    // application: the surface definitions plus a `fn main` that launches the
+    // one `Function Main()` names with `<Name>.Run`.
+    if !program.windows.is_empty() || !program.sketches.is_empty() {
+        if !program.screens.is_empty() {
+            diags.error_once(
+                "mixed-surfaces",
+                "A program can't mix `Window`/`Sketch` with `Screen` — each program is one \
+                 kind of app. Split them into separate programs.",
+            );
+        }
         let rust = crate::gui::emit_gui_program(program, modules, interfaces, is_entry, diags);
         // The GUI emitter assembles sections out of order, so its line
         // checkpoints would mislead — drop them rather than lie.
@@ -1144,6 +1169,11 @@ pub(crate) fn collect_drawcmd_idents(cmd: &DrawCmd, out: &mut HashSet<String>) {
             }
         }
         DrawCmd::Paint { args, .. } => args.iter().for_each(|e| collect_expr_idents(e, out)),
+        DrawCmd::Pixel { x, y, color } => {
+            collect_expr_idents(x, out);
+            collect_expr_idents(y, out);
+            collect_expr_idents(color, out);
+        }
     }
 }
 
@@ -1808,7 +1838,7 @@ fn coord(e: &Expr) -> String {
 }
 
 /// A colour argument → an `iced::Color`: `Color.Red` (palette) or `Color(r,g,b)`.
-fn render_color(e: &Expr, diags: &mut Diagnostics) -> String {
+pub(crate) fn render_color(e: &Expr, diags: &mut Diagnostics) -> String {
     match &e.kind {
         ExprKind::Field(recv, name) if matches!(&(&**recv).kind, ExprKind::Ident(n) if n.eq_ignore_ascii_case("Color")) => {
             match named_color(name) {
@@ -1864,7 +1894,12 @@ fn render_path(shape: &Shape) -> String {
 /// A drawing verb → the Rust statement that applies it to the ambient `frame`
 /// (a `&mut Frame`, so fills/strokes and nested paint-function calls both work).
 pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String {
-    match cmd {
+    let flush = if pixel_flush_on() && !matches!(cmd, DrawCmd::Pixel { .. }) {
+        "if pix_dirty { let __h = iced::widget::image::Handle::from_rgba(pw, ph, pix.clone()); frame.draw_image(iced::Rectangle::new(iced::Point::ORIGIN, bounds.size()), iced::widget::canvas::Image::new(__h).filter_method(iced::widget::image::FilterMethod::Nearest).snap(true)); pix.fill(0); pix_dirty = false; }\n            "
+    } else {
+        ""
+    };
+    let body = match cmd {
         DrawCmd::Fill { shape, color } => {
             if matches!(shape, Shape::Line(..)) {
                 diags.error_once(
@@ -1897,12 +1932,25 @@ pub(crate) fn render_draw_cmd(cmd: &DrawCmd, diags: &mut Diagnostics) -> String 
                 col
             )
         }
+        DrawCmd::Pixel { x, y, color } => {
+            format!(
+                "{{ let __px = ({}) as i32; let __py = ({}) as i32; \
+                 if __px >= 0 && __py >= 0 && (__px as u32) < pw && (__py as u32) < ph {{ \
+                 let __i = ((__py as u32 * pw + __px as u32) * 4) as usize; \
+                 let __c = {}; pix[__i] = (__c.r * 255.0) as u8; pix[__i + 1] = (__c.g * 255.0) as u8; \
+                 pix[__i + 2] = (__c.b * 255.0) as u8; pix[__i + 3] = 255; pix_dirty = true; }} }}",
+                render_expr(x, None),
+                render_expr(y, None),
+                render_color(color, diags)
+            )
+        }
         DrawCmd::Paint { name, args } => {
             let mut a = vec!["frame".to_string()];
             a.extend(args.iter().map(|e| render_expr(e, None)));
             format!("{}({});", rust_name(name), a.join(", "))
         }
-    }
+    };
+    format!("{flush}{body}")
 }
 
 /// Emit a `Dim` of an unknown-size `String`, where ownership rules bite.
@@ -3313,6 +3361,7 @@ pub(crate) fn stdlib_types_declared(
         .iter()
         .map(|s| &s.state)
         .chain(program.windows.iter().map(|w| &w.state))
+        .chain(program.sketches.iter().map(|s| &s.state))
         .chain(program.pages.iter().map(|p| &p.state))
     {
         for f in state {

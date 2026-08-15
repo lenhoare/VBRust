@@ -98,6 +98,7 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("with", "With", "Control flow", Keyword, "kw/With"),
         item!("await", "Await", "Control flow", Keyword, "kw/Await"),
         item!("theme", "Theme", "Surfaces", Keyword, "kw/Theme"),
+        item!("sketch", "Sketch", "Surfaces", Keyword, "kw/Sketch"),
         // Escape hatches
         item!("rust", "Rust … End Rust", "Escape hatches", Keyword, "kw/Rust"),
         item!("python", "Python … End Python", "Escape hatches", Keyword, "kw/Python"),
@@ -407,14 +408,14 @@ pub fn build(entries_dir: &Path, out_dir: &Path) -> Result<Report, String> {
     // Core examples check with bare rustc (fast); stdlib examples need
     // `vbr_stdlib`, so they go through a batched `cargo check`. Inline Python
     // generates pyo3 glue, which needs the project build and a Python install
-    // — transpile only, same as a Window that cannot pass bare rustc.
+    // — transpile only, same as a Window/Sketch that cannot pass bare rustc.
     let (stdlib_ex, rest): (Vec<(String, String)>, Vec<(String, String)>) = rust_of
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .partition(|(_, r)| r.contains("vbr_stdlib"));
     let core_ex: Vec<(String, String)> = rest
         .into_iter()
-        .filter(|(_, r)| !r.contains("pyo3::"))
+        .filter(|(_, r)| !r.contains("pyo3::") && !r.contains("iced::"))
         .collect();
     failures.append(&mut rustc_check_all(&core_ex));
     failures.append(&mut stdlib_check_all(&stdlib_ex));

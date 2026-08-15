@@ -1,0 +1,32 @@
+' An animated Sketch: Every ticks an Event, Draw paints from State.
+Sketch Pulse
+    Title "Pulse"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim radius As Integer = 20
+        Dim growing As Boolean = True
+    End State
+
+    Every 16 Tick
+
+    Draw
+        Fill Circle(320, 240, radius), Color.Cyan
+        Text "radius = " & radius, 16, 20, Color.White
+    End Draw
+
+    Event Tick
+        If growing Then
+            radius = radius + 2
+            If radius >= 160 Then growing = False
+        Else
+            radius = radius - 2
+            If radius <= 20 Then growing = True
+        End If
+    End Event
+End Sketch
+
+Function Main()
+    Pulse.Run
+End Function

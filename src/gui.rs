@@ -11,7 +11,7 @@ use crate::surface::{
     self, analyze_events, coerce_state_strings, event_stdlib_imports, launched, match_scrutinee,
     rewrite_expr, rewrite_expr_with, state_maps, AwaitSplit,
 };
-use crate::transpiler::{collect_stmt_idents, decltype_rust, emit_stmt, render_expr, rust_name};
+use crate::transpiler::{collect_mutated, collect_stmt_idents, decltype_rust, emit_stmt, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
 /// What the view renderer needs to know about a window's state: the field names
@@ -60,6 +60,10 @@ pub fn emit_gui_program(
             w.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
                 || w.subs.iter().any(|s| crate::transpiler::uses_file_dialog(&s.body))
         })
+        || program.sketches.iter().any(|s| {
+            s.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
+                || s.subs.iter().any(|sub| crate::transpiler::uses_file_dialog(&sub.body))
+        })
     {
         diags.error_once(
             "tui-file-dialog-window",
@@ -78,21 +82,36 @@ pub fn emit_gui_program(
     for w in &program.windows {
         surface::state_stdlib(&w.state, diags);
     }
+    for s in &program.sketches {
+        surface::state_stdlib(&s.state, diags);
+    }
     let std_top = crate::transpiler::stdlib_used(diags);
 
     for w in &program.windows {
         out.push_str(&emit_window(w, &t, &program.canvases, &paint_fns, &std_top, &program.functions, diags));
         out.push('\n');
     }
+    for s in &program.sketches {
+        out.push_str(&emit_sketch(s, &t, &paint_fns, &std_top, &program.functions, diags));
+        out.push('\n');
+    }
     let launched_window = launched(program, |name| {
         program.windows.iter().find(|w| w.name.eq_ignore_ascii_case(name))
     });
-    match launched_window {
-        Some(w) => out.push_str(&emit_main(w, surface::state_fallible(&w.state, &t))),
-        None => diags.error_once(
+    let launched_sketch = launched(program, |name| {
+        program.sketches.iter().find(|s| s.name.eq_ignore_ascii_case(name))
+    });
+    match (launched_window, launched_sketch) {
+        (Some(w), None) => out.push_str(&emit_main(w, surface::state_fallible(&w.state, &t))),
+        (None, Some(s)) => out.push_str(&emit_sketch_main(s, surface::state_fallible(&s.state, &t))),
+        (Some(_), Some(_)) => diags.error_once(
+            "gui-two-launches",
+            "Function Main() launches both a Window and a Sketch. Launch one: `<Name>.Run`.",
+        ),
+        (None, None) => diags.error_once(
             "gui-no-launch",
-            "A window is never launched. Add `Function Main()` containing `<Window>.Run`, \
-             e.g. `Counter.Run`.",
+            "A window or sketch is never launched. Add `Function Main()` containing `<Name>.Run`, \
+             e.g. `Circles.Run`.",
         ),
     }
     out
@@ -147,6 +166,283 @@ fn emit_main(w: &Window, fallible: bool) -> String {
             title
         ),
     }
+}
+
+/// Emit one sketch's definition — State, optional Message/update, a filling
+/// canvas view, and the canvas Program. `fn main` is emitted separately.
+fn emit_sketch(
+    s: &Sketch,
+    t: &surface::Tables,
+    paint_fns: &HashSet<String>,
+    std_top: &[String],
+    helpers: &[Function],
+    diags: &mut Diagnostics,
+) -> String {
+    let mut out = String::new();
+    let ty = &s.name;
+    let t_local = surface::with_subs(t, &s.subs);
+    let t = &t_local;
+    let enums = &t.enums;
+    let (fields, field_ty) = state_maps(&s.state);
+
+    for tm in &s.timers {
+        if !s.events.iter().any(|e| e.name.eq_ignore_ascii_case(&tm.handler)) {
+            diags.error_once(
+                &format!("sketch-timer-{}", rust_name(&tm.handler)),
+                format!(
+                    "`Every {} {}` needs an `Event {}` on this Sketch to run.",
+                    tm.interval_ms, tm.handler, tm.handler
+                ),
+            );
+        }
+    }
+
+    let splits: Vec<Option<AwaitSplit>> =
+        analyze_events(&s.events, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+    let any_async = splits.iter().any(Option::is_some);
+    let has_messages = !s.events.is_empty();
+
+    out.push_str("use iced::Element;\n");
+    if any_async {
+        out.push_str("use iced::Task;\n");
+    }
+    out.push_str(&surface::surface_std_imports(&s.events, helpers));
+    let mut std_used = event_stdlib_imports(&s.events, diags);
+    for ns in std_top {
+        if !std_used.iter().any(|u| u == ns) {
+            std_used.push(ns.clone());
+        }
+    }
+    if !std_used.is_empty() {
+        out.push_str(&format!("use vbr_stdlib::{{{}}};\n", std_used.join(", ")));
+    }
+    out.push('\n');
+
+    // ── State struct ──
+    if s.state.is_empty() {
+        out.push_str(&format!("struct {};\n\n", ty));
+    } else {
+        out.push_str(&format!("struct {} {{\n", ty));
+        for f in &s.state {
+            out.push_str(&format!("    {}: {},\n", rust_name(&f.name), decltype_rust(&f.ty)));
+        }
+        out.push_str("}\n\n");
+    }
+
+    let fallible = surface::state_fallible(&s.state, &t);
+    if s.state.is_empty() {
+        if fallible {
+            out.push_str(&format!(
+                "impl {} {{\n    fn init() -> Result<{}, String> {{ Ok({} {{}}) }}\n}}\n\n",
+                ty, ty, ty
+            ));
+        } else {
+            out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{ {} }}\n}}\n\n", ty, ty));
+        }
+    } else if fallible {
+        out.push_str(&format!(
+            "impl {} {{\n    fn init() -> Result<{}, String> {{\n",
+            ty, ty
+        ));
+        let names = surface::emit_state_lets(&s.state, &t, 2, diags, &mut out, |_| None);
+        out.push_str(&format!("        Ok({} {{\n", ty));
+        for name in &names {
+            out.push_str(&format!("            {},\n", name));
+        }
+        out.push_str("        })\n    }\n}\n\n");
+    } else {
+        out.push_str(&format!("impl Default for {} {{\n    fn default() -> Self {{\n", ty));
+        let names = surface::emit_state_lets(&s.state, &t, 2, diags, &mut out, |_| None);
+        out.push_str(&format!("        {} {{\n", ty));
+        for name in &names {
+            out.push_str(&format!("            {},\n", name));
+        }
+        out.push_str("        }\n    }\n}\n\n");
+    }
+
+    surface::emit_subs(&s.subs, ty, &fields, &field_ty, t, diags, &mut out);
+
+    let msg_ty = if has_messages { "Message" } else { "()" };
+
+    if has_messages {
+        out.push_str("#[derive(Debug, Clone)]\nenum Message {\n");
+        for (e, split) in s.events.iter().zip(&splits) {
+            if e.params.is_empty() {
+                out.push_str(&format!("    {},\n", e.name));
+            } else {
+                let types: Vec<String> = e.params.iter().map(|p| decltype_rust(&p.ty)).collect();
+                out.push_str(&format!("    {}({}),\n", e.name, types.join(", ")));
+            }
+            if let Some(sp) = split {
+                out.push_str(&format!("    {}Done({}),\n", e.name, sp.ret_type));
+            }
+        }
+        out.push_str("}\n\n");
+    }
+
+    let ret = if any_async { " -> Task<Message>" } else { "" };
+    let state_param = if s.events.is_empty() { "_state" } else { "state" };
+    if has_messages {
+        out.push_str(&format!(
+            "fn update({}: &mut {}, message: Message){} {{\n",
+            state_param, ty, ret
+        ));
+        out.push_str("    match message {\n");
+        for (e, split) in s.events.iter().zip(&splits) {
+            if e.params.is_empty() {
+                out.push_str(&format!("        Message::{} => {{\n", e.name));
+            } else {
+                let binds: Vec<String> = e.params.iter().map(|p| rust_name(&p.name)).collect();
+                out.push_str(&format!("        Message::{}({}) => {{\n", e.name, binds.join(", ")));
+            }
+            match split {
+                None => {
+                    surface::emit_event_stmts_caught(&e.body, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
+                    if any_async {
+                        out.push_str("            Task::none()\n");
+                    }
+                }
+                Some(sp) => {
+                    surface::emit_event_stmts_caught(&sp.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
+                    for snap in &sp.snapshots {
+                        out.push_str(&format!("            {}\n", snap));
+                    }
+                    let work = if sp.blocking {
+                        format!(
+                            "async move {{ tokio::task::spawn_blocking(move || {}).await.unwrap() }}",
+                            sp.call_src
+                        )
+                    } else {
+                        format!("async move {{ {} }}", sp.call_src)
+                    };
+                    out.push_str(&format!(
+                        "            Task::perform({}, Message::{}Done)\n",
+                        work, e.name
+                    ));
+                }
+            }
+            out.push_str("        }\n");
+            if let Some(sp) = split {
+                out.push_str(&format!("        Message::{}Done({}) => {{\n", e.name, sp.bind));
+                surface::emit_event_stmts_caught(&sp.cont, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
+                out.push_str("            Task::none()\n");
+                out.push_str("        }\n");
+            }
+        }
+        out.push_str("    }\n}\n\n");
+    } else {
+        out.push_str(&format!("fn update(_state: &mut {}, _message: ()) {{}}\n\n", ty));
+    }
+
+    if !s.timers.is_empty() {
+        out.push_str(&format!(
+            "fn subscription(_state: &{}) -> iced::Subscription<{}> {{\n",
+            ty, msg_ty
+        ));
+        if s.timers.len() == 1 {
+            let tm = &s.timers[0];
+            out.push_str(&format!(
+                "    iced::time::every(std::time::Duration::from_millis({})).map(|_| Message::{})\n",
+                tm.interval_ms, tm.handler
+            ));
+        } else {
+            out.push_str("    iced::Subscription::batch([\n");
+            for tm in &s.timers {
+                out.push_str(&format!(
+                    "        iced::time::every(std::time::Duration::from_millis({})).map(|_| Message::{}),\n",
+                    tm.interval_ms, tm.handler
+                ));
+            }
+            out.push_str("    ])\n");
+        }
+        out.push_str("}\n\n");
+    }
+
+    let idents = canvas_idents(&s.draw);
+    let snap: Vec<String> = s
+        .state
+        .iter()
+        .map(|f| rust_name(&f.name))
+        .filter(|f| idents.contains(f))
+        .collect();
+    let inits: Vec<String> = snap
+        .iter()
+        .map(|f| {
+            let is_copy = matches!(
+                field_ty.get(f),
+                Some(DeclType::Plain(t)) if !matches!(t, Type::Text)
+            );
+            if is_copy {
+                format!("{}: state.{}", f, f)
+            } else {
+                format!("{}: state.{}.clone()", f, f)
+            }
+        })
+        .collect();
+    let canvas_new = if snap.is_empty() {
+        format!("{}Canvas", s.name)
+    } else {
+        format!("{}Canvas {{ {} }}", s.name, inits.join(", "))
+    };
+    out.push_str(&format!("fn view(state: &{}) -> Element<'_, {}> {{\n", ty, msg_ty));
+    if snap.is_empty() && s.state.is_empty() {
+        out.push_str("    let _ = state;\n");
+    } else if snap.is_empty() {
+        out.push_str("    let _ = state;\n");
+    }
+    out.push_str(&format!(
+        "    iced::widget::Canvas::new({}).width(iced::Length::Fill).height(iced::Length::Fill).into()\n",
+        canvas_new
+    ));
+    out.push_str("}\n\n");
+
+    let bg = match &s.background {
+        Some(e) => crate::transpiler::render_color(e, diags),
+        None => "iced::Color::BLACK".to_string(),
+    };
+    let cv = CanvasDef {
+        name: s.name.clone(),
+        body: s.draw.clone(),
+    };
+    emit_canvas_program(&cv, &snap, Some(&bg), &fields, &field_ty, enums, paint_fns, diags, &mut out);
+
+    out
+}
+
+/// `fn main` for a Sketch: sized Iced window, optional timer subscription.
+fn emit_sketch_main(s: &Sketch, fallible: bool) -> String {
+    let title = s.title.clone().unwrap_or_else(|| s.name.clone());
+    let size = format!(
+        "        .window_size(iced::Size::new({}.0, {}.0))\n",
+        s.width, s.height
+    );
+    let sub = if s.timers.is_empty() {
+        String::new()
+    } else {
+        "        .subscription(subscription)\n".to_string()
+    };
+    if fallible {
+        return format!(
+            "fn main() -> iced::Result {{\n    \
+             iced::application({:?}, update, view)\n\
+             {}{}        \
+             .run_with(|| match {}::init() {{\n            \
+             Ok(state) => (state, iced::Task::none()),\n            \
+             Err(message) => {{\n                \
+             eprintln!(\"could not start: {{}}\", message);\n                \
+             std::process::exit(1);\n            \
+             }}\n        \
+             }})\n}}\n",
+            title, size, sub, s.name
+        );
+    }
+    format!(
+        "fn main() -> iced::Result {{\n    \
+         iced::application({:?}, update, view)\n\
+         {}{}        \
+         .run()\n}}\n",
+        title, size, sub
+    )
 }
 
 /// Emit one window's *definition* — the State struct, Message enum, update, and
@@ -411,7 +707,7 @@ fn emit_window(
             canvas_snaps.get(cname),
         ) {
             out.push('\n');
-            emit_canvas_program(cv, snap, &fields, &field_ty, enums, paint_fns, diags, &mut out);
+            emit_canvas_program(cv, snap, None, &fields, &field_ty, enums, paint_fns, diags, &mut out);
         }
     }
 
@@ -421,9 +717,12 @@ fn emit_window(
 /// Emit a canvas's Iced `Program` — the snapshot struct plus a `draw` method that
 /// runs the `Draw` block against a `frame`. State fields the block reads become
 /// `self.field`; calls to paint functions thread the shared `frame` through.
+/// `background` is an already-rendered `iced::Color` expression; when set, the
+/// paper is filled before the `Draw` verbs (a Sketch's `Background`).
 fn emit_canvas_program(
     cv: &CanvasDef,
     snap: &[String],
+    background: Option<&str>,
     fields: &HashSet<String>,
     field_ty: &HashMap<String, DeclType>,
     enums: &HashSet<String>,
@@ -433,12 +732,16 @@ fn emit_canvas_program(
 ) {
     let struct_name = format!("{}Canvas", cv.name);
     // The snapshot struct: a copy of just the state the drawing reads.
-    out.push_str(&format!("struct {} {{\n", struct_name));
-    for f in snap {
-        let ty = field_ty.get(f).map(decltype_rust).unwrap_or_else(|| "i32".to_string());
-        out.push_str(&format!("    {}: {},\n", f, ty));
+    if snap.is_empty() {
+        out.push_str(&format!("struct {};\n\n", struct_name));
+    } else {
+        out.push_str(&format!("struct {} {{\n", struct_name));
+        for f in snap {
+            let ty = field_ty.get(f).map(decltype_rust).unwrap_or_else(|| "i32".to_string());
+            out.push_str(&format!("    {}: {},\n", f, ty));
+        }
+        out.push_str("}\n\n");
     }
-    out.push_str("}\n\n");
 
     out.push_str(&format!(
         "impl<Message> iced::widget::canvas::Program<Message> for {} {{\n",
@@ -456,11 +759,46 @@ fn emit_canvas_program(
     );
     // A `&mut Frame` shadow, so draw verbs and paint-function calls are uniform.
     out.push_str("        {\n            let frame = &mut frame;\n            let _ = &frame;\n");
-    let empty: HashSet<String> = HashSet::new();
-    for stmt in &cv.body {
-        let mut rewritten = rewrite_canvas_stmt(stmt.clone(), fields, enums, paint_fns);
-        coerce_state_strings(&mut rewritten, "self", field_ty);
-        emit_stmt(&rewritten, &empty, &empty, 3, diags, out);
+    if let Some(color) = background {
+        out.push_str(&format!(
+            "            frame.fill(&iced::widget::canvas::Path::rectangle(iced::Point::ORIGIN, bounds.size()), {});\n",
+            color
+        ));
+    }
+    let pixels = body_has_pixel(&cv.body);
+    if pixels {
+        out.push_str("            let pw = bounds.size().width.max(1.0).round() as u32;\n");
+        out.push_str("            let ph = bounds.size().height.max(1.0).round() as u32;\n");
+        out.push_str("            let mut pix = vec![0u8; pw as usize * ph as usize * 4];\n");
+        out.push_str("            let mut pix_dirty = false;\n");
+        out.push_str("            let width = pw as i32;\n");
+        out.push_str("            let height = ph as i32;\n");
+        out.push_str("            let _ = (width, height);\n");
+    }
+    let empty_byref: HashSet<String> = HashSet::new();
+    let rewritten: Vec<Stmt> = cv
+        .body
+        .iter()
+        .map(|stmt| {
+            let mut s = rewrite_canvas_stmt(stmt.clone(), fields, enums, paint_fns);
+            coerce_state_strings(&mut s, "self", field_ty);
+            s
+        })
+        .collect();
+    let mut mutated = HashSet::new();
+    collect_mutated(&rewritten, &mut mutated);
+    let emit_body = |diags: &mut Diagnostics, out: &mut String| {
+        for stmt in &rewritten {
+            emit_stmt(stmt, &mutated, &empty_byref, 3, diags, out);
+        }
+    };
+    if pixels {
+        crate::transpiler::with_pixel_flush(|| emit_body(diags, out));
+        out.push_str(
+            "            if pix_dirty { let __h = iced::widget::image::Handle::from_rgba(pw, ph, pix); frame.draw_image(iced::Rectangle::new(iced::Point::ORIGIN, bounds.size()), iced::widget::canvas::Image::new(__h).filter_method(iced::widget::image::FilterMethod::Nearest).snap(true)); }\n",
+        );
+    } else {
+        emit_body(diags, out);
     }
     out.push_str("        }\n");
     out.push_str("        vec![frame.into_geometry()]\n");
@@ -483,6 +821,14 @@ fn emit_paint_fn(
         params.push(render_paint_param(p));
     }
     out.push_str(&format!("{}fn {}({}) {{\n", vis, name, params.join(", ")));
+    if body_has_pixel(&func.body) {
+        diags.error_once(
+            "pixel-in-paint",
+            "`Set Pixel` belongs in the `Draw` block — it writes the picture buffer. \
+             A paint function is for `Fill` / `Stroke` / `Text`. Compute a colour in a \
+             normal Function and `Set Pixel` in Draw.",
+        );
+    }
     let empty: HashSet<String> = HashSet::new();
     // Paint functions read no window state (they take values as params); only the
     // paint-call and enum rewrites apply.
@@ -1114,6 +1460,25 @@ fn body_has_draw(stmts: &[Stmt]) -> bool {
     stmts.iter().any(stmt_has_draw)
 }
 
+fn body_has_pixel(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_has_pixel)
+}
+
+fn stmt_has_pixel(s: &Stmt) -> bool {
+    match s {
+        Stmt::Draw(DrawCmd::Pixel { .. }) => true,
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| body_has_pixel(b))
+                || else_body.as_ref().map_or(false, |b| body_has_pixel(b))
+        }
+        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            body_has_pixel(body)
+        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| body_has_pixel(&a.body)),
+        _ => false,
+    }
+}
+
 fn stmt_has_draw(s: &Stmt) -> bool {
     match s {
         Stmt::Draw(_) => true,
@@ -1256,7 +1621,15 @@ fn rewrite_canvas_stmt(
             line,
             if_let,
         },
-        Stmt::DoLoop { cond, body } => Stmt::DoLoop { cond, body: body.into_iter().map(rec).collect() },
+        Stmt::DoLoop { cond, body } => Stmt::DoLoop {
+            cond: cond.map(|c| match c {
+                DoCond::PreWhile(e) => DoCond::PreWhile(re(e)),
+                DoCond::PreUntil(e) => DoCond::PreUntil(re(e)),
+                DoCond::PostWhile(e) => DoCond::PostWhile(re(e)),
+                DoCond::PostUntil(e) => DoCond::PostUntil(re(e)),
+            }),
+            body: body.into_iter().map(rec).collect(),
+        },
         Stmt::Set { name, mutable, value } => Stmt::Set { name, mutable, value: re(value) },
         Stmt::DestructureDim { names, ty, value } => Stmt::DestructureDim { names, ty, value: re(value) },
         Stmt::Return(e) => Stmt::Return(e.map(re)),
@@ -1294,6 +1667,7 @@ fn rewrite_draw_cmd(cmd: DrawCmd, fields: &HashSet<String>, enums: &HashSet<Stri
             DrawCmd::Text { text: re(text), x: re(x), y: re(y), color: color.map(re) }
         }
         DrawCmd::Paint { name, args } => DrawCmd::Paint { name, args: args.into_iter().map(re).collect() },
+        DrawCmd::Pixel { x, y, color } => DrawCmd::Pixel { x: re(x), y: re(y), color: re(color) },
     }
 }
 

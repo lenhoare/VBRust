@@ -72,6 +72,9 @@ fn extra_code(p: &Program) -> String {
     if !p.windows.is_empty() {
         bits.push("Window");
     }
+    if !p.sketches.is_empty() {
+        bits.push("Sketch");
+    }
     if !p.pages.is_empty() {
         bits.push("Page");
     }

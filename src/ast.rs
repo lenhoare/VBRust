@@ -76,6 +76,8 @@ pub struct Program {
     pub functions: Vec<Function>,
     pub windows: Vec<Window>,
     pub canvases: Vec<CanvasDef>,
+    /// `Sketch … End Sketch` — a pixel window that *is* the drawing (no widgets).
+    pub sketches: Vec<Sketch>,
     pub screens: Vec<Screen>,
     /// `Node2D … End Node2D` blocks — Godot node classes (gdext). A program with
     /// any of these builds a cdylib GDExtension rather than a normal binary.
@@ -227,6 +229,26 @@ pub struct KeyBinding {
     pub label: Option<String>,
 }
 
+/// A `Sketch Name … End Sketch` surface — a desktop window that *is* a drawing
+/// (Iced canvas filling the window). No `View`, no buttons: `Draw` is the picture,
+/// `Every` animates it, `Background` paints the paper. Sibling to `Window`.
+#[derive(Debug, Clone)]
+pub struct Sketch {
+    pub name: String,
+    pub title: Option<String>,
+    /// Initial window size in pixels (`Size 800, 600`). Defaults 800×600.
+    pub width: u32,
+    pub height: u32,
+    /// `Background Color.Navy` / `Color(r, g, b)` — the paper. Default black.
+    pub background: Option<Expr>,
+    pub state: Vec<StateField>,
+    pub timers: Vec<Timer>,
+    /// The `Draw` block — same verbs as a `Canvas` (`Fill` / `Stroke` / `Text` / `Set Pixel`).
+    pub draw: Vec<Stmt>,
+    pub events: Vec<GuiEvent>,
+    pub subs: Vec<GuiEvent>,
+}
+
 /// A `Canvas Name … Draw … End Draw … End Canvas` definition — imperative 2-D
 /// drawing (Iced's `canvas::Program`), the closest thing to a VB6 PictureBox.
 /// The `Draw` block runs on every repaint and describes the whole picture as a
@@ -250,6 +272,8 @@ pub enum DrawCmd {
     Stroke { shape: Shape, color: Expr, width: Option<Expr> },
     /// `Text <string>, <x>, <y>[, <color>]` — draw text at a point.
     Text { text: Expr, x: Expr, y: Expr, color: Option<Expr> },
+    /// `Set Pixel <x>, <y>, <color>` — write one pixel into the Draw buffer.
+    Pixel { x: Expr, y: Expr, color: Expr },
     /// A call to a paint function — *not* produced by the parser; the canvas
     /// codegen rewrites a plain call to a paint function into this so the shared
     /// `frame` is threaded through (`draw_grid(frame, …)`).
