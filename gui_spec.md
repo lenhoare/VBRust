@@ -871,7 +871,7 @@ End Sketch
 
 Don't name a kernel local `u` (it shadows the uniform struct). `Theme` is a teaching error — colour the paper with `Background`, not a widget palette. A `View` is a teaching error — for buttons around a drawing, use a `Window` with a `Canvas`.
 
-See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), `examples/sketch_mandelbrot.vbr`. GPU showpieces: `goodexamples/plasma`, `goodexamples/frost`, `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`. A forms Window using the everyday widgets is `goodexamples/desk` (`Theme JellyFish`). The newer Window widgets (Tabs, Chooser, Markdown, Svg, …) are `goodexamples/folio`.
+See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), `examples/sketch_mandelbrot.vbr`. GPU showpieces: `goodexamples/plasma`, `goodexamples/frost`, `goodexamples/reef`, `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`. A forms Window using the everyday widgets is `goodexamples/desk` (`Theme JellyFish`). The newer Window widgets (Tabs, Chooser, Markdown, Svg, …) are `goodexamples/folio`.
 
 ---
 

@@ -1,0 +1,40 @@
+' Mandelbrot helpers for reef — Public Gpu Functions, compiled into the sketch shader.
+' Run:  vbr runproject goodexamples/reef
+
+Public Const MAXITER As Long = 96
+Public Const CX As Double = -0.743643887037151
+Public Const CY As Double = 0.131825904205330
+
+Public Gpu Function Span(ByVal t As Double) As Double
+    Dim breath As Double = 0.5 + 0.5 * Sin(t * 0.12)
+    Return 2.55 * Exp(0.0 - breath * 6.3)
+End Function
+
+Public Gpu Function RealAt(ByVal x As Long, ByVal w As Long, ByVal h As Long, ByVal span As Double, ByVal mx As Double) As Double
+    Dim nx As Double = x / w - 0.5
+    Dim look As Double = mx / w - 0.5
+    Return CX + (nx + look * 0.18) * span * w / h
+End Function
+
+Public Gpu Function ImagAt(ByVal y As Long, ByVal h As Long, ByVal span As Double, ByVal my As Double) As Double
+    Dim ny As Double = y / h - 0.5
+    Dim look As Double = my / h - 0.5
+    Return CY - (ny + look * 0.18) * span
+End Function
+
+Public Gpu Function Escape(ByVal cre As Double, ByVal cim As Double) As Double
+    Dim zr As Double = 0.0
+    Dim zi As Double = 0.0
+    Dim n As Long = 0
+    Do While n < MAXITER And zr * zr + zi * zi < 4.0
+        Dim tmp As Double = zr * zr - zi * zi + cre
+        zi = 2.0 * zr * zi + cim
+        zr = tmp
+        n = n + 1
+    Loop
+    If n >= MAXITER Then
+        Return 0.0 - 1.0
+    End If
+    Dim mag As Double = zr * zr + zi * zi
+    Return n + 1.0 - Log(Log(mag)) / Log(2.0)
+End Function

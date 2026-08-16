@@ -1,0 +1,48 @@
+' Mandelbrot on the GPU — a slow zoom into seahorse valley; the pointer looks around.
+' Helpers live in coral.vbr (Public Gpu Function).
+' Run:  vbr runproject goodexamples/reef
+
+Sketch Reef
+    Title "Reef"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim span As Double = Coral.Span(t)
+                Dim cre As Double = Coral.RealAt(x, width, height, span, mouse_x)
+                Dim cim As Double = Coral.ImagAt(y, height, span, mouse_y)
+                Dim nu As Double = Coral.Escape(cre, cim)
+                If nu >= 0.0 Then
+                    Dim k As Double = nu * 0.18 + t * 0.45
+                    Dim r As Double = 18 + 210 * (0.5 + 0.5 * Sin(k))
+                    Dim g As Double = 12 + 140 * (0.5 + 0.5 * Sin(k + 2.094))
+                    Dim b As Double = 40 + 200 * (0.5 + 0.5 * Sin(k + 4.189))
+                    Set Pixel x, y, Color(r, g, b)
+                Else
+                    Dim pulse As Double = 6 + 5 * Sin(t * 0.7)
+                    Set Pixel x, y, Color(pulse, pulse * 0.4, pulse + 14)
+                End If
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "reef", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.04
+    End Event
+End Sketch
+
+Function Main()
+    Reef.Run
+End Function

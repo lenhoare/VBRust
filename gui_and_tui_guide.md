@@ -258,7 +258,7 @@ in the kernel are `Gpu Function`. `mouse_x` / `mouse_y`, `Noise`, and
 `Sample(frame, u, v)` are legal in the kernel. Theme is a teaching error on a
 Sketch — colour the paper with `Background`.
 
-Showpieces: `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`.
+Showpieces: `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`, `goodexamples/reef`.
 The catalogue lives in `gui_spec.md` §4.5.
 
 ---

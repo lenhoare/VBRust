@@ -1076,6 +1076,8 @@ fn wgsl_call(name: &str, args: &[Expr], uniforms: &HashSet<String>, diags: &mut 
         "cos" => format!("cos({})", a[0]),
         "tan" => format!("tan({})", a[0]),
         "atn" => format!("atan({})", a[0]),
+        "log" => format!("log({})", a[0]),
+        "exp" => format!("exp({})", a[0]),
         "sqr" | "sqrt" => format!("sqrt({})", a[0]),
         "abs" => format!("abs({})", a[0]),
         "min" => format!("min({}, {})", a[0], a.get(1).unwrap_or(&a[0])),
