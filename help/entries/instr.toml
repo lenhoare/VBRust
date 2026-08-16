@@ -12,7 +12,7 @@ summary = "Finds where one string appears inside another."
 remarks = """
 `InStr` searches for a substring and reports where it starts. In classic VB it returned 0 when the text wasn't found — an easy trap. Bust instead returns an **`Option`**: `Some(pos)` when found, `None` when not, so you can't accidentally treat "not found" as a real position.
 
-Unpack it with `Is Some(...)` or `Match`. The position counts characters.
+Unpack it with `Is Some(...)` or `Match`. `pos` is **1-based** and counts **characters**, so `Mid(s, pos, 1)` is the character it found.
 """
 
 example = """

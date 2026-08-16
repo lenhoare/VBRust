@@ -1819,3 +1819,271 @@ fn rnd_with_argument_is_not_the_builtin() {
     );
 }
 
+#[test]
+fn len_counts_characters_not_bytes() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim s As String = \"café\"\n\
+        \x20   Debug.Print Len(s)\n\
+        End Function\n",
+    ));
+    assert!(
+        rust.contains("chars().count()asi64"),
+        "Len should count chars: {rust}"
+    );
+    assert!(
+        !rust.contains("s.len()"),
+        "Len must not use byte .len(): {rust}"
+    );
+}
+
+#[test]
+fn instr_is_one_based_character_index() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   If InStr(\"ab\", \"a\") Is Some(pos) Then\n\
+        \x20       Debug.Print pos\n\
+        \x20   End If\n\
+        End Function\n",
+    );
+    let p = packed(&rust);
+    assert!(p.contains("find("), "InStr still uses find: {rust}");
+    assert!(
+        p.contains("chars().count()asi64+1"),
+        "InStr position should be 1-based chars: {rust}"
+    );
+}
+
+#[test]
+fn unary_minus_on_double_is_negation() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim x As Double = 3.5\n\
+        \x20   Debug.Print -x\n\
+        End Function\n",
+    ));
+    assert!(
+        rust.contains("println!(\"{}\",-x)") || rust.contains("println!(\"{}\",(-x))"),
+        "unary minus on Double should be -x, not 0 - x: {rust}"
+    );
+    assert_rustc_clean("unary_minus_double", &rust_of(
+        "Function Main()\n\
+        \x20   Dim x As Double = 3.5\n\
+        \x20   Debug.Print -x\n\
+        End Function\n",
+    ));
+}
+
+#[test]
+fn dim_scalar_defaults_so_byref_works() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim n As Long\n\
+        \x20   AddTo(n, 5)\n\
+        \x20   Debug.Print n\n\
+        End Function\n\
+        Function AddTo(ByRef target As Long, ByVal amount As Long)\n\
+        \x20   target = target + amount\n\
+        End Function\n",
+    );
+    assert!(
+        packed(&rust).contains("letmutn:i64=0;"),
+        "Dim Long without = should default to 0: {rust}"
+    );
+    assert_rustc_clean("dim_byref_default", &rust);
+}
+
+#[test]
+fn double_pow_long_uses_powf() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim x As Double = 2.0\n\
+        \x20   Dim n As Long = 3\n\
+        \x20   Debug.Print x ^ n\n\
+        End Function\n",
+    ));
+    assert!(
+        rust.contains(".powf(") && rust.contains("asf64"),
+        "Double ^ Long should powf an f64 exponent: {rust}"
+    );
+    assert_rustc_clean(
+        "double_pow_long",
+        &rust_of(
+            "Function Main()\n\
+            \x20   Dim x As Double = 2.0\n\
+            \x20   Dim n As Long = 3\n\
+            \x20   Debug.Print x ^ n\n\
+            End Function\n",
+        ),
+    );
+}
+
+#[test]
+fn gpu_dim_then_for_does_not_redeclare() {
+    let rust = rust_of(&gpu_sketch(
+        "        For y = 0 To height - 1\n\
+        \x20           For x = 0 To width - 1\n\
+        \x20               Dim dx As Double\n\
+        \x20               For dx = 0 To 1\n\
+        \x20               Next dx\n\
+        \x20               Set Pixel x, y, Color.Red\n\
+        \x20           Next x\n\
+        \x20       Next y\n",
+    ));
+    let start = rust.find("var dx = ").unwrap_or(0);
+    let wgsl = &rust[start..];
+    let vars = wgsl.matches("var dx").count();
+    assert_eq!(
+        vars, 1,
+        "Gpu Dim + For dx should declare dx once, then assign: {rust}"
+    );
+    assert!(
+        rust.contains("dx = 0.0") || rust.contains("dx = 0."),
+        "For should assign into the existing dx: {rust}"
+    );
+}
+
+#[test]
+fn input_box_eof_is_an_error() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim name As String = InputBox(\"name? \")\n\
+        \x20   Debug.Print name\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("fn input_box(prompt: &str) -> Result<String, String>"),
+        "helper should return Result: {rust}"
+    );
+    assert!(
+        rust.contains("Ok(0)") && rust.contains("end of input"),
+        "Ok(0) from read_line is EOF, not empty string: {rust}"
+    );
+    assert!(
+        rust.contains("input_box(\"name? \")?"),
+        "call site should auto-try: {rust}"
+    );
+    assert_rustc_clean("input_box_eof", &rust);
+}
+
+#[test]
+fn input_box_handle_swallows_eof() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim name As String = InputBox(\"name? \") Handle err\n\
+        \x20       Debug.Print err\n\
+        \x20       Return\n\
+        \x20   End Handle\n\
+        \x20   Debug.Print name\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("match input_box(") && !rust.contains("input_box(\"name? \")?"),
+        "Handle should catch InputBox instead of ?: {rust}"
+    );
+    assert_rustc_clean("input_box_handle", &rust);
+}
+
+#[test]
+fn input_box_inside_trim_still_tries() {
+    // REPL loops write `Trim(InputBox("> "))` — the inner call still fails on EOF.
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim line As String = Trim(InputBox(\"> \"))\n\
+        \x20   Debug.Print line\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("input_box(\"> \")?"),
+        "InputBox nested in Trim should still auto-try: {rust}"
+    );
+    assert_rustc_clean("input_box_in_trim", &rust);
+}
+
+#[test]
+fn for_literal_integer_step_stays_a_range() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   For k = 0 To 20 Step 10\n\
+        \x20       Debug.Print k\n\
+        \x20   Next\n\
+        End Function\n",
+    ));
+    assert!(
+        rust.contains("forkin(0..=20).step_by(10)"),
+        "literal Step 10 should stay a range: {rust}"
+    );
+}
+
+#[test]
+fn for_step_variable_is_a_counted_loop() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim n As Long = 2\n\
+        \x20   For i = 0 To 6 Step n\n\
+        \x20       Debug.Print i\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("from_fn") && rust.contains("__vbr_step") && !rust.contains("step_by"),
+        "Step n should not use step_by(usize): {rust}"
+    );
+    assert_rustc_clean("for_step_var", &rust);
+}
+
+#[test]
+fn for_float_bounds_iterate() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   For x = 0.0 To 1.0 Step 0.5\n\
+        \x20       Debug.Print x\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("from_fn") && rust.contains("f64") && !rust.contains("step_by"),
+        "float For should count in f64, not RangeInclusive: {rust}"
+    );
+    assert_rustc_clean("for_float", &rust);
+}
+
+#[test]
+fn for_negative_variable_step_counts_down() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim n As Long = -1\n\
+        \x20   For i = 3 To 1 Step n\n\
+        \x20       Debug.Print i\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_step < 0") || rust.contains("__vbr_step<0"),
+        "variable negative step should test the sign: {rust}"
+    );
+    assert_rustc_clean("for_neg_step_var", &rust);
+}
+
+#[test]
+fn for_counted_continue_still_advances() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim n As Long = 1\n\
+        \x20   For i = 1 To 3 Step n\n\
+        \x20       If i = 2 Then\n\
+        \x20           Continue\n\
+        \x20       End If\n\
+        \x20       Debug.Print i\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("continue") && rust.contains("from_fn"),
+        "Continue in a counted For must stay continue (iterator advances): {rust}"
+    );
+    assert_rustc_clean("for_counted_continue", &rust);
+}
+
+
+

@@ -574,7 +574,7 @@ fn vb_string_constant(name: &str) -> Option<String> {
 /// Result type of a known builtin, used so e.g. `Len` into a `Long` casts.
 fn builtin_vtype(name: &str) -> Option<VType> {
     Some(match name.to_ascii_lowercase().as_str() {
-        "len" => VType::Usize,
+        "len" => vt(Type::Long),
         // Asc(s) → the first character's code point, a Long.
         "asc" => vt(Type::Long),
         // `Trim` is a `.trim()` slice (`&str`); `Left`/`Right`/`Mid` each
@@ -1075,7 +1075,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_stmts(body, ctx);
                 }
             }
-            Stmt::For { var, from, to, step, body } => {
+            Stmt::For { var, from, to, step, body, ty } => {
                 resolve_expr(from, ctx);
                 clone_rvalue_indexes(from, ctx);
                 resolve_expr(to, ctx);
@@ -1084,17 +1084,18 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_expr(s, ctx);
                     clone_rvalue_indexes(s, ctx);
                 }
-                // The loop variable's type is what Rust infers from the range
-                // bounds: `For i = 1 To 10` → `i32`, but `For i = 1 To count`
-                // (count a `Long`) → `i64`. Cast both bounds to that common type so
-                // a mixed-width range (`For i = lo To hi`, different widths) still
-                // compiles, and track the var type for body arithmetic.
-                let var_ty = match (num_ty(&infer(from, ctx)), num_ty(&infer(to, ctx))) {
-                    (Some(a), Some(b)) => widen(a, b).unwrap_or(Type::Integer),
-                    _ => Type::Integer,
-                };
+                // The loop variable's type is the widened numeric type of the
+                // bounds *and* Step: `For i = 1 To 10` → Integer, `For i = 1 To
+                // count` (count a Long) → Long, `For x = 0.0 To 1.0 Step 0.1`
+                // → Double. Cast every bound to that type so a mixed-width
+                // range still compiles, and track the var for body arithmetic.
+                let var_ty = for_counter_type(from, to, step.as_ref(), ctx);
+                *ty = var_ty;
                 maybe_cast(from, var_ty, ctx);
                 maybe_cast(to, var_ty, ctx);
+                if let Some(s) = step {
+                    maybe_cast(s, var_ty, ctx);
+                }
                 ctx.bind(var, DeclType::Plain(var_ty));
                 resolve_stmts(body, ctx);
             }
@@ -1284,6 +1285,28 @@ fn resolve_shape(shape: &mut Shape, ctx: &mut Ctx) {
             resolve_expr(d, ctx);
         }
     }
+}
+
+/// The widened numeric type of a `For` counter: start, end, and Step together.
+fn for_counter_type(from: &Expr, to: &Expr, step: Option<&Expr>, ctx: &Ctx) -> Type {
+    let mut acc: Option<NumTy> = None;
+    let mut consider = |e: &Expr| {
+        if let Some(n) = num_ty(&infer(e, ctx)) {
+            acc = Some(match acc {
+                None => n,
+                Some(a) => match widen(a, n) {
+                    Some(t) => num_of_type(t).unwrap_or(a),
+                    None => a,
+                },
+            });
+        }
+    };
+    consider(from);
+    consider(to);
+    if let Some(s) = step {
+        consider(s);
+    }
+    acc.and_then(type_of_num).unwrap_or(Type::Integer)
 }
 
 /// Insert a numeric `as` cast if `value`'s type differs from `target`. Literals
@@ -1502,7 +1525,7 @@ fn is_auto_try_expr(e: &Expr, ctx: &Ctx) -> bool {
             ) {
                 return false;
             }
-            if matches!(lower.as_str(), "cdbl" | "clng" | "cint") {
+            if matches!(lower.as_str(), "cdbl" | "clng" | "cint" | "inputbox") {
                 return true;
             }
             let key = name.rsplit("::").next().unwrap_or(name);
@@ -1629,7 +1652,7 @@ fn try_operand_shape(e: &Expr, ctx: &Ctx) -> Option<FailShape> {
             }
             match name.to_ascii_lowercase().as_str() {
                 "instr" | "some" | "none" => Some(FailShape::Option),
-                "cdbl" | "clng" | "cint" | "ok" | "err" => Some(FailShape::Result),
+                "cdbl" | "clng" | "cint" | "inputbox" | "ok" | "err" => Some(FailShape::Result),
                 _ => None,
             }
         }
@@ -1730,6 +1753,14 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                             method: "pow".to_string(),
                             args: vec![exp],
                         };
+                    } else if !matches!(&rhs.kind, ExprKind::Int(_) | ExprKind::Float(_)) {
+                        // `Double ^ Long` — `.powf` wants an f64 exponent.
+                        // Integer *literals* stay Int so the renderer uses `.powi`.
+                        if let Some(et) = num_ty(&infer(rhs, ctx)) {
+                            if !et.is_float() {
+                                maybe_cast(rhs, Type::Double, ctx);
+                            }
+                        }
                     }
                 }
                 return;

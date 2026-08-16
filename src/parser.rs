@@ -4198,7 +4198,7 @@ impl<'a> Parser<'a> {
             self.diags.note(
                 "msgbox-cli",
                 "MsgBox has no window in a terminal app, so Bust prints it to the terminal \
-                 (like Debug.Print). InputBox reads a line of input back.",
+                 (like Debug.Print). InputBox reads a line of input back — closed input fails.",
             );
             let value = self.parse_expr()?;
             return Some(Stmt::Print(value));
@@ -4561,6 +4561,7 @@ impl<'a> Parser<'a> {
             to,
             step,
             body,
+            ty: Type::Integer,
         })
     }
 

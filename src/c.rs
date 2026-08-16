@@ -623,7 +623,7 @@ impl Emitter {
                 self.line(&format!("{};", v));
             }
             Stmt::If { branches, else_body } => self.if_stmt(branches, else_body.as_deref()),
-            Stmt::For { var, from, to, step, body } => self.for_stmt(var, from, to, step.as_ref(), body),
+            Stmt::For { var, from, to, step, body, .. } => self.for_stmt(var, from, to, step.as_ref(), body),
             Stmt::DoLoop { cond, body } => self.do_loop(cond, body),
             Stmt::ForEach { var1, var2, iter, body } => {
                 self.for_each(var1, var2.as_deref(), iter, body)

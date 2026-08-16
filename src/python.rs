@@ -443,7 +443,7 @@ impl Emitter {
                     self.block_or_pass(body, indent + 1);
                 }
             }
-            Stmt::For { var, from, to, step, body } => {
+            Stmt::For { var, from, to, step, body, .. } => {
                 self.declare(var, &DeclType::Plain(Type::Long));
                 let header = self.for_range(var, from, to, step.as_ref());
                 self.line(indent, &header);

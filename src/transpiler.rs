@@ -54,7 +54,6 @@ fn draw_cmd_writes_pixels(cmd: &DrawCmd) -> bool {
     )
 }
 
-/// CLI stand-in for VB's InputBox: print the prompt, read a line, return it.
 /// The `Log <expr>` sink: a timestamped line appended to `vbr.log` in the working
 /// directory (for a project run, that's `build/vbr.log`). Std-only — no crate,
 /// so `Log` works even under `vbr run`. The timestamp is UTC time-of-day with
@@ -311,13 +310,18 @@ fn warn_print_in_screen(program: &Program, diags: &mut Diagnostics) {
     }
 }
 
-const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> String {
+// Closed stdin (`read_line` → `Ok(0)`) and I/O errors fail; a blank Enter is
+// `Ok("")`. Call sites get `?` (or `Handle`) like `CDbl` / `FileSystem.Read`.
+const INPUT_BOX_HELPER: &str = "fn input_box(prompt: &str) -> Result<String, String> {
     use std::io::Write;
     print!(\"{}\", prompt);
     let _ = std::io::stdout().flush();
     let mut line = String::new();
-    let _ = std::io::stdin().read_line(&mut line);
-    line.trim_end().to_string()
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) => Err(\"end of input\".into()),
+        Ok(_) => Ok(line.trim_end().to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 ";
 
@@ -1794,7 +1798,14 @@ pub(crate) fn emit_stmt(
                                 if is_mut {
                                     out.push_str(&format!("{}#[allow(unused_mut)]\n", pad));
                                 }
-                                out.push_str(&format!("{}{} {}: {};\n", pad, kw, var, t.rust()));
+                                out.push_str(&format!(
+                                    "{}{} {}: {} = {};\n",
+                                    pad,
+                                    kw,
+                                    var,
+                                    t.rust(),
+                                    array_default(*t)
+                                ));
                             }
                         }
                     }
@@ -1990,6 +2001,7 @@ pub(crate) fn emit_stmt(
             to,
             step,
             body,
+            ty,
         } => {
             // VB's "repeat N times" loop often never reads its counter — Rust
             // warns on the unused binding, so an unread counter emits as `_`.
@@ -2000,8 +2012,18 @@ pub(crate) fn emit_stmt(
             } else {
                 "_".to_string()
             };
-            let range = render_range(from, to, step.as_ref(), diags);
-            out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
+            if for_uses_rust_range(*ty, step.as_ref()) {
+                let range = render_range(from, to, step.as_ref(), diags);
+                out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
+            } else {
+                diags.note(
+                    "for-counted-loop",
+                    "A `For` whose Step isn't a fixed integer — or whose bounds are floating — \
+                     is a counted loop, not a Rust range. `To` is still inclusive; direction \
+                     follows the sign of Step.",
+                );
+                emit_counted_for(&pad, indent, var, &loop_var, from, to, step.as_ref(), *ty, out);
+            }
             emit_block(body, mutated, byref, indent + 1, diags, out);
             out.push_str(&format!("{}}}\n", pad));
         }
@@ -2345,9 +2367,14 @@ fn emit_dim_string(
     out: &mut String,
 ) {
     match init {
-        None => {
-            out.push_str(&format!("{}{} {}: String;\n", pad, let_kw(is_mut), var));
-        }
+            None => {
+                out.push_str(&format!(
+                    "{}{} {}: String = String::new();\n",
+                    pad,
+                    let_kw(is_mut),
+                    var
+                ));
+            }
         // Every String variable is an owned String — uniform and predictable.
         Some(Expr { kind: ExprKind::Str(s), .. }) => {
             out.push_str(&format!(
@@ -2442,6 +2469,12 @@ pub(crate) fn note_builtins(stmts: &[Stmt], diags: &mut Diagnostics) {
                 }
             }
             Stmt::GpuInto { body, .. } => note_builtins(body, diags),
+            Stmt::HandleErr { call, body, .. } => {
+                note_builtins_expr(call, diags);
+                note_builtins(body, diags);
+            }
+            Stmt::RaiseError(e) | Stmt::Assert(e) => note_builtins_expr(e, diags),
+            Stmt::DestructureDim { value, .. } => note_builtins_expr(value, diags),
             _ => {}
         }
     }
@@ -2506,8 +2539,8 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                 ),
                 "instr" => diags.note(
                     "builtin-instr",
-                    "InStr becomes Rust's .find(), which returns an Option: Some(pos) when \
-                     found, None when not. You handle both instead of checking for 0.",
+                    "InStr becomes Rust's .find() as an Option: Some(pos) when found, None \
+                     when not. pos is 1-based and counts characters, so it lines up with Mid.",
                 ),
                 "val" => diags.caution_note("val-lenient"),
                 "inputbox" => {
@@ -2515,7 +2548,9 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     diags.note(
                         "builtin-inputbox",
                         "InputBox has no window in a terminal app — Bust prints the prompt and \
-                         reads a line from the keyboard, returning it as a String.",
+                         reads a line from the keyboard. Closed input (end of a pipe, Ctrl+D) \
+                         fails; intercept with Handle if you want to keep going. A blank Enter \
+                         is an empty String, not a failure.",
                     );
                 }
                 "getopenfilename" | "getsaveasfilename" | "getfoldername" => {
@@ -2938,6 +2973,20 @@ fn unknown_size_message(target: &str, source: &str) -> String {
     )
 }
 
+/// Integer bounds and a missing/literal-nonzero Step can be a Rust range.
+/// A variable Step, Step 0, or a floating counter is a counted loop instead
+/// (`step_by` wants `usize`; `RangeInclusive<f64>` is not an iterator).
+fn for_uses_rust_range(ty: Type, step: Option<&Expr>) -> bool {
+    if ty.is_float() {
+        return false;
+    }
+    match step {
+        None => true,
+        Some(Expr { kind: ExprKind::Int(n), .. }) if *n != 0 => true,
+        _ => false,
+    }
+}
+
 /// Build the Rust range for a `For` loop, including `Step`.
 fn render_range(from: &Expr, to: &Expr, step: Option<&Expr>, diags: &mut Diagnostics) -> String {
     let lo = render_expr(from, None);
@@ -2960,10 +3009,59 @@ fn render_range(from: &Expr, to: &Expr, step: Option<&Expr>, diags: &mut Diagnos
         }
         Some(Expr { kind: ExprKind::Int(n), .. }) => format!("({}..={}).step_by({})", lo, hi, n),
         Some(other) => {
-            // Non-literal step: fall back to a literal-rendered step_by.
             format!("({}..={}).step_by({})", lo, hi, render_expr(other, None))
         }
     }
+}
+
+/// VB `For` as a counted iterator: snapshot start/end/step, walk by adding
+/// Step, stop when the counter passes `To` in the step's direction. `from_fn`
+/// so `Continue` still advances (a `while` would skip the increment).
+fn emit_counted_for(
+    pad: &str,
+    indent: usize,
+    var: &str,
+    loop_var: &str,
+    from: &Expr,
+    to: &Expr,
+    step: Option<&Expr>,
+    ty: Type,
+    out: &mut String,
+) {
+    let v = rust_name(var);
+    let rt = ty.rust();
+    let zero = if ty.is_float() { "0.0" } else { "0" };
+    let from_rs = render_expr(from, Some(ty));
+    let to_rs = render_expr(to, Some(ty));
+    let step_rs = match step {
+        Some(s) => render_expr(s, Some(ty)),
+        None => {
+            if ty.is_float() {
+                "1.0".to_string()
+            } else {
+                "1".to_string()
+            }
+        }
+    };
+    let inner = "    ".repeat(indent + 1);
+    let inner2 = "    ".repeat(indent + 2);
+    let inner3 = "    ".repeat(indent + 3);
+    out.push_str(&format!("{pad}for {loop_var} in {{\n"));
+    out.push_str(&format!("{inner}let mut {v}: {rt} = {from_rs};\n"));
+    out.push_str(&format!("{inner}let __vbr_to: {rt} = {to_rs};\n"));
+    out.push_str(&format!("{inner}let __vbr_step: {rt} = {step_rs};\n"));
+    out.push_str(&format!("{inner}std::iter::from_fn(move || {{\n"));
+    out.push_str(&format!(
+        "{inner2}if (__vbr_step >= {zero} && {v} > __vbr_to) || (__vbr_step < {zero} && {v} < __vbr_to) {{\n"
+    ));
+    out.push_str(&format!("{inner3}None\n"));
+    out.push_str(&format!("{inner2}}} else {{\n"));
+    out.push_str(&format!("{inner3}let __vbr_cur = {v};\n"));
+    out.push_str(&format!("{inner3}{v} += __vbr_step;\n"));
+    out.push_str(&format!("{inner3}Some(__vbr_cur)\n"));
+    out.push_str(&format!("{inner2}}}\n"));
+    out.push_str(&format!("{inner}}})\n"));
+    out.push_str(&format!("{pad}}} {{\n"));
 }
 
 /// Render an expression. `expected` lets a `Double` context coerce integer
@@ -3022,6 +3120,23 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             let inner = format!("{} ^ {}", operand(lhs), operand(rhs));
             let p = prec(BinOp::Xor);
             if p < parent_prec || (p == parent_prec && is_right) {
+                format!("({})", inner)
+            } else {
+                inner
+            }
+        }
+        // Unary minus is parsed as `0 - x`. Render it as `-x` so a Double
+        // operand never meets a leftover integer 0 (and `0 - x` is the same).
+        ExprKind::Binary {
+            op: BinOp::Sub,
+            lhs,
+            rhs,
+        } if matches!(&lhs.kind, ExprKind::Int(0))
+            || matches!(&lhs.kind, ExprKind::Float(f) if *f == 0.0) =>
+        {
+            let inner = format!("-{}", render_prec(rhs, expected, 9, false));
+            // `a - -b` / a method on `-x` need parens; prefix `-x * y` does not.
+            if parent_prec > 8 || (is_right && parent_prec >= 6) {
                 format!("({})", inner)
             } else {
                 inner
@@ -3263,7 +3378,9 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
     let r = |i: usize| render_expr(&args[i], None);
     match (name.to_ascii_lowercase().as_str(), args.len()) {
         // --- strings ---
-        ("len", 1) => Some(method0(&args[0], "len")),
+        // Characters, not bytes — same unit as Mid/Left/Right, so
+        // `For i = 1 To Len(s)` / `Mid(s, i, 1)` is safe on any Unicode.
+        ("len", 1) => Some(format!("{}.chars().count() as i64", render_recv(&args[0]))),
         ("ucase", 1) => Some(method0(&args[0], "to_uppercase")),
         ("lcase", 1) => Some(method0(&args[0], "to_lowercase")),
         ("trim", 1) => Some(method0(&args[0], "trim")),
@@ -3310,10 +3427,13 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
             "std::thread::sleep(std::time::Duration::from_millis(({}) as u64))",
             r(0)
         )),
-        // InStr → .find() (returns Option). Map the byte offset `usize` to `Long`
-        // (`i64`) so a bound position (`Some(p) => Return p`) is a plain VB number,
-        // not a `usize` that trips every downstream `Long` context.
-        ("instr", 2) => Some(format!("{}.find({}).map(|p| p as i64)", r(0), r(1))),
+        // InStr → .find() as an Option. The position is 1-based and counts
+        // *characters* (VB / Mid), not a 0-based byte offset from Rust's find.
+        ("instr", 2) => Some(format!(
+            "{{ let __s = &({}); __s.find({}).map(|b| __s[..b].chars().count() as i64 + 1) }}",
+            r(0),
+            r(1)
+        )),
         // `Val` is VB's *lenient* numeric read: a `Double`, `0.0` on non-numeric
         // text, never fails (VB6 semantics — `Val` was the forgiving one). Leading
         // and trailing whitespace is ignored, as in VB. The strict, *fallible*
@@ -3328,6 +3448,7 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("clng", 1) => Some(format!("{}.trim().parse::<i64>().map_err(|e| e.to_string())", r(0))),
         ("cint", 1) => Some(format!("{}.trim().parse::<i32>().map_err(|e| e.to_string())", r(0))),
         // InputBox → a generated helper that prompts and reads a line.
+        // Fallible (`Result`): closed stdin fails; auto-`?` / Handle unwrap it.
         ("inputbox", 1) => Some(format!("input_box({})", r(0))),
         ("getopenfilename", 0) => Some(lower_file_dialog(" Open file ", "\"\"", FileDialogKind::Open)),
         ("getopenfilename", 1) => Some(lower_file_dialog(" Open file ", &r(0), FileDialogKind::Open)),

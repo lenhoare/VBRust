@@ -12,7 +12,7 @@ Next
 summary = "Repeats a block a fixed number of times, counting a variable through a range."
 
 remarks = """
-`For` counts `<var>` from `<start>` up to and including `<end>`. The counter's type is inferred from the range, so you do not `Dim` it separately.
+`For` counts `<var>` from `<start>` up to and including `<end>`. The counter's type is the widened type of the bounds and `Step` — you do not `Dim` it separately. Integer ranges with a fixed integer `Step` become a Rust range; a variable `Step` or floating bounds are a counted loop of that same type (direction follows the sign of `Step`).
 
 `Step <n>` changes the increment — `Step 2` counts in twos, and a negative step counts downward.
 

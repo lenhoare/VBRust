@@ -37,14 +37,14 @@ fn evensupto(limit: i64) -> Result<Vec<i64>, String> {
 }
 
 fn firstword(text: &str) -> Result<Option<String>, String> {
-    if (text.len() as i32) == 0 {
+    if text.chars().count() as i64 == 0 {
         return Ok(None);
     }
     Ok(Some(text.to_string()))
 }
 
 fn lines(text: &str) -> Result<Vec<String>, String> {
-    if (text.len() as i32) == 0 {
+    if text.chars().count() as i64 == 0 {
         return Err("empty input".to_string());
     }
     let mut parts: Vec<String> = Vec::new();

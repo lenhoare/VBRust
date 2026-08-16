@@ -1,4 +1,4 @@
-' Terminal I/O — InputBox reads a line, MsgBox prints to the terminal
+' Terminal I/O — InputBox reads a line (fails at end of input), MsgBox prints
 Function Main()
     Dim name As String = InputBox("What is your name? ")
     MsgBox "Hello, " & name & "!"

@@ -160,14 +160,22 @@ impl Typer {
                     self.block(body);
                 }
             }
-            Stmt::For { var, from, to, step, body } => {
-                self.infer(from);
-                self.infer(to);
+            Stmt::For { var, from, to, step, body, .. } => {
+                let ft = self.infer(from);
+                let tt = self.infer(to);
+                let mut ty = join(&ft, &tt);
                 if let Some(s) = step {
-                    self.infer(s);
+                    ty = join(&ty, &self.infer(s));
                 }
-                // A `For` counter over an integer range is a `Long`.
-                self.env.insert(var.to_ascii_lowercase(), DeclType::Plain(Type::Long));
+                if !matches!(
+                    ty,
+                    DeclType::Plain(
+                        Type::Integer | Type::Long | Type::LongLong | Type::Byte | Type::Single | Type::Double
+                    )
+                ) {
+                    ty = DeclType::Plain(Type::Long);
+                }
+                self.env.insert(var.to_ascii_lowercase(), ty);
                 self.block(body);
             }
             Stmt::DoLoop { cond, body } => {
@@ -557,7 +565,7 @@ fn builtin_return(name: &str) -> Option<Type> {
     Some(match name.to_ascii_lowercase().as_str() {
         "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "val" | "rnd" => Type::Double,
         "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "left" | "right" | "mid" | "trim"
-        | "getopenfilename" | "getsaveasfilename" => {
+        | "inputbox" | "getopenfilename" | "getsaveasfilename" => {
             Type::Text
         }
         "len" => Type::Long,

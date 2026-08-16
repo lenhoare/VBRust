@@ -1,16 +1,19 @@
-// Terminal I/O — InputBox reads a line, MsgBox prints to the terminal
+// Terminal I/O — InputBox reads a line (fails at end of input), MsgBox prints
 
-fn input_box(prompt: &str) -> String {
+fn input_box(prompt: &str) -> Result<String, String> {
     use std::io::Write;
     print!("{}", prompt);
     let _ = std::io::stdout().flush();
     let mut line = String::new();
-    let _ = std::io::stdin().read_line(&mut line);
-    line.trim_end().to_string()
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) => Err("end of input".into()),
+        Ok(_) => Ok(line.trim_end().to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn vbr_main() -> Result<(), String> {
-    let name: String = input_box("What is your name? ");
+    let name: String = input_box("What is your name? ")?;
     println!("Hello, {}!", name);
     println!("Nice to meet you.");
     Ok(())

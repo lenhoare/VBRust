@@ -2,7 +2,7 @@
 
 fn vbr_main() -> Result<(), String> {
     let s: String = "Hello, World".to_string();
-    println!("length:    {}", s.len());
+    println!("length:    {}", s.chars().count() as i64);
     println!("upper:     {}", s.to_uppercase());
     println!("lower:     {}", s.to_lowercase());
     println!("left 5:    {}", s.chars().take(5).collect::<String>());

@@ -1,8 +1,8 @@
 // More numeric coercion: maths on integers, and Return values
 
 fn stringlength(s: &str) -> Result<i64, String> {
-    // usize -> Long, coerced on return
-    Ok(s.len() as i64)
+    // character count, a Long
+    Ok(s.chars().count() as i64)
 }
 
 fn vbr_main() -> Result<(), String> {

@@ -432,7 +432,7 @@ const KEYWORDS: &[&str] = &[
 
 const BUILTINS: &[(&str, &str)] = &[
     ("Rnd", "Rnd() As Double — random number in [0, 1)"),
-    ("InputBox", "InputBox(prompt) As String — read a line from the keyboard"),
+    ("InputBox", "InputBox(prompt) As String — read a line; fails at end of input"),
     ("GetOpenFilename", "GetOpenFilename([initial]) As String — pick a file; \"\" if cancelled"),
     ("GetSaveAsFilename", "GetSaveAsFilename([initial]) As String — pick a save path; \"\" if cancelled"),
     ("GetFolderName", "GetFolderName([initial]) As String — pick a folder; \"\" if cancelled"),

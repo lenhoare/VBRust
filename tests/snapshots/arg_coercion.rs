@@ -12,7 +12,7 @@ pub fn charat(text: &str, pos: i64) -> Result<String, String> {
 }
 
 pub fn findin(haystack: &str, needle: &str) -> Result<i64, String> {
-    match haystack.find(needle).map(|p| p as i64) {
+    match { let __s = &(haystack); __s.find(needle).map(|b| __s[..b].chars().count() as i64 + 1) } {
         Some ( p ) => {
             return Ok(p);
         }

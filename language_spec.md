@@ -431,12 +431,19 @@ nothing — Rust's `for` introduces its own binding, so the bare `let` would sit
 shadowed and warn as unused. The counter therefore doesn't exist after the loop
 (unlike VB6); read it out through a separate variable if the exit value matters.
 
+The counter's type is the widened type of the bounds and `Step`. `For i = 1 To
+10` and `For i = 10 To 1 Step -1` are integer ranges. `Step n` with `n` a
+variable, or floating bounds (`For x = 0.0 To 1.0 Step 0.1`), is a counted loop
+of that type: `To` is inclusive, and direction follows the sign of `Step`.
+
 ### Loop control
 `Exit Do`, `Exit For`, `Exit Function`, `Continue`.
 
 ### Output / input
 `Debug.Print expr` → `println!`. `MsgBox` / `InputBox` are lowered to terminal
 output and prompted input (no GUI), as built-ins — not part of the stdlib crate.
+`InputBox` fails when input ends (a closed pipe, Ctrl+D); a blank Enter is `""`.
+Intercept with `Handle` if you want to ignore the failure.
 
 On a **`Screen`**, `GetOpenFilename()` / `GetSaveAsFilename()` (optional initial
 path) pop TIDE's path prompt over the live UI: Tab completes, Enter opens a file

@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use vbr_stdlib::{Http};
+
 fn vbr_main() -> Result<(), String> {
     let key: String = "sk-demo-key".to_string();
     let body: String = "{\"model\": \"demo\", \"prompt\": \"hello\"}".to_string();

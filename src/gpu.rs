@@ -150,8 +150,9 @@ pub fn emit_shader_program(
                      if {xn} < 0.0 || {yn} < 0.0 || {xn} >= u.size.x || {yn} >= u.size.y {{ discard; }}\n    \
                      var col = vec4<f32>(0.0, 0.0, 0.0, {init_a});\n"
                 ));
+                let mut locals = HashSet::new();
                 for s in body {
-                    wgsl.push_str(&wgsl_stmt(s, 1, &uniforms, diags)?);
+                    wgsl.push_str(&wgsl_stmt(s, 1, &uniforms, &mut locals, diags)?);
                 }
                 if composite {
                     wgsl.push_str("    if col.a < 0.001 { discard; }\n");
@@ -750,14 +751,21 @@ fn wgsl_gpu_fn(f: &Function, uniforms: &HashSet<String>, diags: &mut Diagnostics
     let ret = if f.ret.is_some() { " -> f32" } else { "" };
     let mut out = format!("fn {}({}){} {{\n", name, params.join(", "), ret);
     out.push_str(&copies);
+    let mut locals: HashSet<String> = f.params.iter().map(|p| rust_name(&p.name)).collect();
     for s in skip_noise(&f.body) {
-        out.push_str(&wgsl_stmt(&s, 1, &fn_uniforms, diags)?);
+        out.push_str(&wgsl_stmt(&s, 1, &fn_uniforms, &mut locals, diags)?);
     }
     out.push_str("}\n");
     Some(out)
 }
 
-fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Diagnostics) -> Option<String> {
+fn wgsl_stmt(
+    s: &Stmt,
+    indent: usize,
+    uniforms: &HashSet<String>,
+    locals: &mut HashSet<String>,
+    diags: &mut Diagnostics,
+) -> Option<String> {
     let pad = "    ".repeat(indent);
     match s {
         Stmt::Comment(_) | Stmt::LineMark(_) => Some(String::new()),
@@ -771,8 +779,14 @@ fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Di
                 return None;
             }
             match init {
-                Some(e) => Some(format!("{pad}var {n} = {};\n", wgsl_expr(e, uniforms, diags)?)),
-                None => Some(format!("{pad}var {n} = 0.0;\n")),
+                Some(e) => {
+                    locals.insert(n.clone());
+                    Some(format!("{pad}var {n} = {};\n", wgsl_expr(e, uniforms, diags)?))
+                }
+                None => {
+                    locals.insert(n.clone());
+                    Some(format!("{pad}var {n} = 0.0;\n"))
+                }
             }
         }
         Stmt::Assign { target, value, op } => {
@@ -802,13 +816,13 @@ fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Di
                 let kw = if i == 0 { "if" } else { "} else if" };
                 out.push_str(&format!("{pad}{kw} {} {{\n", wgsl_expr(cond, uniforms, diags)?));
                 for s in body {
-                    out.push_str(&wgsl_stmt(s, indent + 1, uniforms, diags)?);
+                    out.push_str(&wgsl_stmt(s, indent + 1, uniforms, locals, diags)?);
                 }
             }
             if let Some(body) = else_body {
                 out.push_str(&format!("{pad}}} else {{\n"));
                 for s in body {
-                    out.push_str(&wgsl_stmt(s, indent + 1, uniforms, diags)?);
+                    out.push_str(&wgsl_stmt(s, indent + 1, uniforms, locals, diags)?);
                 }
             }
             out.push_str(&format!("{pad}}}\n"));
@@ -832,7 +846,7 @@ fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Di
                 _ => {}
             }
             for s in body {
-                out.push_str(&wgsl_stmt(s, indent + 1, uniforms, diags)?);
+                out.push_str(&wgsl_stmt(s, indent + 1, uniforms, locals, diags)?);
             }
             match cond {
                 Some(DoCond::PostWhile(c)) => {
@@ -864,7 +878,7 @@ fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Di
             );
             None
         }
-        Stmt::For { var, from, to, step, body } => {
+        Stmt::For { var, from, to, step, body, .. } => {
             let v = rust_name(var);
             let a = wgsl_expr(from, uniforms, diags)?;
             let b = wgsl_expr(to, uniforms, diags)?;
@@ -872,9 +886,15 @@ fn wgsl_stmt(s: &Stmt, indent: usize, uniforms: &HashSet<String>, diags: &mut Di
                 Some(s) => wgsl_expr(s, uniforms, diags)?,
                 None => "1.0".to_string(),
             };
-            let mut out = format!("{pad}var {v} = {a};\n{pad}loop {{\n{pad}    if {v} > {b} {{ break; }}\n");
+            let declared = locals.contains(&v);
+            let mut out = if declared {
+                format!("{pad}{v} = {a};\n{pad}loop {{\n{pad}    if {v} > {b} {{ break; }}\n")
+            } else {
+                locals.insert(v.clone());
+                format!("{pad}var {v} = {a};\n{pad}loop {{\n{pad}    if {v} > {b} {{ break; }}\n")
+            };
             for s in body {
-                out.push_str(&wgsl_stmt(s, indent + 1, uniforms, diags)?);
+                out.push_str(&wgsl_stmt(s, indent + 1, uniforms, locals, diags)?);
             }
             out.push_str(&format!("{pad}    {v} = {v} + {st};\n{pad}}}\n"));
             Some(out)

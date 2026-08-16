@@ -23,7 +23,7 @@ fn placeblinker(grid: &mut Vec<i64>, at: i64) -> Result<(), String> {
 fn digitcount(s: &str) -> Result<i64, String> {
     let digits: String = "0123456789".to_string();
     let mut total: i64 = 0;
-    for i in 1..=s.len() as i32 {
+    for i in 1..=s.chars().count() as i64 {
         let ch: String = s.chars().skip(((i) - 1) as usize).take(1).collect::<String>();
         if digits.contains(&ch) {
             total = total + 1;

@@ -143,6 +143,7 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("instr", "InStr", "String functions", Builtin, "fn/InStr"),
         item!("asc", "Asc", "String functions", Builtin, "fn/Asc"),
         item!("chr", "Chr", "String functions", Builtin, "fn/Chr"),
+        item!("inputbox", "InputBox", "String functions", Builtin, "fn/InputBox"),
         // Conversion
         item!("cstr", "CStr", "Conversion", Builtin, "fn/CStr"),
         item!("str", "Str", "Conversion", Builtin, "fn/Str"),

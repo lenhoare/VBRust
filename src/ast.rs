@@ -952,6 +952,9 @@ pub enum Stmt {
         to: Expr,
         step: Option<Expr>,
         body: Vec<Stmt>,
+        /// Widened numeric type of the counter — bounds and `Step` together.
+        /// Filled in by the resolver (`Integer` until then).
+        ty: Type,
     },
     /// `Do … Loop` in its various forms → `while` / `loop`.
     DoLoop {

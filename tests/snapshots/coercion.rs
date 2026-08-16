@@ -1,8 +1,8 @@
 // Rust won't silently convert between number types — Bust inserts `as` for you.
 
 fn vbr_main() -> Result<(), String> {
-    let length: i64 = "hello world".len() as i64;
-    // usize -> Long
+    let length: i64 = "hello world".chars().count() as i64;
+    // character count, a Long
     let ratio: f64 = length as f64;
     // Long  -> Double
     let small: i32 = length as i32;

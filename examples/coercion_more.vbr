@@ -1,6 +1,6 @@
 ' More numeric coercion: maths on integers, and Return values
 Function StringLength(ByVal s As String) As Long
-    Return Len(s)                 ' usize -> Long, coerced on return
+    Return Len(s)                 ' character count, a Long
 End Function
 
 Function Main()

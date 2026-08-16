@@ -494,12 +494,13 @@ impl Rw<'_> {
                     .collect(),
                 else_body: else_body.map(|b| b.into_iter().map(|s| self.stmt(s)).collect()),
             },
-            Stmt::For { var, from, to, step, body } => Stmt::For {
+            Stmt::For { var, from, to, step, body, ty } => Stmt::For {
                 var,
                 from: self.expr(from),
                 to: self.expr(to),
                 step: step.map(|e| self.expr(e)),
                 body: body.into_iter().map(|s| self.stmt(s)).collect(),
+                ty,
             },
             other => other,
         }
@@ -582,9 +583,9 @@ impl Rw<'_> {
                 let rendered: Vec<String> = args.into_iter().map(|a| render_expr(&self.expr(a), None)).collect();
                 inline(value_ctor(&name, &rendered))
             }
-            // Unary minus is parsed as `0 - x`; if the resolver couldn't type it
-            // (an opaque operand), the `0` stays integer (`0 - f32` won't compile),
-            // so fold it into a real, type-agnostic negation.
+            // Unary minus is parsed as `0 - x`. Fold it here so an opaque
+            // Godot operand (`Me.JumpForce`) never meets an integer 0. The
+            // core renderer also emits `-x` for this shape.
             ExprKind::Binary { op: BinOp::Sub, lhs, rhs } if matches!(&lhs.kind, ExprKind::Int(0)) => {
                 inline(format!("-({})", render_expr(&self.expr(*rhs), None)))
             }
