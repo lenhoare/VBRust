@@ -380,6 +380,10 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             narrow.iter().for_each(|c| validate_view(c, field_ty, diags));
             wide.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
+        ViewNode::Split { a, b, .. } => {
+            validate_view(a, field_ty, diags);
+            validate_view(b, field_ty, diags);
+        }
         ViewNode::Tabs { tabs, .. } => {
             tabs.iter()
                 .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, diags)));
@@ -614,6 +618,22 @@ fn render_node(
         ViewNode::Responsive { narrow, .. } => {
             render_flex("column", narrow, None, None, None, ctx, indent, out, diags);
         }
+        ViewNode::Split { vertical, ratio, a, b, .. } => {
+            let dir = if *vertical { "row" } else { "column" };
+            let pct = (*ratio * 100.0).round().clamp(1.0, 99.0) as u16;
+            let rest = 100u16.saturating_sub(pct).max(1);
+            out.push_str(&format!(
+                "{}<div class=\"vbr-split\" style=\"display:flex;flex-direction:{};width:100%;height:100%;\">\n",
+                pad, dir
+            ));
+            out.push_str(&format!("{}    <div style=\"flex: 0 0 {}%; min-width:0; min-height:0;\">\n", pad, pct));
+            render_node(a, ctx, dir, indent + 2, out, diags);
+            out.push_str(&format!("{}    </div>\n", pad));
+            out.push_str(&format!("{}    <div style=\"flex: 0 0 {}%; min-width:0; min-height:0;\">\n", pad, rest));
+            render_node(b, ctx, dir, indent + 2, out, diags);
+            out.push_str(&format!("{}    </div>\n", pad));
+            out.push_str(&format!("{}</div>\n", pad));
+        }
         // A sized child: `Length N` fixes the container axis in pixels; `Fill`
         // takes a share of the leftover space (CSS flex).
         ViewNode::Constrained { size, child } => {
@@ -746,6 +766,7 @@ fn web_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Tooltip { .. } => "Tooltip",
         ViewNode::MouseArea { .. } => "MouseArea",
         ViewNode::Responsive { .. } => "Responsive",
+        ViewNode::Split { .. } => "Split",
         ViewNode::Rule { .. } => "Rule",
         ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Input { .. } => "Input",
@@ -813,6 +834,10 @@ pub fn page_assets(program: &Program) -> Vec<String> {
             ViewNode::Responsive { narrow, wide, .. } => {
                 narrow.iter().for_each(|c| walk(c, out));
                 wide.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, out);
+                walk(b, out);
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()

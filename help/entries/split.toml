@@ -1,0 +1,60 @@
+id = "split"
+title = "Split"
+category = "Window"
+kind = "keyword"
+parent = "window"
+anchor = "kw/Split"
+
+syntax = """
+Split Vertical [ratio]
+    <left>
+    <right>
+End Split
+
+Split Horizontal [ratio]
+    <top>
+    <bottom>
+End Split
+"""
+
+summary = "Two resizable panes. Drag the divider; the panes stay put."
+
+remarks = """
+`Split` is a Window layout widget. `Vertical` is a vertical divider (left | right); `Horizontal` stacks top / bottom. The optional ratio is the first pane's starting share — a fraction (`0.28`) or a percent (`28`). Omit it for an even split. Optional `Spacing` is the splitter gap in pixels.
+
+The compiler owns the split state. There is no `Dim panes` and no drag-to-rearrange: you only resize. Nest splits for more than two panes.
+
+On a Screen the same syntax becomes a `Row` / `Column` with a percent split (the divider does not drag). Put `Fill` above a Split inside a Column so it has height to share.
+"""
+
+example = """
+Window Panes
+    Title "Panes"
+    Theme JellyFish
+
+    State
+        Dim status As String = "drag the divider"
+    End State
+
+    View
+        Column
+            Padding 12
+            Fill
+            Split Vertical 0.32
+                Frame "Left"
+                    Text "sidebar"
+                End Frame
+                Frame "Right"
+                    Text status
+                End Frame
+            End Split
+        End Column
+    End View
+End Window
+
+Function Main()
+    Panes.Run
+End Function
+"""
+
+see_also = ["window", "theme"]

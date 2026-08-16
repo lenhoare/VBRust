@@ -224,6 +224,10 @@ pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
                                 | ("DateTime", "parse")
                                 | ("FileSystem", "read")
                                 | ("FileSystem", "read_lines")
+                                | ("FileSystem", "list")
+                                | ("FileSystem", "write")
+                                | ("FileSystem", "create_folder")
+                                | ("FileSystem", "create_folder_all")
                                 | ("Shell", "run")
                                 | ("Shell", "start")
                         )
@@ -631,6 +635,20 @@ pub(crate) fn coerce_state_strings(
                 recv: Box::new(inner),
                 method: "to_string".to_string(),
                 args: Vec::new(),
+            };
+        }
+        // `draft = text` on a TextArea field — Iced holds `text_editor::Content`,
+        // not a String. Wrap the RHS so a file's text (or a literal) loads.
+        // `with_text` takes `&str` (iced 0.13), so borrow the RHS.
+        Stmt::Assign { target: Expr { kind: ExprKind::Field(recv, fname), .. }, value, .. }
+            if matches!(&recv.kind, ExprKind::Ident(n) if n == state_recv)
+                && matches!(field_ty.get(&rust_name(fname)), Some(DeclType::Named(n)) if n == "TextArea") =>
+        {
+            let span = value.span;
+            let inner = std::mem::replace(&mut value.kind, ExprKind::Int(0)).at(span);
+            value.kind = ExprKind::Call {
+                name: "iced::widget::text_editor::Content::with_text".to_string(),
+                args: vec![ExprKind::Ref(Box::new(inner)).at(span)],
             };
         }
         Stmt::Match { arms, .. } => {

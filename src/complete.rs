@@ -207,6 +207,13 @@ fn named_members(name: &str, program: &Program) -> Vec<Completion> {
     if let Some(t) = instance {
         return table(t, CompletionKind::Method);
     }
+    if name.eq_ignore_ascii_case("TextArea") {
+        return vec![Completion {
+            label: "Text".to_string(),
+            detail: "Text() As String — the editor's current text".to_string(),
+            kind: CompletionKind::Method,
+        }];
+    }
     let mut out = Vec::new();
     if let Some(s) = program.structs.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
         for f in &s.fields {
@@ -363,6 +370,7 @@ fn namespace_members(ns: &str) -> &'static [(&'static str, &'static str)] {
         "FileSystem" => &[
             ("Read", "FileSystem.Read(path) As String"),
             ("Read_Lines", "FileSystem.Read_Lines(path) As Vec<String>"),
+            ("List", "FileSystem.List(path) As Vec<String>"),
             ("Write", "FileSystem.Write(path, contents)"),
             ("Append", "FileSystem.Append(path, text)"),
             ("Exists", "FileSystem.Exists(path) As Boolean"),
@@ -414,7 +422,7 @@ const KEYWORDS: &[&str] = &[
     "Sub", "Const", "Type", "Enum", "True", "False", "Not", "And", "Or", "Await", "Log", "Test",
     "Assert", "Handle", "RaiseError", "Raw", "Theme", "Rust", "Python",
     "Window", "Screen", "Page", "Sketch", "Gpu",
-    "Chooser", "Scrollable", "Markdown", "Svg",
+    "Chooser", "Scrollable", "Markdown", "Svg", "Split",
 ];
 
 const BUILTINS: &[(&str, &str)] = &[

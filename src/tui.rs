@@ -644,6 +644,10 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
                 narrow.iter().for_each(|c| walk(c, out));
                 wide.iter().for_each(|c| walk(c, out));
             }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, out);
+                walk(b, out);
+            }
         }
     }
     walk(view, &mut out);
@@ -1499,6 +1503,34 @@ fn render_view_node(
                 indent, out, diags,
             );
         }
+        ViewNode::Split { vertical, ratio, a, b, .. } => {
+            let pct = (*ratio * 100.0).round().clamp(1.0, 99.0) as u16;
+            let first = ViewNode::Constrained {
+                size: SizeConstraint::Percent(pct),
+                child: a.clone(),
+            };
+            let second = ViewNode::Constrained {
+                size: SizeConstraint::Fill(1),
+                child: b.clone(),
+            };
+            let wrap = if *vertical {
+                ViewNode::Row {
+                    children: vec![first, second],
+                    spacing: None,
+                    padding: None,
+                }
+            } else {
+                ViewNode::Column {
+                    children: vec![first, second],
+                    spacing: None,
+                    padding: None,
+                }
+            };
+            render_view_node(
+                &wrap, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
+                indent, out, diags,
+            );
+        }
         ViewNode::Rule { horizontal } => {
             let line = if *horizontal { "─".repeat(40) } else { "│".to_string() };
             out.push_str(&format!(
@@ -1577,6 +1609,7 @@ fn child_constraint(node: &ViewNode) -> String {
         | ViewNode::Scrollable { .. }
         | ViewNode::Match { .. }
         | ViewNode::If { .. }
+        | ViewNode::Split { .. }
         | ViewNode::List { .. }
         | ViewNode::Table { .. }
         | ViewNode::Memo { .. } => "Constraint::Fill(1)".to_string(),
@@ -1670,6 +1703,7 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Tooltip { .. } => "Tooltip",
         ViewNode::MouseArea { .. } => "MouseArea",
         ViewNode::Responsive { .. } => "Responsive",
+        ViewNode::Split { .. } => "Split",
         ViewNode::Rule { .. } => "Rule",
         ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Tabs { .. } => "Tabs",

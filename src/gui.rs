@@ -30,6 +30,8 @@ struct ViewCtx<'a> {
     combo_i: std::cell::Cell<usize>,
     /// Next `QrCode` widget index (`__qr0`, …).
     qr_i: std::cell::Cell<usize>,
+    /// Next `Split` widget index (`__pg0`, …).
+    split_i: std::cell::Cell<usize>,
     /// For each canvas placed in this view, the state fields its `Draw` block
     /// reads — snapshotted into the canvas Program when it's constructed.
     canvas_snaps: &'a HashMap<String, Vec<String>>,
@@ -575,6 +577,7 @@ fn emit_window(
         markdown_i: std::cell::Cell::new(0),
         combo_i: std::cell::Cell::new(0),
         qr_i: std::cell::Cell::new(0),
+        split_i: std::cell::Cell::new(0),
         canvas_snaps: &canvas_snaps,
     };
     validate_view(&w.view, &field_ty, &t.structs, diags);
@@ -629,6 +632,7 @@ fn emit_window(
     let textareas = collect_textareas(&w.view);
     let auto_tabs = collect_auto_tabs(&w.view);
     let has_markdown = view_has_markdown(&w.view);
+    let split_inits = collect_split_inits(&w.view);
 
     // ── State struct ──
     out.push_str(&format!("struct {} {{\n", ty));
@@ -654,6 +658,9 @@ fn emit_window(
     for i in 0..qr_init.len() {
         out.push_str(&format!("    __qr{i}: Option<iced::widget::qr_code::Data>,\n"));
     }
+    for i in 0..split_inits.len() {
+        out.push_str(&format!("    __pg{i}: iced::widget::pane_grid::State<u8>,\n"));
+    }
     out.push_str("}\n\n");
 
     // ── Initial state (the Dim initialisers) ──
@@ -674,12 +681,28 @@ fn emit_window(
     // a `text_editor::Content` instead of the ordinary `render_init`.
     let names = surface::emit_state_lets(&w.state, &t, 2, diags, &mut out, |f| {
         if is_textarea(&f.ty) {
-            let text = f
-                .init
-                .as_ref()
-                .map(|e| render_expr(e, None))
-                .unwrap_or_else(|| "\"\"".to_string());
-            Some(format!("iced::widget::text_editor::Content::with_text({})", text))
+            // Iced 0.13 `with_text` takes `&str`. A literal already is one; anything
+            // else (a `String`, a fallible `Read`) is borrowed through `format!`.
+            match f.init.as_ref() {
+                Some(e) if matches!(e.kind, ExprKind::Str(_)) => Some(format!(
+                    "iced::widget::text_editor::Content::with_text({})",
+                    render_expr(e, None)
+                )),
+                Some(e) => {
+                    let text = render_expr(e, None);
+                    let text = if surface::fallible_init(e, &t) {
+                        format!("{text}?")
+                    } else {
+                        text
+                    };
+                    Some(format!(
+                        "iced::widget::text_editor::Content::with_text(&format!(\"{{}}\", {text}))"
+                    ))
+                }
+                None => Some(
+                    "iced::widget::text_editor::Content::with_text(\"\")".to_string(),
+                ),
+            }
         } else {
             None
         }
@@ -699,6 +722,28 @@ fn emit_window(
             "        let __qr{i} = iced::widget::qr_code::Data::new({src}.as_bytes()).ok();\n"
         ));
     }
+    for (i, (vertical, ratio)) in split_inits.iter().enumerate() {
+        let axis = if *vertical { "Vertical" } else { "Horizontal" };
+        out.push_str(&format!(
+            "        let __pg{i} = iced::widget::pane_grid::State::with_configuration(\n"
+        ));
+        out.push_str(&format!(
+            "            iced::widget::pane_grid::Configuration::Split {{\n"
+        ));
+        out.push_str(&format!(
+            "                axis: iced::widget::pane_grid::Axis::{axis},\n"
+        ));
+        out.push_str(&format!(
+            "                ratio: {ratio}f32,\n"
+        ));
+        out.push_str(
+            "                a: Box::new(iced::widget::pane_grid::Configuration::Pane(0u8)),\n",
+        );
+        out.push_str(
+            "                b: Box::new(iced::widget::pane_grid::Configuration::Pane(1u8)),\n",
+        );
+        out.push_str("            },\n        );\n");
+    }
     if fallible {
         out.push_str(&format!("        Ok({} {{\n", ty));
     } else {
@@ -715,6 +760,9 @@ fn emit_window(
     }
     for i in 0..qr_init.len() {
         out.push_str(&format!("            __qr{i},\n"));
+    }
+    for i in 0..split_inits.len() {
+        out.push_str(&format!("            __pg{i},\n"));
     }
     if fallible {
         out.push_str("        })\n    }\n}\n\n");
@@ -752,6 +800,11 @@ fn emit_window(
     if has_markdown {
         out.push_str("    MarkdownLink(String),\n");
     }
+    for i in 0..split_inits.len() {
+        out.push_str(&format!(
+            "    SplitResized{i}(iced::widget::pane_grid::ResizeEvent),\n"
+        ));
+    }
     out.push_str("}\n\n");
 
     // ── update: state-field idents are rewritten to `state.field`. An async
@@ -764,6 +817,7 @@ fn emit_window(
     let state_param = if w.events.is_empty()
         && textareas.is_empty()
         && auto_tabs.is_empty()
+        && split_inits.is_empty()
         && !refresh
     {
         "_state"
@@ -844,6 +898,16 @@ fn emit_window(
     }
     if has_markdown {
         out.push_str("        Message::MarkdownLink(_url) => {\n");
+        if any_async {
+            out.push_str("            Task::none()\n");
+        }
+        out.push_str("        }\n");
+    }
+    for i in 0..split_inits.len() {
+        out.push_str(&format!(
+            "        Message::SplitResized{i}(iced::widget::pane_grid::ResizeEvent {{ split, ratio }}) => {{\n"
+        ));
+        out.push_str(&format!("            state.__pg{i}.resize(split, ratio);\n"));
         if any_async {
             out.push_str("            Task::none()\n");
         }
@@ -1154,6 +1218,9 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::QrCode { source } => {
             return render_qr(source, ctx, as_element)
         }
+        ViewNode::Split { vertical, ratio, spacing, a, b } => {
+            return render_split(*vertical, *ratio, *spacing, a, b, ctx, indent, as_element)
+        }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
         // Layout size constraints are a TUI concept; the GUI ignores them.
@@ -1342,6 +1409,7 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         | ViewNode::MouseArea { .. }
         | ViewNode::Responsive { .. }
         | ViewNode::QrCode { .. }
+        | ViewNode::Split { .. }
         | ViewNode::Match { .. }
         | ViewNode::If { .. }
         | ViewNode::Constrained { .. } => {
@@ -1729,6 +1797,36 @@ fn render_qr(source: &Expr, ctx: &ViewCtx, as_element: bool) -> String {
     )
 }
 
+fn render_split(
+    vertical: bool,
+    ratio: f32,
+    spacing: Option<u16>,
+    a: &ViewNode,
+    b: &ViewNode,
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let _ = (vertical, ratio, as_element);
+    let i = ctx.split_i.get();
+    ctx.split_i.set(i + 1);
+    let pad = "    ".repeat(indent);
+    let in1 = "    ".repeat(indent + 1);
+    let left = render_view(a, ctx, indent + 2, true);
+    let right = render_view(b, ctx, indent + 2, true);
+    let gap = spacing.unwrap_or(4);
+    format!(
+        "{{\n{in1}let el: Element<'_, Message> = iced::widget::PaneGrid::new(&state.__pg{i}, |_, slot, _| {{\n\
+         {in1}    iced::widget::pane_grid::Content::new(match *slot {{\n\
+         {in1}        0 => {left},\n\
+         {in1}        1 => {right},\n\
+         {in1}        _ => {{ let empty: Element<'_, Message> = iced::widget::text(\"\").into(); empty }},\n\
+         {in1}    }})\n\
+         {in1}}}).spacing({gap}).on_resize(10, Message::SplitResized{i}).into();\n\
+         {pad}    el\n{pad}}}"
+    )
+}
+
 /// A container child, honoring a `Length`/`Fill` size line: the child is wrapped
 /// in an Iced `container` sized on the container's main axis (height in a Column,
 /// width in a Row). An unsized child renders as-is.
@@ -1873,6 +1971,10 @@ fn validate_view(
         ViewNode::Responsive { narrow, wide, .. } => {
             narrow.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
             wide.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+        }
+        ViewNode::Split { a, b, .. } => {
+            validate_view(a, field_ty, structs, diags);
+            validate_view(b, field_ty, structs, diags);
         }
         ViewNode::Tabs { field, tabs, .. } => {
             if !matches!(field_ty.get(&rust_name(field)), Some(DeclType::Plain(Type::Integer))) {
@@ -2061,6 +2163,10 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
                 narrow.iter().for_each(|c| walk(c, out));
                 wide.iter().for_each(|c| walk(c, out));
             }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, out);
+                walk(b, out);
+            }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()
                     .for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
@@ -2114,6 +2220,10 @@ fn collect_auto_tabs(node: &ViewNode) -> Vec<String> {
                 narrow.iter().for_each(|c| walk(c, out));
                 wide.iter().for_each(|c| walk(c, out));
             }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, out);
+                walk(b, out);
+            }
             ViewNode::Match { arms, .. } => {
                 for a in arms {
                     a.body.iter().for_each(|c| walk(c, out));
@@ -2140,10 +2250,16 @@ fn markdown_parse_arg(source: &Expr, fields: &HashSet<String>, enums: &HashSet<S
         ExprKind::Ident(name) if fields.contains(&rust_name(name)) => {
             format!("{prefix}{}.as_str()", rust_name(name))
         }
-        _ => format!(
-            "&format!(\"{{}}\", {})",
-            render_expr(&rewrite_expr(source.clone(), fields, enums), None)
-        ),
+        _ => {
+            // Init emits these `let`s *before* the struct exists, so a source like
+            // `draft.Text()` must read the local `draft`, not `state.draft`.
+            let expr = if prefix.is_empty() {
+                render_expr(source, None)
+            } else {
+                render_expr(&rewrite_expr(source.clone(), fields, enums), None)
+            };
+            format!("&format!(\"{{}}\", {expr})")
+        }
     }
 }
 
@@ -2176,6 +2292,10 @@ fn collect_markdown_args(
             ViewNode::Responsive { narrow, wide, .. } => {
                 narrow.iter().for_each(|c| walk(c, fields, enums, prefix, out));
                 wide.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+            }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, fields, enums, prefix, out);
+                walk(b, fields, enums, prefix, out);
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()
@@ -2228,6 +2348,10 @@ fn collect_search_choosers(
             ViewNode::Responsive { narrow, wide, .. } => {
                 narrow.iter().for_each(|c| walk(c, field_ty, out));
                 wide.iter().for_each(|c| walk(c, field_ty, out));
+            }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, field_ty, out);
+                walk(b, field_ty, out);
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()
@@ -2283,6 +2407,10 @@ fn collect_qr_args(
                 narrow.iter().for_each(|c| walk(c, fields, enums, prefix, out));
                 wide.iter().for_each(|c| walk(c, fields, enums, prefix, out));
             }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, fields, enums, prefix, out);
+                walk(b, fields, enums, prefix, out);
+            }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()
                     .for_each(|p| p.children.iter().for_each(|c| walk(c, fields, enums, prefix, out)));
@@ -2307,6 +2435,54 @@ fn collect_qr_args(
     out
 }
 
+/// Each `Split` in the view, depth-first — same order `render_split` assigns `__pgN`.
+fn collect_split_inits(node: &ViewNode) -> Vec<(bool, f32)> {
+    let mut out = Vec::new();
+    fn walk(node: &ViewNode, out: &mut Vec<(bool, f32)>) {
+        match node {
+            ViewNode::Split { vertical, ratio, a, b, .. } => {
+                out.push((*vertical, *ratio));
+                walk(a, out);
+                walk(b, out);
+            }
+            ViewNode::Constrained { child, .. } => walk(child, out),
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, out));
+                wide.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, &mut out);
+    out
+}
+
 fn view_has_markdown(node: &ViewNode) -> bool {
     match node {
         ViewNode::Markdown { .. } => true,
@@ -2321,6 +2497,7 @@ fn view_has_markdown(node: &ViewNode) -> bool {
         ViewNode::Responsive { narrow, wide, .. } => {
             narrow.iter().any(view_has_markdown) || wide.iter().any(view_has_markdown)
         }
+        ViewNode::Split { a, b, .. } => view_has_markdown(a) || view_has_markdown(b),
         ViewNode::Tabs { tabs, .. } => tabs.iter().any(|p| p.children.iter().any(view_has_markdown)),
         ViewNode::Match { arms, .. } => arms.iter().any(|a| a.body.iter().any(view_has_markdown)),
         ViewNode::If { branches, else_body } => {
@@ -2395,6 +2572,10 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Responsive { narrow, wide, .. } => {
             narrow.iter().for_each(|c| collect_widgets(c, used));
             wide.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::Split { a, b, .. } => {
+            collect_widgets(a, used);
+            collect_widgets(b, used);
         }
         ViewNode::QrCode { .. } => add(used, "text"),
         // `Space`/`Image`/`Canvas` use fully-qualified paths, so no import needed.
@@ -2555,6 +2736,10 @@ fn collect_canvases(node: &ViewNode) -> Vec<String> {
             ViewNode::Responsive { narrow, wide, .. } => {
                 narrow.iter().for_each(|c| walk(c, out));
                 wide.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Split { a, b, .. } => {
+                walk(a, out);
+                walk(b, out);
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()

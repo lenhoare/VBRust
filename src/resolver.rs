@@ -2734,7 +2734,9 @@ fn method_vtype(m: &str) -> VType {
         "trim" | "trim_start" | "trim_end" | "trim_matches" => VType::Str,
         // Owned `String` results — already own their value.
         "to_uppercase" | "to_lowercase" | "to_ascii_uppercase" | "to_ascii_lowercase"
-        | "replace" | "replacen" | "repeat" | "to_string" | "concat" | "join" => vt(Type::Text),
+        | "replace" | "replacen" | "repeat" | "to_string" | "concat" | "join" | "text" => {
+            vt(Type::Text)
+        }
         // `usize` — counts and lengths (drive `as` casts in comparisons).
         "len" | "count" | "capacity" => VType::Usize,
         // Predicates — string and numeric.

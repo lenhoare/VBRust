@@ -1784,6 +1784,77 @@ impl<'a> Parser<'a> {
                 let (children, spacing, padding) = self.parse_container_body("Row")?;
                 Some(ViewNode::Row { children, spacing, padding })
             }
+            "split" => {
+                // `Split Vertical [ratio]` / `Split Horizontal [ratio]` … two
+                // children … `End Split`. Ratio is a fraction (0.28) or a
+                // percent (28); omit it for an even split.
+                self.advance();
+                let axis = self.expect_ident("for the split axis — `Vertical` or `Horizontal`")?;
+                let vertical = match axis.to_ascii_lowercase().as_str() {
+                    "vertical" => true,
+                    "horizontal" => false,
+                    _ => {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            format!(
+                                "`Split` takes Vertical (left | right) or Horizontal (top / bottom) \
+                                 — found `{axis}`."
+                            ),
+                        );
+                        return None;
+                    }
+                };
+                let ratio = match self.peek().clone() {
+                    Tok::Float(f) => {
+                        self.advance();
+                        if f <= 0.0 || f >= 1.0 {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                "A Split fraction is between 0 and 1, e.g. `0.28`. For a percent \
+                                 write `28` (1 to 99).",
+                            );
+                            return None;
+                        }
+                        f as f32
+                    }
+                    Tok::Int(n) => {
+                        self.advance();
+                        if n < 1 || n > 99 {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                "A Split percent is 1 to 99 (or a fraction like `0.28`).",
+                            );
+                            return None;
+                        }
+                        n as f32 / 100.0
+                    }
+                    _ => 0.5,
+                };
+                self.eat(&Tok::Newline);
+                let (children, spacing, _) = self.parse_container_body("Split")?;
+                if children.len() != 2 {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!(
+                            "A Split has exactly two panes — this one has {}.",
+                            children.len()
+                        ),
+                    );
+                    return None;
+                }
+                let mut kids = children.into_iter();
+                Some(ViewNode::Split {
+                    vertical,
+                    ratio,
+                    spacing,
+                    a: Box::new(kids.next().unwrap()),
+                    b: Box::new(kids.next().unwrap()),
+                })
+            }
             "frame" => {
                 // `Frame ["title"]` … `End Frame` — a bordered panel (Screen).
                 self.advance();
@@ -2829,7 +2900,7 @@ impl<'a> Parser<'a> {
                     self.span(),
                     self.line(),
                     format!(
-                        "Unknown widget `{}` (have: Column, Row, Frame, Tabs, Space, Scrollable, Rule, \
+                        "Unknown widget `{}` (have: Column, Row, Split, Frame, Tabs, Space, Scrollable, Rule, \
                          Stack, Tooltip, MouseArea, Responsive, Text, Button, TextInput, Checkbox, \
                          Slider, Toggler, ProgressBar, Radio, TextArea, Chooser, Markdown, Image, Svg, \
                          QrCode, Canvas, Input, Memo, List, Table, Gauge, Sparkline, BarChart, Chart, \

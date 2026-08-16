@@ -1272,3 +1272,171 @@ End Function
     assert!(rust.contains("qr_code"), "QrCode: {rust}");
 }
 
+#[test]
+fn gui_split_resize_only_pane_grid() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim status As String = "hi"
+    End State
+    View
+        Column
+            Fill
+            Split Vertical 0.32
+                Text "left"
+                Split Horizontal 28
+                    Text "top"
+                    Text status
+                End Split
+            End Split
+        End Column
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains("pane_grid::State"), "split state: {rust}");
+    assert!(rust.contains("pane_grid::Axis::Vertical"), "vertical: {rust}");
+    assert!(rust.contains("pane_grid::Axis::Horizontal"), "horizontal: {rust}");
+    assert!(rust.contains("0.32f32"), "fraction ratio: {rust}");
+    assert!(rust.contains("0.28f32"), "percent 28 → 0.28: {rust}");
+    assert!(rust.contains("SplitResized0"), "resize message 0: {rust}");
+    assert!(rust.contains("SplitResized1"), "nested split message: {rust}");
+    assert!(rust.contains(".on_resize("), "on_resize: {rust}");
+    assert!(!rust.contains("on_drag"), "resize only, no on_drag: {rust}");
+}
+
+#[test]
+fn gui_split_needs_two_panes() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim x As Integer = 0
+    End State
+    View
+        Split Vertical
+            Text "only"
+        End Split
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let c = vbr::compile(src);
+    assert!(c.has_errors, "one-pane Split should fail");
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("exactly two panes"),
+        "diagnostic: {joined}"
+    );
+}
+
+#[test]
+fn filesystem_list_lowers_to_vec_string() {
+    let src = r#"
+Function Main()
+    Dim names As Vec<String> = FileSystem.List(".")
+    Debug.Print names.Len()
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains("FileSystem::list"), "list call: {rust}");
+}
+
+#[test]
+fn textarea_assign_wraps_content_with_text() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim draft As TextArea = ""
+        Dim status As String = ""
+    End State
+    View
+        Column
+            TextArea draft
+            Button "Load"
+                On Click Load
+            End Button
+            Text status
+        End Column
+    End View
+    Event Load
+        Dim text As String = "hello from disk"
+        draft = text
+        status = "loaded"
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("text_editor::Content::with_text"),
+        "TextArea assign should rebuild Content: {rust}"
+    );
+    assert!(
+        rust.contains("with_text(&text)"),
+        "with_text takes &str: {rust}"
+    );
+}
+
+#[test]
+fn textarea_init_from_function_tries_and_borrows() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim draft As TextArea = Load()
+    End State
+    View
+        TextArea draft
+    End View
+End Window
+Function Load() As String
+    Return "hello"
+End Function
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains(r#"with_text(&format!("{}", load()?)"#),
+        "fallible TextArea init should ? then borrow: {rust}"
+    );
+}
+
+#[test]
+fn markdown_from_textarea_text_inits_from_local() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim draft As TextArea = "hi"
+    End State
+    View
+        Markdown draft.Text()
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    let init = rust
+        .split("fn update")
+        .next()
+        .unwrap_or(&rust);
+    assert!(
+        init.contains("draft.text()") && !init.contains("state.draft.text()"),
+        "Markdown init must read the local Content, not state: {init}"
+    );
+}
+

@@ -353,6 +353,7 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
         | ViewNode::Tooltip { .. }
         | ViewNode::MouseArea { .. }
         | ViewNode::Responsive { .. }
+        | ViewNode::Split { .. }
         | ViewNode::Scrollable { .. }
         | ViewNode::Rule { .. } => Err(
             "That's a Window widget — the designer only edits Screen structure.".into(),

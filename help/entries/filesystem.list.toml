@@ -1,0 +1,35 @@
+id = "filesystem.list"
+title = "List"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.List"
+
+syntax = """
+FileSystem.List(path) As Vec<String>
+"""
+
+summary = "Names in a folder. Directories end with /."
+
+arguments = """
+path | String | The folder to list.
+"""
+
+returns = "Vec<String> — folder names with a trailing `/`, then file names. Hidden (dot) names are skipped. Sorted case-insensitively. Fails if the folder can't be read."
+
+example = """
+Function Main()
+    FileSystem.Create_Folder("listed") Handle err
+        Return
+    End Handle
+    FileSystem.Write("listed/note.txt", "hi")
+
+    Dim names As Vec<String> = FileSystem.List("listed")
+    Debug.Print names.Len()
+
+    FileSystem.Delete("listed/note.txt")
+    FileSystem.Delete_Folder("listed")
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.read", "vec"]

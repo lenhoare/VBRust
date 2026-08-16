@@ -1,0 +1,36 @@
+' Resize-only split panes. Drag the divider; the panes stay put.
+' Nested Split is a grid inside a pane.
+Window Panes
+    Title "Panes"
+    Theme JellyFish
+
+    State
+        Dim status As String = "drag the divider"
+    End State
+
+    View
+        Column
+            Padding 16
+            Fill
+            Split Vertical 0.32
+                Spacing 4
+                Frame "Left"
+                    Text "sidebar"
+                End Frame
+                Split Horizontal 0.45
+                    Frame "Top"
+                        Text "edit"
+                    End Frame
+                    Frame "Bottom"
+                        Text status
+                    End Frame
+                End Split
+            End Split
+            Text status
+        End Column
+    End View
+End Window
+
+Function Main()
+    Panes.Run
+End Function

@@ -490,6 +490,7 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
     Some(match (ns.as_str(), method.as_str()) {
         ("filesystem", "read") => res(text()),
         ("filesystem", "readlines") => res(DeclType::Vec(Box::new(text()))),
+        ("filesystem", "list") => res(DeclType::Vec(Box::new(text()))),
         ("filesystem", "exists" | "folderexists") => DeclType::Plain(Type::Boolean),
         (
             "filesystem",

@@ -1124,6 +1124,32 @@ End Responsive
 
 ---
 
+### 5.11 Split  *(BUILT)*
+
+Two resizable panes. `Vertical` is a vertical divider (left | right);
+`Horizontal` stacks top / bottom. The optional ratio is the first pane's
+starting share — a fraction (`0.28`) or a percent (`28`). Omit it for an even
+split. Optional `Spacing` is the splitter gap.
+
+Resize only: the panes do not drag to rearrange. Nest splits for more than two
+panes. The compiler owns the `pane_grid` state — there is no `Dim` for it.
+
+Put `Fill` above a Split inside a Column so it has height to share.
+
+```vb
+Fill
+Split Vertical 0.32
+    Frame "Vault"
+        Text "files"
+    End Frame
+    TextArea draft
+End Split
+```
+
+Maps to Iced `PaneGrid` with `on_resize` (no `on_drag`).
+
+---
+
 ## 6. Common Layout Properties
 
 **`Spacing` and `Padding` are BUILT (slice 8).** Inside a `Column`/`Row`, a
@@ -1559,7 +1585,6 @@ Some of these may be added later. They should not block V1.
 Potential V1.5 or V2 controls:
 
 ```text
-PaneGrid          (resizable split panes)
 Themer            (live theme on a subtree — Window Theme stays compile-time)
 FilePicker
 ColorPicker

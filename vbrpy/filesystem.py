@@ -106,3 +106,21 @@ class FileSystem:
             return Ok(None)
         except OSError as e:
             return Err(str(e))
+
+    @staticmethod
+    def list(path):
+        try:
+            dirs = []
+            files = []
+            for name in os.listdir(path):
+                if name.startswith("."):
+                    continue
+                if os.path.isdir(os.path.join(path, name)):
+                    dirs.append(name + "/")
+                else:
+                    files.append(name)
+            dirs.sort(key=str.lower)
+            files.sort(key=str.lower)
+            return Ok(dirs + files)
+        except OSError as e:
+            return Err(str(e))

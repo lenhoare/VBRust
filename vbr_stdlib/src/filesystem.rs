@@ -96,6 +96,30 @@ impl FileSystem {
     pub fn delete_folder_all(path: &str) -> Result<(), String> {
         fs::remove_dir_all(path).map_err(|e| e.to_string())
     }
+
+    /// Names in a folder. Directories end with `/`; hidden (dot) names are skipped.
+    /// Folders come first, then files, both sorted case-insensitively.
+    pub fn list(path: &str) -> Result<Vec<String>, String> {
+        let mut dirs = Vec::new();
+        let mut files = Vec::new();
+        for ent in fs::read_dir(path).map_err(|e| e.to_string())? {
+            let ent = ent.map_err(|e| e.to_string())?;
+            let name = ent.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            if ent.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                dirs.push(format!("{name}/"));
+            } else {
+                files.push(name);
+            }
+        }
+        let fold = |a: &String, b: &String| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase());
+        dirs.sort_by(fold);
+        files.sort_by(fold);
+        dirs.append(&mut files);
+        Ok(dirs)
+    }
 }
 
 #[cfg(test)]
@@ -131,5 +155,16 @@ mod tests {
         assert!(FileSystem::folder_exists("test_folder"));
         FileSystem::delete_folder("test_folder").unwrap();
         assert!(!FileSystem::folder_exists("test_folder"));
+    }
+
+    #[test]
+    fn test_list_dirs_then_files() {
+        FileSystem::create_folder_all("_vbr_list_test/sub").unwrap();
+        FileSystem::write("_vbr_list_test/b.txt", "b").unwrap();
+        FileSystem::write("_vbr_list_test/a.txt", "a").unwrap();
+        FileSystem::write("_vbr_list_test/.hidden", "no").unwrap();
+        let names = FileSystem::list("_vbr_list_test").unwrap();
+        FileSystem::delete_folder_all("_vbr_list_test").unwrap();
+        assert_eq!(names, vec!["sub/".to_string(), "a.txt".to_string(), "b.txt".to_string()]);
     }
 }

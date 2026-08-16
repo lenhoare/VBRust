@@ -177,7 +177,8 @@ Beyond `Text` and `Button`, a window has the controls you'd expect — text inpu
 `Stack` overlays children; `Tooltip "hint"` is a hover; `MouseArea` is click /
 right-click / enter / exit / move; `Responsive` picks `Narrow` or `Wide` by width.
 `Frame`, `Tabs`, `List`, and `Table` use the same names as a Screen. `Scrollable`
-and `Rule` handle overflow and separators. Each event-producing control names the
+and `Rule` handle overflow and separators. `Split Vertical [ratio]` / `Split Horizontal [ratio]`
+is two resizable panes (drag the divider). Each event-producing control names the
 event it fires. A slider is typical:
 
 ```vb
@@ -213,7 +214,9 @@ End Column
 
 By default each child takes just the room it needs. To take charge, put a **size
 line before a child**: `Length 40` gives it exactly 40 pixels along the container's
-main axis, and `Fill` lets it soak up whatever is left:
+main axis, and `Fill` lets it soak up whatever is left. `Split Vertical 0.32` (or
+`Split Horizontal`) is two panes with a draggable divider; the number is the first
+pane's starting share.
 
 ```vb
 Column

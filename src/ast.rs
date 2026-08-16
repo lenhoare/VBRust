@@ -586,6 +586,17 @@ pub enum ViewNode {
     QrCode {
         source: Expr,
     },
+    /// `Split Vertical [ratio]` / `Split Horizontal [ratio]` … two children …
+    /// `End Split`. Resize-only Iced `pane_grid` (no drag-to-rearrange). `vertical`
+    /// is a vertical divider (panes left | right). `ratio` is the first pane's
+    /// share in (0, 1). Optional `Spacing` is the splitter gap in pixels.
+    Split {
+        vertical: bool,
+        ratio: f32,
+        spacing: Option<u16>,
+        a: Box<ViewNode>,
+        b: Box<ViewNode>,
+    },
     /// An on/off switch bound to a `Boolean` state field (Iced `toggler`). Like a
     /// checkbox, but a switch; `on_toggle` fires with the new `bool`.
     Toggler {
