@@ -164,7 +164,8 @@ impl Spec {
     }
 
     /// `iced::Theme::Dracula` or `iced::Theme::custom(...)` for NightOwl /
-    /// JellyFish (`custom_with_fn` so JellyFish primary-button text stays ink).
+    /// JellyFish (`custom_with_fn` so JellyFish primary-button text stays black,
+    /// and unselected tabs sit on navy instead of iced's mixed grey).
     pub fn iced_expr(&self) -> String {
         if let Some(v) = self.iced {
             return format!("iced::Theme::{v}");
@@ -177,11 +178,14 @@ impl Spec {
             rgb8(self.danger),
         );
         let generate = if self.name == "JellyFish" {
-            // Iced's contrast pick for this pink is a dark-pink that washes out
-            // on the selected tab / primary button. Ink stays readable.
             ", |p| { let mut e = iced::theme::palette::Extended::generate(p); \
-             let ink = iced::Color::from_rgb8(16, 14, 22); \
-             e.primary.base.text = ink; e.primary.strong.text = ink; e.primary.weak.text = ink; e }"
+             let ink = iced::Color::BLACK; \
+             e.primary.base.text = ink; e.primary.strong.text = ink; e.primary.weak.text = ink; \
+             let navy = p.background; let paper = p.text; \
+             e.secondary.base.color = navy; e.secondary.base.text = paper; \
+             e.secondary.weak.color = navy; e.secondary.weak.text = paper; \
+             e.secondary.strong.color = iced::Color::from_rgb8(22, 36, 72); \
+             e.secondary.strong.text = paper; e }"
         } else {
             ""
         };

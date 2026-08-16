@@ -491,6 +491,7 @@ pub fn stdlib_return(ns: &str, method: &str) -> Option<DeclType> {
         ("filesystem", "read") => res(text()),
         ("filesystem", "readlines") => res(DeclType::Vec(Box::new(text()))),
         ("filesystem", "list") => res(DeclType::Vec(Box::new(text()))),
+        ("filesystem", "join" | "parent" | "name") => text(),
         ("filesystem", "exists" | "folderexists") => DeclType::Plain(Type::Boolean),
         (
             "filesystem",
@@ -554,7 +555,7 @@ pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
 /// slice), or `None` for a user function. Mirrors `resolver::builtin_vtype`.
 fn builtin_return(name: &str) -> Option<Type> {
     Some(match name.to_ascii_lowercase().as_str() {
-        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "val" => Type::Double,
+        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "val" | "rnd" => Type::Double,
         "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "left" | "right" | "mid" | "trim"
         | "getopenfilename" | "getsaveasfilename" => {
             Type::Text

@@ -375,6 +375,59 @@ pub enum TooltipPos {
     FollowCursor,
 }
 
+/// Optional paint on a Window `Button`, `Frame`, or `Text`.
+/// `Color` is the writing, `BackColor` the fill, `Border` the outline.
+/// A Screen and a Page ignore these — Theme still covers those surfaces.
+#[derive(Debug, Clone, Default)]
+pub struct ViewPaint {
+    pub color: Option<Expr>,
+    pub back_color: Option<Expr>,
+    pub border: Option<Expr>,
+}
+
+impl ViewPaint {
+    pub fn is_empty(&self) -> bool {
+        self.color.is_none() && self.back_color.is_none() && self.border.is_none()
+    }
+}
+
+/// Which backend an `Iced` / `Ratatui` View hatch names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeKit {
+    Iced,
+    Ratatui,
+}
+
+/// Raw iced / ratatui spliced onto a widget (`Iced … End Iced`). A blob that
+/// starts with `.` is a builder suffix; anything else in a container is a
+/// standalone native child.
+#[derive(Debug, Clone, Default)]
+pub struct ViewHatch {
+    pub iced: Option<String>,
+    pub ratatui: Option<String>,
+}
+
+impl ViewHatch {
+    pub fn is_empty(&self) -> bool {
+        self.iced.is_none() && self.ratatui.is_none()
+    }
+
+    /// Last blob for this kit wins.
+    pub fn set(&mut self, kit: NativeKit, raw: &str) {
+        let body = raw.trim().to_string();
+        match kit {
+            NativeKit::Iced => self.iced = Some(body),
+            NativeKit::Ratatui => self.ratatui = Some(body),
+        }
+    }
+}
+
+/// True when a hatch blob is a builder suffix (`.style(...)`) rather than a
+/// whole native widget.
+pub fn hatch_is_suffix(raw: &str) -> bool {
+    raw.trim_start().starts_with('.')
+}
+
 /// A node in the view tree.
 #[derive(Debug, Clone)]
 pub enum ViewNode {
@@ -388,19 +441,23 @@ pub enum ViewNode {
         children: Vec<ViewNode>,
         spacing: Option<u16>,
         padding: Option<u16>,
+        hatch: ViewHatch,
     },
     Row {
         children: Vec<ViewNode>,
         spacing: Option<u16>,
         padding: Option<u16>,
+        hatch: ViewHatch,
     },
-    /// A titled, bordered panel (ratatui `Block`) wrapping children. TUI-only.
+    /// A titled, bordered panel wrapping children.
     /// `Frame "Customers"` … `End Frame` — optional title expression.
     Frame {
         title: Option<Expr>,
         children: Vec<ViewNode>,
         spacing: Option<u16>,
         padding: Option<u16>,
+        paint: ViewPaint,
+        hatch: ViewHatch,
     },
     /// A blank gap (Iced `Space`): `Space Height 20` / `Space Width 10`.
     Space {
@@ -447,6 +504,7 @@ pub enum ViewNode {
         field: String,
         tabs: Vec<TabPane>,
         on_change: Option<String>,
+        hatch: ViewHatch,
     },
     /// A multi-line editor (tui-textarea) bound to a `String` state field.
     /// Enter inserts a newline; Tab leaves (when anything else is focusable).
@@ -467,6 +525,7 @@ pub enum ViewNode {
     List {
         field: String,
         on_select: Option<String>,
+        hatch: ViewHatch,
     },
     /// A selectable table (ratatui `Table` + `TableState`) bound to a `Vec<T>`
     /// state field where `T` is a struct — one column per struct field, the field
@@ -475,6 +534,7 @@ pub enum ViewNode {
     Table {
         field: String,
         on_select: Option<String>,
+        hatch: ViewHatch,
     },
     /// A drawing surface (Iced `Canvas`): `Canvas Board [Width 300] [Height 200]`.
     /// `name` refers to a top-level `CanvasDef`; optional fixed pixel dimensions.
@@ -483,12 +543,18 @@ pub enum ViewNode {
         width: Option<u16>,
         height: Option<u16>,
     },
-    Text(Expr),
+    Text {
+        content: Expr,
+        paint: ViewPaint,
+        hatch: ViewHatch,
+    },
     Button {
         label: Expr,
         on_click: Option<String>,
         /// `Enabled <expr>` — when false the button has no `on_press` (Iced's disabled look).
         enabled: Option<Expr>,
+        paint: ViewPaint,
+        hatch: ViewHatch,
     },
     /// A text entry box bound to a `String` state field. `on_input` names the
     /// event fired on each keystroke (which receives the new text).
@@ -532,6 +598,7 @@ pub enum ViewNode {
         children: Vec<ViewNode>,
         spacing: Option<u16>,
         padding: Option<u16>,
+        hatch: ViewHatch,
     },
     /// `Rule Horizontal` / `Rule Vertical` — a separator line.
     Rule {
@@ -560,6 +627,7 @@ pub enum ViewNode {
         children: Vec<ViewNode>,
         spacing: Option<u16>,
         padding: Option<u16>,
+        hatch: ViewHatch,
     },
     /// `Tooltip "hint"` … `End Tooltip` — hover hint over the child (Iced `tooltip`).
     Tooltip {
@@ -596,6 +664,7 @@ pub enum ViewNode {
         spacing: Option<u16>,
         a: Box<ViewNode>,
         b: Box<ViewNode>,
+        hatch: ViewHatch,
     },
     /// An on/off switch bound to a `Boolean` state field (Iced `toggler`). Like a
     /// checkbox, but a switch; `on_toggle` fires with the new `bool`.
@@ -620,6 +689,12 @@ pub enum ViewNode {
         option: Expr,
         on_select: String,
     },
+    /// `Iced … End Iced` / `Ratatui … End Ratatui` as a child — a raw backend
+    /// widget. A suffix (blob starting with `.`) lives on the parent instead.
+    Native {
+        kit: NativeKit,
+        body: String,
+    },
     /// `Match <expr>` inside a view — each arm produces the widget(s) to show.
     /// Lowers to a Rust `match` whose arms each yield an `Element`.
     Match {
@@ -641,6 +716,7 @@ pub enum ViewNode {
 pub struct TabPane {
     pub title: Expr,
     pub children: Vec<ViewNode>,
+    pub hatch: ViewHatch,
 }
 
 /// One arm of a view `Match`: a pattern (raw Rust, as in a statement `Match`)

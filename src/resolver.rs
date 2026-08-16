@@ -583,8 +583,8 @@ fn builtin_vtype(name: &str) -> Option<VType> {
         "trim" => VType::Str,
         "left" | "right" | "mid" => vt(Type::Text),
         "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "inputbox"
-        | "getopenfilename" | "getsaveasfilename" => vt(Type::Text),
-        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" => vt(Type::Double),
+        | "getopenfilename" | "getsaveasfilename" | "getfoldername" => vt(Type::Text),
+        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "rnd" => vt(Type::Double),
         // `Val` is a lenient `Double` (`0.0` on failure), so `Dim n As Long =
         // Val(x)` casts f64 → i64 like any other Double would.
         "val" => vt(Type::Double),

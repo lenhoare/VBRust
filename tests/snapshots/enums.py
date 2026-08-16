@@ -37,7 +37,6 @@ def color(s: Suit) -> str:
             return Ok('black')
         case Suit.Spades:
             return Ok('black')
-    return Ok(None)
 
 def main():
     s: Suit = Suit.Spades

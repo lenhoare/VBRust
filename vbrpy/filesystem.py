@@ -124,3 +124,22 @@ class FileSystem:
             return Ok(dirs + files)
         except OSError as e:
             return Err(str(e))
+
+    @staticmethod
+    def join(a, b):
+        return os.path.join(a, b).replace("\\", "/")
+
+    @staticmethod
+    def parent(path):
+        trimmed = path.rstrip("/")
+        if not trimmed:
+            return path if path else ""
+        parent = os.path.dirname(trimmed).replace("\\", "/")
+        return parent if parent else trimmed
+
+    @staticmethod
+    def name(path):
+        trimmed = path.rstrip("/")
+        if not trimmed:
+            return ""
+        return os.path.basename(trimmed)

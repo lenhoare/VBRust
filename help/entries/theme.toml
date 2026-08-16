@@ -11,9 +11,9 @@ Theme <Name>
 summary = "Restyles a Window, Screen, or Page with one named palette."
 
 remarks = """
-Put `Theme <Name>` under the Title. It restyles the **whole** surface — no per-control work.
+Put `Theme <Name>` under the Title. It restyles the **whole** surface.
 
-A **Window** uses Iced's built-in palettes (`Dracula`, `Nord`, `CatppuccinMocha`, …). `NightOwl` and `JellyFish` are Bust's own: they lower to a custom Iced palette.
+A **Window** uses Iced's built-in palettes (`Dracula`, `Nord`, `CatppuccinMocha`, …). `NightOwl` and `JellyFish` are Bust's own: they lower to a custom Iced palette. On a Window, `Color` / `BackColor` / `Border` on a `Button`, `Frame`, or `Text` override the theme for that control.
 
 A **Screen** uses the same names. With no Theme the terminal stays cyan-on-black (Turbo Pascal chrome). With a Theme, the status bar, menu, borders, text, charts, and file prompt follow the palette. `Night_Owl` is the same as `NightOwl`.
 

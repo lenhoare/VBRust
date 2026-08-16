@@ -163,7 +163,7 @@ impl Diagnostics {
     }
 
     /// A line-less hard error shown only once per `key` — for unsupported
-    /// builtins that may appear many times (e.g. `Rnd()`).
+    /// builtins that may appear many times (e.g. `Format()`).
     pub fn error_once(&mut self, key: &str, message: impl Into<String>) {
         if self.seen_notes.insert(key.to_string()) {
             self.items.push(Diagnostic {

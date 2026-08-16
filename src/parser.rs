@@ -260,6 +260,16 @@ impl<'a> Parser<'a> {
                         css.push(raw);
                     }
                 }
+                Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "`Iced` belongs in a Window View and `Ratatui` in a Screen View — \
+                         not at the top of the file. A Page uses `Css`.",
+                    );
+                    self.advance();
+                    self.recover_to_item();
+                }
                 Tok::Ident(w) if w.eq_ignore_ascii_case("Canvas") => {
                     if let Some(cv) = self.parse_canvas() {
                         canvases.push(cv);
@@ -1763,6 +1773,31 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Tok::If) {
             return self.parse_view_if();
         }
+        // A standalone `Iced` / `Ratatui` child — a raw backend widget. A blob
+        // that starts with `.` is a suffix on the parent, not a child.
+        if let Some((kit, raw)) = self.peek_hatch_raw() {
+            if hatch_is_suffix(&raw) {
+                let name = match kit {
+                    NativeKit::Iced => "Iced",
+                    NativeKit::Ratatui => "Ratatui",
+                };
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    format!(
+                        "`{name} .…` is a suffix on the widget around it — Column, Row, Frame, \
+                         Button, Text, … — not a standalone child. Drop the leading `.` to insert \
+                         a whole native widget."
+                    ),
+                );
+                return None;
+            }
+            self.advance();
+            return Some(ViewNode::Native {
+                kit,
+                body: raw.trim().to_string(),
+            });
+        }
         let kw = match self.peek().clone() {
             Tok::Ident(w) => w,
             other => {
@@ -1775,14 +1810,16 @@ impl<'a> Parser<'a> {
             "column" => {
                 self.advance();
                 self.eat(&Tok::Newline);
-                let (children, spacing, padding) = self.parse_container_body("Column")?;
-                Some(ViewNode::Column { children, spacing, padding })
+                let mut hatch = ViewHatch::default();
+                let (children, spacing, padding) = self.parse_container_body("Column", None, &mut hatch)?;
+                Some(ViewNode::Column { children, spacing, padding, hatch })
             }
             "row" => {
                 self.advance();
                 self.eat(&Tok::Newline);
-                let (children, spacing, padding) = self.parse_container_body("Row")?;
-                Some(ViewNode::Row { children, spacing, padding })
+                let mut hatch = ViewHatch::default();
+                let (children, spacing, padding) = self.parse_container_body("Row", None, &mut hatch)?;
+                Some(ViewNode::Row { children, spacing, padding, hatch })
             }
             "split" => {
                 // `Split Vertical [ratio]` / `Split Horizontal [ratio]` … two
@@ -1834,7 +1871,8 @@ impl<'a> Parser<'a> {
                     _ => 0.5,
                 };
                 self.eat(&Tok::Newline);
-                let (children, spacing, _) = self.parse_container_body("Split")?;
+                let mut hatch = ViewHatch::default();
+                let (children, spacing, _) = self.parse_container_body("Split", None, &mut hatch)?;
                 if children.len() != 2 {
                     self.diags.error_at(
                         self.span(),
@@ -1853,6 +1891,7 @@ impl<'a> Parser<'a> {
                     spacing,
                     a: Box::new(kids.next().unwrap()),
                     b: Box::new(kids.next().unwrap()),
+                    hatch,
                 })
             }
             "frame" => {
@@ -1864,12 +1903,17 @@ impl<'a> Parser<'a> {
                     Some(self.parse_expr()?)
                 };
                 self.eat(&Tok::Newline);
-                let (children, spacing, padding) = self.parse_container_body("Frame")?;
+                let mut paint = ViewPaint::default();
+                let mut hatch = ViewHatch::default();
+                let (children, spacing, padding) =
+                    self.parse_container_body("Frame", Some(&mut paint), &mut hatch)?;
                 Some(ViewNode::Frame {
                     title,
                     children,
                     spacing,
                     padding,
+                    paint,
+                    hatch,
                 })
             }
             "tabs" => {
@@ -1879,6 +1923,7 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 let mut on_change = None;
                 let mut tabs = Vec::new();
+                let mut hatch = ViewHatch::default();
                 loop {
                     self.skip_newlines();
                     match self.peek().clone() {
@@ -1887,6 +1932,9 @@ impl<'a> Parser<'a> {
                             self.expect_kw_ident("Change")?;
                             on_change = Some(self.expect_ident("for the change event")?);
                             self.eat(&Tok::Newline);
+                        }
+                        Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
+                            self.take_hatch_into(&mut hatch)?;
                         }
                         Tok::End => {
                             self.advance();
@@ -1898,16 +1946,22 @@ impl<'a> Parser<'a> {
                             self.advance();
                             let title = self.parse_expr()?;
                             self.eat(&Tok::Newline);
-                            let (children, _, _) = self.parse_container_body("Tab")?;
-                            tabs.push(TabPane { title, children });
+                            let mut pane_hatch = ViewHatch::default();
+                            let (children, _, _) =
+                                self.parse_container_body("Tab", None, &mut pane_hatch)?;
+                            tabs.push(TabPane {
+                                title,
+                                children,
+                                hatch: pane_hatch,
+                            });
                         }
                         other => {
                             self.diags.error_at(
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside Tabs expected `Tab <title>`, `On Change <event>`, or \
-                                     `End Tabs`, found {:?}.",
+                                    "Inside Tabs expected `Tab <title>`, `On Change <event>`, \
+                                     `Iced` / `Ratatui`, or `End Tabs`, found {:?}.",
                                     other
                                 ),
                             );
@@ -1927,6 +1981,7 @@ impl<'a> Parser<'a> {
                     field,
                     tabs,
                     on_change,
+                    hatch,
                 })
             }
             "tab" => {
@@ -1970,8 +2025,10 @@ impl<'a> Parser<'a> {
             "scrollable" => {
                 self.advance();
                 self.eat(&Tok::Newline);
-                let (children, spacing, padding) = self.parse_container_body("Scrollable")?;
-                Some(ViewNode::Scrollable { children, spacing, padding })
+                let mut hatch = ViewHatch::default();
+                let (children, spacing, padding) =
+                    self.parse_container_body("Scrollable", None, &mut hatch)?;
+                Some(ViewNode::Scrollable { children, spacing, padding, hatch })
             }
             "rule" => {
                 self.advance();
@@ -2086,8 +2143,10 @@ impl<'a> Parser<'a> {
             "stack" => {
                 self.advance();
                 self.eat(&Tok::Newline);
-                let (children, spacing, padding) = self.parse_container_body("Stack")?;
-                Some(ViewNode::Stack { children, spacing, padding })
+                let mut hatch = ViewHatch::default();
+                let (children, spacing, padding) =
+                    self.parse_container_body("Stack", None, &mut hatch)?;
+                Some(ViewNode::Stack { children, spacing, padding, hatch })
             }
             "tooltip" => {
                 self.advance();
@@ -2256,13 +2315,37 @@ impl<'a> Parser<'a> {
                         Tok::Ident(w) if w.eq_ignore_ascii_case("narrow") => {
                             self.advance();
                             self.eat(&Tok::Newline);
-                            let (children, _, _) = self.parse_container_body("Narrow")?;
+                            let mut hatch = ViewHatch::default();
+                            let (children, _, _) =
+                                self.parse_container_body("Narrow", None, &mut hatch)?;
+                            if !hatch.is_empty() {
+                                self.diags.error_at(
+                                    self.span(),
+                                    self.line(),
+                                    "`Iced` / `Ratatui` that starts with `.` belongs on Column, Row, \
+                                     Frame, … — not Narrow. Drop the leading `.` to insert a native \
+                                     widget, or wrap the pane in a Column.",
+                                );
+                                return None;
+                            }
                             narrow = Some(children);
                         }
                         Tok::Ident(w) if w.eq_ignore_ascii_case("wide") => {
                             self.advance();
                             self.eat(&Tok::Newline);
-                            let (children, _, _) = self.parse_container_body("Wide")?;
+                            let mut hatch = ViewHatch::default();
+                            let (children, _, _) =
+                                self.parse_container_body("Wide", None, &mut hatch)?;
+                            if !hatch.is_empty() {
+                                self.diags.error_at(
+                                    self.span(),
+                                    self.line(),
+                                    "`Iced` / `Ratatui` that starts with `.` belongs on Column, Row, \
+                                     Frame, … — not Wide. Drop the leading `.` to insert a native \
+                                     widget, or wrap the pane in a Column.",
+                                );
+                                return None;
+                            }
                             wide = Some(children);
                         }
                         other => {
@@ -2293,7 +2376,8 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let e = self.parse_expr()?;
                 self.eat(&Tok::Newline);
-                Some(ViewNode::Text(e))
+                let (paint, hatch) = self.parse_text_paint()?;
+                Some(ViewNode::Text { content: e, paint, hatch })
             }
             "image" => {
                 self.advance();
@@ -2476,15 +2560,19 @@ impl<'a> Parser<'a> {
                 let field = self.expect_ident("for the list's items field")?;
                 self.eat(&Tok::Newline);
                 let mut on_select = None;
+                let mut hatch = ViewHatch::default();
                 loop {
                     self.skip_newlines();
-                    match self.peek() {
+                    match self.peek().clone() {
                         Tok::On => {
                             self.advance();
                             // `Select` lexes to a keyword token (Select-Case migration).
                             self.expect(&Tok::Select, "in `On Select`")?;
                             on_select = Some(self.expect_ident("for the select event")?);
                             self.eat(&Tok::Newline);
+                        }
+                        Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
+                            self.take_hatch_into(&mut hatch)?;
                         }
                         Tok::End => {
                             self.advance();
@@ -2497,8 +2585,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a List expected `On Select <event>` or `End List`, \
-                                     found {:?}.",
+                                    "Inside a List expected `On Select <event>`, `Iced` / `Ratatui`, \
+                                     or `End List`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2506,7 +2594,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Some(ViewNode::List { field, on_select })
+                Some(ViewNode::List { field, on_select, hatch })
             }
             "table" => {
                 // `Table field` + optional `On Select <Event>` — a row-selectable table.
@@ -2514,14 +2602,18 @@ impl<'a> Parser<'a> {
                 let field = self.expect_ident("for the table's rows field")?;
                 self.eat(&Tok::Newline);
                 let mut on_select = None;
+                let mut hatch = ViewHatch::default();
                 loop {
                     self.skip_newlines();
-                    match self.peek() {
+                    match self.peek().clone() {
                         Tok::On => {
                             self.advance();
                             self.expect(&Tok::Select, "in `On Select`")?;
                             on_select = Some(self.expect_ident("for the select event")?);
                             self.eat(&Tok::Newline);
+                        }
+                        Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
+                            self.take_hatch_into(&mut hatch)?;
                         }
                         Tok::End => {
                             self.advance();
@@ -2534,8 +2626,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a Table expected `On Select <event>` or `End Table`, \
-                                     found {:?}.",
+                                    "Inside a Table expected `On Select <event>`, `Iced` / `Ratatui`, \
+                                     or `End Table`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2543,7 +2635,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Some(ViewNode::Table { field, on_select })
+                Some(ViewNode::Table { field, on_select, hatch })
             }
             "canvas" => {
                 // `Canvas Board [Width 300] [Height 200]` — a drawing surface.
@@ -2573,6 +2665,8 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 let mut on_click = None;
                 let mut enabled = None;
+                let mut paint = ViewPaint::default();
+                let mut hatch = ViewHatch::default();
                 loop {
                     self.skip_newlines();
                     match self.peek().clone() {
@@ -2587,6 +2681,12 @@ impl<'a> Parser<'a> {
                             enabled = Some(self.parse_expr()?);
                             self.eat(&Tok::Newline);
                         }
+                        Tok::Ident(_) if self.peek_paint() => {
+                            let _ = self.take_paint_into(&mut paint)?;
+                        }
+                        Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
+                            self.take_hatch_into(&mut hatch)?;
+                        }
                         Tok::End => {
                             self.advance();
                             self.expect_kw_ident("Button")?;
@@ -2599,7 +2699,8 @@ impl<'a> Parser<'a> {
                                 self.line(),
                                 format!(
                                     "Inside a Button expected `On Click <event>`, `Enabled <expr>`, \
-                                     or `End Button`, found {:?}.",
+                                     `Color` / `BackColor` / `Border`, `Iced` / `Ratatui`, or \
+                                     `End Button`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2607,7 +2708,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Some(ViewNode::Button { label, on_click, enabled })
+                Some(ViewNode::Button { label, on_click, enabled, paint, hatch })
             }
             "textinput" => {
                 self.advance();
@@ -3014,11 +3115,116 @@ impl<'a> Parser<'a> {
         Some(nodes)
     }
 
+    /// `Color` / `BackColor` / `Border` as the next token.
+    fn peek_paint(&self) -> bool {
+        matches!(
+            self.peek(),
+            Tok::Ident(w)
+                if matches!(w.to_ascii_lowercase().as_str(), "color" | "backcolor" | "border")
+        )
+    }
+
+    fn peek_hatch_raw(&self) -> Option<(NativeKit, String)> {
+        match self.peek().clone() {
+            Tok::InlineIced(raw) => Some((NativeKit::Iced, raw)),
+            Tok::InlineRatatui(raw) => Some((NativeKit::Ratatui, raw)),
+            _ => None,
+        }
+    }
+
+    /// Consume an `Iced` / `Ratatui` block as a suffix on the current widget.
+    /// Last blob for that kit wins.
+    fn take_hatch_into(&mut self, hatch: &mut ViewHatch) -> Option<()> {
+        let Some((kit, raw)) = self.peek_hatch_raw() else {
+            return Some(());
+        };
+        self.advance();
+        hatch.set(kit, &raw);
+        Some(())
+    }
+
+    /// After an `Iced`/`Ratatui` token, is the next construct `End Text`?
+    /// Distinguishes a hatch on this Text from a sibling suffix on the parent.
+    fn hatch_closes_text(&self) -> bool {
+        let mut i = self.pos + 1;
+        while i < self.toks.len() && matches!(self.toks[i].tok, Tok::Newline) {
+            i += 1;
+        }
+        if i >= self.toks.len() || !matches!(self.toks[i].tok, Tok::End) {
+            return false;
+        }
+        i += 1;
+        matches!(
+            self.toks.get(i).map(|t| &t.tok),
+            Some(Tok::Ident(w)) if w.eq_ignore_ascii_case("Text")
+        )
+    }
+
+    /// Consume a paint line into `paint`. `false` if the next token isn't one.
+    fn take_paint_into(&mut self, paint: &mut ViewPaint) -> Option<bool> {
+        let Tok::Ident(w) = self.peek().clone() else {
+            return Some(false);
+        };
+        let slot = match w.to_ascii_lowercase().as_str() {
+            "color" => &mut paint.color,
+            "backcolor" => &mut paint.back_color,
+            "border" => &mut paint.border,
+            _ => return Some(false),
+        };
+        self.advance();
+        *slot = Some(self.parse_expr()?);
+        self.eat(&Tok::Newline);
+        Some(true)
+    }
+
+    /// One-line `Text expr` stays a one-liner. Paint lines require `End Text`.
+    /// An `Iced` / `Ratatui` after a one-line Text is a sibling (suffix on the
+    /// parent) unless `End Text` follows it.
+    fn parse_text_paint(&mut self) -> Option<(ViewPaint, ViewHatch)> {
+        self.skip_newlines();
+        let hatch_on_text = self.peek_hatch_raw().is_some() && self.hatch_closes_text();
+        if !self.peek_paint() && !hatch_on_text {
+            return Some((ViewPaint::default(), ViewHatch::default()));
+        }
+        let mut paint = ViewPaint::default();
+        let mut hatch = ViewHatch::default();
+        loop {
+            self.skip_newlines();
+            if self.peek_paint() {
+                let _ = self.take_paint_into(&mut paint)?;
+                continue;
+            }
+            if self.peek_hatch_raw().is_some() {
+                self.take_hatch_into(&mut hatch)?;
+                continue;
+            }
+            if matches!(self.peek(), Tok::End) {
+                self.advance();
+                self.expect_kw_ident("Text")?;
+                self.eat(&Tok::Newline);
+                break;
+            }
+            self.diags.error_at(
+                self.span(),
+                self.line(),
+                "Inside a Text expected `Color` / `BackColor` / `Border`, `Iced` / `Ratatui`, \
+                 or `End Text`."
+                    .to_string(),
+            );
+            return None;
+        }
+        Some((paint, hatch))
+    }
+
     /// A container body: optional `Spacing N` / `Padding N` property lines mixed
-    /// with the child widgets, up to `End <container>`.
+    /// with the child widgets, up to `End <container>`. A `Frame` may also take
+    /// `Color` / `BackColor` / `Border`. An `Iced` / `Ratatui` blob that starts
+    /// with `.` is a suffix on this container; anything else is a native child.
     fn parse_container_body(
         &mut self,
         container: &str,
+        mut paint: Option<&mut ViewPaint>,
+        hatch: &mut ViewHatch,
     ) -> Option<(Vec<ViewNode>, Option<u16>, Option<u16>)> {
         let mut children = Vec::new();
         let mut spacing = None;
@@ -3034,6 +3240,12 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 break;
             }
+            if let Some((_, raw)) = self.peek_hatch_raw() {
+                if hatch_is_suffix(&raw) {
+                    self.take_hatch_into(hatch)?;
+                    continue;
+                }
+            }
             // Container/child properties are lines, not widgets.
             if let Tok::Ident(w) = self.peek().clone() {
                 let prop = w.to_ascii_lowercase();
@@ -3048,6 +3260,21 @@ impl<'a> Parser<'a> {
                             padding = Some(n);
                         }
                         continue;
+                    }
+                    "color" | "backcolor" | "border" => {
+                        if let Some(p) = paint.as_mut() {
+                            let _ = self.take_paint_into(p)?;
+                            continue;
+                        }
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            format!(
+                                "`Color` / `BackColor` / `Border` belong on a Button, Frame, or Text — \
+                                 not a {container}."
+                            ),
+                        );
+                        return None;
                     }
                     "length" | "percent" | "min" => {
                         self.advance();
@@ -3353,6 +3580,16 @@ impl<'a> Parser<'a> {
             Tok::For => self.parse_for(),
             // A standalone inline Rust block (side effects; no value used).
             Tok::InlineRust(_) => Some(Stmt::Expr(self.parse_primary()?)),
+            Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    "`Iced` belongs in a Window View and `Ratatui` in a Screen View — \
+                     not inside a Function.",
+                );
+                self.advance();
+                None
+            }
             Tok::Const => {
                 self.diags.error_at(
                     self.span(),

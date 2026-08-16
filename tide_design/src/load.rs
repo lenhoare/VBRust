@@ -184,17 +184,20 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
             children,
             spacing,
             padding,
+            ..
         } => container(Kind::Column, None, children, spacing, padding, size),
         ViewNode::Row {
             children,
             spacing,
             padding,
+            ..
         } => container(Kind::Row, None, children, spacing, padding, size),
         ViewNode::Frame {
             title,
             children,
             spacing,
             padding,
+            ..
         } => {
             let text = match title {
                 Some(e) => str_lit(e)?,
@@ -206,6 +209,7 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
             field,
             tabs,
             on_change,
+            ..
         } => {
             let mut n = blank(Kind::Tabs);
             n.field = field.clone();
@@ -227,7 +231,7 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
             n.size = SizeHint::Length(*amount as u32);
             Ok(n)
         }
-        ViewNode::Text(e) => {
+        ViewNode::Text { content: e, .. } => {
             let mut n = blank(Kind::Text);
             n.size = normalize_size(size, Kind::Text);
             match &e.kind {
@@ -287,14 +291,14 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
             n.size = normalize_size(size, Kind::Memo);
             Ok(n)
         }
-        ViewNode::List { field, on_select } => {
+        ViewNode::List { field, on_select, .. } => {
             let mut n = blank(Kind::List);
             n.field = field.clone();
             n.event = on_select.clone().unwrap_or_default();
             n.size = normalize_size(size, Kind::List);
             Ok(n)
         }
-        ViewNode::Table { field, on_select } => {
+        ViewNode::Table { field, on_select, .. } => {
             let mut n = blank(Kind::Table);
             n.field = field.clone();
             n.event = on_select.clone().unwrap_or_default();
@@ -355,7 +359,8 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
         | ViewNode::Responsive { .. }
         | ViewNode::Split { .. }
         | ViewNode::Scrollable { .. }
-        | ViewNode::Rule { .. } => Err(
+        | ViewNode::Rule { .. }
+        | ViewNode::Native { .. } => Err(
             "That's a Window widget — the designer only edits Screen structure.".into(),
         ),
     }

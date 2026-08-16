@@ -1,0 +1,53 @@
+id = "iced"
+title = "Iced … End Iced"
+category = "Escape hatches"
+kind = "keyword"
+
+syntax = """
+<Widget>
+    Iced
+        .<iced builder>
+    End Iced
+End <Widget>
+
+Column
+    Iced
+        iced::widget::text("raw").into()
+    End Iced
+End Column
+"""
+
+summary = "Splices raw iced into a Window View — a suffix on a widget, or a whole Element."
+
+remarks = """
+Bust's View covers everyday iced widgets. For everything else, this is the door: an `Iced … End Iced` block is captured verbatim and dropped into the generated iced builder. Look up the iced API; Bust does not parse the blob.
+
+Two placements. A blob that **starts with `.`** is a suffix on the widget around it (`Column`, `Row`, `Frame`, `Scrollable`, `Stack`, `Split`, `Tabs`, `Button`, `Text`, `List`, `Table`). It is spliced on **before** the trailing `.into()`. If the blob also has `.style(...)`, iced's last `.style` wins over `Color` / `BackColor` / `Border`.
+
+Anything else is a standalone native child — a raw `Element`. You write `.into()`. Events (`Message::Go`) and state (`state.count`, lowercase) are yours.
+
+`Iced` on `Tabs` suffixes the whole `column![bar, pane]`, not each tab button. Two suffix blobs: last wins. A Screen uses `Ratatui`; a Page uses `Css`. `Iced` at the top of the file or inside a Function is an error — it belongs in a View.
+"""
+
+example = """
+Window Hatch
+    Title "Hatch"
+    View
+        Column
+            Text "hello"
+            Iced
+                .padding(8)
+            End Iced
+            Iced
+                iced::widget::text("raw").into()
+            End Iced
+        End Column
+    End View
+End Window
+
+Function Main()
+    Hatch.Run
+End Function
+"""
+
+see_also = ["ratatui", "rust", "window"]

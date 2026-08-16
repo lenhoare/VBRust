@@ -1,0 +1,31 @@
+id = "rnd"
+title = "Rnd"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Rnd()
+"""
+
+summary = "A random Double in the half-open range [0, 1)."
+
+remarks = """
+`Rnd()` returns a new random number each time you call it — a `Double` greater than or equal to 0 and strictly less than 1. There is no argument: `Rnd(6)` is not a die roll. Scale it yourself, then take the whole-number part:
+
+    Int(Rnd() * 6) + 1
+
+That is a number from 1 to 6. No `Randomize` — the first call seeds itself.
+
+Need a crate's generator (`rand`, a distribution, a seed you control)? `Use rand 0.8` and an inline `Rust` block, as in `examples/dice.vbr`.
+"""
+
+example = """
+Function Main()
+    Dim r As Double = Rnd()
+    If r >= 0.0 And r < 1.0 Then
+        Debug.Print "ok"
+    End If
+End Function
+"""
+
+see_also = ["int", "round"]

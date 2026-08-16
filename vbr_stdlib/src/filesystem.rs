@@ -97,6 +97,32 @@ impl FileSystem {
         fs::remove_dir_all(path).map_err(|e| e.to_string())
     }
 
+    /// Join two path pieces with `/`. An absolute second piece replaces the first
+    /// (same as `std::path::Path::join`). Trailing slashes on the first piece
+    /// don't double up.
+    pub fn join(a: &str, b: &str) -> String {
+        slash(&Path::new(a).join(b))
+    }
+
+    /// The folder that contains `path`. `"vault/welcome.md"` → `"vault"`.
+    /// A name with no parent (`"vault"`, `"/"`) is returned as-is.
+    pub fn parent(path: &str) -> String {
+        let trimmed = trim_slash(path);
+        match Path::new(trimmed).parent() {
+            Some(p) if !p.as_os_str().is_empty() => slash(p),
+            _ => trimmed.to_string(),
+        }
+    }
+
+    /// The last component of `path`. `"vault/welcome.md"` → `"welcome.md"`,
+    /// `"journal/"` → `"journal"`.
+    pub fn name(path: &str) -> String {
+        Path::new(trim_slash(path))
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
     /// Names in a folder. Directories end with `/`; hidden (dot) names are skipped.
     /// Folders come first, then files, both sorted case-insensitively.
     pub fn list(path: &str) -> Result<Vec<String>, String> {
@@ -119,6 +145,25 @@ impl FileSystem {
         files.sort_by(fold);
         dirs.append(&mut files);
         Ok(dirs)
+    }
+}
+
+fn slash(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+/// Drop trailing slashes so `parent("a/b/")` is `"a"` and `name("journal/")`
+/// is `"journal"`. A root `"/"` (or `"///"`) stays a slash.
+fn trim_slash(path: &str) -> &str {
+    let t = path.trim_end_matches('/');
+    if t.is_empty() {
+        if path.is_empty() {
+            ""
+        } else {
+            "/"
+        }
+    } else {
+        t
     }
 }
 
@@ -166,5 +211,19 @@ mod tests {
         let names = FileSystem::list("_vbr_list_test").unwrap();
         FileSystem::delete_folder_all("_vbr_list_test").unwrap();
         assert_eq!(names, vec!["sub/".to_string(), "a.txt".to_string(), "b.txt".to_string()]);
+    }
+
+    #[test]
+    fn test_join_parent_name() {
+        assert_eq!(FileSystem::join("vault", "welcome.md"), "vault/welcome.md");
+        assert_eq!(FileSystem::join("vault/", "welcome.md"), "vault/welcome.md");
+        assert_eq!(FileSystem::join("vault", "journal/"), "vault/journal/");
+        assert_eq!(FileSystem::parent("vault/welcome.md"), "vault");
+        assert_eq!(FileSystem::parent("vault/journal/day-one.md"), "vault/journal");
+        assert_eq!(FileSystem::parent("vault/journal/"), "vault");
+        assert_eq!(FileSystem::parent("vault"), "vault");
+        assert_eq!(FileSystem::name("vault/welcome.md"), "welcome.md");
+        assert_eq!(FileSystem::name("journal/"), "journal");
+        assert_eq!(FileSystem::name("vault"), "vault");
     }
 }

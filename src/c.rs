@@ -49,6 +49,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         indent: 0,
         warnings: Vec::new(),
         needs_math: false,
+        needs_rnd: false,
         need_dup: false,
         need_from_ll: false,
         need_from_bool: false,
@@ -124,6 +125,8 @@ struct Emitter {
     warnings: Vec<String>,
     // Runtime helpers switched on as the body needs them.
     needs_math: bool,
+    /// `Rnd()` — stdlib `rand` in `[0, 1)`, no libm.
+    needs_rnd: bool,
     need_dup: bool,
     need_from_ll: bool,
     need_from_bool: bool,
@@ -1500,6 +1503,10 @@ impl Emitter {
             let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
             return format!("usleep(({}) * 1000)", a.join(", "));
         }
+        if name.eq_ignore_ascii_case("rnd") && args.is_empty() {
+            self.needs_rnd = true;
+            return "rnd()".into();
+        }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         // Maths builtins → the C standard library (all in `<math.h>`).
         if let Some(cfn) = c_math_builtin(name) {
@@ -1799,7 +1806,7 @@ impl Emitter {
         if self.needs_fs {
             code.push_str("#include <sys/stat.h>\n");
         }
-        if self.needs_datetime {
+        if self.needs_datetime || self.needs_rnd {
             code.push_str("#include <time.h>\n");
         }
         if self.needs_shell {
@@ -1860,12 +1867,16 @@ impl Emitter {
         if self.need_concat {
             code.push_str(RT_CONCAT);
         }
+        if self.needs_rnd {
+            code.push_str(RT_RND);
+        }
         if need_dup
             || self.need_from_ll
             || self.need_from_bool
             || self.need_from_double
             || self.need_from_float
             || self.need_concat
+            || self.needs_rnd
         {
             code.push('\n');
         }
@@ -2001,6 +2012,17 @@ static char* vbr_from_float(float f) {
         if (strtof(buf, NULL) == f) break;
     }
     return vbr_dup(buf);
+}
+";
+
+const RT_RND: &str = "\
+static double rnd(void) {
+    static int seeded = 0;
+    if (!seeded) {
+        srand((unsigned)time(NULL));
+        seeded = 1;
+    }
+    return (double)rand() / ((double)RAND_MAX + 1.0);
 }
 ";
 

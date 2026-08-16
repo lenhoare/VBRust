@@ -100,6 +100,10 @@ pub(crate) fn emit_shared_items(
         out.push_str(crate::transpiler::LOG_HELPER);
         out.push('\n');
     }
+    if crate::transpiler::program_uses_rnd(program) {
+        out.push_str(crate::transpiler::RND_HELPER);
+        out.push('\n');
+    }
     for c in &program.constants {
         emit_const(c, out, diags);
     }

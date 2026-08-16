@@ -100,6 +100,8 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         // Escape hatches
         item!("rust", "Rust … End Rust", "Escape hatches", Keyword, "kw/Rust"),
         item!("python", "Python … End Python", "Escape hatches", Keyword, "kw/Python"),
+        item!("iced", "Iced … End Iced", "Escape hatches", Keyword, "kw/Iced"),
+        item!("ratatui", "Ratatui … End Ratatui", "Escape hatches", Keyword, "kw/Ratatui"),
         // Custom types
         item!("type", "Type", "Custom types", Keyword, "kw/Type"),
         item!("enum", "Enum", "Custom types", Keyword, "kw/Enum"),
@@ -156,6 +158,7 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("tan", "Tan", "Math functions", Builtin, "fn/Tan"),
         item!("log", "Log", "Math functions", Builtin, "fn/Log"),
         item!("exp", "Exp", "Math functions", Builtin, "fn/Exp"),
+        item!("rnd", "Rnd", "Math functions", Builtin, "fn/Rnd"),
         // Standard library (namespaces)
         item!("filesystem", "FileSystem", "Standard library", Namespace, "ns/FileSystem"),
         item!("http", "Http", "Standard library", Namespace, "ns/Http"),

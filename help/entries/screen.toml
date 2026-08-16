@@ -35,7 +35,9 @@ A `Screen` is a terminal app (ratatui). The Elm machine is the same as a Window:
 
 Bind keys with `On Key "+" Increment "inc"`. `Quit` is built-in (`On Key "q" Quit`). An optional string after the handler is the hotkey label on the bottom bar. `Status "Count: " & count` puts live text on the left of that bar. `Every 16 Tick` fires a timer event.
 
-Widgets that belong here: `Text`, `Input`, `Memo`, `List`, `Table`, `Chart`, `Tabs`, `Frame`. A `List` or `Table` joins the focus ring (Up/Down, Enter); an `Input` types when focused. `GetOpenFilename` / `GetSaveAsFilename` pop a path prompt — Screen-only.
+Widgets that belong here: `Text`, `Input`, `Memo`, `List`, `Table`, `Chart`, `Tabs`, `Frame`. A `List` or `Table` joins the focus ring (Up/Down, Enter); an `Input` types when focused. `GetOpenFilename` / `GetSaveAsFilename` / `GetFolderName` pop a path prompt.
+
+Need a ratatui method Bust does not wrap? `Ratatui … End Ratatui` inside the View is the trapdoor — a blob that starts with `.` is spliced onto that widget; anything else is raw statements (`frame` / `area` / `state` are in scope). Look up the ratatui docs; lowercase state fields are yours.
 
 `Theme NightOwl` restyles chrome, text, and charts. Omit it and the bar stays cyan-on-black (Turbo Pascal). Launch with `<Name>.Run`. A program is one kind of surface — don't mix a Screen with a Window or a Page.
 """

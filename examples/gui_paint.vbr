@@ -1,0 +1,31 @@
+' Color / BackColor / Border on Button, Frame, and Text — Window View only.
+Window Paint
+    Title "Paint"
+    Theme JellyFish
+
+    View
+        Column
+            Padding 16
+            Spacing 12
+            Frame "Panel"
+                BackColor Color.Navy
+                Border Color.Magenta
+                Text "ink on navy"
+                    Color Color.White
+                End Text
+            End Frame
+            Button "pink"
+                On Click Noop
+                Color Color.Black
+                BackColor Color(255, 110, 180)
+            End Button
+        End Column
+    End View
+
+    Event Noop
+    End Event
+End Window
+
+Function Main()
+    Paint.Run
+End Function

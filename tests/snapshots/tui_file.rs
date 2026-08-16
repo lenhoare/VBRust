@@ -226,6 +226,61 @@ mod file_dialog {
         }
     }
 
+    pub fn prompt_folder<B, F>(
+        terminal: &mut ratatui::Terminal<B>,
+        title: &str,
+        initial: &str,
+        mut draw: F,
+    ) -> std::io::Result<String>
+    where
+        B: ratatui::backend::Backend,
+        F: FnMut(&mut ratatui::Frame),
+    {
+        let mut input = initial.to_string();
+        let mut hint = String::new();
+        let mut tab: Option<PathTabState> = None;
+        let hints = "Tab=complete  Enter=choose folder  Esc=Cancel";
+        loop {
+            terminal.draw(|frame| {
+                draw(frame);
+                overlay(frame, title, &input, false, hints, &hint);
+            })?;
+            let Event::Key(key) = event::read()? else { continue };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Esc => return Ok(String::new()),
+                KeyCode::Enter => {
+                    tab = None;
+                    if let Some(dir) = path_enter_dir(&input) {
+                        let trimmed = dir.trim_end_matches(|c| c == '/' || c == '\\').to_string();
+                        return Ok(if trimmed.is_empty() { dir } else { trimmed });
+                    }
+                    hint = " Not a folder".into();
+                }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    let reverse = matches!(key.code, KeyCode::BackTab)
+                        || key.modifiers.contains(KeyModifiers::SHIFT);
+                    let (next, msg) = path_tab_complete(&input, &mut tab, reverse);
+                    input = next;
+                    if !msg.is_empty() {
+                        hint = msg;
+                    }
+                }
+                KeyCode::Backspace => {
+                    tab = None;
+                    input.pop();
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    tab = None;
+                    input.push(c);
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn overlay(frame: &mut ratatui::Frame, title: &str, input: &str, save: bool, hints: &str, hint: &str) {
         let area = frame.area();
         let width = 56u16.min(area.width.saturating_sub(4));

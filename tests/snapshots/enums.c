@@ -31,7 +31,6 @@ Result_str_str color(Suit s) {
     } else {
         return (Result_str_str){ .is_ok = true, .ok = "black" };
     }
-    return (Result_str_str){ .is_ok = true, .ok = 0 };
 }
 
 int main(void) {

@@ -1,0 +1,28 @@
+id = "filesystem.parent"
+title = "Parent"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Parent"
+
+syntax = """
+FileSystem.Parent(path) As String
+"""
+
+summary = "The folder that contains this path."
+
+arguments = """
+path | String | A file or folder path.
+"""
+
+returns = "String — the parent folder. A name with no parent (`\"vault\"`) is returned as-is. Does not fail."
+
+example = """
+Function Main()
+    Debug.Print FileSystem.Parent("vault/welcome.md")
+    Debug.Print FileSystem.Parent("vault/journal/")
+    Debug.Print FileSystem.Parent("vault")
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.join", "filesystem.name"]

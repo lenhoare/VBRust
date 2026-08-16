@@ -68,8 +68,8 @@ pub fn emit_web_program(
     {
         diags.error_once(
             "tui-file-dialog-page",
-            "GetOpenFilename / GetSaveAsFilename are Screen-only (they pop a terminal path \
-             prompt). A Page runs in the browser — there's no file dialog there.",
+            "GetOpenFilename / GetSaveAsFilename / GetFolderName aren't available in the browser \
+             (a Page has no file dialog). Pick a path another way, or run a Window / Screen.",
         );
     }
 
@@ -299,10 +299,10 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
     let root_class = rust_name(&p.name);
     let mut body = String::new();
     match &p.view {
-        ViewNode::Column { children, spacing, padding } => render_flex(
+        ViewNode::Column { children, spacing, padding, .. } => render_flex(
             "column", children, *spacing, *padding, Some(&root_class), &ctx, 3, &mut body, diags,
         ),
-        ViewNode::Row { children, spacing, padding } => render_flex(
+        ViewNode::Row { children, spacing, padding, .. } => render_flex(
             "row", children, *spacing, *padding, Some(&root_class), &ctx, 3, &mut body, diags,
         ),
         other => render_node(other, &ctx, "column", 3, &mut body, diags),
@@ -327,8 +327,26 @@ fn validate_page(p: &Window, field_ty: &HashMap<String, DeclType>, diags: &mut D
     validate_view(&p.view, field_ty, diags);
 }
 
+fn reject_page_hatch(hatch: &ViewHatch, diags: &mut Diagnostics) {
+    if !hatch.is_empty() {
+        diags.error_once(
+            "hatch-on-page",
+            "`Iced` and `Ratatui` belong in a Window or Screen View — a Page uses `Css`.",
+        );
+    }
+}
+
 fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
     match node {
+        ViewNode::Native { .. } => {
+            reject_page_hatch(
+                &ViewHatch {
+                    iced: Some(String::new()),
+                    ratatui: None,
+                },
+                diags,
+            );
+        }
         ViewNode::TextInput { value, .. } => {
             if !matches!(field_ty.get(&rust_name(value)), Some(DeclType::Plain(Type::Text))) {
                 diags.error_once(
@@ -370,9 +388,13 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             }
         }
         ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
-        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } | ViewNode::Frame { children, .. }
-        | ViewNode::Stack { children, .. }
-        | ViewNode::Tooltip { children, .. }
+        ViewNode::Column { children, hatch, .. } | ViewNode::Row { children, hatch, .. }
+        | ViewNode::Frame { children, hatch, .. } | ViewNode::Stack { children, hatch, .. }
+        | ViewNode::Scrollable { children, hatch, .. } => {
+            reject_page_hatch(hatch, diags);
+            children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        ViewNode::Tooltip { children, .. }
         | ViewNode::MouseArea { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
@@ -380,13 +402,21 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             narrow.iter().for_each(|c| validate_view(c, field_ty, diags));
             wide.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
-        ViewNode::Split { a, b, .. } => {
+        ViewNode::Split { a, b, hatch, .. } => {
+            reject_page_hatch(hatch, diags);
             validate_view(a, field_ty, diags);
             validate_view(b, field_ty, diags);
         }
-        ViewNode::Tabs { tabs, .. } => {
-            tabs.iter()
-                .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, diags)));
+        ViewNode::Tabs { tabs, hatch, .. } => {
+            reject_page_hatch(hatch, diags);
+            tabs.iter().for_each(|p| {
+                reject_page_hatch(&p.hatch, diags);
+                p.children.iter().for_each(|c| validate_view(c, field_ty, diags));
+            });
+        }
+        ViewNode::Text { hatch, .. } | ViewNode::Button { hatch, .. }
+        | ViewNode::List { hatch, .. } | ViewNode::Table { hatch, .. } => {
+            reject_page_hatch(hatch, diags);
         }
         ViewNode::Match { arms, .. } => {
             for a in arms {
@@ -419,13 +449,13 @@ fn render_node(
 ) {
     let pad = "    ".repeat(indent);
     match node {
-        ViewNode::Column { children, spacing, padding } => {
+        ViewNode::Column { children, spacing, padding, .. } => {
             render_flex("column", children, *spacing, *padding, None, ctx, indent, out, diags);
         }
-        ViewNode::Row { children, spacing, padding } => {
+        ViewNode::Row { children, spacing, padding, .. } => {
             render_flex("row", children, *spacing, *padding, None, ctx, indent, out, diags);
         }
-        ViewNode::Frame { title, children, spacing, padding } => {
+        ViewNode::Frame { title, children, spacing, padding, .. } => {
             let cap = title
                 .as_ref()
                 .map(|t| text_content(t, ctx))
@@ -452,7 +482,7 @@ fn render_node(
             out.push_str(&inner);
             out.push_str(&format!("{}</fieldset>\n", pad));
         }
-        ViewNode::Text(e) => {
+        ViewNode::Text { content: e, .. } => {
             out.push_str(&format!("{}<p class=\"vbr-text\">{{ {} }}</p>\n", pad, text_content(e, ctx)));
         }
         ViewNode::Button { label, on_click, .. } => {
@@ -609,7 +639,7 @@ fn render_node(
             out.push_str(&format!("{}}}\n", in1));
             out.push_str(&format!("{}}}\n", pad));
         }
-        ViewNode::Stack { children, spacing, padding } => {
+        ViewNode::Stack { children, spacing, padding, .. } => {
             render_flex("column", children, *spacing, *padding, None, ctx, indent, out, diags);
         }
         ViewNode::Tooltip { children, .. } | ViewNode::MouseArea { children, .. } => {
@@ -718,7 +748,12 @@ fn render_body(
         [] => {}
         [one] => render_node(one, ctx, "column", indent, out, diags),
         many => {
-            let col = ViewNode::Column { children: many.to_vec(), spacing: None, padding: None };
+            let col = ViewNode::Column {
+                children: many.to_vec(),
+                spacing: None,
+                padding: None,
+                hatch: ViewHatch::default(),
+            };
             render_node(&col, ctx, "column", indent, out, diags);
         }
     }
@@ -778,6 +813,7 @@ fn web_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Chart { .. } => "Chart",
         ViewNode::Tabs { .. } => "Tabs",
         ViewNode::Memo { .. } => "Memo",
+        ViewNode::Native { .. } => "Iced/Ratatui",
         _ => "widget",
     }
 }

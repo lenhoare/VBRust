@@ -45,7 +45,6 @@ def area(s: Shape) -> float:
             return Ok(w * h)
         case Empty():
             return Ok(0.0)
-    return Ok(None)
 
 def main():
     c: Shape = Circle(2.0)

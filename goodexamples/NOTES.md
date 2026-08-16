@@ -21,7 +21,7 @@ No View on a Sketch. Draw is the picture and it does go through the resolver.
 
 ## Language, not a compiler miss
 
-- No `Rnd()` — hail velocities are clockwork from the index; bloom / coil / orrery are `Cos` / `Sin` on a phase.
+- Hail velocities are clockwork from the index (`Rnd()` is available; these sketches don't use it); bloom / coil / orrery are `Cos` / `Sin` on a phase.
 - `Log` is still the logging verb.
 
 ## WSLg present path (tiny-skia vs wgpu)

@@ -29,7 +29,6 @@ Result_str_str describe(long long n) {
     } else {
         return (Result_str_str){ .is_ok = true, .ok = "ordinary" };
     }
-    return (Result_str_str){ .is_ok = true, .ok = 0 };
 }
 
 int main(void) {

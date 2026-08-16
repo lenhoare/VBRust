@@ -76,12 +76,8 @@ pub fn emit_gui_program(
                 || s.subs.iter().any(|sub| crate::transpiler::uses_file_dialog(&sub.body))
         })
     {
-        diags.error_once(
-            "tui-file-dialog-window",
-            "GetOpenFilename / GetSaveAsFilename are Screen-only (they pop a terminal path \
-             prompt). A Window has no terminal overlay — use a Screen, or pick the path \
-             another way.",
-        );
+        out.push_str(RFD_PICK);
+        out.push('\n');
     }
 
     // Every non-event stdlib namespace the program names: declared types +
@@ -127,6 +123,119 @@ pub fn emit_gui_program(
     }
     out
 }
+
+/// File dialog for `GetOpenFilename` / `GetSaveAsFilename` / `GetFolderName`.
+/// Cancel returns `""`. Paths use `/`.
+///
+/// Windows/macOS use `rfd`'s native dialog. Linux prefers `zenity` (or
+/// `kdialog`) when present — that's the WSL path, where xdg-desktop-portal
+/// often isn't running. No zenity: fall through to `rfd` (a real portal),
+/// then print an install hint.
+const RFD_PICK: &str = r#"
+fn rfd_pick(kind: &str, initial: &str) -> String {
+    if cfg!(target_os = "linux") {
+        match rfd_linux_cli(kind, initial) {
+            Ok(Some(p)) => return p,
+            Ok(None) => return String::new(),
+            Err(()) => {}
+        }
+    }
+    if let Some(p) = rfd_native(kind, initial) {
+        return p;
+    }
+    if cfg!(target_os = "linux") {
+        eprintln!(
+            "Bust: no file dialog. On WSL/Linux install zenity:  sudo apt install zenity"
+        );
+    }
+    String::new()
+}
+
+fn rfd_native(kind: &str, initial: &str) -> Option<String> {
+    let mut d = rfd::FileDialog::new();
+    let p = std::path::Path::new(initial);
+    if p.is_dir() {
+        d = d.set_directory(p);
+    } else if let Some(parent) = p.parent() {
+        if !parent.as_os_str().is_empty() {
+            d = d.set_directory(parent);
+        }
+        if let Some(name) = p.file_name() {
+            d = d.set_file_name(name.to_string_lossy().as_ref());
+        }
+    }
+    let picked = match kind {
+        "save" => d.save_file(),
+        "folder" => d.pick_folder(),
+        _ => d.pick_file(),
+    };
+    picked.map(|p| p.to_string_lossy().replace('\\', "/"))
+}
+
+fn rfd_linux_cli(kind: &str, initial: &str) -> Result<Option<String>, ()> {
+    let filename = {
+        let p = std::path::Path::new(initial);
+        let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let mut s = abs.to_string_lossy().replace('\\', "/");
+        if kind == "folder" && !s.is_empty() && !s.ends_with('/') {
+            s.push('/');
+        }
+        s
+    };
+    let title = match kind {
+        "save" => "Save as",
+        "folder" => "Open folder",
+        _ => "Open file",
+    };
+    let mut cmds = Vec::new();
+    {
+        let mut c = std::process::Command::new("zenity");
+        c.args(["--file-selection", "--title", title]);
+        match kind {
+            "folder" => {
+                c.arg("--directory");
+            }
+            "save" => {
+                c.args(["--save", "--confirm-overwrite"]);
+            }
+            _ => {}
+        }
+        if !filename.is_empty() {
+            c.arg("--filename").arg(&filename);
+        }
+        cmds.push(c);
+    }
+    {
+        let mut c = std::process::Command::new("kdialog");
+        match kind {
+            "folder" => {
+                c.arg("--getexistingdirectory").arg(&filename);
+            }
+            "save" => {
+                c.arg("--getsavefilename").arg(&filename);
+            }
+            _ => {
+                c.arg("--getopenfilename").arg(&filename);
+            }
+        }
+        cmds.push(c);
+    }
+    for mut c in cmds {
+        match c.output() {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => continue,
+            Ok(out) => {
+                if !out.status.success() {
+                    return Ok(None);
+                }
+                let s = String::from_utf8_lossy(&out.stdout).trim().replace('\\', "/");
+                return Ok(if s.is_empty() { None } else { Some(s) });
+            }
+        }
+    }
+    Err(())
+}
+"#;
 
 /// Canonical theme names (`Dracula`, `NightOwl`, …). Shared with the Screen and Page.
 pub(crate) fn known_theme_names() -> String {
@@ -1151,26 +1260,26 @@ fn render_paint_param(p: &Param) -> String {
 fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) -> String {
     // Containers and conditionals format across multiple lines.
     match node {
-        ViewNode::Column { children, spacing, padding } => {
-            return render_container("column", children, ctx, indent, as_element, *spacing, *padding)
+        ViewNode::Column { children, spacing, padding, hatch } => {
+            return render_container("column", children, ctx, indent, as_element, *spacing, *padding, hatch)
         }
-        ViewNode::Row { children, spacing, padding } => {
-            return render_container("row", children, ctx, indent, as_element, *spacing, *padding)
+        ViewNode::Row { children, spacing, padding, hatch } => {
+            return render_container("row", children, ctx, indent, as_element, *spacing, *padding, hatch)
         }
-        ViewNode::Scrollable { children, spacing, padding } => {
-            return render_scrollable(children, ctx, indent, as_element, *spacing, *padding)
+        ViewNode::Scrollable { children, spacing, padding, hatch } => {
+            return render_scrollable(children, ctx, indent, as_element, *spacing, *padding, hatch)
         }
-        ViewNode::Frame { title, children, spacing, padding } => {
-            return render_frame(title.as_ref(), children, ctx, indent, as_element, *spacing, *padding)
+        ViewNode::Frame { title, children, spacing, padding, paint, hatch } => {
+            return render_frame(title.as_ref(), children, paint, hatch, ctx, indent, as_element, *spacing, *padding)
         }
-        ViewNode::Tabs { field, tabs, on_change } => {
-            return render_tabs(field, tabs, on_change.as_deref(), ctx, indent, as_element)
+        ViewNode::Tabs { field, tabs, on_change, hatch } => {
+            return render_tabs(field, tabs, on_change.as_deref(), hatch, ctx, indent, as_element)
         }
-        ViewNode::List { field, on_select } => {
-            return render_list(field, on_select.as_deref(), ctx, indent, as_element)
+        ViewNode::List { field, on_select, hatch } => {
+            return render_list(field, on_select.as_deref(), hatch, ctx, indent, as_element)
         }
-        ViewNode::Table { field, on_select } => {
-            return render_table(field, on_select.as_deref(), ctx, indent, as_element)
+        ViewNode::Table { field, on_select, hatch } => {
+            return render_table(field, on_select.as_deref(), hatch, ctx, indent, as_element)
         }
         ViewNode::Chooser { value, options, on_select, search, search_placeholder } => {
             return render_chooser(
@@ -1186,8 +1295,8 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::Markdown { source } => {
             return render_markdown(source, ctx, indent, as_element)
         }
-        ViewNode::Stack { children, spacing, padding } => {
-            return render_stack(children, ctx, indent, as_element, *spacing, *padding)
+        ViewNode::Stack { children, spacing, padding, hatch } => {
+            return render_stack(children, ctx, indent, as_element, *spacing, *padding, hatch)
         }
         ViewNode::Tooltip { hint, position, children } => {
             return render_tooltip(hint, *position, children, ctx, indent, as_element)
@@ -1218,29 +1327,37 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::QrCode { source } => {
             return render_qr(source, ctx, as_element)
         }
-        ViewNode::Split { vertical, ratio, spacing, a, b } => {
-            return render_split(*vertical, *ratio, *spacing, a, b, ctx, indent, as_element)
+        ViewNode::Split { vertical, ratio, spacing, a, b, hatch } => {
+            return render_split(*vertical, *ratio, *spacing, a, b, hatch, ctx, indent, as_element)
         }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
         // Layout size constraints are a TUI concept; the GUI ignores them.
         ViewNode::Constrained { child, .. } => return render_view(child, ctx, indent, as_element),
+        ViewNode::Native { kit: NativeKit::Iced, body } => return body.trim().to_string(),
+        ViewNode::Native { kit: NativeKit::Ratatui, .. } => {
+            return "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink)".to_string()
+        }
         _ => {}
     }
     // Leaf widgets — a single line.
     let s = match node {
-        ViewNode::Text(e) => render_text(e, ctx),
-        ViewNode::Button { label, on_click, enabled } => {
+        ViewNode::Text { content, paint, hatch } => {
+            apply_iced(render_text(content, paint, ctx), hatch)
+        }
+        ViewNode::Button { label, on_click, enabled, paint, hatch } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
             let base = format!("button({})", lbl);
-            match (on_click, enabled) {
+            let mut s = match (on_click, enabled) {
                 (Some(ev), Some(en)) => {
                     let cond = render_expr(&rewrite_expr(en.clone(), ctx.fields, ctx.enums), None);
                     format!("{base}.on_press_maybe(({cond}).then_some(Message::{ev}))")
                 }
                 (Some(ev), None) => format!("{base}.on_press(Message::{ev})"),
                 (None, _) => base,
-            }
+            };
+            s.push_str(&button_paint_style(paint, ctx));
+            apply_iced(s, hatch)
         }
         ViewNode::TextInput { placeholder, value, on_input, on_submit, secure } => {
             let ph = render_expr(&rewrite_expr(placeholder.clone(), ctx.fields, ctx.enums), None);
@@ -1412,7 +1529,8 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         | ViewNode::Split { .. }
         | ViewNode::Match { .. }
         | ViewNode::If { .. }
-        | ViewNode::Constrained { .. } => {
+        | ViewNode::Constrained { .. }
+        | ViewNode::Native { .. } => {
             unreachable!()
         }
     };
@@ -1420,6 +1538,19 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         format!("{}.into()", s)
     } else {
         s
+    }
+}
+
+/// Splice an `Iced … End Iced` builder suffix onto a widget expression.
+/// Inserted before a trailing `.into()` so the user's last `.style` wins.
+fn apply_iced(s: String, hatch: &ViewHatch) -> String {
+    let Some(blob) = hatch.iced.as_deref().map(str::trim).filter(|b| !b.is_empty()) else {
+        return s;
+    };
+    if let Some(rest) = s.strip_suffix(".into()") {
+        format!("{rest}{blob}.into()")
+    } else {
+        format!("{s}{blob}")
     }
 }
 
@@ -1433,6 +1564,7 @@ fn render_container(
     as_element: bool,
     spacing: Option<u16>,
     padding: Option<u16>,
+    hatch: &ViewHatch,
 ) -> String {
     let mut props = String::new();
     if let Some(s) = spacing {
@@ -1441,22 +1573,26 @@ fn render_container(
     if let Some(p) = padding {
         props.push_str(&format!(".padding({})", p));
     }
-    let tail = if as_element { ".into()" } else { "" };
-    if children.is_empty() {
-        return format!("{}![]{}{}", kw, props, tail);
+    let mut s = if children.is_empty() {
+        format!("{}![]{}", kw, props)
+    } else {
+        let inner = "    ".repeat(indent + 1);
+        let pad = "    ".repeat(indent);
+        let mut s = format!("{}![\n", kw);
+        for c in children {
+            s.push_str(&inner);
+            s.push_str(&render_sized_child(c, ctx, indent + 1, kw));
+            s.push_str(",\n");
+        }
+        s.push_str(&pad);
+        s.push(']');
+        s.push_str(&props);
+        s
+    };
+    s = apply_iced(s, hatch);
+    if as_element {
+        s.push_str(".into()");
     }
-    let inner = "    ".repeat(indent + 1);
-    let pad = "    ".repeat(indent);
-    let mut s = format!("{}![\n", kw);
-    for c in children {
-        s.push_str(&inner);
-        s.push_str(&render_sized_child(c, ctx, indent + 1, kw));
-        s.push_str(",\n");
-    }
-    s.push_str(&pad);
-    s.push(']');
-    s.push_str(&props);
-    s.push_str(tail);
     s
 }
 
@@ -1467,19 +1603,31 @@ fn render_scrollable(
     as_element: bool,
     spacing: Option<u16>,
     padding: Option<u16>,
+    hatch: &ViewHatch,
 ) -> String {
-    let inner = render_container("column", children, ctx, indent, false, spacing, padding);
-    let s = format!("iced::widget::scrollable({inner})");
+    let inner = render_container(
+        "column",
+        children,
+        ctx,
+        indent,
+        false,
+        spacing,
+        padding,
+        &ViewHatch::default(),
+    );
+    let mut s = format!("iced::widget::scrollable({inner})");
+    s = apply_iced(s, hatch);
     if as_element {
-        format!("{s}.into()")
-    } else {
-        s
+        s.push_str(".into()");
     }
+    s
 }
 
 fn render_frame(
     title: Option<&Expr>,
     children: &[ViewNode],
+    paint: &ViewPaint,
+    hatch: &ViewHatch,
     ctx: &ViewCtx,
     indent: usize,
     as_element: bool,
@@ -1488,24 +1636,38 @@ fn render_frame(
 ) -> String {
     let mut body = children.to_vec();
     if let Some(t) = title {
-        body.insert(0, ViewNode::Text(t.clone()));
+        body.insert(0, ViewNode::Text {
+            content: t.clone(),
+            paint: ViewPaint::default(),
+            hatch: ViewHatch::default(),
+        });
     }
-    let inner = render_container("column", &body, ctx, indent, false, spacing, padding);
-    let s = format!(
-        "iced::widget::container({inner}).padding(10).width(iced::Length::Fill)\
-         .style(iced::widget::container::bordered_box)"
+    let inner = render_container(
+        "column",
+        &body,
+        ctx,
+        indent,
+        false,
+        spacing,
+        padding,
+        &ViewHatch::default(),
     );
+    let mut s = format!(
+        "iced::widget::container({inner}).padding(10).width(iced::Length::Fill){}",
+        frame_paint_style(paint, ctx)
+    );
+    s = apply_iced(s, hatch);
     if as_element {
-        format!("{s}.into()")
-    } else {
-        s
+        s.push_str(".into()");
     }
+    s
 }
 
 fn render_tabs(
     field: &str,
     tabs: &[TabPane],
     on_change: Option<&str>,
+    hatch: &ViewHatch,
     ctx: &ViewCtx,
     indent: usize,
     as_element: bool,
@@ -1522,9 +1684,9 @@ fn render_tabs(
         };
         bar.push_str(&in1);
         bar.push_str(&format!(
-            "{{ let b = button({title}); let el: Element<'_, Message> = if state.{f} == {i} {{ \
+            "{{ let b = button({title}).on_press({msg}); let el: Element<'_, Message> = if state.{f} == {i} {{ \
              b.style(iced::widget::button::primary).into() }} else {{ \
-             b.style(iced::widget::button::secondary).on_press({msg}).into() }}; el }},\n"
+             b.style(iced::widget::button::secondary).into() }}; el }},\n"
         ));
     }
     bar.push_str(&pad);
@@ -1536,7 +1698,16 @@ fn render_tabs(
     panes.push_str(&f);
     panes.push_str(" {\n");
     for (i, pane) in tabs.iter().enumerate() {
-        let body = render_container("column", &pane.children, ctx, indent + 1, true, None, None);
+        let body = render_container(
+            "column",
+            &pane.children,
+            ctx,
+            indent + 1,
+            true,
+            None,
+            None,
+            &pane.hatch,
+        );
         panes.push_str(&format!("{in1}{i} => {body},\n"));
     }
     panes.push_str(&format!("{in1}_ => column![].into(),\n"));
@@ -1544,16 +1715,20 @@ fn render_tabs(
     panes.push('}');
     let panes = format!("{{ let pane: Element<'_, Message> = {panes}; pane }}");
 
-    let s = format!(
-        "{{\n{in1}let el: Element<'_, Message> = column![\n{in1}    {bar},\n{in1}    {panes},\n{in1}].spacing(12).into();\n{pad}    el\n{pad}}}"
+    let col = apply_iced(
+        format!("column![\n{in1}    {bar},\n{in1}    {panes},\n{in1}].spacing(12)"),
+        hatch,
     );
     let _ = as_element;
-    s
+    format!(
+        "{{\n{in1}let el: Element<'_, Message> = {col}.into();\n{pad}    el\n{pad}}}"
+    )
 }
 
 fn render_list(
     field: &str,
     on_select: Option<&str>,
+    hatch: &ViewHatch,
     ctx: &ViewCtx,
     indent: usize,
     as_element: bool,
@@ -1568,21 +1743,22 @@ fn render_list(
         None => "items = items.push(text(item.clone()));".to_string(),
     };
     let _ = ctx;
-    let s = format!(
+    let scroll = apply_iced("iced::widget::scrollable(items)".to_string(), hatch);
+    let _ = as_element;
+    format!(
         "{{\n{in1}let mut items = column![];\n\
          {in1}for item in &state.{f} {{\n\
          {in1}    {push}\n\
          {in1}}}\n\
-         {in1}let el: Element<'_, Message> = iced::widget::scrollable(items).into();\n\
+         {in1}let el: Element<'_, Message> = {scroll}.into();\n\
          {pad}    el\n{pad}}}"
-    );
-    let _ = as_element;
-    s
+    )
 }
 
 fn render_table(
     field: &str,
     on_select: Option<&str>,
+    hatch: &ViewHatch,
     ctx: &ViewCtx,
     indent: usize,
     as_element: bool,
@@ -1620,12 +1796,13 @@ fn render_table(
         None => format!("rows = rows.push({row_inner});"),
     };
     let _ = as_element;
+    let scroll = apply_iced("iced::widget::scrollable(rows)".to_string(), hatch);
     format!(
         "{{\n{in1}let mut rows = column![{header}];\n\
          {in1}for row in &state.{f} {{\n\
          {in1}    {push}\n\
          {in1}}}\n\
-         {in1}let el: Element<'_, Message> = iced::widget::scrollable(rows).into();\n\
+         {in1}let el: Element<'_, Message> = {scroll}.into();\n\
          {pad}    el\n{pad}}}"
     )
 }
@@ -1684,6 +1861,7 @@ fn render_stack(
     as_element: bool,
     _spacing: Option<u16>,
     _padding: Option<u16>,
+    hatch: &ViewHatch,
 ) -> String {
     let inner = "    ".repeat(indent + 1);
     let pad = "    ".repeat(indent);
@@ -1695,6 +1873,7 @@ fn render_stack(
     }
     s.push_str(&pad);
     s.push_str("])");
+    s = apply_iced(s, hatch);
     if as_element {
         s.push_str(".into()");
     }
@@ -1803,6 +1982,7 @@ fn render_split(
     spacing: Option<u16>,
     a: &ViewNode,
     b: &ViewNode,
+    hatch: &ViewHatch,
     ctx: &ViewCtx,
     indent: usize,
     as_element: bool,
@@ -1815,14 +1995,20 @@ fn render_split(
     let left = render_view(a, ctx, indent + 2, true);
     let right = render_view(b, ctx, indent + 2, true);
     let gap = spacing.unwrap_or(4);
-    format!(
-        "{{\n{in1}let el: Element<'_, Message> = iced::widget::PaneGrid::new(&state.__pg{i}, |_, slot, _| {{\n\
+    let grid = apply_iced(
+        format!(
+            "iced::widget::PaneGrid::new(&state.__pg{i}, |_, slot, _| {{\n\
          {in1}    iced::widget::pane_grid::Content::new(match *slot {{\n\
          {in1}        0 => {left},\n\
          {in1}        1 => {right},\n\
          {in1}        _ => {{ let empty: Element<'_, Message> = iced::widget::text(\"\").into(); empty }},\n\
          {in1}    }})\n\
-         {in1}}}).spacing({gap}).on_resize(10, Message::SplitResized{i}).into();\n\
+         {in1}}}).spacing({gap}).on_resize(10, Message::SplitResized{i})"
+        ),
+        hatch,
+    );
+    format!(
+        "{{\n{in1}let el: Element<'_, Message> = {grid}.into();\n\
          {pad}    el\n{pad}}}"
     )
 }
@@ -1922,7 +2108,16 @@ fn render_view_if(
 fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx, indent: usize) -> String {
     match body {
         [one] => render_view(one, ctx, indent, true),
-        many => render_container("column", many, ctx, indent, true, None, None),
+        many => render_container("column", many, ctx, indent, true, None, None, &ViewHatch::default()),
+    }
+}
+
+fn check_window_hatch(hatch: &ViewHatch, diags: &mut Diagnostics) {
+    if hatch.ratatui.is_some() {
+        diags.error_once(
+            "ratatui-in-window",
+            "`Ratatui` belongs in a Screen View — a Window uses `Iced`.",
+        );
     }
 }
 
@@ -1957,14 +2152,20 @@ fn validate_view(
              `TextInput` for text entry, `TextArea` for multi-line edit, and `ProgressBar`/`Canvas` \
              for charts.",
         ),
-        ViewNode::Frame { children, .. } => {
+        ViewNode::Frame { children, paint, hatch, .. } => {
+            check_view_paint(paint, diags);
+            check_window_hatch(hatch, diags);
             children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
-        ViewNode::Scrollable { children, .. } => {
+        ViewNode::Scrollable { children, hatch, .. } => {
+            check_window_hatch(hatch, diags);
             children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
-        ViewNode::Stack { children, .. }
-        | ViewNode::Tooltip { children, .. }
+        ViewNode::Stack { children, hatch, .. } => {
+            check_window_hatch(hatch, diags);
+            children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+        }
+        ViewNode::Tooltip { children, .. }
         | ViewNode::MouseArea { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
@@ -1972,11 +2173,13 @@ fn validate_view(
             narrow.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
             wide.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
-        ViewNode::Split { a, b, .. } => {
+        ViewNode::Split { a, b, hatch, .. } => {
+            check_window_hatch(hatch, diags);
             validate_view(a, field_ty, structs, diags);
             validate_view(b, field_ty, structs, diags);
         }
-        ViewNode::Tabs { field, tabs, .. } => {
+        ViewNode::Tabs { field, tabs, hatch, .. } => {
+            check_window_hatch(hatch, diags);
             if !matches!(field_ty.get(&rust_name(field)), Some(DeclType::Plain(Type::Integer))) {
                 diags.error_once(
                     &format!("tabs-field-{}", rust_name(field)),
@@ -1985,10 +2188,13 @@ fn validate_view(
                     ),
                 );
             }
-            tabs.iter()
-                .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, structs, diags)));
+            tabs.iter().for_each(|p| {
+                check_window_hatch(&p.hatch, diags);
+                p.children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+            });
         }
-        ViewNode::List { field, .. } => {
+        ViewNode::List { field, hatch, .. } => {
+            check_window_hatch(hatch, diags);
             let ok = matches!(
                 field_ty.get(&rust_name(field)),
                 Some(DeclType::Vec(inner)) if matches!(&**inner, DeclType::Plain(Type::Text))
@@ -2000,7 +2206,8 @@ fn validate_view(
                 );
             }
         }
-        ViewNode::Table { field, .. } => {
+        ViewNode::Table { field, hatch, .. } => {
+            check_window_hatch(hatch, diags);
             let ok = matches!(
                 field_ty.get(&rust_name(field)),
                 Some(DeclType::Vec(inner))
@@ -2034,7 +2241,8 @@ fn validate_view(
                 );
             }
         }
-        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
+        ViewNode::Column { children, hatch, .. } | ViewNode::Row { children, hatch, .. } => {
+            check_window_hatch(hatch, diags);
             children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
         ViewNode::Match { arms, .. } => {
@@ -2115,7 +2323,30 @@ fn validate_view(
                 );
             }
         }
+        ViewNode::Text { paint, hatch, .. } | ViewNode::Button { paint, hatch, .. } => {
+            check_view_paint(paint, diags);
+            check_window_hatch(hatch, diags);
+        }
+        ViewNode::Native { kit: NativeKit::Ratatui, .. } => {
+            check_window_hatch(
+                &ViewHatch {
+                    iced: None,
+                    ratatui: Some(String::new()),
+                },
+                diags,
+            );
+        }
+        ViewNode::Native { kit: NativeKit::Iced, .. } => {}
         _ => {}
+    }
+}
+
+fn check_view_paint(paint: &ViewPaint, diags: &mut Diagnostics) {
+    for e in [&paint.color, &paint.back_color, &paint.border]
+        .into_iter()
+        .flatten()
+    {
+        crate::transpiler::render_color(e, diags);
     }
 }
 
@@ -2196,7 +2427,7 @@ fn collect_auto_tabs(node: &ViewNode) -> Vec<String> {
     let mut out = Vec::new();
     fn walk(node: &ViewNode, out: &mut Vec<String>) {
         match node {
-            ViewNode::Tabs { field, on_change: None, tabs } => {
+            ViewNode::Tabs { field, on_change: None, tabs, .. } => {
                 let f = rust_name(field);
                 if !out.contains(&f) {
                     out.push(f);
@@ -2579,8 +2810,8 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         }
         ViewNode::QrCode { .. } => add(used, "text"),
         // `Space`/`Image`/`Canvas` use fully-qualified paths, so no import needed.
-        ViewNode::Space { .. } | ViewNode::Image { .. } | ViewNode::Canvas { .. } => {}
-        ViewNode::Text(_) => add(used, "text"),
+        ViewNode::Space { .. } | ViewNode::Image { .. } | ViewNode::Canvas { .. } | ViewNode::Native { .. } => {}
+        ViewNode::Text { .. } => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
         ViewNode::TextInput { .. } => add(used, "text_input"),
         ViewNode::Checkbox { .. } => add(used, "checkbox"),
@@ -2606,14 +2837,98 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
 }
 
 /// `Text` content: a string literal as-is, a concatenation as its `format!`, and
-/// anything else stringified with `format!("{}", …)`.
-fn render_text(e: &Expr, ctx: &ViewCtx) -> String {
+/// anything else stringified with `format!("{}", …)`. Optional `Color` /
+/// `BackColor` / `Border` wrap it.
+fn render_text(e: &Expr, paint: &ViewPaint, ctx: &ViewCtx) -> String {
     let rendered = render_expr(&rewrite_expr(e.clone(), ctx.fields, ctx.enums), None);
-    match &e.kind {
+    let mut t = match &e.kind {
         ExprKind::Str(_) => format!("text({})", rendered),
         ExprKind::Binary { op: BinOp::Concat, .. } => format!("text({})", rendered),
         _ => format!("text(format!(\"{{}}\", {}))", rendered),
+    };
+    if let Some(c) = &paint.color {
+        t.push_str(&format!(".color({})", view_color(c, ctx)));
     }
+    if paint.back_color.is_none() && paint.border.is_none() {
+        return t;
+    }
+    format!(
+        "iced::widget::container({t}).padding(4){}",
+        container_paint_style(paint, ctx, false)
+    )
+}
+
+fn view_color(e: &Expr, ctx: &ViewCtx) -> String {
+    let e = rewrite_expr(e.clone(), ctx.fields, ctx.enums);
+    let mut unused = Diagnostics::new();
+    crate::transpiler::render_color(&e, &mut unused)
+}
+
+fn button_paint_style(paint: &ViewPaint, ctx: &ViewCtx) -> String {
+    if paint.is_empty() {
+        return String::new();
+    }
+    let mut body = String::from(
+        ".style(|theme, status| { \
+         let mut s = iced::widget::button::primary(theme, status); ",
+    );
+    if let Some(c) = &paint.color {
+        body.push_str(&format!("s.text_color = {}; ", view_color(c, ctx)));
+    }
+    if let Some(c) = &paint.back_color {
+        body.push_str(&format!(
+            "s.background = Some(iced::Background::Color({})); ",
+            view_color(c, ctx)
+        ));
+    }
+    if let Some(c) = &paint.border {
+        body.push_str(&format!(
+            "s.border.color = {}; s.border.width = 1.0; ",
+            view_color(c, ctx)
+        ));
+    }
+    body.push_str("s })");
+    body
+}
+
+fn frame_paint_style(paint: &ViewPaint, ctx: &ViewCtx) -> String {
+    container_paint_style(paint, ctx, true)
+}
+
+/// `form_bg`: start from the bordered form-coloured Frame default; otherwise a
+/// blank container (Text with a fill/outline).
+fn container_paint_style(paint: &ViewPaint, ctx: &ViewCtx, form_bg: bool) -> String {
+    if form_bg && paint.is_empty() {
+        return String::from(
+            ".style(|theme: &iced::Theme| iced::widget::container::bordered_box(theme)\
+             .background(theme.extended_palette().background.base.color))",
+        );
+    }
+    let mut body = if form_bg {
+        String::from(
+            ".style(|theme: &iced::Theme| { let mut s = iced::widget::container::bordered_box(theme)\
+             .background(theme.extended_palette().background.base.color); ",
+        )
+    } else {
+        String::from(".style(|_theme: &iced::Theme| { let mut s = iced::widget::container::Style::default(); ")
+    };
+    if let Some(c) = &paint.color {
+        body.push_str(&format!("s.text_color = Some({}); ", view_color(c, ctx)));
+    }
+    if let Some(c) = &paint.back_color {
+        body.push_str(&format!(
+            "s.background = Some(iced::Background::Color({})); ",
+            view_color(c, ctx)
+        ));
+    }
+    if let Some(c) = &paint.border {
+        body.push_str(&format!(
+            "s.border.color = {}; s.border.width = 1.0; ",
+            view_color(c, ctx)
+        ));
+    }
+    body.push_str("s })");
+    body
 }
 
 // ── Canvas support ──────────────────────────────────────────────────────────

@@ -57,6 +57,8 @@ pub fn completions_at(source: &str, offset: usize) -> Vec<Completion> {
                     | Tok::Backtick(_)
                     | Tok::InlineRust(_)
                     | Tok::InlineCss(_)
+                    | Tok::InlineIced(_)
+                    | Tok::InlineRatatui(_)
                     | Tok::InlinePython { .. }
                     | Tok::TextBlock { .. }
             )
@@ -371,6 +373,9 @@ fn namespace_members(ns: &str) -> &'static [(&'static str, &'static str)] {
             ("Read", "FileSystem.Read(path) As String"),
             ("Read_Lines", "FileSystem.Read_Lines(path) As Vec<String>"),
             ("List", "FileSystem.List(path) As Vec<String>"),
+            ("Join", "FileSystem.Join(a, b) As String"),
+            ("Parent", "FileSystem.Parent(path) As String"),
+            ("Name", "FileSystem.Name(path) As String"),
             ("Write", "FileSystem.Write(path, contents)"),
             ("Append", "FileSystem.Append(path, text)"),
             ("Exists", "FileSystem.Exists(path) As Boolean"),
@@ -426,9 +431,11 @@ const KEYWORDS: &[&str] = &[
 ];
 
 const BUILTINS: &[(&str, &str)] = &[
+    ("Rnd", "Rnd() As Double — random number in [0, 1)"),
     ("InputBox", "InputBox(prompt) As String — read a line from the keyboard"),
-    ("GetOpenFilename", "GetOpenFilename([initial]) As String — Screen path prompt; \"\" if cancelled"),
-    ("GetSaveAsFilename", "GetSaveAsFilename([initial]) As String — Screen save-as prompt; \"\" if cancelled"),
+    ("GetOpenFilename", "GetOpenFilename([initial]) As String — pick a file; \"\" if cancelled"),
+    ("GetSaveAsFilename", "GetSaveAsFilename([initial]) As String — pick a save path; \"\" if cancelled"),
+    ("GetFolderName", "GetFolderName([initial]) As String — pick a folder; \"\" if cancelled"),
 ];
 
 const STRING_METHODS: &[(&str, &str)] = &[

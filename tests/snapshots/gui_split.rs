@@ -62,18 +62,18 @@ fn view(state: &Panes) -> Element<'_, Message> {
                     0 => iced::widget::container(column![
                     text("Left"),
                     text("sidebar"),
-                ]).padding(10).width(iced::Length::Fill).style(iced::widget::container::bordered_box).into(),
+                ]).padding(10).width(iced::Length::Fill).style(|theme: &iced::Theme| iced::widget::container::bordered_box(theme).background(theme.extended_palette().background.base.color)).into(),
                     1 => {
                     let el: Element<'_, Message> = iced::widget::PaneGrid::new(&state.__pg1, |_, slot, _| {
                         iced::widget::pane_grid::Content::new(match *slot {
                             0 => iced::widget::container(column![
                             text("Top"),
                             text("edit"),
-                        ]).padding(10).width(iced::Length::Fill).style(iced::widget::container::bordered_box).into(),
+                        ]).padding(10).width(iced::Length::Fill).style(|theme: &iced::Theme| iced::widget::container::bordered_box(theme).background(theme.extended_palette().background.base.color)).into(),
                             1 => iced::widget::container(column![
                             text("Bottom"),
                             text(format!("{}", state.status)),
-                        ]).padding(10).width(iced::Length::Fill).style(iced::widget::container::bordered_box).into(),
+                        ]).padding(10).width(iced::Length::Fill).style(|theme: &iced::Theme| iced::widget::container::bordered_box(theme).background(theme.extended_palette().background.base.color)).into(),
                             _ => { let empty: Element<'_, Message> = iced::widget::text("").into(); empty },
                         })
                     }).spacing(4).on_resize(10, Message::SplitResized1).into();
@@ -90,6 +90,6 @@ fn view(state: &Panes) -> Element<'_, Message> {
 
 fn main() -> iced::Result {
     iced::application("Panes", update, view)
-        .theme(|_| iced::Theme::custom_with_fn(String::from("JellyFish"), iced::theme::Palette { background: iced::Color::from_rgb8(11, 19, 43), text: iced::Color::from_rgb8(234, 246, 255), primary: iced::Color::from_rgb8(255, 110, 180), success: iced::Color::from_rgb8(94, 234, 212), danger: iced::Color::from_rgb8(255, 93, 143) }, |p| { let mut e = iced::theme::palette::Extended::generate(p); let ink = iced::Color::from_rgb8(16, 14, 22); e.primary.base.text = ink; e.primary.strong.text = ink; e.primary.weak.text = ink; e }))
+        .theme(|_| iced::Theme::custom_with_fn(String::from("JellyFish"), iced::theme::Palette { background: iced::Color::from_rgb8(11, 19, 43), text: iced::Color::from_rgb8(234, 246, 255), primary: iced::Color::from_rgb8(255, 110, 180), success: iced::Color::from_rgb8(94, 234, 212), danger: iced::Color::from_rgb8(255, 93, 143) }, |p| { let mut e = iced::theme::palette::Extended::generate(p); let ink = iced::Color::BLACK; e.primary.base.text = ink; e.primary.strong.text = ink; e.primary.weak.text = ink; let navy = p.background; let paper = p.text; e.secondary.base.color = navy; e.secondary.base.text = paper; e.secondary.weak.color = navy; e.secondary.weak.text = paper; e.secondary.strong.color = iced::Color::from_rgb8(22, 36, 72); e.secondary.strong.text = paper; e }))
         .run()
 }

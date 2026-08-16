@@ -1079,10 +1079,279 @@ Function Main()
 End Function
 "#;
     let rust = rust_of(src);
-    assert!(rust.contains("bordered_box"), "Frame should be a bordered container: {rust}");
+    assert!(
+        rust.contains("bordered_box") && rust.contains("background.base.color"),
+        "Frame should be a bordered container on the form colour: {rust}"
+    );
     assert!(rust.contains("TabPicked") || rust.contains("tabPicked"), "auto tab message: {rust}");
     assert!(rust.contains("for item in &state.fruits"), "List should walk the Vec: {rust}");
     assert!(rust.contains("for row in &state.people"), "Table should walk the Vec: {rust}");
+}
+
+#[test]
+fn gui_view_paint_lowers_to_iced_style() {
+    let src = r#"
+Window W
+    Title "W"
+    View
+        Column
+            Frame "Box"
+                BackColor Color.Navy
+                Border Color.Red
+                Text "hi"
+                    Color Color.White
+                End Text
+            End Frame
+            Button "Go"
+                On Click Go
+                Color Color.Black
+                BackColor Color(255, 110, 180)
+            End Button
+        End Column
+    End View
+    Event Go
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("from_rgb8(0, 0, 128)") && rust.contains("from_rgb8(255, 0, 0)"),
+        "Frame BackColor/Border should lower: {rust}"
+    );
+    assert!(
+        rust.contains(".color(iced::Color::from_rgb8(255, 255, 255))"),
+        "Text Color should lower: {rust}"
+    );
+    assert!(
+        rust.contains("s.text_color") && rust.contains("255") && rust.contains("110") && rust.contains("180"),
+        "Button Color/BackColor should lower: {rust}"
+    );
+}
+
+#[test]
+fn gui_view_paint_rejected_on_column() {
+    let src = r#"
+Window W
+    Title "W"
+    View
+        Column
+            Color Color.Red
+            Text "x"
+        End Column
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let c = vbr::compile(src);
+    assert!(c.has_errors, "Color on a Column should error");
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Button, Frame, or Text"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn gui_view_iced_suffix_splices_before_into() {
+    let src = r#"
+Window W
+    Title "W"
+    View
+        Column
+            Text "hi"
+            Iced
+                .padding(8)
+            End Iced
+        End Column
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    let packed: String = rust.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        packed.contains(".padding(8).into()"),
+        "Iced suffix should land before .into(): {rust}"
+    );
+}
+
+#[test]
+fn gui_view_iced_native_emits_body() {
+    let src = r#"
+Window W
+    Title "W"
+    View
+        Column
+            Iced
+                iced::widget::text("raw").into()
+            End Iced
+        End Column
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("iced::widget::text(\"raw\").into()"),
+        "standalone Iced should emit the blob: {rust}"
+    );
+}
+
+#[test]
+fn gui_view_iced_on_tabs_hits_column_not_each_button() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim tab As Integer = 0
+    End State
+    View
+        Tabs tab
+            Tab "A"
+                Text "a"
+            End Tab
+            Tab "B"
+                Text "b"
+            End Tab
+            Iced
+                .padding(9)
+            End Iced
+        End Tabs
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("].spacing(12).padding(9).into()"),
+        "Iced on Tabs suffixes column![bar, pane], not each tab button: {rust}"
+    );
+}
+
+#[test]
+fn gui_view_ratatui_rejected_in_window() {
+    let src = r#"
+Window W
+    Title "W"
+    View
+        Column
+            Text "x"
+            Ratatui
+                .spacing(1)
+            End Ratatui
+        End Column
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let c = vbr::compile(src);
+    assert!(c.has_errors, "Ratatui in a Window should error");
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Screen") && joined.contains("Iced"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn tui_view_iced_rejected_in_screen() {
+    let src = r#"
+Screen S
+    Title "S"
+    View
+        Column
+            Text "x"
+            Iced
+                .padding(8)
+            End Iced
+        End Column
+    End View
+    On Key "q" Quit
+End Screen
+Function Main()
+    S.Run
+End Function
+"#;
+    let c = vbr::compile(src);
+    assert!(c.has_errors, "Iced in a Screen should error");
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Window") && joined.contains("Ratatui"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn tui_view_ratatui_suffix_splices() {
+    let src = r#"
+Screen S
+    Title "S"
+    View
+        Column
+            Text "hello"
+            Ratatui
+                .spacing(1)
+            End Ratatui
+        End Column
+    End View
+    On Key "q" Quit
+End Screen
+Function Main()
+    S.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains(".spacing(1)"),
+        "Ratatui suffix should splice onto the Layout builder: {rust}"
+    );
+}
+
+#[test]
+fn iced_at_top_level_rejected() {
+    let src = r#"
+Iced
+    .padding(8)
+End Iced
+Function Main()
+End Function
+"#;
+    let c = vbr::compile(src);
+    assert!(c.has_errors, "top-level Iced should error");
+    let joined = c.diagnostics.join("\n");
+    assert!(joined.contains("View"), "teaching error: {joined}");
+}
+
+#[test]
+fn help_iced_and_ratatui_examples_compile() {
+    for path in ["help/entries/iced.toml", "help/entries/ratatui.toml"] {
+        let src = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let start = src
+            .find("example = \"\"\"")
+            .unwrap_or_else(|| panic!("{path}: missing example"));
+        let rest = &src[start + "example = \"\"\"".len()..];
+        let end = rest.find("\"\"\"").unwrap_or_else(|| panic!("{path}: unclosed example"));
+        let example = rest[..end].trim();
+        let c = vbr::compile(example);
+        assert!(
+            !c.has_errors,
+            "{path} example failed:\n{}",
+            c.diagnostics.join("\n")
+        );
+    }
 }
 
 #[test]
@@ -1349,6 +1618,57 @@ End Function
 }
 
 #[test]
+fn filesystem_join_parent_name_are_strings() {
+    let src = r#"
+Function Main()
+    Debug.Print FileSystem.Join("vault", "welcome.md")
+    Debug.Print FileSystem.Parent("vault/welcome.md")
+    Debug.Print FileSystem.Name("vault/welcome.md")
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains("FileSystem::join"), "join: {rust}");
+    assert!(rust.contains("FileSystem::parent"), "parent: {rust}");
+    assert!(rust.contains("FileSystem::name"), "name: {rust}");
+    assert!(
+        !rust.contains("FileSystem::join(") || !packed(&rust).contains("join(?)"),
+        "Join is not fallible: {rust}"
+    );
+}
+
+#[test]
+fn window_getfoldername_lowers_to_rfd() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim folder As String = ""
+    End State
+    View
+        Button "Open"
+            On Click Pick
+        End Button
+    End View
+    Event Pick
+        folder = GetFolderName(folder)
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains(r#"rfd_pick("folder""#),
+        "Window GetFolderName should open the OS dialog: {rust}"
+    );
+    assert!(
+        rust.contains("rfd::FileDialog"),
+        "helper should call rfd: {rust}"
+    );
+}
+
+#[test]
 fn textarea_assign_wraps_content_with_text() {
     let src = r#"
 Window W
@@ -1437,6 +1757,65 @@ End Function
     assert!(
         init.contains("draft.text()") && !init.contains("state.draft.text()"),
         "Markdown init must read the local Content, not state: {init}"
+    );
+}
+
+#[test]
+fn rnd_zero_args_emits_helper() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim r As Double = Rnd()\n\
+        \x20   If r >= 0.0 And r < 1.0 Then\n\
+        \x20       Debug.Print \"ok\"\n\
+        \x20   End If\n\
+        End Function\n",
+    );
+    assert!(rust.contains("fn rnd() -> f64"), "helper missing: {rust}");
+    assert!(
+        packed(&rust).contains("letr:f64=rnd();"),
+        "call site should be rnd(): {rust}"
+    );
+}
+
+#[test]
+fn rnd_in_window_event_emits_helper() {
+    let rust = rust_of(
+        r#"
+Window W
+    Title "W"
+    State
+        Dim n As Double = 0.0
+    End State
+    View
+        Text "x"
+    End View
+    Event Tick
+        n = Rnd()
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#,
+    );
+    assert!(
+        rust.contains("fn rnd() -> f64"),
+        "Window events share the rnd helper: {rust}"
+    );
+}
+
+#[test]
+fn rnd_with_argument_is_not_the_builtin() {
+    let c = vbr::compile("Function Main()\n    Debug.Print Rnd(6)\nEnd Function\n");
+    assert!(
+        !c.has_errors,
+        "Rnd(6) should fall through as an ordinary call: {:?}",
+        c.diagnostics
+    );
+    assert!(
+        packed(&c.rust).contains("rnd(6)"),
+        "Rnd(6) should pass through, not lower as Rnd(): {}",
+        c.rust
     );
 }
 

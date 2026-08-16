@@ -1,0 +1,28 @@
+id = "filesystem.join"
+title = "Join"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Join"
+
+syntax = """
+FileSystem.Join(a, b) As String
+"""
+
+summary = "Join two path pieces with /."
+
+arguments = """
+a | String | The folder (or left-hand path).
+b | String | The name to add. An absolute path replaces `a`.
+"""
+
+returns = "String — the joined path, using `/`. Does not fail."
+
+example = """
+Function Main()
+    Debug.Print FileSystem.Join("vault", "welcome.md")
+    Debug.Print FileSystem.Join("vault/", "journal/")
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.parent", "filesystem.name"]

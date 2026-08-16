@@ -21,7 +21,7 @@ use std::process::Command;
 ///   slice 3 — `Match` + `Enum`.
 const PY: &[&str] = &[
     // slice 1
-    "hello", "functions", "logic", "maths", "doloop",
+    "hello", "functions", "logic", "maths", "rnd", "doloop",
     // slice 2
     "types", "structs", "methods", "constants",
     // slice 3

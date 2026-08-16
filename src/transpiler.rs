@@ -79,6 +79,34 @@ pub(crate) const LOG_HELPER: &str = "fn vbr_log(level: &str, msg: &str) {
 }
 ";
 
+/// `Rnd()` — a `Double` in `[0, 1)`, no crate. Splitmix64 seeded from the clock
+/// (a fixed constant on wasm, where `SystemTime::now` isn't available).
+pub(crate) const RND_HELPER: &str = "fn rnd() -> f64 {
+    use std::cell::Cell;
+    thread_local! {
+        static STATE: Cell<u64> = Cell::new({
+            #[cfg(target_arch = \"wasm32\")]
+            { 0xA0761D6478BD642Fu64 }
+            #[cfg(not(target_arch = \"wasm32\"))]
+            {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0xA0761D6478BD642F)
+            }
+        });
+    }
+    STATE.with(|s| {
+        let mut z = s.get().wrapping_add(0x9E3779B97F4A7C15);
+        s.set(z);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^= z >> 31;
+        (z >> 11) as f64 * (1.0 / ((1u64 << 53) as f64))
+    })
+}
+";
+
 /// True when `<expr>` anywhere in the program is passed to `Log` — so the sink
 /// helper is emitted (and only then). Scans plain code, tests, and every
 /// surface's event bodies.
@@ -90,6 +118,152 @@ pub(crate) fn program_uses_log(program: &Program) -> bool {
         || program.sketches.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
         || program.screens.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
         || program.pages.iter().any(|p| p.events.iter().any(|e| any(&e.body)))
+}
+
+/// True when the program calls `Rnd()` — so the `rnd` helper is emitted.
+pub(crate) fn program_uses_rnd(program: &Program) -> bool {
+    let any = |stmts: &[Stmt]| stmts.iter().any(stmt_uses_rnd);
+    let fields = |fs: &[StateField]| fs.iter().any(|f| f.init.as_ref().is_some_and(expr_uses_rnd));
+    program.functions.iter().any(|f| any(&f.body))
+        || program.tests.iter().any(|t| any(&t.body))
+        || program.windows.iter().any(|w| {
+            fields(&w.state)
+                || w.events.iter().any(|e| any(&e.body))
+                || w.subs.iter().any(|s| any(&s.body))
+        })
+        || program.sketches.iter().any(|s| {
+            fields(&s.state)
+                || any(&s.draw)
+                || s.events.iter().any(|e| any(&e.body))
+                || s.subs.iter().any(|sub| any(&sub.body))
+        })
+        || program.screens.iter().any(|s| {
+            fields(&s.state)
+                || s.status.as_ref().is_some_and(expr_uses_rnd)
+                || s.events.iter().any(|e| any(&e.body))
+                || s.subs.iter().any(|sub| any(&sub.body))
+        })
+        || program.pages.iter().any(|p| {
+            fields(&p.state)
+                || p.events.iter().any(|e| any(&e.body))
+                || p.subs.iter().any(|s| any(&s.body))
+        })
+        || program.canvases.iter().any(|c| any(&c.body))
+        || program.godot_nodes.iter().any(|n| {
+            n.fields
+                .iter()
+                .any(|f| f.default.as_ref().is_some_and(expr_uses_rnd))
+                || n.events.iter().any(|e| any(&e.body))
+                || n.handlers.iter().any(|h| any(&h.body))
+        })
+}
+
+fn stmt_uses_rnd(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Set { value: e, .. }
+        | Stmt::Assign { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. }
+        | Stmt::Return(Some(e))
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Expr(e)
+        | Stmt::RaiseError(e)
+        | Stmt::Assert(e) => expr_uses_rnd(e),
+        Stmt::If {
+            branches,
+            else_body,
+        } => {
+            branches
+                .iter()
+                .any(|(c, b)| expr_uses_rnd(c) || b.iter().any(stmt_uses_rnd))
+                || else_body.as_ref().is_some_and(|b| b.iter().any(stmt_uses_rnd))
+        }
+        Stmt::For {
+            from, to, step, body, ..
+        } => {
+            expr_uses_rnd(from)
+                || expr_uses_rnd(to)
+                || step.as_ref().is_some_and(expr_uses_rnd)
+                || body.iter().any(stmt_uses_rnd)
+        }
+        Stmt::ForEach { iter, body, .. } => expr_uses_rnd(iter) || body.iter().any(stmt_uses_rnd),
+        Stmt::DoLoop { cond, body } => {
+            let in_cond = match cond {
+                Some(
+                    DoCond::PreWhile(c)
+                    | DoCond::PreUntil(c)
+                    | DoCond::PostWhile(c)
+                    | DoCond::PostUntil(c),
+                ) => expr_uses_rnd(c),
+                None => false,
+            };
+            in_cond || body.iter().any(stmt_uses_rnd)
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            expr_uses_rnd(scrutinee)
+                || arms.iter().any(|a| {
+                    a.guard.as_ref().is_some_and(expr_uses_rnd) || a.body.iter().any(stmt_uses_rnd)
+                })
+        }
+        Stmt::HandleErr { call, body, .. } => expr_uses_rnd(call) || body.iter().any(stmt_uses_rnd),
+        Stmt::GpuInto { body, .. } => body.iter().any(stmt_uses_rnd),
+        Stmt::Draw(cmd) => draw_cmd_uses_rnd(cmd),
+        _ => false,
+    }
+}
+
+fn expr_uses_rnd(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Call { name, args } => {
+            name.eq_ignore_ascii_case("rnd") || args.iter().any(expr_uses_rnd)
+        }
+        ExprKind::Binary { lhs, rhs, .. } => expr_uses_rnd(lhs) || expr_uses_rnd(rhs),
+        ExprKind::MethodCall { recv, args, .. } => {
+            expr_uses_rnd(recv) || args.iter().any(expr_uses_rnd)
+        }
+        ExprKind::Try(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::Field(inner, _)
+        | ExprKind::TupleIndex(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Not(inner)
+        | ExprKind::Closure { body: inner, .. } => expr_uses_rnd(inner),
+        ExprKind::Index(inner, idx) => expr_uses_rnd(inner) || expr_uses_rnd(idx),
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_uses_rnd(v)),
+        ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_uses_rnd),
+        _ => false,
+    }
+}
+
+fn draw_cmd_uses_rnd(cmd: &DrawCmd) -> bool {
+    let shape = |sh: &Shape| match sh {
+        Shape::Circle(a, b, c) => expr_uses_rnd(a) || expr_uses_rnd(b) || expr_uses_rnd(c),
+        Shape::Rect(a, b, c, d) | Shape::Line(a, b, c, d) => {
+            expr_uses_rnd(a) || expr_uses_rnd(b) || expr_uses_rnd(c) || expr_uses_rnd(d)
+        }
+    };
+    match cmd {
+        DrawCmd::Fill { shape: sh, color } => shape(sh) || expr_uses_rnd(color),
+        DrawCmd::Stroke { shape: sh, color, width } => {
+            shape(sh) || expr_uses_rnd(color) || width.as_ref().is_some_and(expr_uses_rnd)
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            expr_uses_rnd(text)
+                || expr_uses_rnd(x)
+                || expr_uses_rnd(y)
+                || color.as_ref().is_some_and(expr_uses_rnd)
+        }
+        DrawCmd::Pixel { x, y, color } => expr_uses_rnd(x) || expr_uses_rnd(y) || expr_uses_rnd(color),
+        DrawCmd::Clear { color } => expr_uses_rnd(color),
+        DrawCmd::Copy { args, color_key, .. } => {
+            args.iter().any(expr_uses_rnd) || color_key.as_ref().is_some_and(expr_uses_rnd)
+        }
+        DrawCmd::Paint { args, .. } => args.iter().any(expr_uses_rnd),
+    }
 }
 
 /// Does a statement (or a nested block) contain a `Log`?
@@ -308,6 +482,10 @@ pub fn transpile_module(
         sep(&mut out);
         out.push_str(INPUT_BOX_HELPER);
     }
+    if program_uses_rnd(program) {
+        sep(&mut out);
+        out.push_str(RND_HELPER);
+    }
     // The `Log` sink helper, emitted only when the program logs.
     if program_uses_log(program) {
         sep(&mut out);
@@ -367,9 +545,9 @@ pub fn transpile_module(
     if diags.has_mark("tui-file-dialog") {
         diags.error_once(
             "tui-file-dialog-plain",
-            "GetOpenFilename / GetSaveAsFilename are Screen-only — they pop a path prompt \
-             over the live terminal. Put them in a Screen event, then FileSystem.Read / Write \
-             the path they return (empty string means cancelled).",
+            "GetOpenFilename / GetSaveAsFilename / GetFolderName need a Window or a Screen — \
+             they open a file dialog. Put them in a Window or Screen event, then FileSystem.Read / \
+             Write the path they return (empty string means cancelled).",
         );
     }
 
@@ -2340,22 +2518,15 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                          reads a line from the keyboard, returning it as a String.",
                     );
                 }
-                "getopenfilename" | "getsaveasfilename" => {
+                "getopenfilename" | "getsaveasfilename" | "getfoldername" => {
                     diags.mark("tui-file-dialog");
                     diags.note(
                         "builtin-file-dialog",
-                        "GetOpenFilename / GetSaveAsFilename pop a path prompt on a Screen \
-                         (Tab completes, Enter opens or saves, Esc cancels and returns \"\"). \
-                         Call them from a Screen event, then FileSystem.Read / Write the path.",
+                        "GetOpenFilename / GetSaveAsFilename / GetFolderName pick a path \
+                         (empty string if cancelled). On a Screen they overlay the terminal; \
+                         on a Window they open the OS dialog.",
                     );
                 }
-                "rnd" => diags.error_once(
-                    "builtin-rnd",
-                    "Rnd() is not built in — Rust keeps randomness in the `rand` crate so it \
-                     stays explicit. Add it with `Use rand 0.8`, then:\n\n    \
-                     use rand::Rng;\n    \
-                     let x: f64 = rand::thread_rng().gen_range(0.0..1.0);",
-                ),
                 "format" => diags.error_once(
                     "builtin-format",
                     "Format(value, \"pattern\") is not supported. For a fixed number of \
@@ -2432,7 +2603,7 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
         ExprKind::Call { name, args } => {
             matches!(
                 name.to_ascii_lowercase().as_str(),
-                "getopenfilename" | "getsaveasfilename"
+                "getopenfilename" | "getsaveasfilename" | "getfoldername"
             ) || args.iter().any(expr_uses_file_dialog)
         }
         ExprKind::Binary { lhs, rhs, .. } => {
@@ -3158,10 +3329,12 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("cint", 1) => Some(format!("{}.trim().parse::<i32>().map_err(|e| e.to_string())", r(0))),
         // InputBox → a generated helper that prompts and reads a line.
         ("inputbox", 1) => Some(format!("input_box({})", r(0))),
-        ("getopenfilename", 0) => Some(lower_file_dialog(" Open file ", "\"\"", false)),
-        ("getopenfilename", 1) => Some(lower_file_dialog(" Open file ", &r(0), false)),
-        ("getsaveasfilename", 0) => Some(lower_file_dialog(" Save as ", "\"\"", true)),
-        ("getsaveasfilename", 1) => Some(lower_file_dialog(" Save as ", &r(0), true)),
+        ("getopenfilename", 0) => Some(lower_file_dialog(" Open file ", "\"\"", FileDialogKind::Open)),
+        ("getopenfilename", 1) => Some(lower_file_dialog(" Open file ", &r(0), FileDialogKind::Open)),
+        ("getsaveasfilename", 0) => Some(lower_file_dialog(" Save as ", "\"\"", FileDialogKind::Save)),
+        ("getsaveasfilename", 1) => Some(lower_file_dialog(" Save as ", &r(0), FileDialogKind::Save)),
+        ("getfoldername", 0) => Some(lower_file_dialog(" Open folder ", "\"\"", FileDialogKind::Folder)),
+        ("getfoldername", 1) => Some(lower_file_dialog(" Open folder ", &r(0), FileDialogKind::Folder)),
         // Mid is 1-indexed in VB; Rust slices are 0-indexed, so shift by one.
         ("mid", 3) => Some(render_mid(&args[0], &args[1], Some(&args[2]))),
         ("mid", 2) => Some(render_mid(&args[0], &args[1], None)),
@@ -3181,17 +3354,41 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("tan", 1) => Some(math0(&args[0], "tan")),
         ("log", 1) => Some(math0(&args[0], "ln")),
         ("exp", 1) => Some(math0(&args[0], "exp")),
+        ("rnd", 0) => Some("rnd()".to_string()),
         _ => None,
     }
 }
 
-fn lower_file_dialog(title: &str, initial: &str, save: bool) -> String {
+enum FileDialogKind {
+    Open,
+    Save,
+    Folder,
+}
+
+fn lower_file_dialog(title: &str, initial: &str, kind: FileDialogKind) -> String {
     FILE_DIALOG_CTX.with(|c| match &*c.borrow() {
-        Some(ctx) => format!(
-            "file_dialog::prompt(&mut terminal, {title:?}, &({initial}).to_string(), {save}, |frame| view({}, frame))?",
-            ctx.view_arg
-        ),
-        None => "String::new()".into(),
+        Some(ctx) => match kind {
+            FileDialogKind::Folder => format!(
+                "file_dialog::prompt_folder(&mut terminal, {title:?}, &({initial}).to_string(), |frame| view({}, frame))?",
+                ctx.view_arg
+            ),
+            FileDialogKind::Open | FileDialogKind::Save => {
+                let save = matches!(kind, FileDialogKind::Save);
+                format!(
+                    "file_dialog::prompt(&mut terminal, {title:?}, &({initial}).to_string(), {save}, |frame| view({}, frame))?",
+                    ctx.view_arg
+                )
+            }
+        },
+        // A Window (or Sketch) has no terminal overlay — the OS file dialog.
+        None => {
+            let k = match kind {
+                FileDialogKind::Open => "open",
+                FileDialogKind::Save => "save",
+                FileDialogKind::Folder => "folder",
+            };
+            format!("rfd_pick({k:?}, &({initial}).to_string())")
+        }
     })
 }
 

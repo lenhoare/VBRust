@@ -1,1 +1,1 @@
-ℹ GetOpenFilename / GetSaveAsFilename pop a path prompt on a Screen (Tab completes, Enter opens or saves, Esc cancels and returns ""). Call them from a Screen event, then FileSystem.Read / Write the path.
+ℹ GetOpenFilename / GetSaveAsFilename / GetFolderName pick a path (empty string if cancelled). On a Screen they overlay the terminal; on a Window they open the OS dialog.

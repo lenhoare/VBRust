@@ -1,0 +1,51 @@
+id = "ratatui"
+title = "Ratatui … End Ratatui"
+category = "Escape hatches"
+kind = "keyword"
+
+syntax = """
+<Widget>
+    Ratatui
+        .<ratatui builder>
+    End Ratatui
+End <Widget>
+
+Column
+    Ratatui
+        frame.render_widget(Paragraph::new("raw"), area);
+    End Ratatui
+End Column
+"""
+
+summary = "Splices raw ratatui into a Screen View — a suffix on a widget, or raw draw statements."
+
+remarks = """
+Bust's View covers everyday ratatui widgets. For everything else, this is the door: a `Ratatui … End Ratatui` block is captured verbatim. Look up the ratatui API; Bust does not parse the blob.
+
+Two placements. A blob that **starts with `.`** is a suffix on the widget around it (`Column`, `Row`, `Frame`, `Scrollable`, `Stack`, `Split`, `Tabs`, `Button`, `Text`, `List`, `Table`).
+
+Anything else is a standalone native child — statements at the current indent. `frame`, `area`, and `state` (lowercase fields) are in scope.
+
+A Window uses `Iced`; a Page uses `Css`. `Ratatui` at the top of the file or inside a Function is an error — it belongs in a View.
+"""
+
+example = """
+Screen Hatch
+    Title "Hatch"
+    View
+        Column
+            Text "hello"
+            Ratatui
+                .spacing(1)
+            End Ratatui
+        End Column
+    End View
+    On Key "q" Quit
+End Screen
+
+Function Main()
+    Hatch.Run
+End Function
+"""
+
+see_also = ["iced", "rust", "screen"]

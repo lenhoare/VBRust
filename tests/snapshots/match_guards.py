@@ -30,7 +30,6 @@ def describe(n: int) -> str:
             return Ok('huge')
         case _:
             return Ok('ordinary')
-    return Ok(None)
 
 def main():
     _t0 = describe(-3)

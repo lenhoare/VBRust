@@ -1,0 +1,8 @@
+' Rnd() is a Double in [0, 1). A die is Int(Rnd() * 6) + 1.
+' The printed line is a range check so the snapshot stays deterministic.
+Function Main()
+    Dim r As Double = Rnd()
+    If r >= 0.0 And r < 1.0 Then
+        Debug.Print "ok"
+    End If
+End Function

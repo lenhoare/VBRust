@@ -25,6 +25,53 @@ use crate::surface::{
 use crate::transpiler::{decltype_rust, render_expr, rust_name};
 use std::collections::{HashMap, HashSet};
 
+fn reject_iced_hatch(hatch: &ViewHatch, diags: &mut Diagnostics) {
+    if hatch.iced.is_some() {
+        diags.error_once(
+            "iced-in-screen",
+            "`Iced` belongs in a Window View — a Screen uses `Ratatui`.",
+        );
+    }
+}
+
+fn apply_ratatui(expr: &str, hatch: &ViewHatch) -> String {
+    match hatch.ratatui.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        Some(blob) => format!("{expr}{blob}"),
+        None => expr.to_string(),
+    }
+}
+
+fn emit_native_ratatui(body: &str, pad: &str, out: &mut String) {
+    let lines: Vec<&str> = body.trim_end().lines().collect();
+    let start = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
+    let slice = &lines[start..];
+    let indent = slice
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    for line in slice {
+        if line.trim().is_empty() {
+            out.push('\n');
+            continue;
+        }
+        out.push_str(pad);
+        let skip = indent.min(line.len());
+        out.push_str(&line[skip..]);
+        out.push('\n');
+    }
+}
+
+fn default_column(children: Vec<ViewNode>, spacing: Option<u16>, padding: Option<u16>) -> ViewNode {
+    ViewNode::Column {
+        children,
+        spacing,
+        padding,
+        hatch: ViewHatch::default(),
+    }
+}
+
 fn resolve_theme(name: &Option<String>, diags: &mut Diagnostics) -> Option<&'static crate::theme::Spec> {
     let Some(n) = name else {
         return None;
@@ -157,7 +204,7 @@ pub fn emit_tui_program(
     if file_wrong {
         diags.error_once(
             "tui-file-dialog-place",
-            "GetOpenFilename / GetSaveAsFilename only work in a Screen Event — they need \
+            "GetOpenFilename / GetSaveAsFilename / GetFolderName only work in a Screen Event — they need \
              the live terminal. Don't put them in a Function or a Screen Sub; call them \
              from the event, then pass the path to a helper.",
         );
@@ -173,7 +220,7 @@ pub fn emit_tui_program(
         if web {
             diags.note(
                 "tui-web-file-dialog",
-                "GetOpenFilename / GetSaveAsFilename aren't available in the browser yet \
+                "GetOpenFilename / GetSaveAsFilename / GetFolderName aren't available in the browser yet \
                  (run the Screen in the terminal). They return \"\" here.",
             );
         }
@@ -574,8 +621,8 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
         match node {
             ViewNode::Input { field, on_submit } => push(out, field, on_submit, FocusKind::Input, None, 0),
             ViewNode::Memo { field } => push(out, field, &None, FocusKind::Memo, None, 0),
-            ViewNode::List { field, on_select } => push(out, field, on_select, FocusKind::List, None, 0),
-            ViewNode::Table { field, on_select } => push(out, field, on_select, FocusKind::Table, None, 0),
+            ViewNode::List { field, on_select, .. } => push(out, field, on_select, FocusKind::List, None, 0),
+            ViewNode::Table { field, on_select, .. } => push(out, field, on_select, FocusKind::Table, None, 0),
             ViewNode::Button { on_click, .. } => {
                 // No bound field — a synthetic name keeps the focus ring unique.
                 let id = format!("_button{}", out.len());
@@ -587,7 +634,7 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             ViewNode::Radio { value, option, on_select, .. } => {
                 push(out, value, &Some(on_select.clone()), FocusKind::Radio, Some(option.clone()), 0);
             }
-            ViewNode::Tabs { field, tabs, on_change } => {
+            ViewNode::Tabs { field, tabs, on_change, .. } => {
                 push(out, field, on_change, FocusKind::Tabs, None, tabs.len());
                 // Walk every pane so nested List/Input state is declared, same as Match arms.
                 tabs.iter().for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
@@ -623,7 +670,7 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             | ViewNode::BarChart { .. }
             | ViewNode::Chart { .. }
             | ViewNode::Canvas { .. }
-            | ViewNode::Text(_)
+            | ViewNode::Text { .. }
             | ViewNode::TextInput { .. }
             | ViewNode::TextArea { .. }
             | ViewNode::Slider { .. }
@@ -633,7 +680,8 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             | ViewNode::Chooser { .. }
             | ViewNode::Markdown { .. }
             | ViewNode::Svg { .. }
-            | ViewNode::QrCode { .. } => {}
+            | ViewNode::QrCode { .. }
+            | ViewNode::Native { .. } => {}
             ViewNode::Scrollable { children, .. }
             | ViewNode::Stack { children, .. }
             | ViewNode::Tooltip { children, .. }
@@ -869,18 +917,21 @@ fn render_view_node(
             child, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter, indent, out,
             diags,
         ),
-        ViewNode::Text(e) => {
+        ViewNode::Text { content: e, hatch, .. } => {
+            reject_iced_hatch(hatch, diags);
             let style = if themed { ".style(theme_body)" } else { "" };
+            let widget = apply_ratatui(
+                &format!("Paragraph::new({}){}", text_content(e, fields, enums), style),
+                hatch,
+            );
             out.push_str(&format!(
-                "{}frame.render_widget(Paragraph::new({}){}, {});\n",
-                pad,
-                text_content(e, fields, enums),
-                style,
-                area
+                "{}frame.render_widget({}, {});\n",
+                pad, widget, area
             ));
         }
-        ViewNode::Column { children, spacing, padding }
-        | ViewNode::Row { children, spacing, padding } => {
+        ViewNode::Column { children, spacing, padding, hatch }
+        | ViewNode::Row { children, spacing, padding, hatch } => {
+            reject_iced_hatch(hatch, diags);
             let vertical = matches!(node, ViewNode::Column { .. });
             let id = *counter;
             *counter += 1;
@@ -893,6 +944,7 @@ fn render_view_node(
             if let Some(p) = padding {
                 builder.push_str(&format!(".margin({})", p));
             }
+            builder = apply_ratatui(&builder, hatch);
             out.push_str(&format!("{}let chunks_{} = {}.split({});\n", pad, id, builder, area));
             for (i, child) in children.iter().enumerate() {
                 let sub = format!("chunks_{}[{}]", id, i);
@@ -907,7 +959,10 @@ fn render_view_node(
             children,
             spacing,
             padding,
+            hatch,
+            ..
         } => {
+            reject_iced_hatch(hatch, diags);
             let id = *counter;
             *counter += 1;
             let mut block = String::from("Block::bordered()");
@@ -915,6 +970,7 @@ fn render_view_node(
                 block.push_str(&format!(".title({})", text_content(t, fields, enums)));
             }
             block.push_str(theme_block_suffix(themed));
+            block = apply_ratatui(&block, hatch);
             out.push_str(&format!("{}let block_{} = {};\n", pad, id, block));
             out.push_str(&format!(
                 "{}let inner_{} = block_{}.inner({});\n",
@@ -934,11 +990,7 @@ fn render_view_node(
                     );
                 }
                 _ => {
-                    let col = ViewNode::Column {
-                        children: children.clone(),
-                        spacing: *spacing,
-                        padding: *padding,
-                    };
+                    let col = default_column(children.clone(), *spacing, *padding);
                     render_view_node(
                         &col, &inner, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                         indent, out, diags,
@@ -946,7 +998,8 @@ fn render_view_node(
                 }
             }
         }
-        ViewNode::Tabs { field, tabs, .. } => {
+        ViewNode::Tabs { field, tabs, hatch, .. } => {
+            reject_iced_hatch(hatch, diags);
             let id = *counter;
             *counter += 1;
             let idx = take_focus(focus_seq);
@@ -983,16 +1036,23 @@ fn render_view_node(
                 "{}let chunks_{} = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split({});\n",
                 pad, id, area
             ));
+            let tabs_w = apply_ratatui(
+                &format!(
+                    "ratatui::widgets::Tabs::new(titles_{}).select((state.{}.max(0) as usize).min({}))\
+                     .highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED))\
+                     .style(style_{})",
+                    id, f, n - 1, id
+                ),
+                hatch,
+            );
             out.push_str(&format!(
-                "{}frame.render_widget(ratatui::widgets::Tabs::new(titles_{}).select((state.{}.max(0) as usize).min({}))\
-                 .highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED))\
-                 .style(style_{}), chunks_{}[0]);\n",
-                pad, id, f, n - 1, id, id
+                "{}frame.render_widget({}, chunks_{}[0]);\n",
+                pad, tabs_w, id
             ));
             let body_area = format!("chunks_{}[1]", id);
             if tabs.len() == 1 {
-                render_body_nodes(
-                    &tabs[0].children,
+                render_tui_tab_pane(
+                    &tabs[0],
                     &body_area,
                     fields,
                     field_ty,
@@ -1016,8 +1076,8 @@ fn render_view_node(
                         i.to_string()
                     };
                     out.push_str(&format!("{}    {} => {{\n", pad, pat));
-                    render_body_nodes(
-                        &pane.children,
+                    render_tui_tab_pane(
+                        pane,
                         &body_area,
                         fields,
                         field_ty,
@@ -1113,15 +1173,20 @@ fn render_view_node(
                 ));
             }
         }
-        ViewNode::Button { label, .. } => {
+        ViewNode::Button { label, hatch, .. } => {
+            reject_iced_hatch(hatch, diags);
             let idx = take_focus(focus_seq);
             let id = *counter;
             *counter += 1;
             emit_focus_style(out, &pad, id, idx, multi);
             let lbl = text_content(label, fields, enums);
+            let widget = apply_ratatui(
+                &format!("Paragraph::new(format!(\"[ {{}} ]\", {})).style(style_{})", lbl, id),
+                hatch,
+            );
             out.push_str(&format!(
-                "{}frame.render_widget(Paragraph::new(format!(\"[ {{}} ]\", {})).style(style_{}), {});\n",
-                pad, lbl, id, area
+                "{}frame.render_widget({}, {});\n",
+                pad, widget, area
             ));
         }
         ViewNode::Checkbox { label, value, .. } => {
@@ -1157,7 +1222,8 @@ fn render_view_node(
                 pad, id, lbl, id, area
             ));
         }
-        ViewNode::List { field, .. } => {
+        ViewNode::List { field, hatch, .. } => {
+            reject_iced_hatch(hatch, diags);
             let _idx = take_focus(focus_seq);
             let f = rust_name(field);
             let id = *counter;
@@ -1167,17 +1233,22 @@ fn render_view_node(
                  state.{}.iter().map(|s| ratatui::widgets::ListItem::new(s.clone())).collect();\n",
                 pad, id, f
             ));
-            out.push_str(&format!(
-                "{}let list_{} = ratatui::widgets::List::new(items_{}).highlight_symbol(\"\u{bb} \")\
-                 .highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED));\n",
-                pad, id, id
-            ));
+            let list = apply_ratatui(
+                &format!(
+                    "ratatui::widgets::List::new(items_{}).highlight_symbol(\"\u{bb} \")\
+                     .highlight_style(ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED))",
+                    id
+                ),
+                hatch,
+            );
+            out.push_str(&format!("{}let list_{} = {};\n", pad, id, list));
             out.push_str(&format!(
                 "{}frame.render_stateful_widget(list_{}, {}, &mut state.{}_state);\n",
                 pad, id, area, f
             ));
         }
-        ViewNode::Table { field, .. } => {
+        ViewNode::Table { field, hatch, .. } => {
+            reject_iced_hatch(hatch, diags);
             let _idx = take_focus(focus_seq);
             let f = rust_name(field);
             let id = *counter;
@@ -1220,8 +1291,14 @@ fn render_view_node(
             ));
             out.push_str(&format!(
                 "{}    .row_highlight_style(ratatui::style::Style::new()\
-                 .add_modifier(ratatui::style::Modifier::REVERSED)).highlight_symbol(\"\u{bb} \");\n",
-                pad
+                 .add_modifier(ratatui::style::Modifier::REVERSED)).highlight_symbol(\"\u{bb} \"){};\n",
+                pad,
+                hatch
+                    .ratatui
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|b| !b.is_empty())
+                    .unwrap_or("")
             ));
             out.push_str(&format!(
                 "{}frame.render_stateful_widget(table_{}, {}, &mut state.{}_state);\n",
@@ -1459,22 +1536,26 @@ fn render_view_node(
             }
             out.push_str(&format!("{}}}\n", pad));
         }
-        ViewNode::Scrollable { children, spacing, padding } => {
+        ViewNode::Scrollable { children, spacing, padding, hatch } => {
+            reject_iced_hatch(hatch, diags);
             let col = ViewNode::Column {
                 children: children.clone(),
                 spacing: *spacing,
                 padding: *padding,
+                hatch: hatch.clone(),
             };
             render_view_node(
                 &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                 indent, out, diags,
             );
         }
-        ViewNode::Stack { children, spacing, padding } => {
+        ViewNode::Stack { children, spacing, padding, hatch } => {
+            reject_iced_hatch(hatch, diags);
             let col = ViewNode::Column {
                 children: children.clone(),
                 spacing: *spacing,
                 padding: *padding,
+                hatch: hatch.clone(),
             };
             render_view_node(
                 &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
@@ -1482,28 +1563,21 @@ fn render_view_node(
             );
         }
         ViewNode::Tooltip { children, .. } | ViewNode::MouseArea { children, .. } => {
-            let col = ViewNode::Column {
-                children: children.clone(),
-                spacing: None,
-                padding: None,
-            };
+            let col = default_column(children.clone(), None, None);
             render_view_node(
                 &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                 indent, out, diags,
             );
         }
         ViewNode::Responsive { narrow, .. } => {
-            let col = ViewNode::Column {
-                children: narrow.clone(),
-                spacing: None,
-                padding: None,
-            };
+            let col = default_column(narrow.clone(), None, None);
             render_view_node(
                 &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                 indent, out, diags,
             );
         }
-        ViewNode::Split { vertical, ratio, a, b, .. } => {
+        ViewNode::Split { vertical, ratio, a, b, hatch, .. } => {
+            reject_iced_hatch(hatch, diags);
             let pct = (*ratio * 100.0).round().clamp(1.0, 99.0) as u16;
             let first = ViewNode::Constrained {
                 size: SizeConstraint::Percent(pct),
@@ -1518,17 +1592,28 @@ fn render_view_node(
                     children: vec![first, second],
                     spacing: None,
                     padding: None,
+                    hatch: hatch.clone(),
                 }
             } else {
                 ViewNode::Column {
                     children: vec![first, second],
                     spacing: None,
                     padding: None,
+                    hatch: hatch.clone(),
                 }
             };
             render_view_node(
                 &wrap, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
                 indent, out, diags,
+            );
+        }
+        ViewNode::Native { kit: NativeKit::Ratatui, body } => {
+            emit_native_ratatui(body, &pad, out);
+        }
+        ViewNode::Native { kit: NativeKit::Iced, .. } => {
+            diags.error_once(
+                "iced-in-screen",
+                "`Iced` belongs in a Window View — a Screen uses `Ratatui`.",
             );
         }
         ViewNode::Rule { horizontal } => {
@@ -1561,6 +1646,45 @@ fn render_view_node(
     }
 }
 
+/// A Tab pane: empty hatch uses the usual body layout; a suffix wraps the
+/// children in a Column so the blob can splice onto that Layout.
+#[allow(clippy::too_many_arguments)]
+fn render_tui_tab_pane(
+    pane: &TabPane,
+    area: &str,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    enums: &HashSet<String>,
+    structs: &crate::resolver::StructTable,
+    multi: bool,
+    web: bool,
+    themed: bool,
+    focus_seq: &mut usize,
+    counter: &mut usize,
+    indent: usize,
+    out: &mut String,
+    diags: &mut Diagnostics,
+) {
+    reject_iced_hatch(&pane.hatch, diags);
+    if pane.hatch.is_empty() {
+        render_body_nodes(
+            &pane.children, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq,
+            counter, indent, out, diags,
+        );
+        return;
+    }
+    let col = ViewNode::Column {
+        children: pane.children.clone(),
+        spacing: None,
+        padding: None,
+        hatch: pane.hatch.clone(),
+    };
+    render_view_node(
+        &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
+        indent, out, diags,
+    );
+}
+
 /// Render an arm/branch body (a list of view nodes) into `area`: one node fills
 /// the area; several stack vertically (an implicit Column).
 #[allow(clippy::too_many_arguments)]
@@ -1587,7 +1711,7 @@ fn render_body_nodes(
             diags,
         ),
         many => {
-            let col = ViewNode::Column { children: many.to_vec(), spacing: None, padding: None };
+            let col = default_column(many.to_vec(), None, None);
             render_view_node(
                 &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter, indent,
                 out, diags,
@@ -1612,7 +1736,8 @@ fn child_constraint(node: &ViewNode) -> String {
         | ViewNode::Split { .. }
         | ViewNode::List { .. }
         | ViewNode::Table { .. }
-        | ViewNode::Memo { .. } => "Constraint::Fill(1)".to_string(),
+        | ViewNode::Memo { .. }
+        | ViewNode::Native { .. } => "Constraint::Fill(1)".to_string(),
         ViewNode::Input { .. } | ViewNode::Gauge { .. } => "Constraint::Length(3)".to_string(),
         ViewNode::Button { .. } | ViewNode::Checkbox { .. } | ViewNode::Radio { .. } => {
             "Constraint::Length(1)".to_string()
@@ -1708,6 +1833,8 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Tabs { .. } => "Tabs",
         ViewNode::Memo { .. } => "Memo",
+        ViewNode::Native { kit: NativeKit::Iced, .. } => "Iced",
+        ViewNode::Native { kit: NativeKit::Ratatui, .. } => "Ratatui",
         ViewNode::Match { .. } => "Match",
         ViewNode::If { .. } => "If",
         _ => "widget",
@@ -3074,6 +3201,61 @@ mod file_dialog {
                         }
                         hint = " No such file".into();
                     }
+                }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    let reverse = matches!(key.code, KeyCode::BackTab)
+                        || key.modifiers.contains(KeyModifiers::SHIFT);
+                    let (next, msg) = path_tab_complete(&input, &mut tab, reverse);
+                    input = next;
+                    if !msg.is_empty() {
+                        hint = msg;
+                    }
+                }
+                KeyCode::Backspace => {
+                    tab = None;
+                    input.pop();
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    tab = None;
+                    input.push(c);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn prompt_folder<B, F>(
+        terminal: &mut ratatui::Terminal<B>,
+        title: &str,
+        initial: &str,
+        mut draw: F,
+    ) -> std::io::Result<String>
+    where
+        B: ratatui::backend::Backend,
+        F: FnMut(&mut ratatui::Frame),
+    {
+        let mut input = initial.to_string();
+        let mut hint = String::new();
+        let mut tab: Option<PathTabState> = None;
+        let hints = "Tab=complete  Enter=choose folder  Esc=Cancel";
+        loop {
+            terminal.draw(|frame| {
+                draw(frame);
+                overlay(frame, title, &input, false, hints, &hint);
+            })?;
+            let Event::Key(key) = event::read()? else { continue };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Esc => return Ok(String::new()),
+                KeyCode::Enter => {
+                    tab = None;
+                    if let Some(dir) = path_enter_dir(&input) {
+                        let trimmed = dir.trim_end_matches(|c| c == '/' || c == '\\').to_string();
+                        return Ok(if trimmed.is_empty() { dir } else { trimmed });
+                    }
+                    hint = " Not a folder".into();
                 }
                 KeyCode::Tab | KeyCode::BackTab => {
                     let reverse = matches!(key.code, KeyCode::BackTab)

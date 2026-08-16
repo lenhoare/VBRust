@@ -2043,6 +2043,9 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     if entry_compiled.rust.contains("wasm_bindgen_futures::") {
         cargo.push_str("wasm-bindgen-futures = \"0.4\"\n");
     }
+    if entry_compiled.rust.contains("rfd::") {
+        cargo.push_str("rfd = \"0.15\"\n");
+    }
     if let Err(e) = fs::write(build.join("Cargo.toml"), cargo) {
         eprintln!("✘ Could not write Cargo.toml: {}", e);
         exit(1);

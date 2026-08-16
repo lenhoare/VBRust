@@ -1,0 +1,27 @@
+id = "filesystem.name"
+title = "Name"
+category = "FileSystem"
+kind = "method"
+parent = "filesystem"
+anchor = "ns/FileSystem.Name"
+
+syntax = """
+FileSystem.Name(path) As String
+"""
+
+summary = "The last component of a path."
+
+arguments = """
+path | String | A file or folder path.
+"""
+
+returns = "String — the file or folder name. `\"journal/\"` is `\"journal\"`. Does not fail."
+
+example = """
+Function Main()
+    Debug.Print FileSystem.Name("vault/welcome.md")
+    Debug.Print FileSystem.Name("journal/")
+End Function
+"""
+
+see_also = ["filesystem", "filesystem.join", "filesystem.parent"]

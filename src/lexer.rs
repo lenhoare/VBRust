@@ -117,6 +117,13 @@ pub enum Tok {
     /// (real CSS, injected into the generated `index.html`).
     InlineCss(String),
 
+    /// An `Iced … End Iced` block, captured verbatim — a Window View hatch
+    /// (raw iced builder suffix or a whole `Element`).
+    InlineIced(String),
+
+    /// A `Ratatui … End Ratatui` block, captured verbatim — a Screen View hatch.
+    InlineRatatui(String),
+
     /// A `Python … End Python` block, captured verbatim (the inner Python is not
     /// tokenised — it is run at runtime via pyo3, not spliced like inline Rust).
     /// `args` is the raw text inside optional leading parens (`Python(df, n)` →
@@ -341,6 +348,24 @@ pub fn lex(src: &str) -> Vec<Token> {
                     let (raw, resume, newlines, _) = capture_inline_block(&chars, j, "css");
                     tokens.push(Token {
                         tok: Tok::InlineCss(raw),
+                        line,
+                        span: sp(start, resume),
+                    });
+                    line += newlines;
+                    i = resume;
+                } else if word.eq_ignore_ascii_case("Iced") {
+                    let (raw, resume, newlines, _) = capture_inline_block(&chars, j, "iced");
+                    tokens.push(Token {
+                        tok: Tok::InlineIced(raw),
+                        line,
+                        span: sp(start, resume),
+                    });
+                    line += newlines;
+                    i = resume;
+                } else if word.eq_ignore_ascii_case("Ratatui") {
+                    let (raw, resume, newlines, _) = capture_inline_block(&chars, j, "ratatui");
+                    tokens.push(Token {
+                        tok: Tok::InlineRatatui(raw),
                         line,
                         span: sp(start, resume),
                     });

@@ -18,6 +18,9 @@ members = """
 method | Read(path)         | Read a whole file as a String. Can fail.
 method | Read_Lines(path)    | Read a file as a Vec of its lines. Can fail.
 method | List(path)          | Names in a folder (directories end with /). Can fail.
+method | Join(a, b)          | Join two path pieces with `/`.
+method | Parent(path)        | The folder that contains this path.
+method | Name(path)          | The last component of a path.
 method | Write(path, text)  | Write text to a file, replacing any existing content. Can fail.
 method | Append(path, text) | Add text to the end of a file, creating it if needed. Can fail.
 method | Exists(path)       | Whether a file exists. Returns Boolean.

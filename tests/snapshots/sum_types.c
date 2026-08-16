@@ -53,7 +53,6 @@ Result_double_str area(Shape s) {
     } else {
         return (Result_double_str){ .is_ok = true, .ok = 0.0 };
     }
-    return (Result_double_str){ .is_ok = true, .ok = 0 };
 }
 
 int main(void) {

@@ -1,0 +1,54 @@
+id = "getfoldername"
+title = "GetFolderName"
+category = "Window"
+kind = "builtin"
+parent = "window"
+anchor = "fn/GetFolderName"
+
+syntax = """
+GetFolderName([initial]) As String
+"""
+
+summary = "Pick a folder. Empty string if cancelled."
+
+arguments = """
+initial | String | Optional starting folder.
+"""
+
+returns = "String — the chosen folder, or `\"\"` if the user cancelled."
+
+remarks = """
+On a Window this is the OS folder dialog. On Linux it prefers `zenity` if that's installed — that's the WSL path, where the desktop portal often isn't running (`sudo apt install zenity`). On a Screen it overlays the terminal (Tab completes, Enter chooses the folder, Esc cancels). `GetOpenFilename` / `GetSaveAsFilename` pick a file the same way.
+"""
+
+example = """
+Window Picker
+    Title "Picker"
+
+    State
+        Dim folder As String = ""
+    End State
+
+    View
+        Column
+            Button "Open folder"
+                On Click Pick
+            End Button
+            Text folder
+        End Column
+    End View
+
+    Event Pick
+        Dim picked As String = GetFolderName(folder)
+        If picked <> "" Then
+            folder = picked
+        End If
+    End Event
+End Window
+
+Function Main()
+    Picker.Run
+End Function
+"""
+
+see_also = ["window", "filesystem.list", "screen"]

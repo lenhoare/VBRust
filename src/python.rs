@@ -115,6 +115,7 @@ struct Emitter {
     needs_unwrap: bool,
     needs_time: bool,
     needs_sys: bool,
+    needs_random: bool,
     skip_auto_try: bool,
     emitting_main: bool,
     wrap_ok: bool,
@@ -1397,6 +1398,10 @@ impl Emitter {
             }
             _ => {}
         }
+        if name.eq_ignore_ascii_case("rnd") && args.is_empty() {
+            self.needs_random = true;
+            return "random.random()".into();
+        }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         if args.len() == 1 {
             let a = &rendered[0];
@@ -1508,6 +1513,9 @@ impl Emitter {
         if self.needs_sys {
             code.push_str("import sys\n");
         }
+        if self.needs_random {
+            code.push_str("import random\n");
+        }
         // `Use <package> <version> [As <module>]` → a top-level `import <module>`
         // (the alias when a pip package imports under a different name — `pillow`
         // installs, `PIL` imports), in source order. The module is then in scope
@@ -1565,6 +1573,7 @@ impl Emitter {
             let any_import = self.needs_math
                 || self.needs_time
                 || self.needs_sys
+                || self.needs_random
                 || needs_dataclass
                 || self.needs_enum
                 || !program.uses.is_empty();

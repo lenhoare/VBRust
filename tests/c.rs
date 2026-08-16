@@ -23,7 +23,7 @@ use std::thread;
 /// Slice 5: `Option`/`Result`/`?` — struct wrappers, propagation, `.Unwrap()`.
 const C: &[&str] = &[
     // slice 1
-    "hello", "functions", "logic", "maths", "doloop", "memory",
+    "hello", "functions", "logic", "maths", "rnd", "doloop", "memory",
     // slice 2
     "types", "structs", "methods", "constants",
     // slice 3

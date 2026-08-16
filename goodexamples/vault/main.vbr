@@ -1,13 +1,14 @@
 ' A small vault: folder list on the left, markdown on the right.
-' Theme JellyFish. Drag the divider. Run:  vbr runproject goodexamples/vault
+' Theme JellyFish. Drag the divider. Open picks a folder. Run:  vbr runproject goodexamples/vault
 
 Window Vault
     Title "Vault"
     Theme JellyFish
 
     State
+        Dim root As String = "vault"
         Dim folder As String = "vault"
-        Dim names As Vec<String> = Entries("vault")
+        Dim names As Vec<String> = Entries("vault", "vault")
         Dim current As String = "welcome.md"
         Dim draft As TextArea = SeedText()
         Dim pane As Integer = 0
@@ -43,6 +44,9 @@ Window Vault
                     End Tabs
                     Row
                         Spacing 10
+                        Button "Open"
+                            On Click OpenVault
+                        End Button
                         Button "Save"
                             On Click SaveNote
                         End Button
@@ -53,19 +57,31 @@ Window Vault
         End Column
     End View
 
+    Event OpenVault
+        Dim picked As String = GetFolderName(folder)
+        If picked = "" Then
+            Return
+        End If
+        folder = picked
+        root = folder.Clone()
+        names = Entries(folder, root)
+        current = ""
+        status = folder.Clone()
+    End Event
+
     Event OpenNote(name As String)
         If name = "../" Then
-            folder = ParentFolder(folder)
-            names = Entries(folder)
+            folder = FileSystem.Parent(folder)
+            names = Entries(folder, root)
             current = ""
             status = folder.Clone()
         ElseIf name.ends_with("/") Then
-            folder = folder & "/" & Left(name, Len(name) - 1)
-            names = Entries(folder)
+            folder = FileSystem.Join(folder, name)
+            names = Entries(folder, root)
             current = ""
             status = folder.Clone()
         Else
-            Dim path As String = folder & "/" & name
+            Dim path As String = FileSystem.Join(folder, name)
             current = name
             Dim text As String = FileSystem.Read(path) Handle err
                 status = err
@@ -81,7 +97,7 @@ Window Vault
             status = "pick a file first"
             Return
         End If
-        Dim path As String = folder & "/" & current
+        Dim path As String = FileSystem.Join(folder, current)
         FileSystem.Write(path, draft.Text()) Handle err
             status = err
             Return
@@ -97,7 +113,7 @@ Function SeedText() As String
     Return text
 End Function
 
-Function Entries(folder As String) As Vec<String>
+Function Entries(folder As String, root As String) As Vec<String>
     If folder = "vault" Then
         EnsureVault()
     End If
@@ -105,7 +121,7 @@ Function Entries(folder As String) As Vec<String>
         Dim empty As Vec<String>
         Return empty
     End Handle
-    If folder <> "vault" Then
+    If folder <> root Then
         Dim listed As Vec<String>
         listed.Push("../")
         listed.Extend(names)
@@ -124,20 +140,6 @@ Function EnsureVault()
     FileSystem.Write("vault/welcome.md", "# Welcome" & vbNewLine & vbNewLine & "click a file on the left.") Handle _
         Return
     End Handle
-End Function
-
-Function ParentFolder(path As String) As String
-    Dim cut As Long = -1
-    Dim i As Long
-    For i = 1 To Len(path)
-        If Mid(path, i, 1) = "/" Then
-            cut = i
-        End If
-    Next
-    If cut <= 1 Then
-        Return path
-    End If
-    Return Left(path, cut - 1)
 End Function
 
 Function Main()

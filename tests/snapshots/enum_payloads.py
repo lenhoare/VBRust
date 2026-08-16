@@ -55,7 +55,6 @@ def describe(s: Shape) -> str:
             return Ok(f"blob of {_vb(len(pts))} points")
         case Empty():
             return Ok('nothing')
-    return Ok(None)
 
 def main():
     _t0 = describe(Dot(Point(x=1.0, y=2.0)))
