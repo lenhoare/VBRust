@@ -48,9 +48,14 @@ Window Kit
                     On Click Ping
                 End Button
             End Tooltip
-            Stack
-                QrCode payload
+            Column
+                Spacing 6
                 Text "QR"
+                QrCode payload
+            End Column
+            Stack
+                ProgressBar 0..=100, warmth
+                Text warmth
             End Stack
             MouseArea
                 On Click Ping
