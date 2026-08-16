@@ -39,7 +39,9 @@ Everyday widgets: `Text`, `Button`, `TextInput`, `TextArea`, `Checkbox`, `Toggle
 
 The same names a Screen uses for structure work here too: `Frame` (a bordered box), `Tabs` (an `Integer` index, 0 = first tab), `List` (`Vec<String>`), `Table` (`Vec<Struct>` — columns from the struct's fields). `Chooser field From options` is a dropdown; `options` is a `Vec` of the same type as `field`.
 
-`TextInput` may take `On Submit` (Enter) and `Secure` (hide the typed characters). `Button` may take `Enabled <expr>`. `Slider` may take `Step n`. `Markdown <expr>` renders a `String` (or a literal) as Markdown. `Svg` is a path, like `Image`. `goodexamples/folio` is the showcase (`Theme JellyFish`).
+`TextInput` may take `On Submit` (Enter) and `Secure` (hide the typed characters). `Button` may take `Enabled <expr>`. `Slider` may take `Step n` and `Vertical`. `Chooser` may take `Search` (a searchable combo box; options are snapshotted when the window opens). `Markdown <expr>` renders a `String` as Markdown. `Svg` is a path, like `Image`. `QrCode <expr>` draws a QR from a string.
+
+`Stack` paints children on top of each other. `Tooltip "hint"` wraps a child (`Position Top` / `Bottom` / `Left` / `Right` / `FollowCursor`). `MouseArea` watches `On Click` / `On Right Click` / `On Enter` / `On Exit` / `On Move` (move hands two `Single`s). `Responsive [width]` picks `Narrow` or `Wide` by pixel width (default 600). `goodexamples/folio` is the forms showcase; `examples/gui_extras.vbr` is Stack / Tooltip / Search / Vertical / MouseArea / Responsive / QrCode.
 
 Need a drawing *and* buttons? Put a `Canvas` in the View. Need only a drawing? Use a `Sketch` instead — `Gpu Draw` if the picture is a pixel kernel.
 

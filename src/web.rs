@@ -370,8 +370,15 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
             }
         }
         ViewNode::Constrained { child, .. } => validate_view(child, field_ty, diags),
-        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } | ViewNode::Frame { children, .. } => {
+        ViewNode::Column { children, .. } | ViewNode::Row { children, .. } | ViewNode::Frame { children, .. }
+        | ViewNode::Stack { children, .. }
+        | ViewNode::Tooltip { children, .. }
+        | ViewNode::MouseArea { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, diags));
+        }
+        ViewNode::Responsive { narrow, wide, .. } => {
+            narrow.iter().for_each(|c| validate_view(c, field_ty, diags));
+            wide.iter().for_each(|c| validate_view(c, field_ty, diags));
         }
         ViewNode::Tabs { tabs, .. } => {
             tabs.iter()
@@ -598,6 +605,15 @@ fn render_node(
             out.push_str(&format!("{}}}\n", in1));
             out.push_str(&format!("{}}}\n", pad));
         }
+        ViewNode::Stack { children, spacing, padding } => {
+            render_flex("column", children, *spacing, *padding, None, ctx, indent, out, diags);
+        }
+        ViewNode::Tooltip { children, .. } | ViewNode::MouseArea { children, .. } => {
+            render_flex("column", children, None, None, None, ctx, indent, out, diags);
+        }
+        ViewNode::Responsive { narrow, .. } => {
+            render_flex("column", narrow, None, None, None, ctx, indent, out, diags);
+        }
         // A sized child: `Length N` fixes the container axis in pixels; `Fill`
         // takes a share of the leftover space (CSS flex).
         ViewNode::Constrained { size, child } => {
@@ -725,6 +741,11 @@ fn web_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Chooser { .. } => "Chooser",
         ViewNode::Markdown { .. } => "Markdown",
         ViewNode::Svg { .. } => "Svg",
+        ViewNode::QrCode { .. } => "QrCode",
+        ViewNode::Stack { .. } => "Stack",
+        ViewNode::Tooltip { .. } => "Tooltip",
+        ViewNode::MouseArea { .. } => "MouseArea",
+        ViewNode::Responsive { .. } => "Responsive",
         ViewNode::Rule { .. } => "Rule",
         ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Input { .. } => "Input",
@@ -783,8 +804,15 @@ pub fn page_assets(program: &Program) -> Vec<String> {
             ViewNode::Column { children, .. }
             | ViewNode::Row { children, .. }
             | ViewNode::Frame { children, .. }
-            | ViewNode::Scrollable { children, .. } => {
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, out));
+                wide.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()

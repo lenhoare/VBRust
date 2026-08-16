@@ -389,6 +389,20 @@ folder copies the `.svg` into `build/` with the other data files.
 
 ---
 
+#### QrCode  *(BUILT)*
+
+A QR code from a string (literal or `String` field). Encoded into hidden state
+and rebuilt after every event (invalid data shows the text `invalid QR`).
+
+```vb
+QrCode payload
+QrCode "https://iced.rs"
+```
+
+Maps to `iced::widget::qr_code` (auto-adds Iced's **`qr_code`** feature).
+
+---
+
 ### 4.2 Input Controls
 
 #### TextInput  *(BUILT — slice 2)*
@@ -531,10 +545,12 @@ End Event
 
 Maps to `slider(0..=100, state.volume, Message::SetVolume)`.
 
-`Step n` is optional — the thumb jumps by `n` (Iced `.step(n)`):
+`Step n` is optional — the thumb jumps by `n` (Iced `.step(n)`). `Vertical`
+makes it an Iced `vertical_slider` (give it a `Fill` height in a `Row`):
 
 ```vb
 Slider 0..=100, warmth
+    Vertical
     Step 5
     On Change SetWarmth
 End Slider
@@ -625,8 +641,18 @@ A `String` field assigned from the event parameter is **moved** — a second
 `status = value` in the same event will not compile; write a literal or
 `status = fruit` after `fruit = value`.
 
-A searchable chooser may later map to Iced `combo_box`. For a permanently open
-list, use `List` (§4.6).
+`Search` (optional placeholder string) turns the Chooser into Iced `combo_box`.
+The options `Vec` is **snapshotted when the window opens** — later `Push`es do
+not appear in the menu. Example: `examples/gui_extras.vbr`.
+
+```vb
+Chooser fruit From fruits
+    Search "type a fruit"
+    On Select PickFruit
+End Chooser
+```
+
+A permanently open list is `List` (§4.6).
 
 ---
 
@@ -1020,6 +1046,81 @@ Rule Vertical
 ```
 
 Maps to `horizontal_rule(1)` / `vertical_rule(1)`.
+
+---
+
+### 5.7 Stack  *(BUILT)*
+
+Children painted on top of each other — first is the bottom layer.
+
+```vb
+Stack
+    QrCode payload
+    Text "QR"
+End Stack
+```
+
+Maps to `iced::widget::Stack::with_children`.
+
+---
+
+### 5.8 Tooltip  *(BUILT)*
+
+Hover hint over a child. Optional `Position Top` / `Bottom` / `Left` / `Right` /
+`FollowCursor` (default Bottom).
+
+```vb
+Tooltip "saves the file"
+    Position Bottom
+    Button "Save"
+        On Click Save
+    End Button
+End Tooltip
+```
+
+---
+
+### 5.9 MouseArea  *(BUILT)*
+
+Wraps a child and fires mouse events. `On Move` hands two `Single`s (`p.x`, `p.y`).
+
+```vb
+MouseArea
+    On Click Ping
+    On Right Click Menu
+    On Enter HoverIn
+    On Exit HoverOut
+    On Move Moved
+    Text "hover / click me"
+End MouseArea
+
+Event Moved(x As Single, y As Single)
+    status = "move"
+End Event
+```
+
+---
+
+### 5.10 Responsive  *(BUILT)*
+
+Two panes; Iced picks by the widget's pixel width. Optional breakpoint after
+the keyword (default 600). Put `Fill` above it so it has a size to measure.
+
+```vb
+Fill
+Responsive 520
+    Narrow
+        Column
+            Text "phone"
+        End Column
+    End Narrow
+    Wide
+        Row
+            Text "desk"
+        End Row
+    End Wide
+End Responsive
+```
 
 ---
 
@@ -1458,13 +1559,7 @@ Some of these may be added later. They should not block V1.
 Potential V1.5 or V2 controls:
 
 ```text
-Combobox          (Iced combo_box — searchable Chooser)
-Tooltip
-VerticalSlider
 PaneGrid          (resizable split panes)
-Stack             (overlay)
-QrCode
-MouseArea
 Themer            (live theme on a subtree — Window Theme stays compile-time)
 FilePicker
 ColorPicker
@@ -1523,6 +1618,7 @@ Button
 Image
 Svg
 Markdown
+QrCode
 Checkbox
 Toggler
 Radio
@@ -1540,6 +1636,10 @@ Column
 Scrollable
 Space
 Rule
+Stack
+Tooltip
+MouseArea
+Responsive
 ```
 
 The central rule is:

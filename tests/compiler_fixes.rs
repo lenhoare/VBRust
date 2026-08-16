@@ -1191,3 +1191,84 @@ End Function
     assert!(rust.contains("MarkdownLink"), "link message: {rust}");
 }
 
+#[test]
+fn gui_stack_tooltip_combo_slider_mouse_responsive_qr() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim fruit As String = "Pear"
+        Dim fruits As Vec<String>
+        Dim n As Integer = 10
+        Dim payload As String = "hi"
+    End State
+    View
+        Column
+            Chooser fruit From fruits
+                Search "pick"
+                On Select Pick
+            End Chooser
+            Slider 0..=100, n
+                Vertical
+                On Change SetN
+            End Slider
+            Tooltip "hint"
+                Position Bottom
+                Button "Go"
+                    On Click Go
+                End Button
+            End Tooltip
+            Stack
+                QrCode payload
+                Text "over"
+            End Stack
+            MouseArea
+                On Click Go
+                On Enter HoverIn
+                On Exit HoverOut
+                On Right Click Menu
+                On Move Moved
+                Text "pad"
+            End MouseArea
+            Responsive 480
+                Narrow
+                    Text "n"
+                End Narrow
+                Wide
+                    Text "w"
+                End Wide
+            End Responsive
+        End Column
+    End View
+    Event Pick(value As String)
+        fruit = value
+    End Event
+    Event SetN(value As Integer)
+        n = value
+    End Event
+    Event Go
+    End Event
+    Event HoverIn
+    End Event
+    Event HoverOut
+    End Event
+    Event Menu
+    End Event
+    Event Moved(x As Single, y As Single)
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains("combo_box"), "Search Chooser → combo_box: {rust}");
+    assert!(rust.contains("vertical_slider"), "Vertical slider: {rust}");
+    assert!(rust.contains("tooltip"), "Tooltip: {rust}");
+    assert!(rust.contains("Stack::with_children"), "Stack: {rust}");
+    assert!(rust.contains("mouse_area"), "MouseArea: {rust}");
+    assert!(rust.contains("on_right_press"), "right click: {rust}");
+    assert!(rust.contains("responsive"), "Responsive: {rust}");
+    assert!(rust.contains("qr_code"), "QrCode: {rust}");
+}
+

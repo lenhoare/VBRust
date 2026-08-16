@@ -55,3 +55,5 @@ So it is the software present path at particular buffer sizes, not the planets. 
 `goodexamples/desk` is the GUI surface with the everyday widgets (`TextInput`, `TextArea`, `Toggler`, `Slider`, `ProgressBar`, `Checkbox`, `Radio`, `Button`, `Match` / `If` in View) under `Theme JellyFish`. Theme is chosen when the window opens — it isn't a live picker.
 
 `goodexamples/folio` is the next layer on the same palette: `Tabs` / `Frame` / `List` / `Table` (the Screen names, on a Window), `Chooser` (a `Vec` of options, not an enum), `Scrollable` / `Rule`, `TextInput` `Secure` + `On Submit`, `Button` `Enabled`, `Slider` `Step`, `Markdown` (a `String` field), and `Svg`. A `String` field assigned from an event parameter is moved — `fruit = value` then `status = value` will not compile; set a literal (or `status = fruit`) for the second write.
+
+`examples/gui_extras.vbr` is the leftover Iced set: `Stack`, `Tooltip`, `Chooser` `Search` (combo box; options snapshotted at open), `Slider` `Vertical`, `MouseArea` (`On Click` / `On Right Click` / `On Enter` / `On Exit` / `On Move` with two `Single`s), `Responsive` (`Narrow` / `Wide`), and `QrCode`. `pane_grid` is still out.

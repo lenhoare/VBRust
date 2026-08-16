@@ -1841,6 +1841,8 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     let uses_canvas = entry_compiled.rust.contains("iced::widget::Canvas::new(");
     let uses_markdown = entry_compiled.rust.contains("iced::widget::markdown");
     let uses_svg = entry_compiled.rust.contains("iced::widget::svg");
+    let uses_qr = entry_compiled.rust.contains("iced::widget::qr_code");
+    let uses_lazy = entry_compiled.rust.contains("iced::widget::responsive");
     let uses_time = entry_compiled.rust.contains("iced::time::every");
     let uses_advanced = entry_compiled.rust.contains("iced::advanced::");
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
@@ -1977,6 +1979,12 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
             }
             if uses_svg {
                 feats.push("\"svg\"");
+            }
+            if uses_qr {
+                feats.push("\"qr_code\"");
+            }
+            if uses_lazy {
+                feats.push("\"lazy\"");
             }
             if uses_advanced {
                 feats.push("\"advanced\"");

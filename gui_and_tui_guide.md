@@ -171,12 +171,14 @@ mouse-driven controls.
 ### Widgets
 
 Beyond `Text` and `Button`, a window has the controls you'd expect — text inputs
-(`On Submit` / `Secure` for a password), checkboxes, togglers, sliders (`Step`),
-progress bars, radio groups, images, SVG, and Markdown. `Chooser field From options`
-is a dropdown (`options` is a `Vec` of the same type as `field`). `Frame`, `Tabs`,
-`List`, and `Table` use the same names as a Screen. `Scrollable` and `Rule` handle
-overflow and separators. Each event-producing control names the event it fires.
-A slider is typical:
+(`On Submit` / `Secure` for a password), checkboxes, togglers, sliders (`Step`,
+`Vertical`), progress bars, radio groups, images, SVG, Markdown, and `QrCode`.
+`Chooser field From options` is a dropdown; add `Search` to type-filter it.
+`Stack` overlays children; `Tooltip "hint"` is a hover; `MouseArea` is click /
+right-click / enter / exit / move; `Responsive` picks `Narrow` or `Wide` by width.
+`Frame`, `Tabs`, `List`, and `Table` use the same names as a Screen. `Scrollable`
+and `Rule` handle overflow and separators. Each event-producing control names the
+event it fires. A slider is typical:
 
 ```vb
 Slider 0..=50, input

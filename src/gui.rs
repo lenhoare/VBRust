@@ -26,6 +26,10 @@ struct ViewCtx<'a> {
     theme_expr: String,
     /// Next `Markdown` widget index (`__md0`, `__md1`, …) parsed at the top of `view`.
     markdown_i: std::cell::Cell<usize>,
+    /// Next searchable Chooser (`__cb0`, …).
+    combo_i: std::cell::Cell<usize>,
+    /// Next `QrCode` widget index (`__qr0`, …).
+    qr_i: std::cell::Cell<usize>,
     /// For each canvas placed in this view, the state fields its `Draw` block
     /// reads — snapshotted into the canvas Program when it's constructed.
     canvas_snaps: &'a HashMap<String, Vec<String>>,
@@ -569,6 +573,8 @@ fn emit_window(
         structs: &t.structs,
         theme_expr,
         markdown_i: std::cell::Cell::new(0),
+        combo_i: std::cell::Cell::new(0),
+        qr_i: std::cell::Cell::new(0),
         canvas_snaps: &canvas_snaps,
     };
     validate_view(&w.view, &field_ty, &t.structs, diags);
@@ -636,8 +642,17 @@ fn emit_window(
     }
     let md_init = collect_markdown_args(&w.view, &fields, enums, "");
     let md_upd = collect_markdown_args(&w.view, &fields, enums, "state.");
+    let cb_init = collect_search_choosers(&w.view, &field_ty);
+    let qr_init = collect_qr_args(&w.view, &fields, enums, "");
+    let qr_upd = collect_qr_args(&w.view, &fields, enums, "state.");
     for i in 0..md_init.len() {
         out.push_str(&format!("    __md{i}: Vec<iced::widget::markdown::Item>,\n"));
+    }
+    for (i, (_opts, ty)) in cb_init.iter().enumerate() {
+        out.push_str(&format!("    __cb{i}: iced::widget::combo_box::State<{ty}>,\n"));
+    }
+    for i in 0..qr_init.len() {
+        out.push_str(&format!("    __qr{i}: Option<iced::widget::qr_code::Data>,\n"));
     }
     out.push_str("}\n\n");
 
@@ -674,6 +689,16 @@ fn emit_window(
             "        let __md{i} = iced::widget::markdown::parse({src}).collect();\n"
         ));
     }
+    for (i, (opts, _)) in cb_init.iter().enumerate() {
+        out.push_str(&format!(
+            "        let __cb{i} = iced::widget::combo_box::State::new({opts}.clone());\n"
+        ));
+    }
+    for (i, src) in qr_init.iter().enumerate() {
+        out.push_str(&format!(
+            "        let __qr{i} = iced::widget::qr_code::Data::new({src}.as_bytes()).ok();\n"
+        ));
+    }
     if fallible {
         out.push_str(&format!("        Ok({} {{\n", ty));
     } else {
@@ -684,6 +709,12 @@ fn emit_window(
     }
     for i in 0..md_init.len() {
         out.push_str(&format!("            __md{i},\n"));
+    }
+    for i in 0..cb_init.len() {
+        out.push_str(&format!("            __cb{i},\n"));
+    }
+    for i in 0..qr_init.len() {
+        out.push_str(&format!("            __qr{i},\n"));
     }
     if fallible {
         out.push_str("        })\n    }\n}\n\n");
@@ -729,7 +760,12 @@ fn emit_window(
     let ret = if any_async { " -> Task<Message>" } else { "" };
     // With no events and no text areas, nothing touches `state` — underscore it
     // so a display-only window (e.g. just an Image) compiles warning-free.
-    let state_param = if w.events.is_empty() && textareas.is_empty() && auto_tabs.is_empty() && md_upd.is_empty() {
+    let refresh = !md_upd.is_empty() || !qr_upd.is_empty();
+    let state_param = if w.events.is_empty()
+        && textareas.is_empty()
+        && auto_tabs.is_empty()
+        && !refresh
+    {
         "_state"
     } else {
         "state"
@@ -738,7 +774,7 @@ fn emit_window(
         "fn update({}: &mut {}, message: Message){} {{\n",
         state_param, ty, ret
     ));
-    if any_async && !md_upd.is_empty() {
+    if any_async && refresh {
         out.push_str("    let __task = match message {\n");
     } else {
         out.push_str("    match message {\n");
@@ -819,7 +855,12 @@ fn emit_window(
             "    state.__md{i} = iced::widget::markdown::parse({src}).collect();\n"
         ));
     }
-    if any_async && !md_upd.is_empty() {
+    for (i, src) in qr_upd.iter().enumerate() {
+        out.push_str(&format!(
+            "    state.__qr{i} = iced::widget::qr_code::Data::new({src}.as_bytes()).ok();\n"
+        ));
+    }
+    if any_async && refresh {
         out.push_str("    __task\n");
     }
     out.push_str("}\n\n");
@@ -1067,11 +1108,51 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::Table { field, on_select } => {
             return render_table(field, on_select.as_deref(), ctx, indent, as_element)
         }
-        ViewNode::Chooser { value, options, on_select } => {
-            return render_chooser(value, options, on_select, ctx, as_element)
+        ViewNode::Chooser { value, options, on_select, search, search_placeholder } => {
+            return render_chooser(
+                value,
+                options,
+                on_select,
+                *search,
+                search_placeholder.as_ref(),
+                ctx,
+                as_element,
+            )
         }
         ViewNode::Markdown { source } => {
             return render_markdown(source, ctx, indent, as_element)
+        }
+        ViewNode::Stack { children, spacing, padding } => {
+            return render_stack(children, ctx, indent, as_element, *spacing, *padding)
+        }
+        ViewNode::Tooltip { hint, position, children } => {
+            return render_tooltip(hint, *position, children, ctx, indent, as_element)
+        }
+        ViewNode::MouseArea {
+            on_click,
+            on_right_click,
+            on_enter,
+            on_exit,
+            on_move,
+            children,
+        } => {
+            return render_mouse_area(
+                on_click.as_deref(),
+                on_right_click.as_deref(),
+                on_enter.as_deref(),
+                on_exit.as_deref(),
+                on_move.as_deref(),
+                children,
+                ctx,
+                indent,
+                as_element,
+            )
+        }
+        ViewNode::Responsive { breakpoint, narrow, wide } => {
+            return render_responsive(*breakpoint, narrow, wide, ctx, indent, as_element)
+        }
+        ViewNode::QrCode { source } => {
+            return render_qr(source, ctx, as_element)
         }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
@@ -1119,12 +1200,13 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
                 None => base,
             }
         }
-        ViewNode::Slider { min, max, value, on_change, step } => {
+        ViewNode::Slider { min, max, value, on_change, step, vertical } => {
             let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields, ctx.enums), None);
             let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields, ctx.enums), None);
             let field = rust_name(value);
+            let ctor = if *vertical { "vertical_slider" } else { "slider" };
             let mut s = format!(
-                "slider({}..={}, state.{}, Message::{})",
+                "{ctor}({}..={}, state.{}, Message::{})",
                 lo, hi, field, on_change
             );
             if let Some(st) = step {
@@ -1255,6 +1337,11 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         | ViewNode::Table { .. }
         | ViewNode::Chooser { .. }
         | ViewNode::Markdown { .. }
+        | ViewNode::Stack { .. }
+        | ViewNode::Tooltip { .. }
+        | ViewNode::MouseArea { .. }
+        | ViewNode::Responsive { .. }
+        | ViewNode::QrCode { .. }
         | ViewNode::Match { .. }
         | ViewNode::If { .. }
         | ViewNode::Constrained { .. } => {
@@ -1475,17 +1562,37 @@ fn render_table(
     )
 }
 
-fn render_chooser(value: &str, options: &str, on_select: &str, ctx: &ViewCtx, as_element: bool) -> String {
+fn render_chooser(
+    value: &str,
+    options: &str,
+    on_select: &str,
+    search: bool,
+    placeholder: Option<&Expr>,
+    ctx: &ViewCtx,
+    as_element: bool,
+) -> String {
     let field = rust_name(value);
     let opts = rust_name(options);
-    let selected = match ctx.field_ty.get(&field) {
-        Some(DeclType::Plain(Type::Text)) => format!("Some(state.{field}.clone())"),
-        _ => format!("Some(state.{field})"),
-    };
     let _ = as_element;
-    format!(
-        "{{ let el: Element<'_, Message> = pick_list(&state.{opts}[..], {selected}, Message::{on_select}).into(); el }}"
-    )
+    if search {
+        let i = ctx.combo_i.get();
+        ctx.combo_i.set(i + 1);
+        let ph = match placeholder {
+            Some(e) => render_expr(&rewrite_expr(e.clone(), ctx.fields, ctx.enums), None),
+            None => "\"\"".to_string(),
+        };
+        format!(
+            "{{ let el: Element<'_, Message> = combo_box(&state.__cb{i}, {ph}, Some(&state.{field}), Message::{on_select}).into(); el }}"
+        )
+    } else {
+        let selected = match ctx.field_ty.get(&field) {
+            Some(DeclType::Plain(Type::Text)) => format!("Some(state.{field}.clone())"),
+            _ => format!("Some(state.{field})"),
+        };
+        format!(
+            "{{ let el: Element<'_, Message> = pick_list(&state.{opts}[..], {selected}, Message::{on_select}).into(); el }}"
+        )
+    }
 }
 
 fn render_markdown(source: &Expr, ctx: &ViewCtx, indent: usize, as_element: bool) -> String {
@@ -1499,6 +1606,126 @@ fn render_markdown(source: &Expr, ctx: &ViewCtx, indent: usize, as_element: bool
          iced::widget::markdown::Style::from_palette(({}).palette())\
          ).map(|u| Message::MarkdownLink(u.to_string()))",
         ctx.theme_expr
+    )
+}
+
+fn render_stack(
+    children: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+    _spacing: Option<u16>,
+    _padding: Option<u16>,
+) -> String {
+    let inner = "    ".repeat(indent + 1);
+    let pad = "    ".repeat(indent);
+    let mut s = String::from("iced::widget::Stack::with_children(vec![\n");
+    for c in children {
+        s.push_str(&inner);
+        s.push_str(&render_view(c, ctx, indent + 1, true));
+        s.push_str(",\n");
+    }
+    s.push_str(&pad);
+    s.push_str("])");
+    if as_element {
+        s.push_str(".into()");
+    }
+    s
+}
+
+fn tooltip_position(pos: TooltipPos) -> &'static str {
+    match pos {
+        TooltipPos::Top => "Top",
+        TooltipPos::Bottom => "Bottom",
+        TooltipPos::Left => "Left",
+        TooltipPos::Right => "Right",
+        TooltipPos::FollowCursor => "FollowCursor",
+    }
+}
+
+fn render_tooltip(
+    hint: &Expr,
+    position: TooltipPos,
+    children: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let content = render_arm_body(children, ctx, indent);
+    let hint_s = render_expr(&rewrite_expr(hint.clone(), ctx.fields, ctx.enums), None);
+    let pos = tooltip_position(position);
+    let _ = as_element;
+    format!(
+        "{{ let content: Element<'_, Message> = {content}; \
+         let hint: Element<'_, Message> = iced::widget::container(text({hint_s})).padding(8)\
+         .style(iced::widget::container::rounded_box).into(); \
+         let el: Element<'_, Message> = iced::widget::tooltip(content, hint, iced::widget::tooltip::Position::{pos}).into(); el }}"
+    )
+}
+
+fn render_mouse_area(
+    on_click: Option<&str>,
+    on_right_click: Option<&str>,
+    on_enter: Option<&str>,
+    on_exit: Option<&str>,
+    on_move: Option<&str>,
+    children: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let content = render_arm_body(children, ctx, indent);
+    let mut s = format!("iced::widget::mouse_area({{ let c: Element<'_, Message> = {content}; c }})");
+    if let Some(ev) = on_click {
+        s.push_str(&format!(
+            ".on_press(Message::{ev}).interaction(iced::mouse::Interaction::Pointer)"
+        ));
+    }
+    if let Some(ev) = on_right_click {
+        s.push_str(&format!(".on_right_press(Message::{ev})"));
+    }
+    if let Some(ev) = on_enter {
+        s.push_str(&format!(".on_enter(Message::{ev})"));
+    }
+    if let Some(ev) = on_exit {
+        s.push_str(&format!(".on_exit(Message::{ev})"));
+    }
+    if let Some(ev) = on_move {
+        s.push_str(&format!(".on_move(|p| Message::{ev}(p.x, p.y))"));
+    }
+    if as_element {
+        format!("{s}.into()")
+    } else {
+        s
+    }
+}
+
+fn render_responsive(
+    breakpoint: u16,
+    narrow: &[ViewNode],
+    wide: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let n = render_arm_body(narrow, ctx, indent + 1);
+    let w = render_arm_body(wide, ctx, indent + 1);
+    let _ = as_element;
+    format!(
+        "{{ let el: Element<'_, Message> = iced::widget::responsive(|size| {{ \
+         let pane: Element<'_, Message> = if size.width < {breakpoint}.0 {{ {n} }} else {{ {w} }}; \
+         pane }}).into(); el }}"
+    )
+}
+
+fn render_qr(source: &Expr, ctx: &ViewCtx, as_element: bool) -> String {
+    let _ = (source, as_element);
+    let i = ctx.qr_i.get();
+    ctx.qr_i.set(i + 1);
+    format!(
+        "{{ let el: Element<'_, Message> = match &state.__qr{i} {{ \
+         Some(d) => iced::widget::qr_code(d).into(), \
+         None => text(\"invalid QR\").into() }}; el }}"
     )
 }
 
@@ -1637,6 +1864,15 @@ fn validate_view(
         }
         ViewNode::Scrollable { children, .. } => {
             children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+        }
+        ViewNode::Stack { children, .. }
+        | ViewNode::Tooltip { children, .. }
+        | ViewNode::MouseArea { children, .. } => {
+            children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+        }
+        ViewNode::Responsive { narrow, wide, .. } => {
+            narrow.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+            wide.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
         ViewNode::Tabs { field, tabs, .. } => {
             if !matches!(field_ty.get(&rust_name(field)), Some(DeclType::Plain(Type::Integer))) {
@@ -1815,8 +2051,15 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
             ViewNode::Column { children, .. }
             | ViewNode::Row { children, .. }
             | ViewNode::Scrollable { children, .. }
-            | ViewNode::Frame { children, .. } => {
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, out));
+                wide.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()
@@ -1861,8 +2104,15 @@ fn collect_auto_tabs(node: &ViewNode) -> Vec<String> {
             ViewNode::Column { children, .. }
             | ViewNode::Row { children, .. }
             | ViewNode::Scrollable { children, .. }
-            | ViewNode::Frame { children, .. } => {
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, out));
+                wide.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Match { arms, .. } => {
                 for a in arms {
@@ -1917,8 +2167,121 @@ fn collect_markdown_args(
             ViewNode::Column { children, .. }
             | ViewNode::Row { children, .. }
             | ViewNode::Scrollable { children, .. }
-            | ViewNode::Frame { children, .. } => {
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
                 children.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                wide.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, fields, enums, prefix, out)));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, fields, enums, prefix, &mut out);
+    out
+}
+
+fn collect_search_choosers(
+    node: &ViewNode,
+    field_ty: &HashMap<String, DeclType>,
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    fn walk(node: &ViewNode, field_ty: &HashMap<String, DeclType>, out: &mut Vec<(String, String)>) {
+        match node {
+            ViewNode::Chooser { value, options, search: true, .. } => {
+                let ty = field_ty
+                    .get(&rust_name(value))
+                    .map(decltype_rust)
+                    .unwrap_or_else(|| "String".to_string());
+                out.push((rust_name(options), ty));
+            }
+            ViewNode::Constrained { child, .. } => walk(child, field_ty, out),
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
+                children.iter().for_each(|c| walk(c, field_ty, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, field_ty, out));
+                wide.iter().for_each(|c| walk(c, field_ty, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, field_ty, out)));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, field_ty, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, field_ty, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, field_ty, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, field_ty, &mut out);
+    out
+}
+
+fn collect_qr_args(
+    node: &ViewNode,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+    prefix: &str,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(
+        node: &ViewNode,
+        fields: &HashSet<String>,
+        enums: &HashSet<String>,
+        prefix: &str,
+        out: &mut Vec<String>,
+    ) {
+        match node {
+            ViewNode::QrCode { source } => out.push(markdown_parse_arg(source, fields, enums, prefix)),
+            ViewNode::Constrained { child, .. } => walk(child, fields, enums, prefix, out),
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
+                children.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                wide.iter().for_each(|c| walk(c, fields, enums, prefix, out));
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()
@@ -1951,7 +2314,13 @@ fn view_has_markdown(node: &ViewNode) -> bool {
         ViewNode::Column { children, .. }
         | ViewNode::Row { children, .. }
         | ViewNode::Scrollable { children, .. }
-        | ViewNode::Frame { children, .. } => children.iter().any(view_has_markdown),
+        | ViewNode::Frame { children, .. }
+        | ViewNode::Stack { children, .. }
+        | ViewNode::Tooltip { children, .. }
+        | ViewNode::MouseArea { children, .. } => children.iter().any(view_has_markdown),
+        ViewNode::Responsive { narrow, wide, .. } => {
+            narrow.iter().any(view_has_markdown) || wide.iter().any(view_has_markdown)
+        }
         ViewNode::Tabs { tabs, .. } => tabs.iter().any(|p| p.children.iter().any(view_has_markdown)),
         ViewNode::Match { arms, .. } => arms.iter().any(|a| a.body.iter().any(view_has_markdown)),
         ViewNode::If { branches, else_body } => {
@@ -2009,15 +2378,32 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
             add(used, "button");
             add(used, "text");
         }
-        ViewNode::Chooser { .. } => add(used, "pick_list"),
+        ViewNode::Chooser { search, .. } => {
+            add(used, if *search { "combo_box" } else { "pick_list" });
+        }
         ViewNode::Markdown { .. } | ViewNode::Rule { .. } | ViewNode::Svg { .. } => {}
+        ViewNode::Stack { children, .. } => {
+            children.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::Tooltip { children, .. } => {
+            add(used, "text");
+            children.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::MouseArea { children, .. } => {
+            children.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::Responsive { narrow, wide, .. } => {
+            narrow.iter().for_each(|c| collect_widgets(c, used));
+            wide.iter().for_each(|c| collect_widgets(c, used));
+        }
+        ViewNode::QrCode { .. } => add(used, "text"),
         // `Space`/`Image`/`Canvas` use fully-qualified paths, so no import needed.
         ViewNode::Space { .. } | ViewNode::Image { .. } | ViewNode::Canvas { .. } => {}
         ViewNode::Text(_) => add(used, "text"),
         ViewNode::Button { .. } => add(used, "button"),
         ViewNode::TextInput { .. } => add(used, "text_input"),
         ViewNode::Checkbox { .. } => add(used, "checkbox"),
-        ViewNode::Slider { .. } => add(used, "slider"),
+        ViewNode::Slider { vertical, .. } => add(used, if *vertical { "vertical_slider" } else { "slider" }),
         ViewNode::Toggler { .. } => add(used, "toggler"),
         ViewNode::ProgressBar { .. } => add(used, "progress_bar"),
         ViewNode::Radio { .. } => add(used, "radio"),
@@ -2160,8 +2546,15 @@ fn collect_canvases(node: &ViewNode) -> Vec<String> {
             ViewNode::Column { children, .. }
             | ViewNode::Row { children, .. }
             | ViewNode::Scrollable { children, .. }
-            | ViewNode::Frame { children, .. } => {
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, out));
+                wide.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Tabs { tabs, .. } => {
                 tabs.iter()

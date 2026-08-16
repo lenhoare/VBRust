@@ -365,6 +365,16 @@ pub enum SizeConstraint {
     Min(u16),     // at least N
 }
 
+/// Where a `Tooltip` sits relative to its child (Iced `tooltip::Position`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TooltipPos {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    FollowCursor,
+}
+
 /// A node in the view tree.
 #[derive(Debug, Clone)]
 pub enum ViewNode {
@@ -514,6 +524,8 @@ pub enum ViewNode {
         on_change: String,
         /// `Step n` — Iced slider increment. Omit and Iced uses 1 (or 0.01 for floats).
         step: Option<Expr>,
+        /// `Vertical` — Iced `vertical_slider` instead of `slider`.
+        vertical: bool,
     },
     /// `Scrollable` … `End Scrollable` — children in an Iced scrollable.
     Scrollable {
@@ -526,11 +538,14 @@ pub enum ViewNode {
         horizontal: bool,
     },
     /// `Chooser field From options` — Iced `pick_list`. `options` is a `Vec` state
-    /// field of the same type as `field`. `On Select` is required.
+    /// field of the same type as `field`. `On Select` is required. `Search` turns
+    /// it into a `combo_box` (options snapshotted when the window opens).
     Chooser {
         value: String,
         options: String,
         on_select: String,
+        search: bool,
+        search_placeholder: Option<Expr>,
     },
     /// `Markdown <expr>` — Iced markdown from a string (literal or `String` field).
     Markdown {
@@ -539,6 +554,37 @@ pub enum ViewNode {
     /// `Svg "icon.svg"` / `Svg field` — Iced svg from a path, like `Image`.
     Svg {
         path: Expr,
+    },
+    /// `Stack` … `End Stack` — children painted on top of each other (Iced `stack`).
+    Stack {
+        children: Vec<ViewNode>,
+        spacing: Option<u16>,
+        padding: Option<u16>,
+    },
+    /// `Tooltip "hint"` … `End Tooltip` — hover hint over the child (Iced `tooltip`).
+    Tooltip {
+        hint: Expr,
+        position: TooltipPos,
+        children: Vec<ViewNode>,
+    },
+    /// `MouseArea` … `End MouseArea` — hover/click/right-click/move over the child.
+    MouseArea {
+        on_click: Option<String>,
+        on_right_click: Option<String>,
+        on_enter: Option<String>,
+        on_exit: Option<String>,
+        on_move: Option<String>,
+        children: Vec<ViewNode>,
+    },
+    /// `Responsive [breakpoint]` … `Narrow` … `Wide` … — pick a pane by width.
+    Responsive {
+        breakpoint: u16,
+        narrow: Vec<ViewNode>,
+        wide: Vec<ViewNode>,
+    },
+    /// `QrCode <expr>` — Iced QR from a string (literal or `String` field).
+    QrCode {
+        source: Expr,
     },
     /// An on/off switch bound to a `Boolean` state field (Iced `toggler`). Like a
     /// checkbox, but a switch; `on_toggle` fires with the new `bool`.

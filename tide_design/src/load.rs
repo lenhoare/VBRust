@@ -241,7 +241,7 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
             }
             Ok(n)
         }
-        ViewNode::Button { label, on_click } => {
+        ViewNode::Button { label, on_click, .. } => {
             let mut n = blank(Kind::Button);
             n.text = str_lit(label)?;
             n.event = on_click.clone().unwrap_or_default();
@@ -344,7 +344,17 @@ fn view_to_node(node: &ViewNode, size: SizeHint) -> Result<Node, String> {
         | ViewNode::TextArea { .. }
         | ViewNode::Slider { .. }
         | ViewNode::Toggler { .. }
-        | ViewNode::ProgressBar { .. } => Err(
+        | ViewNode::ProgressBar { .. }
+        | ViewNode::Chooser { .. }
+        | ViewNode::Markdown { .. }
+        | ViewNode::Svg { .. }
+        | ViewNode::QrCode { .. }
+        | ViewNode::Stack { .. }
+        | ViewNode::Tooltip { .. }
+        | ViewNode::MouseArea { .. }
+        | ViewNode::Responsive { .. }
+        | ViewNode::Scrollable { .. }
+        | ViewNode::Rule { .. } => Err(
             "That's a Window widget — the designer only edits Screen structure.".into(),
         ),
     }

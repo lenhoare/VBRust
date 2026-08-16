@@ -1,0 +1,107 @@
+' Stack, Tooltip, searchable Chooser, Vertical Slider, MouseArea, Responsive, QrCode.
+Window Kit
+    Title "Extras"
+    Theme JellyFish
+
+    State
+        Dim fruit As String = "Pear"
+        Dim fruits As Vec<String> = Fruits()
+        Dim warmth As Integer = 40
+        Dim payload As String = "https://iced.rs"
+        Dim status As String = "hello"
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 16
+            Fill
+            Responsive 520
+                Narrow
+                    Column
+                        Spacing 10
+                        Text "narrow"
+                        Chooser fruit From fruits
+                            Search "type a fruit"
+                            On Select Pick
+                        End Chooser
+                    End Column
+                End Narrow
+                Wide
+                    Row
+                        Spacing 12
+                        Chooser fruit From fruits
+                            Search "type a fruit"
+                            On Select Pick
+                        End Chooser
+                        Slider 0..=100, warmth
+                            Vertical
+                            Step 5
+                            On Change SetWarmth
+                        End Slider
+                    End Row
+                End Wide
+            End Responsive
+            Tooltip "saves nothing — it is a hint"
+                Position Bottom
+                Button "hint"
+                    On Click Ping
+                End Button
+            End Tooltip
+            Stack
+                QrCode payload
+                Text "QR"
+            End Stack
+            MouseArea
+                On Click Ping
+                On Enter HoverIn
+                On Exit HoverOut
+                On Right Click Menu
+                On Move Moved
+                Text "hover / click / right-click"
+            End MouseArea
+            Text status
+        End Column
+    End View
+
+    Event Pick(value As String)
+        fruit = value
+        status = "picked"
+    End Event
+
+    Event SetWarmth(value As Integer)
+        warmth = value
+    End Event
+
+    Event Ping
+        status = fruit & " / warmth " & warmth
+    End Event
+
+    Event HoverIn
+        status = "in"
+    End Event
+
+    Event HoverOut
+        status = "out"
+    End Event
+
+    Event Menu
+        status = "right-click"
+    End Event
+
+    Event Moved(x As Single, y As Single)
+        status = "move " & x & ", " & y
+    End Event
+End Window
+
+Function Fruits() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("Apple")
+    v.Push("Pear")
+    v.Push("Plum")
+    Return v
+End Function
+
+Function Main()
+    Kit.Run
+End Function

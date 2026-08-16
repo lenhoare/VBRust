@@ -1935,13 +1935,23 @@ impl<'a> Parser<'a> {
                 let options = self.expect_ident("for the options Vec field")?;
                 self.eat(&Tok::Newline);
                 let mut on_select = None;
+                let mut search = false;
+                let mut search_placeholder = None;
                 loop {
                     self.skip_newlines();
-                    match self.peek() {
+                    match self.peek().clone() {
                         Tok::On => {
                             self.advance();
                             self.expect(&Tok::Select, "in `On Select`")?;
                             on_select = Some(self.expect_ident("for the select event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Search") => {
+                            self.advance();
+                            search = true;
+                            if !matches!(self.peek(), Tok::Newline | Tok::End) {
+                                search_placeholder = Some(self.parse_expr()?);
+                            }
                             self.eat(&Tok::Newline);
                         }
                         Tok::End => {
@@ -1955,8 +1965,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a Chooser expected `On Select <event>` or `End Chooser`, \
-                                     found {:?}.",
+                                    "Inside a Chooser expected `On Select <event>`, `Search`, or \
+                                     `End Chooser`, found {:?}.",
                                     other
                                 ),
                             );
@@ -1976,7 +1986,13 @@ impl<'a> Parser<'a> {
                         return None;
                     }
                 };
-                Some(ViewNode::Chooser { value, options, on_select })
+                Some(ViewNode::Chooser {
+                    value,
+                    options,
+                    on_select,
+                    search,
+                    search_placeholder,
+                })
             }
             "markdown" => {
                 self.advance();
@@ -1989,6 +2005,218 @@ impl<'a> Parser<'a> {
                 let path = self.parse_expr()?;
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Svg { path })
+            }
+            "qrcode" => {
+                self.advance();
+                let source = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::QrCode { source })
+            }
+            "stack" => {
+                self.advance();
+                self.eat(&Tok::Newline);
+                let (children, spacing, padding) = self.parse_container_body("Stack")?;
+                Some(ViewNode::Stack { children, spacing, padding })
+            }
+            "tooltip" => {
+                self.advance();
+                let hint = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                let mut position = TooltipPos::Bottom;
+                let mut children = Vec::new();
+                loop {
+                    self.skip_newlines();
+                    match self.peek().clone() {
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Tooltip")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Position") => {
+                            self.advance();
+                            let pos = self.expect_ident(
+                                "for Position — `Top`, `Bottom`, `Left`, `Right`, or `FollowCursor`",
+                            )?;
+                            position = match pos.to_ascii_lowercase().as_str() {
+                                "top" => TooltipPos::Top,
+                                "bottom" => TooltipPos::Bottom,
+                                "left" => TooltipPos::Left,
+                                "right" => TooltipPos::Right,
+                                "followcursor" => TooltipPos::FollowCursor,
+                                _ => {
+                                    self.diags.error_at(
+                                        self.span(),
+                                        self.line(),
+                                        format!(
+                                            "`Position` takes Top, Bottom, Left, Right, or \
+                                             FollowCursor — found `{pos}`."
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            };
+                            self.eat(&Tok::Newline);
+                        }
+                        _ => children.push(self.parse_view_node()?),
+                    }
+                }
+                if children.is_empty() {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "A Tooltip needs a child widget to hover over.",
+                    );
+                    return None;
+                }
+                Some(ViewNode::Tooltip { hint, position, children })
+            }
+            "mousearea" => {
+                self.advance();
+                self.eat(&Tok::Newline);
+                let mut on_click = None;
+                let mut on_right_click = None;
+                let mut on_enter = None;
+                let mut on_exit = None;
+                let mut on_move = None;
+                let mut children = Vec::new();
+                loop {
+                    self.skip_newlines();
+                    match self.peek().clone() {
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("MouseArea")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        Tok::On => {
+                            self.advance();
+                            match self.peek().clone() {
+                                Tok::Exit => {
+                                    self.advance();
+                                    on_exit = Some(self.expect_ident("for the exit event")?);
+                                    self.eat(&Tok::Newline);
+                                }
+                                Tok::Ident(w) => {
+                                    let kind = w.to_ascii_lowercase();
+                                    self.advance();
+                                    match kind.as_str() {
+                                        "click" => {
+                                            on_click = Some(self.expect_ident("for the click event")?);
+                                        }
+                                        "enter" => {
+                                            on_enter = Some(self.expect_ident("for the enter event")?);
+                                        }
+                                        "move" => {
+                                            on_move = Some(self.expect_ident("for the move event")?);
+                                        }
+                                        "right" => {
+                                            self.expect_kw_ident("Click")?;
+                                            on_right_click =
+                                                Some(self.expect_ident("for the right-click event")?);
+                                        }
+                                        other => {
+                                            self.diags.error_at(
+                                                self.span(),
+                                                self.line(),
+                                                format!(
+                                                    "Inside a MouseArea, `On` takes Click, Right Click, \
+                                                     Enter, Exit, or Move — found `On {other}`."
+                                                ),
+                                            );
+                                            return None;
+                                        }
+                                    }
+                                    self.eat(&Tok::Newline);
+                                }
+                                other => {
+                                    self.diags.error_at(
+                                        self.span(),
+                                        self.line(),
+                                        format!(
+                                            "Inside a MouseArea, `On` takes Click, Right Click, \
+                                             Enter, Exit, or Move — found {:?}.",
+                                            other
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            }
+                        }
+                        _ => children.push(self.parse_view_node()?),
+                    }
+                }
+                if children.is_empty() {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "A MouseArea needs a child widget to watch.",
+                    );
+                    return None;
+                }
+                Some(ViewNode::MouseArea {
+                    on_click,
+                    on_right_click,
+                    on_enter,
+                    on_exit,
+                    on_move,
+                    children,
+                })
+            }
+            "responsive" => {
+                self.advance();
+                let breakpoint = if matches!(self.peek(), Tok::Int(_)) {
+                    self.parse_array_size()? as u16
+                } else {
+                    600
+                };
+                self.eat(&Tok::Newline);
+                let mut narrow = None;
+                let mut wide = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek().clone() {
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Responsive")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("narrow") => {
+                            self.advance();
+                            self.eat(&Tok::Newline);
+                            let (children, _, _) = self.parse_container_body("Narrow")?;
+                            narrow = Some(children);
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("wide") => {
+                            self.advance();
+                            self.eat(&Tok::Newline);
+                            let (children, _, _) = self.parse_container_body("Wide")?;
+                            wide = Some(children);
+                        }
+                        other => {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                format!(
+                                    "Inside Responsive expected `Narrow`, `Wide`, or `End Responsive`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                let (Some(narrow), Some(wide)) = (narrow, wide) else {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "A Responsive needs both a `Narrow` pane and a `Wide` pane.",
+                    );
+                    return None;
+                };
+                Some(ViewNode::Responsive { breakpoint, narrow, wide })
             }
             "text" => {
                 self.advance();
@@ -2438,6 +2666,7 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 let mut on_change = None;
                 let mut step = None;
+                let mut vertical = false;
                 loop {
                     self.skip_newlines();
                     match self.peek().clone() {
@@ -2452,6 +2681,11 @@ impl<'a> Parser<'a> {
                             step = Some(self.parse_expr()?);
                             self.eat(&Tok::Newline);
                         }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Vertical") => {
+                            self.advance();
+                            vertical = true;
+                            self.eat(&Tok::Newline);
+                        }
                         Tok::End => {
                             self.advance();
                             self.expect_kw_ident("Slider")?;
@@ -2463,8 +2697,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a Slider expected `On Change <event>`, `Step n`, or \
-                                     `End Slider`, found {:?}.",
+                                    "Inside a Slider expected `On Change <event>`, `Step n`, \
+                                     `Vertical`, or `End Slider`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2485,7 +2719,7 @@ impl<'a> Parser<'a> {
                         return None;
                     }
                 };
-                Some(ViewNode::Slider { min, max, value, on_change, step })
+                Some(ViewNode::Slider { min, max, value, on_change, step, vertical })
             }
             "toggler" => {
                 self.advance();
@@ -2596,9 +2830,10 @@ impl<'a> Parser<'a> {
                     self.line(),
                     format!(
                         "Unknown widget `{}` (have: Column, Row, Frame, Tabs, Space, Scrollable, Rule, \
-                         Text, Button, TextInput, Checkbox, Slider, Toggler, ProgressBar, Radio, \
-                         TextArea, Chooser, Markdown, Image, Svg, Canvas, Input, Memo, List, Table, \
-                         Gauge, Sparkline, BarChart, Chart, Match, If).",
+                         Stack, Tooltip, MouseArea, Responsive, Text, Button, TextInput, Checkbox, \
+                         Slider, Toggler, ProgressBar, Radio, TextArea, Chooser, Markdown, Image, Svg, \
+                         QrCode, Canvas, Input, Memo, List, Table, Gauge, Sparkline, BarChart, Chart, \
+                         Match, If).",
                         other
                     ),
                 );

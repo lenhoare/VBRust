@@ -632,9 +632,17 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             | ViewNode::Rule { .. }
             | ViewNode::Chooser { .. }
             | ViewNode::Markdown { .. }
-            | ViewNode::Svg { .. } => {}
-            ViewNode::Scrollable { children, .. } => {
+            | ViewNode::Svg { .. }
+            | ViewNode::QrCode { .. } => {}
+            ViewNode::Scrollable { children, .. }
+            | ViewNode::Stack { children, .. }
+            | ViewNode::Tooltip { children, .. }
+            | ViewNode::MouseArea { children, .. } => {
                 children.iter().for_each(|c| walk(c, out))
+            }
+            ViewNode::Responsive { narrow, wide, .. } => {
+                narrow.iter().for_each(|c| walk(c, out));
+                wide.iter().for_each(|c| walk(c, out));
             }
         }
     }
@@ -1458,6 +1466,39 @@ fn render_view_node(
                 indent, out, diags,
             );
         }
+        ViewNode::Stack { children, spacing, padding } => {
+            let col = ViewNode::Column {
+                children: children.clone(),
+                spacing: *spacing,
+                padding: *padding,
+            };
+            render_view_node(
+                &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
+                indent, out, diags,
+            );
+        }
+        ViewNode::Tooltip { children, .. } | ViewNode::MouseArea { children, .. } => {
+            let col = ViewNode::Column {
+                children: children.clone(),
+                spacing: None,
+                padding: None,
+            };
+            render_view_node(
+                &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
+                indent, out, diags,
+            );
+        }
+        ViewNode::Responsive { narrow, .. } => {
+            let col = ViewNode::Column {
+                children: narrow.clone(),
+                spacing: None,
+                padding: None,
+            };
+            render_view_node(
+                &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
+                indent, out, diags,
+            );
+        }
         ViewNode::Rule { horizontal } => {
             let line = if *horizontal { "─".repeat(40) } else { "│".to_string() };
             out.push_str(&format!(
@@ -1624,6 +1665,11 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Chooser { .. } => "Chooser",
         ViewNode::Markdown { .. } => "Markdown",
         ViewNode::Svg { .. } => "Svg",
+        ViewNode::QrCode { .. } => "QrCode",
+        ViewNode::Stack { .. } => "Stack",
+        ViewNode::Tooltip { .. } => "Tooltip",
+        ViewNode::MouseArea { .. } => "MouseArea",
+        ViewNode::Responsive { .. } => "Responsive",
         ViewNode::Rule { .. } => "Rule",
         ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Tabs { .. } => "Tabs",
