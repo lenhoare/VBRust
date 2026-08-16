@@ -1896,6 +1896,100 @@ impl<'a> Parser<'a> {
                 self.eat(&Tok::Newline);
                 Some(ViewNode::Space { horizontal, amount })
             }
+            "scrollable" => {
+                self.advance();
+                self.eat(&Tok::Newline);
+                let (children, spacing, padding) = self.parse_container_body("Scrollable")?;
+                Some(ViewNode::Scrollable { children, spacing, padding })
+            }
+            "rule" => {
+                self.advance();
+                let dim = self.expect_ident("for `Rule` — `Horizontal` or `Vertical`")?;
+                let horizontal = match dim.to_ascii_lowercase().as_str() {
+                    "horizontal" => true,
+                    "vertical" => false,
+                    _ => {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            format!("`Rule` takes `Horizontal` or `Vertical`, found `{dim}`."),
+                        );
+                        return None;
+                    }
+                };
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Rule { horizontal })
+            }
+            "chooser" => {
+                self.advance();
+                let value = self.expect_ident("for the bound Chooser field")?;
+                let from = self.expect_ident("after the field — `Chooser field From options`")?;
+                if !from.eq_ignore_ascii_case("from") {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        format!("A Chooser is `Chooser field From options` — found `{from}`."),
+                    );
+                    return None;
+                }
+                let options = self.expect_ident("for the options Vec field")?;
+                self.eat(&Tok::Newline);
+                let mut on_select = None;
+                loop {
+                    self.skip_newlines();
+                    match self.peek() {
+                        Tok::On => {
+                            self.advance();
+                            self.expect(&Tok::Select, "in `On Select`")?;
+                            on_select = Some(self.expect_ident("for the select event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::End => {
+                            self.advance();
+                            self.expect_kw_ident("Chooser")?;
+                            self.eat(&Tok::Newline);
+                            break;
+                        }
+                        other => {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                format!(
+                                    "Inside a Chooser expected `On Select <event>` or `End Chooser`, \
+                                     found {:?}.",
+                                    other
+                                ),
+                            );
+                            return None;
+                        }
+                    }
+                }
+                let on_select = match on_select {
+                    Some(ev) => ev,
+                    None => {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            "A Chooser needs `On Select <event>` — the pick list always reports \
+                             the chosen value.",
+                        );
+                        return None;
+                    }
+                };
+                Some(ViewNode::Chooser { value, options, on_select })
+            }
+            "markdown" => {
+                self.advance();
+                let source = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Markdown { source })
+            }
+            "svg" => {
+                self.advance();
+                let path = self.parse_expr()?;
+                self.eat(&Tok::Newline);
+                Some(ViewNode::Svg { path })
+            }
             "text" => {
                 self.advance();
                 let e = self.parse_expr()?;
@@ -2179,13 +2273,19 @@ impl<'a> Parser<'a> {
                 let label = self.parse_expr()?;
                 self.eat(&Tok::Newline);
                 let mut on_click = None;
+                let mut enabled = None;
                 loop {
                     self.skip_newlines();
-                    match self.peek() {
+                    match self.peek().clone() {
                         Tok::On => {
                             self.advance();
                             self.expect_kw_ident("Click")?;
                             on_click = Some(self.expect_ident("for the click event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Enabled") => {
+                            self.advance();
+                            enabled = Some(self.parse_expr()?);
                             self.eat(&Tok::Newline);
                         }
                         Tok::End => {
@@ -2199,8 +2299,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a Button expected `On Click <event>` or `End Button`, \
-                                     found {:?}.",
+                                    "Inside a Button expected `On Click <event>`, `Enabled <expr>`, \
+                                     or `End Button`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2208,7 +2308,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Some(ViewNode::Button { label, on_click })
+                Some(ViewNode::Button { label, on_click, enabled })
             }
             "textinput" => {
                 self.advance();
@@ -2218,13 +2318,38 @@ impl<'a> Parser<'a> {
                 let value = self.expect_ident("for the bound state field")?;
                 self.eat(&Tok::Newline);
                 let mut on_input = None;
+                let mut on_submit = None;
+                let mut secure = false;
                 loop {
                     self.skip_newlines();
-                    match self.peek() {
+                    match self.peek().clone() {
                         Tok::On => {
                             self.advance();
-                            self.expect_kw_ident("Input")?;
-                            on_input = Some(self.expect_ident("for the input event")?);
+                            let kind = self.expect_ident("after `On` — `Input` or `Submit`")?;
+                            match kind.to_ascii_lowercase().as_str() {
+                                "input" => {
+                                    on_input = Some(self.expect_ident("for the input event")?);
+                                }
+                                "submit" => {
+                                    on_submit = Some(self.expect_ident("for the submit event")?);
+                                }
+                                _ => {
+                                    self.diags.error_at(
+                                        self.span(),
+                                        self.line(),
+                                        format!(
+                                            "Inside a TextInput expected `On Input` or `On Submit`, \
+                                             found `On {kind}`."
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            }
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::Ident(w) if w.eq_ignore_ascii_case("Secure") => {
+                            self.advance();
+                            secure = true;
                             self.eat(&Tok::Newline);
                         }
                         Tok::End => {
@@ -2238,8 +2363,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a TextInput expected `On Input <event>` or \
-                                     `End TextInput`, found {:?}.",
+                                    "Inside a TextInput expected `On Input <event>`, \
+                                     `On Submit <event>`, `Secure`, or `End TextInput`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2247,7 +2372,13 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Some(ViewNode::TextInput { placeholder, value, on_input })
+                Some(ViewNode::TextInput {
+                    placeholder,
+                    value,
+                    on_input,
+                    on_submit,
+                    secure,
+                })
             }
             "textarea" => {
                 // Multi-line editor: just the bound field — the edit handler is
@@ -2306,13 +2437,19 @@ impl<'a> Parser<'a> {
                 let value = self.expect_ident("for the bound state field")?;
                 self.eat(&Tok::Newline);
                 let mut on_change = None;
+                let mut step = None;
                 loop {
                     self.skip_newlines();
-                    match self.peek() {
+                    match self.peek().clone() {
                         Tok::On => {
                             self.advance();
                             self.expect_kw_ident("Change")?;
                             on_change = Some(self.expect_ident("for the change event")?);
+                            self.eat(&Tok::Newline);
+                        }
+                        Tok::Step => {
+                            self.advance();
+                            step = Some(self.parse_expr()?);
                             self.eat(&Tok::Newline);
                         }
                         Tok::End => {
@@ -2326,8 +2463,8 @@ impl<'a> Parser<'a> {
                                 self.span(),
                                 self.line(),
                                 format!(
-                                    "Inside a Slider expected `On Change <event>` or `End Slider`, \
-                                     found {:?}.",
+                                    "Inside a Slider expected `On Change <event>`, `Step n`, or \
+                                     `End Slider`, found {:?}.",
                                     other
                                 ),
                             );
@@ -2348,7 +2485,7 @@ impl<'a> Parser<'a> {
                         return None;
                     }
                 };
-                Some(ViewNode::Slider { min, max, value, on_change })
+                Some(ViewNode::Slider { min, max, value, on_change, step })
             }
             "toggler" => {
                 self.advance();
@@ -2458,9 +2595,10 @@ impl<'a> Parser<'a> {
                     self.span(),
                     self.line(),
                     format!(
-                        "Unknown widget `{}` (have: Column, Row, Frame, Tabs, Space, Text, Button, TextInput, \
-                         Checkbox, Slider, Toggler, ProgressBar, Radio, TextArea, Image, Canvas, \
-                         Input, Memo, List, Table, Gauge, Sparkline, BarChart, Chart, Match, If).",
+                        "Unknown widget `{}` (have: Column, Row, Frame, Tabs, Space, Scrollable, Rule, \
+                         Text, Button, TextInput, Checkbox, Slider, Toggler, ProgressBar, Radio, \
+                         TextArea, Chooser, Markdown, Image, Svg, Canvas, Input, Memo, List, Table, \
+                         Gauge, Sparkline, BarChart, Chart, Match, If).",
                         other
                     ),
                 );

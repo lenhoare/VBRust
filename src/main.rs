@@ -1839,6 +1839,8 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
     let async_gui = entry_compiled.rust.contains("spawn_blocking");
     let uses_image = entry_compiled.rust.contains("iced::widget::image");
     let uses_canvas = entry_compiled.rust.contains("iced::widget::Canvas::new(");
+    let uses_markdown = entry_compiled.rust.contains("iced::widget::markdown");
+    let uses_svg = entry_compiled.rust.contains("iced::widget::svg");
     let uses_time = entry_compiled.rust.contains("iced::time::every");
     let uses_advanced = entry_compiled.rust.contains("iced::advanced::");
     let mut deps: Vec<(String, String)> = entry_compiled.dependencies.clone();
@@ -1969,6 +1971,12 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
             }
             if uses_canvas {
                 feats.push("\"canvas\"");
+            }
+            if uses_markdown {
+                feats.push("\"markdown\"");
+            }
+            if uses_svg {
+                feats.push("\"svg\"");
             }
             if uses_advanced {
                 feats.push("\"advanced\"");

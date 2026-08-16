@@ -444,7 +444,7 @@ fn render_node(
         ViewNode::Text(e) => {
             out.push_str(&format!("{}<p class=\"vbr-text\">{{ {} }}</p>\n", pad, text_content(e, ctx)));
         }
-        ViewNode::Button { label, on_click } => {
+        ViewNode::Button { label, on_click, .. } => {
             let lbl = text_content(label, ctx);
             match on_click {
                 Some(ev) => out.push_str(&format!(
@@ -459,7 +459,7 @@ fn render_node(
         }
         // A controlled text input: the value always comes from state, and each
         // keystroke sends the input's new text to the bound event.
-        ViewNode::TextInput { placeholder, value, on_input } => {
+        ViewNode::TextInput { placeholder, value, on_input, .. } => {
             let ph = render_expr(
                 &rewrite_expr_with(placeholder.clone(), "self", ctx.fields, ctx.enums),
                 None,
@@ -502,7 +502,7 @@ fn render_node(
         }
         // A numeric slider over min..=max — each drag sends the new value,
         // cast to the bound field's type (the DOM reports it as a float).
-        ViewNode::Slider { min, max, value, on_change } => {
+        ViewNode::Slider { min, max, value, on_change, .. } => {
             let field = rust_name(value);
             let cast = match ctx.field_ty.get(&field) {
                 Some(DeclType::Plain(t)) => t.rust(),
@@ -722,6 +722,11 @@ fn web_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Radio { .. } => "Radio",
         ViewNode::Canvas { .. } => "Canvas",
         ViewNode::Space { .. } => "Space",
+        ViewNode::Chooser { .. } => "Chooser",
+        ViewNode::Markdown { .. } => "Markdown",
+        ViewNode::Svg { .. } => "Svg",
+        ViewNode::Rule { .. } => "Rule",
+        ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Input { .. } => "Input",
         ViewNode::List { .. } => "List",
         ViewNode::Table { .. } => "Table",
@@ -770,11 +775,15 @@ pub fn page_assets(program: &Program) -> Vec<String> {
     fn walk(node: &ViewNode, out: &mut Vec<String>) {
         match node {
             ViewNode::Image { path: Expr { kind: ExprKind::Str(s), .. } }
+            | ViewNode::Svg { path: Expr { kind: ExprKind::Str(s), .. } }
                 if !s.starts_with("http://") && !s.starts_with("https://") =>
             {
                 out.push(s.clone());
             }
-            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } | ViewNode::Frame { children, .. } => {
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Frame { children, .. }
+            | ViewNode::Scrollable { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Tabs { tabs, .. } => {

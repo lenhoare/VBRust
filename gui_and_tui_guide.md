@@ -170,9 +170,13 @@ mouse-driven controls.
 
 ### Widgets
 
-Beyond `Text` and `Button`, a window has the controls you'd expect — text inputs,
-checkboxes, togglers, sliders, progress bars, radio groups, and images. Each
-event-producing control names the event it fires. A slider is typical:
+Beyond `Text` and `Button`, a window has the controls you'd expect — text inputs
+(`On Submit` / `Secure` for a password), checkboxes, togglers, sliders (`Step`),
+progress bars, radio groups, images, SVG, and Markdown. `Chooser field From options`
+is a dropdown (`options` is a `Vec` of the same type as `field`). `Frame`, `Tabs`,
+`List`, and `Table` use the same names as a Screen. `Scrollable` and `Rule` handle
+overflow and separators. Each event-producing control names the event it fires.
+A slider is typical:
 
 ```vb
 Slider 0..=50, input
@@ -237,7 +241,8 @@ Window Counter
 `NightOwl` and `JellyFish` work here too (custom Iced palettes). The same names
 apply to a `Page`. The palette is chosen when the window opens — it isn't a live
 picker. `goodexamples/desk` is a forms Window that uses the everyday widgets
-under `Theme JellyFish`.
+under `Theme JellyFish`. `goodexamples/folio` is the same palette with Tabs, a
+Chooser, a Table, Markdown, and Svg.
 
 ### Sketch — a drawing, including the GPU
 

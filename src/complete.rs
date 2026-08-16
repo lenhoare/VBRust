@@ -414,6 +414,7 @@ const KEYWORDS: &[&str] = &[
     "Sub", "Const", "Type", "Enum", "True", "False", "Not", "And", "Or", "Await", "Log", "Test",
     "Assert", "Handle", "RaiseError", "Raw", "Theme", "Rust", "Python",
     "Window", "Screen", "Page", "Sketch", "Gpu",
+    "Chooser", "Scrollable", "Markdown", "Svg",
 ];
 
 const BUILTINS: &[(&str, &str)] = &[

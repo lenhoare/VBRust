@@ -1,0 +1,45 @@
+' Chooser (pick list), Scrollable, and Rule.
+Window Picker
+    Title "Chooser"
+
+    State
+        Dim fruit As String = "Apple"
+        Dim fruits As Vec<String> = Fruits()
+        Dim status As String = "Apple"
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 16
+            Text "Pick a fruit"
+            Chooser fruit From fruits
+                On Select Pick
+            End Chooser
+            Rule Horizontal
+            Scrollable
+                Text "one"
+                Text "two"
+                Text "three"
+            End Scrollable
+            Text status
+        End Column
+    End View
+
+    Event Pick(value As String)
+        fruit = value
+        status = "picked"
+    End Event
+End Window
+
+Function Fruits() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("Apple")
+    v.Push("Pear")
+    v.Push("Plum")
+    Return v
+End Function
+
+Function Main()
+    Picker.Run
+End Function

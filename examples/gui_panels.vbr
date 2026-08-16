@@ -1,0 +1,64 @@
+' Window Frame, Tabs, List, and Table — same Bust names as a Screen.
+Type Person
+    Public name As String
+    Public city As String
+End Type
+
+Window Panels
+    Title "Panels"
+
+    State
+        Dim tab As Integer = 0
+        Dim fruits As Vec<String> = Fruits()
+        Dim people As Vec<Person> = Roster()
+        Dim pick As String = "(none)"
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 16
+            Tabs tab
+                Tab "List"
+                    Frame "Fruit"
+                        List fruits
+                            On Select PickFruit
+                        End List
+                    End Frame
+                End Tab
+                Tab "Table"
+                    Table people
+                        On Select PickPerson
+                    End Table
+                End Tab
+            End Tabs
+            Text pick
+        End Column
+    End View
+
+    Event PickFruit(item As String)
+        pick = item
+    End Event
+
+    Event PickPerson(who As Person)
+        pick = who.name & " / " & who.city
+    End Event
+End Window
+
+Function Fruits() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("Apple")
+    v.Push("Pear")
+    Return v
+End Function
+
+Function Roster() As Vec<Person>
+    Dim v As Vec<Person>
+    v.Push(Person { name: "Ada", city: "London" })
+    v.Push(Person { name: "Grace", city: "New York" })
+    Return v
+End Function
+
+Function Main()
+    Panels.Run
+End Function

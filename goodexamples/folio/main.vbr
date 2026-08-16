@@ -1,0 +1,115 @@
+' A Window using the new GUI widgets under JellyFish.
+' Run:  vbr runproject goodexamples/folio
+
+Type Person
+    Public name As String
+    Public city As String
+End Type
+
+Window Folio
+    Title "Folio"
+    Theme JellyFish
+
+    State
+        Dim tab As Integer = 0
+        Dim fruit As String = "Pear"
+        Dim fruits As Vec<String> = Fruits()
+        Dim people As Vec<Person> = Roster()
+        Dim secret As String = ""
+        Dim warmth As Integer = 45
+        Dim ok As Boolean = True
+        Dim doc As String = "# Folio" & Chr(10) & Chr(10) & "Tabs, a list, a table, a **chooser**, and markdown."
+        Dim status As String = "hello"
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 20
+            Text "Folio"
+            Tabs tab
+                Tab "Desk"
+                    Column
+                        Spacing 10
+                        Chooser fruit From fruits
+                            On Select PickFruit
+                        End Chooser
+                        Rule Horizontal
+                        TextInput "password", secret
+                            On Input SetSecret
+                            On Submit Sign
+                            Secure
+                        End TextInput
+                        Slider 0..=100, warmth
+                            Step 5
+                            On Change SetWarmth
+                        End Slider
+                        Button "Sign"
+                            On Click Sign
+                            Enabled ok
+                        End Button
+                        Text status
+                    End Column
+                End Tab
+                Tab "People"
+                    Frame "Roster"
+                        Table people
+                            On Select PickPerson
+                        End Table
+                    End Frame
+                End Tab
+                Tab "Notes"
+                    Scrollable
+                        Markdown doc
+                    End Scrollable
+                End Tab
+                Tab "Mark"
+                    Column
+                        Svg "mark.svg"
+                        Text "svg"
+                    End Column
+                End Tab
+            End Tabs
+        End Column
+    End View
+
+    Event PickFruit(value As String)
+        fruit = value
+        status = "picked"
+    End Event
+
+    Event PickPerson(who As Person)
+        status = who.name & " — " & who.city
+    End Event
+
+    Event SetSecret(value As String)
+        secret = value
+    End Event
+
+    Event SetWarmth(value As Integer)
+        warmth = value
+    End Event
+
+    Event Sign
+        status = fruit & " / warmth " & warmth
+    End Event
+End Window
+
+Function Fruits() As Vec<String>
+    Dim v As Vec<String>
+    v.Push("Apple")
+    v.Push("Pear")
+    v.Push("Plum")
+    Return v
+End Function
+
+Function Roster() As Vec<Person>
+    Dim v As Vec<Person>
+    v.Push(Person { name: "Ada", city: "London" })
+    v.Push(Person { name: "Grace", city: "New York" })
+    Return v
+End Function
+
+Function Main()
+    Folio.Run
+End Function

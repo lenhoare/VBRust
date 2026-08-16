@@ -1,0 +1,20 @@
+' Markdown in a Window — a String field, parsed into hidden state.
+Window Doc
+    Title "Markdown"
+    Theme JellyFish
+
+    State
+        Dim doc As String = "# Hello" & Chr(10) & Chr(10) & "This is **Markdown** in a Window."
+    End State
+
+    View
+        Column
+            Padding 20
+            Markdown doc
+        End Column
+    End View
+End Window
+
+Function Main()
+    Doc.Run
+End Function

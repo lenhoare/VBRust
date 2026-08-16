@@ -393,7 +393,8 @@ End Tabs
 
 Layout is a one-row bar plus a Fill body (several children in a pane stack as a
 Column). Size lines work inside a `Tab` the same as in `Column`. `Tab` is only
-valid inside `Tabs`. Screen-only — a Window gets a teaching error.
+valid inside `Tabs`. A Window uses the same `Tabs` / `Tab` names (Iced buttons
++ a `match` on the index) — see `gui_spec.md` §4.6.
 
 A **focusable** widget (`List`/`Input`/`Table`/…) may live inside a pane; its
 selection/typing state is wired up even when that pane is hidden. Example:

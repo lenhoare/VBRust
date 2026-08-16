@@ -355,6 +355,40 @@ decode). A display-only window (no events) still compiles warning-free.
 
 ---
 
+#### Markdown  *(BUILT)*
+
+Renders a Markdown `String` (a literal, or a state field). Parsed into hidden
+state (`__md0`, …) so the view can borrow the items; the cache is rebuilt in
+`Default` and after every event.
+
+```vb
+State
+    Dim doc As String = "# Hello" & Chr(10) & Chr(10) & "This is **Markdown**."
+End State
+...
+Markdown doc
+```
+
+Maps to `iced::widget::markdown::view` (auto-adds Iced's **`markdown`** feature).
+Link clicks are accepted and ignored for now (`MarkdownLink`). Put a long document
+inside `Scrollable`. Showcase: `goodexamples/folio` (Notes tab).
+
+---
+
+#### Svg  *(BUILT)*
+
+An SVG from a file path, same shape as `Image`.
+
+```vb
+Svg "mark.svg"
+Svg badgePath
+```
+
+Maps to `iced::widget::svg(...)` (auto-adds Iced's **`svg`** feature). A project
+folder copies the `.svg` into `build/` with the other data files.
+
+---
+
 ### 4.2 Input Controls
 
 #### TextInput  *(BUILT — slice 2)*
@@ -374,6 +408,20 @@ End Event
 ```
 
 Maps to Iced `text_input("Enter your name", &state.name).on_input(Message::Rename)`.
+
+`On Submit <Event>` fires when the user presses Enter (no extra payload — the
+field already holds the text). `Secure` hides the typed characters (a password
+field):
+
+```vb
+TextInput "password", secret
+    On Input SetSecret
+    On Submit Sign
+    Secure
+End TextInput
+```
+
+→ `.on_submit(Message::Sign).secure(true)`.
 
 The binding is **explicit** by design: the event makes the message-passing
 mechanism visible (the point of a teaching tool) and gives you a place to
@@ -424,6 +472,16 @@ End Event
 
 Maps to Iced `button`.
 
+`Enabled <expr>` — when the expression is false the button does not fire
+(`on_press_maybe`):
+
+```vb
+Button "Sign"
+    On Click Sign
+    Enabled ok
+End Button
+```
+
 The compiler may later allow shorthand syntax:
 
 ```vb
@@ -472,6 +530,15 @@ End Event
 ```
 
 Maps to `slider(0..=100, state.volume, Message::SetVolume)`.
+
+`Step n` is optional — the thumb jumps by `n` (Iced `.step(n)`):
+
+```vb
+Slider 0..=100, warmth
+    Step 5
+    On Change SetWarmth
+End Slider
+```
 
 The bound field must be a type Iced can convert to `f64` — `Integer`, `Single`,
 `Double`, or `Byte`. A `Long` (i64) is rejected with a friendly error.
@@ -532,35 +599,34 @@ came together.
 
 ---
 
-#### Slider
+#### Chooser  *(BUILT)*
 
-Numeric input over a range.
-
-```vb
-Slider volume From 0 To 100
-Slider opacity From 0.0 To 1.0 Step 0.01
-```
-
-Maps to Iced `slider`.
-
-The bound state field may be integer or floating-point, depending on the declared state type and range.
-
----
-
-#### Chooser
-
-Dropdown selection from a list.
+A dropdown (`pick_list`). The bound field holds the selection; `From` names a
+**`Vec` state field of the same type** (not a literal list, not `From EnumName`):
 
 ```vb
-Chooser mode From ["Simple", "Advanced", "Expert"]
-Chooser selectedName From names
+State
+    Dim fruit As String = "Pear"
+    Dim fruits As Vec<String> = Fruits()
+End State
+...
+Chooser fruit From fruits
+    On Select PickFruit
+End Chooser
+
+Event PickFruit(value As String)
+    fruit = value
+End Event
 ```
 
-Maps to Iced `pick_list`.
+`On Select` is required — the pick list always reports a choice. Maps to
+`pick_list(&state.fruits[..], Some(state.fruit.clone()), Message::PickFruit)`.
+A `String` field assigned from the event parameter is **moved** — a second
+`status = value` in the same event will not compile; write a literal or
+`status = fruit` after `fruit = value`.
 
-A searchable chooser may later map to Iced `combo_box`, but `Chooser` V1 should mean a simple dropdown selection.
-
-V1 does not include a VB-style permanently open listbox, but we should add it to the next version.
+A searchable chooser may later map to Iced `combo_box`. For a permanently open
+list, use `List` (§4.6).
 
 ---
 
@@ -779,7 +845,69 @@ End Sketch
 
 Don't name a kernel local `u` (it shadows the uniform struct). `Theme` is a teaching error — colour the paper with `Background`, not a widget palette. A `View` is a teaching error — for buttons around a drawing, use a `Window` with a `Canvas`.
 
-See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), `examples/sketch_mandelbrot.vbr`. GPU showpieces: `goodexamples/plasma`, `goodexamples/frost`, `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`. A forms Window using the everyday widgets is `goodexamples/desk` (`Theme JellyFish`).
+See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `examples/sketch_pixels.vbr` (per-pixel), `examples/sketch_mandelbrot.vbr`. GPU showpieces: `goodexamples/plasma`, `goodexamples/frost`, `goodexamples/pond`, `goodexamples/aurora`, `goodexamples/ember`. A forms Window using the everyday widgets is `goodexamples/desk` (`Theme JellyFish`). The newer Window widgets (Tabs, Chooser, Markdown, Svg, …) are `goodexamples/folio`.
+
+---
+
+### 4.6 Structure — Frame, Tabs, List, Table  *(BUILT)*
+
+The same Bust names a `Screen` already uses. On a Window they lower to Iced
+widgets (not ratatui).
+
+#### Frame
+
+A bordered box wrapping children. The title is optional (`Frame` alone is just
+the border); a title is emitted as a `Text` above the body.
+
+```vb
+Frame "Roster"
+    Table people
+        On Select PickPerson
+    End Table
+End Frame
+```
+
+Maps to `container(column).padding(10).width(Fill).style(container::bordered_box)`.
+
+#### Tabs
+
+`Tabs <field>` … `Tab <title>` … `End Tab` … `End Tabs`. `field` is an
+**`Integer` index, 0-based**. The bar is a row of buttons (primary = selected).
+Omit `On Change` and a `Message::{Field}Picked(i32)` is generated that assigns
+the index (`tab` → `TabPicked`).
+
+```vb
+Tabs tab
+    Tab "Desk"
+        Text "hello"
+    End Tab
+    Tab "Notes"
+        Markdown doc
+    End Tab
+End Tabs
+```
+
+#### List
+
+`List <field>` over a `Vec<String>`. Optional `On Select` sends `item.clone()`.
+The column is wrapped in `scrollable`.
+
+```vb
+List fruits
+    On Select PickFruit
+End List
+```
+
+#### Table
+
+`Table <field>` over a `Vec<Struct>` — one column per public struct field, field
+names as the header. Optional `On Select` sends `row.clone()`.
+
+```vb
+Table people
+    On Select PickPerson
+End Table
+```
 
 ---
 
@@ -853,21 +981,19 @@ Maps to Iced `container`.
 
 ---
 
-### 5.4 Scrollable
+### 5.4 Scrollable  *(BUILT)*
 
-Allows child content to scroll.
+Allows child content to scroll. Children stack as a `Column`.
 
 ```vb
 Scrollable
-    Column
-        For Each item In items
-            Text item
-        Next
-    End Column
+    Markdown doc
 End Scrollable
 ```
 
-Maps to Iced `scrollable`.
+Maps to `iced::widget::scrollable(column![…])`. `For Each` inside a View is not
+built yet — walk a `Vec` with `List` / `Table`, or put `Markdown` / `Text` in
+the scrollable.
 
 ---
 
@@ -884,7 +1010,7 @@ Maps to `iced::widget::Space::with_height(20)` / `::with_width(10)`.
 
 ---
 
-### 5.6 Rule
+### 5.6 Rule  *(BUILT)*
 
 Displays a horizontal or vertical separator.
 
@@ -893,7 +1019,7 @@ Rule Horizontal
 Rule Vertical
 ```
 
-Maps to Iced `rule`.
+Maps to `horizontal_rule(1)` / `vertical_rule(1)`.
 
 ---
 
@@ -1312,12 +1438,9 @@ The following are deliberately not part of V1:
 
 ```text
 Absolute positioning
-VB-style ListBox
 TreeView
-DataGrid/Table
 Menus
 Toolbars
-Tabs
 Docking layouts
 MDI
 Native OS widget fidelity
@@ -1335,19 +1458,19 @@ Some of these may be added later. They should not block V1.
 Potential V1.5 or V2 controls:
 
 ```text
-List
-Markdown
-Svg
-Combobox
-MenuBar
-Toolbar
+Combobox          (Iced combo_box — searchable Chooser)
 Tooltip
-Table
-Tabs
 VerticalSlider
+PaneGrid          (resizable split panes)
+Stack             (overlay)
+QrCode
+MouseArea
+Themer            (live theme on a subtree — Window Theme stays compile-time)
 FilePicker
 ColorPicker
 DatePicker
+MenuBar
+Toolbar
 
 Way down the line, maybe
 CustomControl
@@ -1394,21 +1517,26 @@ Bust GUI V1 should provide:
 
 ```text
 Text
-TextBox
+TextInput
 TextArea
 Button
 Image
-CheckBox
-Toggle
-RadioButton
+Svg
+Markdown
+Checkbox
+Toggler
+Radio
 Slider
 Chooser
 ProgressBar
 Canvas
+Frame
+Tabs
+List
+Table
 
 Row
 Column
-Container
 Scrollable
 Space
 Rule

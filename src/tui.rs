@@ -628,7 +628,14 @@ fn collect_focusables(view: &ViewNode) -> Vec<Focusable> {
             | ViewNode::TextArea { .. }
             | ViewNode::Slider { .. }
             | ViewNode::Toggler { .. }
-            | ViewNode::ProgressBar { .. } => {}
+            | ViewNode::ProgressBar { .. }
+            | ViewNode::Rule { .. }
+            | ViewNode::Chooser { .. }
+            | ViewNode::Markdown { .. }
+            | ViewNode::Svg { .. } => {}
+            ViewNode::Scrollable { children, .. } => {
+                children.iter().for_each(|c| walk(c, out))
+            }
         }
     }
     walk(view, &mut out);
@@ -1440,6 +1447,24 @@ fn render_view_node(
             }
             out.push_str(&format!("{}}}\n", pad));
         }
+        ViewNode::Scrollable { children, spacing, padding } => {
+            let col = ViewNode::Column {
+                children: children.clone(),
+                spacing: *spacing,
+                padding: *padding,
+            };
+            render_view_node(
+                &col, area, fields, field_ty, enums, structs, multi, web, themed, focus_seq, counter,
+                indent, out, diags,
+            );
+        }
+        ViewNode::Rule { horizontal } => {
+            let line = if *horizontal { "─".repeat(40) } else { "│".to_string() };
+            out.push_str(&format!(
+                "{}frame.render_widget(Paragraph::new({:?}), {});\n",
+                pad, line, area
+            ));
+        }
         other => {
             let name = tui_node_name(other);
             if name == "TextArea" {
@@ -1508,6 +1533,7 @@ fn child_constraint(node: &ViewNode) -> String {
         | ViewNode::Row { .. }
         | ViewNode::Frame { .. }
         | ViewNode::Tabs { .. }
+        | ViewNode::Scrollable { .. }
         | ViewNode::Match { .. }
         | ViewNode::If { .. }
         | ViewNode::List { .. }
@@ -1595,6 +1621,11 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
         ViewNode::Radio { .. } => "Radio",
         ViewNode::Image { .. } => "Image",
         ViewNode::Canvas { .. } => "Canvas",
+        ViewNode::Chooser { .. } => "Chooser",
+        ViewNode::Markdown { .. } => "Markdown",
+        ViewNode::Svg { .. } => "Svg",
+        ViewNode::Rule { .. } => "Rule",
+        ViewNode::Scrollable { .. } => "Scrollable",
         ViewNode::Tabs { .. } => "Tabs",
         ViewNode::Memo { .. } => "Memo",
         ViewNode::Match { .. } => "Match",

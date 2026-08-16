@@ -477,6 +477,8 @@ pub enum ViewNode {
     Button {
         label: Expr,
         on_click: Option<String>,
+        /// `Enabled <expr>` — when false the button has no `on_press` (Iced's disabled look).
+        enabled: Option<Expr>,
     },
     /// A text entry box bound to a `String` state field. `on_input` names the
     /// event fired on each keystroke (which receives the new text).
@@ -484,6 +486,10 @@ pub enum ViewNode {
         placeholder: Expr,
         value: String,
         on_input: Option<String>,
+        /// `On Submit <Event>` — Enter. The event reads the field; it carries no payload.
+        on_submit: Option<String>,
+        /// `Secure` — mask the typed characters (a password field).
+        secure: bool,
     },
     /// A multi-line text editor (Iced `text_editor`) bound to a state field
     /// declared `As TextArea` (a `text_editor::Content`). The edit handler is
@@ -506,6 +512,33 @@ pub enum ViewNode {
         max: Expr,
         value: String,
         on_change: String,
+        /// `Step n` — Iced slider increment. Omit and Iced uses 1 (or 0.01 for floats).
+        step: Option<Expr>,
+    },
+    /// `Scrollable` … `End Scrollable` — children in an Iced scrollable.
+    Scrollable {
+        children: Vec<ViewNode>,
+        spacing: Option<u16>,
+        padding: Option<u16>,
+    },
+    /// `Rule Horizontal` / `Rule Vertical` — a separator line.
+    Rule {
+        horizontal: bool,
+    },
+    /// `Chooser field From options` — Iced `pick_list`. `options` is a `Vec` state
+    /// field of the same type as `field`. `On Select` is required.
+    Chooser {
+        value: String,
+        options: String,
+        on_select: String,
+    },
+    /// `Markdown <expr>` — Iced markdown from a string (literal or `String` field).
+    Markdown {
+        source: Expr,
+    },
+    /// `Svg "icon.svg"` / `Svg field` — Iced svg from a path, like `Image`.
+    Svg {
+        path: Expr,
     },
     /// An on/off switch bound to a `Boolean` state field (Iced `toggler`). Like a
     /// checkbox, but a switch; `on_toggle` fires with the new `bool`.

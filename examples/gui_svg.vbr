@@ -1,0 +1,16 @@
+' Svg in a Window — a path, like Image.
+Window Badge
+    Title "Svg"
+
+    View
+        Column
+            Padding 20
+            Svg "mark.svg"
+            Text "a jellyfish"
+        End Column
+    End View
+End Window
+
+Function Main()
+    Badge.Run
+End Function

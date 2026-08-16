@@ -1,0 +1,55 @@
+' TextInput On Submit / Secure, Button Enabled, Slider Step.
+Window Polish
+    Title "Polish"
+
+    State
+        Dim secret As String = ""
+        Dim warmth As Integer = 40
+        Dim ok As Boolean = False
+        Dim status As String = "locked"
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 16
+            TextInput "password", secret
+                On Input SetSecret
+                On Submit Unlock
+                Secure
+            End TextInput
+            Checkbox "I have the key", ok
+                On Toggle SetOk
+            End Checkbox
+            Slider 0..=100, warmth
+                Step 5
+                On Change SetWarmth
+            End Slider
+            Button "Unlock"
+                On Click Unlock
+                Enabled ok
+            End Button
+            Text status
+        End Column
+    End View
+
+    Event SetSecret(value As String)
+        secret = value
+    End Event
+
+    Event SetOk(value As Boolean)
+        ok = value
+    End Event
+
+    Event SetWarmth(value As Integer)
+        warmth = value
+    End Event
+
+    Event Unlock
+        status = "opened — warmth " & warmth
+    End Event
+End Window
+
+Function Main()
+    Polish.Run
+End Function

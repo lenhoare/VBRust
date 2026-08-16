@@ -1036,3 +1036,158 @@ End Function\n";
         compiled.rust
     );
 }
+
+#[test]
+fn gui_tabs_list_table_frame_emit() {
+    let src = r#"
+Type Person
+    Public name As String
+    Public city As String
+End Type
+Window W
+    Title "W"
+    State
+        Dim tab As Integer = 0
+        Dim fruits As Vec<String>
+        Dim people As Vec<Person>
+    End State
+    View
+        Column
+            Frame "Box"
+                Tabs tab
+                    Tab "A"
+                        List fruits
+                            On Select Pick
+                        End List
+                    End Tab
+                    Tab "B"
+                        Table people
+                            On Select Show
+                        End Table
+                    End Tab
+                End Tabs
+            End Frame
+        End Column
+    End View
+    Event Pick(item As String)
+    End Event
+    Event Show(who As Person)
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains("bordered_box"), "Frame should be a bordered container: {rust}");
+    assert!(rust.contains("TabPicked") || rust.contains("tabPicked"), "auto tab message: {rust}");
+    assert!(rust.contains("for item in &state.fruits"), "List should walk the Vec: {rust}");
+    assert!(rust.contains("for row in &state.people"), "Table should walk the Vec: {rust}");
+}
+
+#[test]
+fn gui_chooser_scrollable_rule_emit() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim fruit As String = "Apple"
+        Dim fruits As Vec<String>
+    End State
+    View
+        Column
+            Chooser fruit From fruits
+                On Select Pick
+            End Chooser
+            Rule Horizontal
+            Scrollable
+                Text "hi"
+            End Scrollable
+        End Column
+    End View
+    Event Pick(value As String)
+        fruit = value
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains("pick_list"), "Chooser → pick_list: {rust}");
+    assert!(rust.contains("horizontal_rule"), "Rule → horizontal_rule: {rust}");
+    assert!(rust.contains("scrollable"), "Scrollable → scrollable: {rust}");
+}
+
+#[test]
+fn gui_textinput_secure_submit_button_enabled_slider_step() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim secret As String = ""
+        Dim n As Integer = 10
+        Dim ok As Boolean = True
+    End State
+    View
+        Column
+            TextInput "pw", secret
+                On Input SetSecret
+                On Submit Go
+                Secure
+            End TextInput
+            Slider 0..=100, n
+                Step 5
+                On Change SetN
+            End Slider
+            Button "Go"
+                On Click Go
+                Enabled ok
+            End Button
+        End Column
+    End View
+    Event SetSecret(value As String)
+        secret = value
+    End Event
+    Event SetN(value As Integer)
+        n = value
+    End Event
+    Event Go
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(rust.contains(".secure(true)"), "Secure: {rust}");
+    assert!(rust.contains("on_submit(Message::Go)"), "On Submit: {rust}");
+    assert!(rust.contains("on_press_maybe"), "Enabled: {rust}");
+    assert!(rust.contains(".step(5)"), "Slider Step: {rust}");
+}
+
+#[test]
+fn gui_markdown_and_svg_emit() {
+    let src = r##"
+Window W
+    Title "W"
+    State
+        Dim doc As String = "# Hi"
+    End State
+    View
+        Column
+            Markdown doc
+            Svg "mark.svg"
+        End Column
+    End View
+End Window
+Function Main()
+    W.Run
+End Function
+"##;
+    let rust = rust_of(src);
+    assert!(rust.contains("markdown::parse"), "Markdown parse: {rust}");
+    assert!(rust.contains("iced::widget::svg"), "Svg widget: {rust}");
+    assert!(rust.contains("MarkdownLink"), "link message: {rust}");
+}
+

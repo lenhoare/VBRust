@@ -21,6 +21,11 @@ struct ViewCtx<'a> {
     fields: &'a HashSet<String>,
     field_ty: &'a HashMap<String, DeclType>,
     enums: &'a HashSet<String>,
+    structs: &'a crate::resolver::StructTable,
+    /// `iced::Theme::Dracula` (or a custom palette expr) — markdown uses its palette.
+    theme_expr: String,
+    /// Next `Markdown` widget index (`__md0`, `__md1`, …) parsed at the top of `view`.
+    markdown_i: std::cell::Cell<usize>,
     /// For each canvas placed in this view, the state fields its `Draw` block
     /// reads — snapshotted into the canvas Program when it's constructed.
     canvas_snaps: &'a HashMap<String, Vec<String>>,
@@ -551,8 +556,22 @@ fn emit_window(
         }
     }
 
-    let ctx = ViewCtx { fields: &fields, field_ty: &field_ty, enums, canvas_snaps: &canvas_snaps };
-    validate_view(&w.view, &field_ty, diags);
+    let theme_expr = w
+        .theme
+        .as_ref()
+        .and_then(|n| crate::theme::lookup(n))
+        .map(|s| s.iced_expr())
+        .unwrap_or_else(|| "iced::Theme::Dark".to_string());
+    let ctx = ViewCtx {
+        fields: &fields,
+        field_ty: &field_ty,
+        enums,
+        structs: &t.structs,
+        theme_expr,
+        markdown_i: std::cell::Cell::new(0),
+        canvas_snaps: &canvas_snaps,
+    };
+    validate_view(&w.view, &field_ty, &t.structs, diags);
     if let Some(t) = &w.theme {
         if canonical_theme(t).is_none() {
             diags.error_once(
@@ -602,6 +621,8 @@ fn emit_window(
     // The multi-line editor fields (declared `As TextArea`) — held as a stateful
     // `text_editor::Content`, each with an auto-generated edit message.
     let textareas = collect_textareas(&w.view);
+    let auto_tabs = collect_auto_tabs(&w.view);
+    let has_markdown = view_has_markdown(&w.view);
 
     // ── State struct ──
     out.push_str(&format!("struct {} {{\n", ty));
@@ -612,6 +633,11 @@ fn emit_window(
             decltype_rust(&f.ty)
         };
         out.push_str(&format!("    {}: {},\n", rust_name(&f.name), fty));
+    }
+    let md_init = collect_markdown_args(&w.view, &fields, enums, "");
+    let md_upd = collect_markdown_args(&w.view, &fields, enums, "state.");
+    for i in 0..md_init.len() {
+        out.push_str(&format!("    __md{i}: Vec<iced::widget::markdown::Item>,\n"));
     }
     out.push_str("}\n\n");
 
@@ -643,6 +669,11 @@ fn emit_window(
             None
         }
     });
+    for (i, src) in md_init.iter().enumerate() {
+        out.push_str(&format!(
+            "        let __md{i} = iced::widget::markdown::parse({src}).collect();\n"
+        ));
+    }
     if fallible {
         out.push_str(&format!("        Ok({} {{\n", ty));
     } else {
@@ -650,6 +681,9 @@ fn emit_window(
     }
     for name in &names {
         out.push_str(&format!("            {},\n", name));
+    }
+    for i in 0..md_init.len() {
+        out.push_str(&format!("            __md{i},\n"));
     }
     if fallible {
         out.push_str("        })\n    }\n}\n\n");
@@ -681,6 +715,12 @@ fn emit_window(
             to_pascal(field)
         ));
     }
+    for field in &auto_tabs {
+        out.push_str(&format!("    {}Picked(i32),\n", to_pascal(field)));
+    }
+    if has_markdown {
+        out.push_str("    MarkdownLink(String),\n");
+    }
     out.push_str("}\n\n");
 
     // ── update: state-field idents are rewritten to `state.field`. An async
@@ -689,7 +729,7 @@ fn emit_window(
     let ret = if any_async { " -> Task<Message>" } else { "" };
     // With no events and no text areas, nothing touches `state` — underscore it
     // so a display-only window (e.g. just an Image) compiles warning-free.
-    let state_param = if w.events.is_empty() && textareas.is_empty() {
+    let state_param = if w.events.is_empty() && textareas.is_empty() && auto_tabs.is_empty() && md_upd.is_empty() {
         "_state"
     } else {
         "state"
@@ -698,7 +738,11 @@ fn emit_window(
         "fn update({}: &mut {}, message: Message){} {{\n",
         state_param, ty, ret
     ));
-    out.push_str("    match message {\n");
+    if any_async && !md_upd.is_empty() {
+        out.push_str("    let __task = match message {\n");
+    } else {
+        out.push_str("    match message {\n");
+    }
     for (e, split) in w.events.iter().zip(&splits) {
         // The triggering variant's arm header.
         if e.params.is_empty() {
@@ -754,12 +798,36 @@ fn emit_window(
         }
         out.push_str("        }\n");
     }
-    out.push_str("    }\n}\n\n");
-
-    // ── view ──
-    out.push_str(&format!("fn view(state: &{}) -> Element<'_, Message> {{\n", ty));
+    for field in &auto_tabs {
+        out.push_str(&format!("        Message::{}Picked(v) => {{\n", to_pascal(field)));
+        out.push_str(&format!("            state.{} = v;\n", field));
+        if any_async {
+            out.push_str("            Task::none()\n");
+        }
+        out.push_str("        }\n");
+    }
+    if has_markdown {
+        out.push_str("        Message::MarkdownLink(_url) => {\n");
+        if any_async {
+            out.push_str("            Task::none()\n");
+        }
+        out.push_str("        }\n");
+    }
+    out.push_str("    }\n");
+    for (i, src) in md_upd.iter().enumerate() {
+        out.push_str(&format!(
+            "    state.__md{i} = iced::widget::markdown::parse({src}).collect();\n"
+        ));
+    }
+    if any_async && !md_upd.is_empty() {
+        out.push_str("    __task\n");
+    }
+    out.push_str("}\n\n");
+    let view_body = render_view(&w.view, &ctx, 1, true);
+    let view_param = if view_body.contains("state.") { "state" } else { "_state" };
+    out.push_str(&format!("fn view({}: &{}) -> Element<'_, Message> {{\n", view_param, ty));
     out.push_str("    ");
-    out.push_str(&render_view(&w.view, &ctx, 1, true));
+    out.push_str(&view_body);
     out.push('\n');
     out.push_str("}\n");
 
@@ -984,13 +1052,26 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
         ViewNode::Row { children, spacing, padding } => {
             return render_container("row", children, ctx, indent, as_element, *spacing, *padding)
         }
-        ViewNode::Frame { children, spacing, padding, .. } => {
-            // TUI-only; validate_view rejects it. Render children so the tree still walks.
-            return render_container("column", children, ctx, indent, as_element, *spacing, *padding)
+        ViewNode::Scrollable { children, spacing, padding } => {
+            return render_scrollable(children, ctx, indent, as_element, *spacing, *padding)
         }
-        ViewNode::Tabs { tabs, .. } => {
-            let children: Vec<ViewNode> = tabs.iter().flat_map(|p| p.children.clone()).collect();
-            return render_container("column", &children, ctx, indent, as_element, None, None)
+        ViewNode::Frame { title, children, spacing, padding } => {
+            return render_frame(title.as_ref(), children, ctx, indent, as_element, *spacing, *padding)
+        }
+        ViewNode::Tabs { field, tabs, on_change } => {
+            return render_tabs(field, tabs, on_change.as_deref(), ctx, indent, as_element)
+        }
+        ViewNode::List { field, on_select } => {
+            return render_list(field, on_select.as_deref(), ctx, indent, as_element)
+        }
+        ViewNode::Table { field, on_select } => {
+            return render_table(field, on_select.as_deref(), ctx, indent, as_element)
+        }
+        ViewNode::Chooser { value, options, on_select } => {
+            return render_chooser(value, options, on_select, ctx, as_element)
+        }
+        ViewNode::Markdown { source } => {
+            return render_markdown(source, ctx, indent, as_element)
         }
         ViewNode::Match { scrutinee, arms } => return render_view_match(scrutinee, arms, ctx, indent),
         ViewNode::If { branches, else_body } => return render_view_if(branches, else_body, ctx, indent),
@@ -1001,21 +1082,32 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
     // Leaf widgets — a single line.
     let s = match node {
         ViewNode::Text(e) => render_text(e, ctx),
-        ViewNode::Button { label, on_click } => {
+        ViewNode::Button { label, on_click, enabled } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
-            match on_click {
-                Some(ev) => format!("button({}).on_press(Message::{})", lbl, ev),
-                None => format!("button({})", lbl),
+            let base = format!("button({})", lbl);
+            match (on_click, enabled) {
+                (Some(ev), Some(en)) => {
+                    let cond = render_expr(&rewrite_expr(en.clone(), ctx.fields, ctx.enums), None);
+                    format!("{base}.on_press_maybe(({cond}).then_some(Message::{ev}))")
+                }
+                (Some(ev), None) => format!("{base}.on_press(Message::{ev})"),
+                (None, _) => base,
             }
         }
-        ViewNode::TextInput { placeholder, value, on_input } => {
+        ViewNode::TextInput { placeholder, value, on_input, on_submit, secure } => {
             let ph = render_expr(&rewrite_expr(placeholder.clone(), ctx.fields, ctx.enums), None);
             let field = rust_name(value);
-            let base = format!("text_input({}, &state.{})", ph, field);
-            match on_input {
-                Some(ev) => format!("{}.on_input(Message::{})", base, ev),
-                None => base,
+            let mut s = format!("text_input({}, &state.{})", ph, field);
+            if let Some(ev) = on_input {
+                s.push_str(&format!(".on_input(Message::{ev})"));
             }
+            if let Some(ev) = on_submit {
+                s.push_str(&format!(".on_submit(Message::{ev})"));
+            }
+            if *secure {
+                s.push_str(".secure(true)");
+            }
+            s
         }
         ViewNode::Checkbox { label, value, on_toggle } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
@@ -1027,14 +1119,21 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
                 None => base,
             }
         }
-        ViewNode::Slider { min, max, value, on_change } => {
+        ViewNode::Slider { min, max, value, on_change, step } => {
             let lo = render_expr(&rewrite_expr(min.clone(), ctx.fields, ctx.enums), None);
             let hi = render_expr(&rewrite_expr(max.clone(), ctx.fields, ctx.enums), None);
             let field = rust_name(value);
-            format!(
+            let mut s = format!(
                 "slider({}..={}, state.{}, Message::{})",
                 lo, hi, field, on_change
-            )
+            );
+            if let Some(st) = step {
+                s.push_str(&format!(
+                    ".step({})",
+                    render_expr(&rewrite_expr(st.clone(), ctx.fields, ctx.enums), None)
+                ));
+            }
+            s
         }
         ViewNode::Toggler { label, value, on_toggle } => {
             let lbl = render_expr(&rewrite_expr(label.clone(), ctx.fields, ctx.enums), None);
@@ -1122,12 +1221,23 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             }
             s
         }
-        // Input/List/Table/Gauge/Sparkline/BarChart are Screen (TUI) widgets —
-        // invalid in a Window; `validate_view` reports it, so this placeholder is
-        // never compiled.
+        ViewNode::Rule { horizontal } => {
+            if *horizontal {
+                "iced::widget::horizontal_rule(1)".to_string()
+            } else {
+                "iced::widget::vertical_rule(1)".to_string()
+            }
+        }
+        ViewNode::Svg { path } => {
+            let p = render_expr(&rewrite_expr(path.clone(), ctx.fields, ctx.enums), None);
+            match &path.kind {
+                ExprKind::Str(_) => format!("iced::widget::svg({})", p),
+                _ => format!("iced::widget::svg({}.clone())", p),
+            }
+        }
+        // Input/Gauge/Sparkline/BarChart/Chart/Memo stay Screen-only; validate_view
+        // reports them, so this placeholder is never compiled.
         ViewNode::Input { .. }
-        | ViewNode::List { .. }
-        | ViewNode::Table { .. }
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
         | ViewNode::BarChart { .. }
@@ -1136,9 +1246,18 @@ fn render_view(node: &ViewNode, ctx: &ViewCtx, indent: usize, as_element: bool) 
             "iced::widget::Space::new(iced::Length::Shrink, iced::Length::Shrink)".to_string()
         }
         // Containers/conditionals/constrained returned early above.
-        ViewNode::Column { .. } | ViewNode::Row { .. } | ViewNode::Frame { .. } | ViewNode::Tabs { .. }
+        ViewNode::Column { .. }
+        | ViewNode::Row { .. }
+        | ViewNode::Scrollable { .. }
+        | ViewNode::Frame { .. }
+        | ViewNode::Tabs { .. }
+        | ViewNode::List { .. }
+        | ViewNode::Table { .. }
+        | ViewNode::Chooser { .. }
+        | ViewNode::Markdown { .. }
         | ViewNode::Match { .. }
-        | ViewNode::If { .. } | ViewNode::Constrained { .. } => {
+        | ViewNode::If { .. }
+        | ViewNode::Constrained { .. } => {
             unreachable!()
         }
     };
@@ -1184,6 +1303,203 @@ fn render_container(
     s.push_str(&props);
     s.push_str(tail);
     s
+}
+
+fn render_scrollable(
+    children: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+    spacing: Option<u16>,
+    padding: Option<u16>,
+) -> String {
+    let inner = render_container("column", children, ctx, indent, false, spacing, padding);
+    let s = format!("iced::widget::scrollable({inner})");
+    if as_element {
+        format!("{s}.into()")
+    } else {
+        s
+    }
+}
+
+fn render_frame(
+    title: Option<&Expr>,
+    children: &[ViewNode],
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+    spacing: Option<u16>,
+    padding: Option<u16>,
+) -> String {
+    let mut body = children.to_vec();
+    if let Some(t) = title {
+        body.insert(0, ViewNode::Text(t.clone()));
+    }
+    let inner = render_container("column", &body, ctx, indent, false, spacing, padding);
+    let s = format!(
+        "iced::widget::container({inner}).padding(10).width(iced::Length::Fill)\
+         .style(iced::widget::container::bordered_box)"
+    );
+    if as_element {
+        format!("{s}.into()")
+    } else {
+        s
+    }
+}
+
+fn render_tabs(
+    field: &str,
+    tabs: &[TabPane],
+    on_change: Option<&str>,
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let f = rust_name(field);
+    let pad = "    ".repeat(indent);
+    let in1 = "    ".repeat(indent + 1);
+    let mut bar = String::from("row![\n");
+    for (i, pane) in tabs.iter().enumerate() {
+        let title = render_expr(&rewrite_expr(pane.title.clone(), ctx.fields, ctx.enums), None);
+        let msg = match on_change {
+            Some(ev) => format!("Message::{ev}({i})"),
+            None => format!("Message::{}Picked({i})", to_pascal(&f)),
+        };
+        bar.push_str(&in1);
+        bar.push_str(&format!(
+            "{{ let b = button({title}); let el: Element<'_, Message> = if state.{f} == {i} {{ \
+             b.style(iced::widget::button::primary).into() }} else {{ \
+             b.style(iced::widget::button::secondary).on_press({msg}).into() }}; el }},\n"
+        ));
+    }
+    bar.push_str(&pad);
+    bar.push(']');
+    bar.push_str(".spacing(6)");
+    let bar = format!("{{ let bar: Element<'_, Message> = {bar}.into(); bar }}");
+
+    let mut panes = String::from("match state.");
+    panes.push_str(&f);
+    panes.push_str(" {\n");
+    for (i, pane) in tabs.iter().enumerate() {
+        let body = render_container("column", &pane.children, ctx, indent + 1, true, None, None);
+        panes.push_str(&format!("{in1}{i} => {body},\n"));
+    }
+    panes.push_str(&format!("{in1}_ => column![].into(),\n"));
+    panes.push_str(&pad);
+    panes.push('}');
+    let panes = format!("{{ let pane: Element<'_, Message> = {panes}; pane }}");
+
+    let s = format!(
+        "{{\n{in1}let el: Element<'_, Message> = column![\n{in1}    {bar},\n{in1}    {panes},\n{in1}].spacing(12).into();\n{pad}    el\n{pad}}}"
+    );
+    let _ = as_element;
+    s
+}
+
+fn render_list(
+    field: &str,
+    on_select: Option<&str>,
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let f = rust_name(field);
+    let pad = "    ".repeat(indent);
+    let in1 = "    ".repeat(indent + 1);
+    let push = match on_select {
+        Some(ev) => format!(
+            "items = items.push(button(text(item.clone())).on_press(Message::{ev}(item.clone())));"
+        ),
+        None => "items = items.push(text(item.clone()));".to_string(),
+    };
+    let _ = ctx;
+    let s = format!(
+        "{{\n{in1}let mut items = column![];\n\
+         {in1}for item in &state.{f} {{\n\
+         {in1}    {push}\n\
+         {in1}}}\n\
+         {in1}let el: Element<'_, Message> = iced::widget::scrollable(items).into();\n\
+         {pad}    el\n{pad}}}"
+    );
+    let _ = as_element;
+    s
+}
+
+fn render_table(
+    field: &str,
+    on_select: Option<&str>,
+    ctx: &ViewCtx,
+    indent: usize,
+    as_element: bool,
+) -> String {
+    let f = rust_name(field);
+    let pad = "    ".repeat(indent);
+    let in1 = "    ".repeat(indent + 1);
+    let cols: &[(String, DeclType)] = match ctx.field_ty.get(&f) {
+        Some(DeclType::Vec(inner)) => match &**inner {
+            DeclType::Named(n) => ctx.structs.get(n).map(|s| s.as_slice()).unwrap_or(&[]),
+            _ => &[],
+        },
+        _ => &[],
+    };
+    let headers: Vec<String> = cols
+        .iter()
+        .map(|(name, _)| format!("text({:?})", name))
+        .collect();
+    let cells: Vec<String> = cols
+        .iter()
+        .map(|(name, ty)| {
+            let acc = format!("row.{}", rust_name(name));
+            match ty {
+                DeclType::Plain(Type::Text) => format!("text({acc}.clone())"),
+                _ => format!("text({acc}.to_string())"),
+            }
+        })
+        .collect();
+    let header = format!("row![{}].spacing(16)", headers.join(", "));
+    let row_inner = format!("row![{}].spacing(16)", cells.join(", "));
+    let push = match on_select {
+        Some(ev) => format!(
+            "rows = rows.push(button({row_inner}).on_press(Message::{ev}(row.clone())));"
+        ),
+        None => format!("rows = rows.push({row_inner});"),
+    };
+    let _ = as_element;
+    format!(
+        "{{\n{in1}let mut rows = column![{header}];\n\
+         {in1}for row in &state.{f} {{\n\
+         {in1}    {push}\n\
+         {in1}}}\n\
+         {in1}let el: Element<'_, Message> = iced::widget::scrollable(rows).into();\n\
+         {pad}    el\n{pad}}}"
+    )
+}
+
+fn render_chooser(value: &str, options: &str, on_select: &str, ctx: &ViewCtx, as_element: bool) -> String {
+    let field = rust_name(value);
+    let opts = rust_name(options);
+    let selected = match ctx.field_ty.get(&field) {
+        Some(DeclType::Plain(Type::Text)) => format!("Some(state.{field}.clone())"),
+        _ => format!("Some(state.{field})"),
+    };
+    let _ = as_element;
+    format!(
+        "{{ let el: Element<'_, Message> = pick_list(&state.{opts}[..], {selected}, Message::{on_select}).into(); el }}"
+    )
+}
+
+fn render_markdown(source: &Expr, ctx: &ViewCtx, indent: usize, as_element: bool) -> String {
+    let _ = (source, indent, as_element);
+    let i = ctx.markdown_i.get();
+    ctx.markdown_i.set(i + 1);
+    format!(
+        "iced::widget::markdown::view(\
+         &state.__md{i}, \
+         iced::widget::markdown::Settings::default(), \
+         iced::widget::markdown::Style::from_palette(({}).palette())\
+         ).map(|u| Message::MarkdownLink(u.to_string()))",
+        ctx.theme_expr
+    )
 }
 
 /// A container child, honoring a `Length`/`Fill` size line: the child is wrapped
@@ -1288,7 +1604,12 @@ fn render_arm_body(body: &[ViewNode], ctx: &ViewCtx, indent: usize) -> String {
 /// Walk the view for type mismatches we can explain better than rustc would.
 /// Currently: an Iced `Slider`'s value must be convertible to `f64`, which rules
 /// out `Long`/`LongLong` (i64) — point the user at `Integer`/`Single`/`Double`.
-fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &mut Diagnostics) {
+fn validate_view(
+    node: &ViewNode,
+    field_ty: &HashMap<String, DeclType>,
+    structs: &crate::resolver::StructTable,
+    diags: &mut Diagnostics,
+) {
     match node {
         ViewNode::Constrained { size, child } => {
             if matches!(size, SizeConstraint::Percent(_) | SizeConstraint::Min(_)) {
@@ -1298,11 +1619,9 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
                      and `Min` are Screen (TUI) only.",
                 );
             }
-            validate_view(child, field_ty, diags);
+            validate_view(child, field_ty, structs, diags);
         }
         ViewNode::Input { .. }
-        | ViewNode::List { .. }
-        | ViewNode::Table { .. }
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
         | ViewNode::BarChart { .. }
@@ -1314,35 +1633,83 @@ fn validate_view(node: &ViewNode, field_ty: &HashMap<String, DeclType>, diags: &
              for charts.",
         ),
         ViewNode::Frame { children, .. } => {
-            diags.error_once(
-                "tui-widget-in-window",
-                "A Frame is a Screen (TUI) panel — it isn't available in a Window. In a GUI use \
-                 `Column`/`Row` (and a window title) instead.",
-            );
-            children.iter().for_each(|c| validate_view(c, field_ty, diags));
+            children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
-        ViewNode::Tabs { tabs, .. } => {
-            diags.error_once(
-                "tui-widget-in-window",
-                "Tabs is a Screen (TUI) widget — it isn't available in a Window.",
-            );
+        ViewNode::Scrollable { children, .. } => {
+            children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
+        }
+        ViewNode::Tabs { field, tabs, .. } => {
+            if !matches!(field_ty.get(&rust_name(field)), Some(DeclType::Plain(Type::Integer))) {
+                diags.error_once(
+                    &format!("tabs-field-{}", rust_name(field)),
+                    format!(
+                        "Tabs binds to an `Integer` state field (0 = first tab) — `{field}` isn't one."
+                    ),
+                );
+            }
             tabs.iter()
-                .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, diags)));
+                .for_each(|p| p.children.iter().for_each(|c| validate_view(c, field_ty, structs, diags)));
+        }
+        ViewNode::List { field, .. } => {
+            let ok = matches!(
+                field_ty.get(&rust_name(field)),
+                Some(DeclType::Vec(inner)) if matches!(&**inner, DeclType::Plain(Type::Text))
+            );
+            if !ok {
+                diags.error_once(
+                    &format!("list-field-{}", rust_name(field)),
+                    format!("A List binds to a `Vec<String>` state field — `{field}` isn't one."),
+                );
+            }
+        }
+        ViewNode::Table { field, .. } => {
+            let ok = matches!(
+                field_ty.get(&rust_name(field)),
+                Some(DeclType::Vec(inner))
+                    if matches!(&**inner, DeclType::Named(n) if structs.get(n).is_some_and(|fields| !fields.is_empty()))
+            );
+            if !ok {
+                diags.error_once(
+                    &format!("table-field-{}", rust_name(field)),
+                    format!(
+                        "A Table binds to a `Vec<Struct>` state field (its columns come from the \
+                         struct's fields) — `{field}` isn't one."
+                    ),
+                );
+            }
+        }
+        ViewNode::Chooser { value, options, .. } => {
+            let vf = rust_name(value);
+            let of = rust_name(options);
+            let val_ty = field_ty.get(&vf);
+            let opt_ok = matches!(
+                field_ty.get(&of),
+                Some(DeclType::Vec(inner)) if val_ty.is_some_and(|v| v == inner.as_ref())
+            );
+            if !opt_ok {
+                diags.error_once(
+                    &format!("chooser-opts-{of}"),
+                    format!(
+                        "A Chooser is `Chooser field From options` where `options` is a `Vec` of \
+                         the same type as `field` — `{options}` doesn't match `{value}`."
+                    ),
+                );
+            }
         }
         ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
-            children.iter().for_each(|c| validate_view(c, field_ty, diags));
+            children.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
         }
         ViewNode::Match { arms, .. } => {
             for arm in arms {
-                arm.body.iter().for_each(|c| validate_view(c, field_ty, diags));
+                arm.body.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
             }
         }
         ViewNode::If { branches, else_body } => {
             for (_, b) in branches {
-                b.iter().for_each(|c| validate_view(c, field_ty, diags));
+                b.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
             }
             if let Some(b) = else_body {
-                b.iter().for_each(|c| validate_view(c, field_ty, diags));
+                b.iter().for_each(|c| validate_view(c, field_ty, structs, diags));
             }
         }
         ViewNode::Slider { value, .. } => {
@@ -1445,10 +1812,10 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
                     out.push(f);
                 }
             }
-            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
-                children.iter().for_each(|c| walk(c, out));
-            }
-            ViewNode::Frame { children, .. } => {
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Tabs { tabs, .. } => {
@@ -1475,6 +1842,126 @@ fn collect_textareas(node: &ViewNode) -> Vec<String> {
     out
 }
 
+/// Tabs with no `On Change` — we synthesise `{Field}Picked(i32)` to set the index.
+fn collect_auto_tabs(node: &ViewNode) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(node: &ViewNode, out: &mut Vec<String>) {
+        match node {
+            ViewNode::Tabs { field, on_change: None, tabs } => {
+                let f = rust_name(field);
+                if !out.contains(&f) {
+                    out.push(f);
+                }
+                tabs.iter().for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter().for_each(|p| p.children.iter().for_each(|c| walk(c, out)));
+            }
+            ViewNode::Constrained { child, .. } => walk(child, out),
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. } => {
+                children.iter().for_each(|c| walk(c, out));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, &mut out);
+    out
+}
+
+fn markdown_parse_arg(source: &Expr, fields: &HashSet<String>, enums: &HashSet<String>, prefix: &str) -> String {
+    match &source.kind {
+        ExprKind::Str(_) => render_expr(source, None),
+        ExprKind::Ident(name) if fields.contains(&rust_name(name)) => {
+            format!("{prefix}{}.as_str()", rust_name(name))
+        }
+        _ => format!(
+            "&format!(\"{{}}\", {})",
+            render_expr(&rewrite_expr(source.clone(), fields, enums), None)
+        ),
+    }
+}
+
+fn collect_markdown_args(
+    node: &ViewNode,
+    fields: &HashSet<String>,
+    enums: &HashSet<String>,
+    prefix: &str,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(
+        node: &ViewNode,
+        fields: &HashSet<String>,
+        enums: &HashSet<String>,
+        prefix: &str,
+        out: &mut Vec<String>,
+    ) {
+        match node {
+            ViewNode::Markdown { source } => out.push(markdown_parse_arg(source, fields, enums, prefix)),
+            ViewNode::Constrained { child, .. } => walk(child, fields, enums, prefix, out),
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. } => {
+                children.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+            }
+            ViewNode::Tabs { tabs, .. } => {
+                tabs.iter()
+                    .for_each(|p| p.children.iter().for_each(|c| walk(c, fields, enums, prefix, out)));
+            }
+            ViewNode::Match { arms, .. } => {
+                for a in arms {
+                    a.body.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                }
+            }
+            ViewNode::If { branches, else_body } => {
+                for (_, b) in branches {
+                    b.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                }
+                if let Some(b) = else_body {
+                    b.iter().for_each(|c| walk(c, fields, enums, prefix, out));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(node, fields, enums, prefix, &mut out);
+    out
+}
+
+fn view_has_markdown(node: &ViewNode) -> bool {
+    match node {
+        ViewNode::Markdown { .. } => true,
+        ViewNode::Constrained { child, .. } => view_has_markdown(child),
+        ViewNode::Column { children, .. }
+        | ViewNode::Row { children, .. }
+        | ViewNode::Scrollable { children, .. }
+        | ViewNode::Frame { children, .. } => children.iter().any(view_has_markdown),
+        ViewNode::Tabs { tabs, .. } => tabs.iter().any(|p| p.children.iter().any(view_has_markdown)),
+        ViewNode::Match { arms, .. } => arms.iter().any(|a| a.body.iter().any(view_has_markdown)),
+        ViewNode::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| b.iter().any(view_has_markdown))
+                || else_body.as_ref().is_some_and(|b| b.iter().any(view_has_markdown))
+        }
+        _ => false,
+    }
+}
+
 /// Which Iced widget functions the view tree references, for the `use` line.
 fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
     fn add(used: &mut Vec<&'static str>, w: &'static str) {
@@ -1486,8 +1973,6 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
         ViewNode::Constrained { child, .. } => collect_widgets(child, used),
         // TUI-only; rejected by validate_view.
         ViewNode::Input { .. }
-        | ViewNode::List { .. }
-        | ViewNode::Table { .. }
         | ViewNode::Gauge { .. }
         | ViewNode::Sparkline { .. }
         | ViewNode::BarChart { .. }
@@ -1501,13 +1986,31 @@ fn collect_widgets(node: &ViewNode, used: &mut Vec<&'static str>) {
             add(used, "row");
             children.iter().for_each(|c| collect_widgets(c, used));
         }
-        ViewNode::Frame { children, .. } => {
+        ViewNode::Scrollable { children, .. } | ViewNode::Frame { children, .. } => {
+            add(used, "column");
+            add(used, "text");
             children.iter().for_each(|c| collect_widgets(c, used));
         }
         ViewNode::Tabs { tabs, .. } => {
+            add(used, "column");
+            add(used, "row");
+            add(used, "button");
             tabs.iter()
                 .for_each(|p| p.children.iter().for_each(|c| collect_widgets(c, used)));
         }
+        ViewNode::List { .. } => {
+            add(used, "column");
+            add(used, "button");
+            add(used, "text");
+        }
+        ViewNode::Table { .. } => {
+            add(used, "column");
+            add(used, "row");
+            add(used, "button");
+            add(used, "text");
+        }
+        ViewNode::Chooser { .. } => add(used, "pick_list"),
+        ViewNode::Markdown { .. } | ViewNode::Rule { .. } | ViewNode::Svg { .. } => {}
         // `Space`/`Image`/`Canvas` use fully-qualified paths, so no import needed.
         ViewNode::Space { .. } | ViewNode::Image { .. } | ViewNode::Canvas { .. } => {}
         ViewNode::Text(_) => add(used, "text"),
@@ -1654,10 +2157,10 @@ fn collect_canvases(node: &ViewNode) -> Vec<String> {
                     out.push(name.clone());
                 }
             }
-            ViewNode::Column { children, .. } | ViewNode::Row { children, .. } => {
-                children.iter().for_each(|c| walk(c, out));
-            }
-            ViewNode::Frame { children, .. } => {
+            ViewNode::Column { children, .. }
+            | ViewNode::Row { children, .. }
+            | ViewNode::Scrollable { children, .. }
+            | ViewNode::Frame { children, .. } => {
                 children.iter().for_each(|c| walk(c, out));
             }
             ViewNode::Tabs { tabs, .. } => {
