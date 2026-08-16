@@ -116,6 +116,11 @@ struct Emitter {
     needs_time: bool,
     needs_sys: bool,
     needs_random: bool,
+    needs_val: bool,
+    needs_cdbl: bool,
+    needs_clng: bool,
+    needs_cint: bool,
+    needs_input: bool,
     skip_auto_try: bool,
     emitting_main: bool,
     wrap_ok: bool,
@@ -875,7 +880,7 @@ impl Emitter {
         if matches!(lower.as_str(), "ok" | "err" | "some" | "none" | "iif" | "sleep") {
             return false;
         }
-        if matches!(lower.as_str(), "cdbl" | "clng" | "cint") {
+        if matches!(lower.as_str(), "cdbl" | "clng" | "cint" | "inputbox") {
             return true;
         }
         self.user_fns.contains(&rust_name(name))
@@ -1385,8 +1390,8 @@ impl Emitter {
                 let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                 return format!("Err({})", a.join(", "));
             }
-            // `CStr(x)` — VB's infallible string conversion → Python `str(x)`.
-            "CStr" if args.len() == 1 => {
+            // `CStr`/`Str` — VB's infallible string conversion → Python `str(x)`.
+            "CStr" | "Str" if args.len() == 1 => {
                 let a = self.expr(&args[0]);
                 return format!("str({})", a);
             }
@@ -1398,9 +1403,19 @@ impl Emitter {
             }
             _ => {}
         }
+        if name.eq_ignore_ascii_case("iif") && args.len() == 3 {
+            // Lazy, like the Rust `if`/`else` (not VB's eager IIf).
+            let c = self.expr(&args[0]);
+            let t = self.expr(&args[1]);
+            let e = self.expr(&args[2]);
+            return format!("({}) if ({}) else ({})", t, c, e);
+        }
         if name.eq_ignore_ascii_case("rnd") && args.is_empty() {
             self.needs_random = true;
             return "random.random()".into();
+        }
+        if let Some(s) = self.lower_py_builtin(name, args) {
+            return s;
         }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         if args.len() == 1 {
@@ -1414,6 +1429,7 @@ impl Emitter {
                 "sin" => return math(self, "sin"),
                 "cos" => return math(self, "cos"),
                 "tan" => return math(self, "tan"),
+                "atn" => return math(self, "atan"),
                 "exp" => return math(self, "exp"),
                 "log" => return math(self, "log"), // natural log, like Rust's ln
                 "int" => return math(self, "floor"),
@@ -1426,6 +1442,101 @@ impl Emitter {
             }
         }
         format!("{}({})", rust_name(name), rendered.join(", "))
+    }
+
+    /// String / conversion builtins that aren't maths. Characters, not bytes,
+    /// matching Rust's `chars()` (Python 3 `str` is already code points).
+    fn lower_py_builtin(&mut self, name: &str, args: &[Expr]) -> Option<String> {
+        let n = name.to_ascii_lowercase();
+        let a = |i: usize, e: &mut Emitter| e.expr(&args[i]);
+        Some(match (n.as_str(), args.len()) {
+            ("len", 1) => format!("len({})", a(0, self)),
+            ("ucase", 1) => format!("({}).upper()", a(0, self)),
+            ("lcase", 1) => format!("({}).lower()", a(0, self)),
+            ("trim", 1) => format!("({}).strip()", a(0, self)),
+            ("cstr" | "str", 1) => format!("str({})", a(0, self)),
+            ("chr", 1) => format!("chr(int({}) & 255)", a(0, self)),
+            ("asc", 1) => {
+                let s = a(0, self);
+                format!("(ord(({s})[0]) if ({s}) else 0)")
+            }
+            ("val", 1) => {
+                self.needs_val = true;
+                format!("_vb_val({})", a(0, self))
+            }
+            ("cdbl", 1) => {
+                self.needs_cdbl = true;
+                self.needs_result = true;
+                format!("_vb_cdbl({})", a(0, self))
+            }
+            ("clng", 1) => {
+                self.needs_clng = true;
+                self.needs_result = true;
+                format!("_vb_clng({})", a(0, self))
+            }
+            ("cint", 1) => {
+                self.needs_cint = true;
+                self.needs_result = true;
+                format!("_vb_cint({})", a(0, self))
+            }
+            ("inputbox", 1) => {
+                self.needs_input = true;
+                self.needs_result = true;
+                format!("_vb_input_box({})", a(0, self))
+            }
+            ("left", 2) => format!("({})[:max(int({}), 0)]", a(0, self), a(1, self)),
+            ("right", 2) => {
+                let s = a(0, self);
+                let n = a(1, self);
+                format!("(({s})[-int({n}):] if int({n}) else \"\")")
+            }
+            ("mid", 2) => format!("({})[max(int({}) - 1, 0):]", a(0, self), a(1, self)),
+            ("mid", 3) => {
+                let s = a(0, self);
+                let start = a(1, self);
+                let count = a(2, self);
+                format!(
+                    "({s})[max(int({start}) - 1, 0):max(int({start}) - 1, 0) + int({count})]"
+                )
+            }
+            ("replace", 3) => format!("({}).replace({}, {})", a(0, self), a(1, self), a(2, self)),
+            ("instr", 2) => {
+                self.needs_option = true;
+                let hay = a(0, self);
+                let needle = a(1, self);
+                format!(
+                    "(lambda __i: Some(__i + 1) if __i >= 0 else None)(({hay}).find({needle}))"
+                )
+            }
+            ("round", 2) => {
+                self.needs_round = true;
+                let x = a(0, self);
+                let p = a(1, self);
+                format!("_vb_round(({x}) * (10 ** int({p}))) / (10 ** int({p}))")
+            }
+            ("split", 1) => format!("({}).split(\" \")", a(0, self)),
+            ("split", 2) => format!("({}).split({})", a(0, self), a(1, self)),
+            ("join", 1) => format!("\" \".join({})", a(0, self)),
+            ("join", 2) => format!("({}).join({})", a(1, self), a(0, self)),
+            ("space", 1) => format!("(\" \" * max(int({}), 0))", a(0, self)),
+            ("format", 2) => {
+                let ExprKind::Str(pat) = &args[1].kind else {
+                    return None;
+                };
+                let parsed = crate::fmtpat::FormatPat::parse(pat)?;
+                if parsed.is_bare() {
+                    self.needs_vb = true;
+                    format!("{}.format(_vb({}))", py_str(pat), a(0, self))
+                } else {
+                    format!(
+                        "{}.format({})",
+                        py_str(&parsed.python_pattern()),
+                        a(0, self)
+                    )
+                }
+            }
+            _ => return None,
+        })
     }
 
     fn bin_op(&self, op: BinOp) -> &'static str {
@@ -1558,6 +1669,21 @@ impl Emitter {
             if self.needs_round {
                 names.push("_vb_round");
             }
+            if self.needs_val {
+                names.push("_vb_val");
+            }
+            if self.needs_cdbl {
+                names.push("_vb_cdbl");
+            }
+            if self.needs_clng {
+                names.push("_vb_clng");
+            }
+            if self.needs_cint {
+                names.push("_vb_cint");
+            }
+            if self.needs_input {
+                names.push("_vb_input_box");
+            }
             for ns in &self.stdlib_used {
                 // DataFrame isn't a `vbrpy` class — it re-exports polars builders.
                 if ns != "DataFrame" {
@@ -1595,6 +1721,26 @@ impl Emitter {
             }
             if self.needs_round {
                 code.push_str(VB_ROUND_HELPER);
+                code.push('\n');
+            }
+            if self.needs_val {
+                code.push_str(VB_VAL_HELPER);
+                code.push('\n');
+            }
+            if self.needs_cdbl {
+                code.push_str(VB_CDBL_HELPER);
+                code.push('\n');
+            }
+            if self.needs_clng {
+                code.push_str(VB_CLNG_HELPER);
+                code.push('\n');
+            }
+            if self.needs_cint {
+                code.push_str(VB_CINT_HELPER);
+                code.push('\n');
+            }
+            if self.needs_input {
+                code.push_str(VB_INPUT_HELPER);
                 code.push('\n');
             }
             if self.needs_unwrap {
@@ -1680,6 +1826,52 @@ const VB_ROUND_HELPER: &str = "\
 import math as _math
 def _vb_round(x):
     return _math.floor(x + 0.5) if x >= 0 else _math.ceil(x - 0.5)
+";
+
+/// `Val` — lenient parse, `0.0` on junk, matching Rust's `parse.unwrap_or(0.0)`.
+const VB_VAL_HELPER: &str = "\
+def _vb_val(s):
+    try:
+        return float(str(s).strip())
+    except ValueError:
+        return 0.0
+";
+
+/// `CDbl`/`CLng`/`CInt` — strict parse, `Result` like the Rust builtins.
+const VB_CDBL_HELPER: &str = "\
+def _vb_cdbl(s):
+    try:
+        return Ok(float(str(s).strip()))
+    except ValueError as e:
+        return Err(str(e))
+";
+
+const VB_CLNG_HELPER: &str = "\
+def _vb_clng(s):
+    try:
+        return Ok(int(str(s).strip()))
+    except ValueError as e:
+        return Err(str(e))
+";
+
+const VB_CINT_HELPER: &str = "\
+def _vb_cint(s):
+    try:
+        n = int(str(s).strip())
+        if n < -2147483648 or n > 2147483647:
+            return Err('out of range')
+        return Ok(n)
+    except ValueError as e:
+        return Err(str(e))
+";
+
+/// `InputBox` — prompt + one line; closed input fails, a blank Enter is `\"\"`.
+const VB_INPUT_HELPER: &str = "\
+def _vb_input_box(prompt):
+    try:
+        return Ok(input(prompt))
+    except EOFError:
+        return Err('end of input')
 ";
 
 /// A coarse numeric class used only to choose integer (`//`) vs float (`/`)

@@ -331,6 +331,32 @@ impl Typer {
                 for a in args {
                     self.infer(a);
                 }
+                let n = name.to_ascii_lowercase();
+                // `IIf` yields an arm — type from the arms, not a default Long
+                // (or `Debug.Print IIf(..., "a", "b")` would stringify as integer).
+                if n == "iif" && args.len() == 3 {
+                    return join(&self.infer(&args[1]), &self.infer(&args[2]));
+                }
+                let err = || Box::new(DeclType::Plain(Type::Text));
+                match n.as_str() {
+                    "cdbl" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Double)), err())
+                    }
+                    "clng" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Long)), err())
+                    }
+                    "cint" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Integer)), err())
+                    }
+                    "inputbox" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Text)), err())
+                    }
+                    "instr" => return DeclType::Option(Box::new(DeclType::Plain(Type::Long))),
+                    "split" => {
+                        return DeclType::Vec(Box::new(DeclType::Plain(Type::Text)))
+                    }
+                    _ => {}
+                }
                 if let Some(t) = builtin_return(name) {
                     DeclType::Plain(t)
                 } else if let Some(t) = self.fns.get(&name.to_ascii_lowercase()) {
@@ -563,12 +589,12 @@ pub fn stdlib_instance_return(ty: &str, method: &str) -> Option<DeclType> {
 /// slice), or `None` for a user function. Mirrors `resolver::builtin_vtype`.
 fn builtin_return(name: &str) -> Option<Type> {
     Some(match name.to_ascii_lowercase().as_str() {
-        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "val" | "rnd" => Type::Double,
+        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "atn" | "log" | "exp" | "val" | "rnd" => Type::Double,
         "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "left" | "right" | "mid" | "trim"
-        | "inputbox" | "getopenfilename" | "getsaveasfilename" => {
+        | "join" | "space" | "format" | "getopenfilename" | "getsaveasfilename" => {
             Type::Text
         }
-        "len" => Type::Long,
+        "len" | "asc" => Type::Long,
         _ => return None,
     })
 }

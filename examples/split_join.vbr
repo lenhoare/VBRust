@@ -1,0 +1,11 @@
+' Split, Join, Space — VB's string-list builtins.
+Function Main()
+    Dim csv As String = "one,two,three"
+    Dim parts As Vec<String> = Split(csv, ",")
+    Debug.Print Join(parts, " / ")
+
+    ' Default delimiter is a single space, both ways.
+    Debug.Print Join(Split("a b c"))
+
+    Debug.Print "[" & Space(3) & "]"
+End Function

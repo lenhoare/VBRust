@@ -1,1 +1,1 @@
-✘ Format(value, "pattern") is not supported. For a fixed number of decimals use a format specifier — `Debug.Print Str(x)` or directly `format!("{:.2}", x)`. For grouped thousands ("#,###"), add the num-format crate (`Use num-format`).
+✘ Format uses a Rust format string, not VB's "#,###.00" patterns. Write Format(x, "{:.2}") for two decimals — that becomes format!("{:.2}", x). The pattern must be a string literal. For grouped thousands, Use num-format.

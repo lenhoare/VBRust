@@ -46,3 +46,41 @@ def _unwrap(x):
 
 def _vb_round(x):
     return _math.floor(x + 0.5) if x >= 0 else _math.ceil(x - 0.5)
+
+
+def _vb_val(s):
+    try:
+        return float(str(s).strip())
+    except ValueError:
+        return 0.0
+
+
+def _vb_cdbl(s):
+    try:
+        return Ok(float(str(s).strip()))
+    except ValueError as e:
+        return Err(str(e))
+
+
+def _vb_clng(s):
+    try:
+        return Ok(int(str(s).strip()))
+    except ValueError as e:
+        return Err(str(e))
+
+
+def _vb_cint(s):
+    try:
+        n = int(str(s).strip())
+        if n < -2147483648 or n > 2147483647:
+            return Err("out of range")
+        return Ok(n)
+    except ValueError as e:
+        return Err(str(e))
+
+
+def _vb_input_box(prompt):
+    try:
+        return Ok(input(prompt))
+    except EOFError:
+        return Err("end of input")

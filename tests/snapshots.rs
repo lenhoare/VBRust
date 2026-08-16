@@ -27,6 +27,8 @@ const HAPPY: &[&str] = &[
     "single_line_if",
     "multi_dim",
     "string_funcs",
+    "split_join",
+    "format",
     "asc_iif",
     "maths",
     "rnd",

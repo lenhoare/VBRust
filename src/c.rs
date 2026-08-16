@@ -65,6 +65,19 @@ pub fn emit_c(program: &Program) -> CProgram {
         needs_json: false,
         needs_database: false,
         needs_http: false,
+        needs_strings: false,
+        needs_instr: false,
+        needs_val: false,
+        needs_cdbl: false,
+        needs_clng: false,
+        needs_cint: false,
+        needs_input: false,
+        needs_round_places: false,
+        needs_split: false,
+        needs_join: false,
+        needs_space: false,
+        needs_fmt_double: false,
+        needs_fmt_ll: false,
         skip_auto_try: false,
         emitting_main: false,
         wrap_ok: false,
@@ -148,6 +161,25 @@ struct Emitter {
     needs_database: bool,
     /// The `Http` namespace — one-shot requests over libcurl (links `-lcurl`).
     needs_http: bool,
+    /// Free string builtins (`Len`/`Mid`/`UCase`/…) — UTF-8 character helpers.
+    needs_strings: bool,
+    /// `InStr` — needs `Option<Long>` plus `vbr_instr`.
+    needs_instr: bool,
+    /// `Val` — lenient parse, no Result.
+    needs_val: bool,
+    needs_cdbl: bool,
+    needs_clng: bool,
+    needs_cint: bool,
+    /// `InputBox`.
+    needs_input: bool,
+    /// `Round(x, places)` — scale helper on top of `<math.h>` `round`.
+    needs_round_places: bool,
+    /// `Split` / `Join` / `Space` — Vec<String> helpers on top of `vbr_dup`.
+    needs_split: bool,
+    needs_join: bool,
+    needs_space: bool,
+    needs_fmt_double: bool,
+    needs_fmt_ll: bool,
     skip_auto_try: bool,
     emitting_main: bool,
     wrap_ok: bool,
@@ -371,6 +403,51 @@ impl Emitter {
             ] {
                 visit_ty(&ty, &mut c);
             }
+        }
+        // String/conversion builtins name these wrappers even when the source
+        // never wrote `As Option` / `As Result` (Handle/`?` still need the typedef).
+        if self.needs_instr {
+            visit_ty(&DeclType::Option(Box::new(DeclType::Plain(Type::Long))), &mut c);
+        }
+        if self.needs_cdbl {
+            visit_ty(
+                &DeclType::Result(
+                    Box::new(DeclType::Plain(Type::Double)),
+                    Box::new(DeclType::Plain(Type::Text)),
+                ),
+                &mut c,
+            );
+        }
+        if self.needs_clng {
+            visit_ty(
+                &DeclType::Result(
+                    Box::new(DeclType::Plain(Type::Long)),
+                    Box::new(DeclType::Plain(Type::Text)),
+                ),
+                &mut c,
+            );
+        }
+        if self.needs_cint {
+            visit_ty(
+                &DeclType::Result(
+                    Box::new(DeclType::Plain(Type::Integer)),
+                    Box::new(DeclType::Plain(Type::Text)),
+                ),
+                &mut c,
+            );
+        }
+        if self.needs_input {
+            let text = DeclType::Plain(Type::Text);
+            visit_ty(
+                &DeclType::Result(Box::new(text.clone()), Box::new(text)),
+                &mut c,
+            );
+        }
+        if self.needs_split || self.needs_join {
+            visit_ty(
+                &DeclType::Vec(Box::new(DeclType::Plain(Type::Text))),
+                &mut c,
+            );
         }
         for ty in &c.order {
             match ty {
@@ -1507,6 +1584,23 @@ impl Emitter {
             self.needs_rnd = true;
             return "rnd()".into();
         }
+        // Lazy like Rust's `if`/`else` (C's ternary does not evaluate the unused arm).
+        if name.eq_ignore_ascii_case("iif") && args.len() == 3 {
+            let c = self.expr(&args[0]);
+            let t = self.expr(&args[1]);
+            let e = self.expr(&args[2]);
+            return format!("(({}) ? ({}) : ({}))", c, t, e);
+        }
+        if name.eq_ignore_ascii_case("round") && args.len() == 2 {
+            self.needs_math = true;
+            self.needs_round_places = true;
+            let x = self.expr(&args[0]);
+            let p = self.expr(&args[1]);
+            return format!("vbr_round_places({}, {})", x, p);
+        }
+        if let Some(s) = self.lower_c_builtin(name, args) {
+            return s;
+        }
         let rendered: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
         // Maths builtins → the C standard library (all in `<math.h>`).
         if let Some(cfn) = c_math_builtin(name) {
@@ -1514,6 +1608,132 @@ impl Emitter {
             return format!("{}({})", cfn, rendered.join(", "));
         }
         format!("{}({})", c_name(name), rendered.join(", "))
+    }
+
+    /// String / conversion builtins. Character counts (UTF-8), matching Rust's
+    /// `chars()` — not `strlen` bytes.
+    fn lower_c_builtin(&mut self, name: &str, args: &[Expr]) -> Option<String> {
+        let n = name.to_ascii_lowercase();
+        let a = |i: usize, e: &mut Emitter| e.expr(&args[i]);
+        Some(match (n.as_str(), args.len()) {
+            ("len", 1) => {
+                self.needs_strings = true;
+                format!("vbr_len({})", a(0, self))
+            }
+            ("ucase", 1) => {
+                self.needs_strings = true;
+                format!("vbr_ucase({})", a(0, self))
+            }
+            ("lcase", 1) => {
+                self.needs_strings = true;
+                format!("vbr_lcase({})", a(0, self))
+            }
+            ("trim", 1) => {
+                self.needs_strings = true;
+                format!("vbr_trim({})", a(0, self))
+            }
+            ("chr", 1) => {
+                self.needs_strings = true;
+                format!("vbr_chr({})", a(0, self))
+            }
+            ("asc", 1) => {
+                self.needs_strings = true;
+                format!("vbr_asc({})", a(0, self))
+            }
+            ("left", 2) => {
+                self.needs_strings = true;
+                format!("vbr_left({}, {})", a(0, self), a(1, self))
+            }
+            ("right", 2) => {
+                self.needs_strings = true;
+                format!("vbr_right({}, {})", a(0, self), a(1, self))
+            }
+            ("mid", 2) => {
+                self.needs_strings = true;
+                format!("vbr_mid({}, {})", a(0, self), a(1, self))
+            }
+            ("mid", 3) => {
+                self.needs_strings = true;
+                format!("vbr_mid_n({}, {}, {})", a(0, self), a(1, self), a(2, self))
+            }
+            ("replace", 3) => {
+                self.needs_strings = true;
+                format!("vbr_replace({}, {}, {})", a(0, self), a(1, self), a(2, self))
+            }
+            ("instr", 2) => {
+                self.needs_strings = true;
+                self.needs_instr = true;
+                format!("vbr_instr({}, {})", a(0, self), a(1, self))
+            }
+            ("val", 1) => {
+                self.needs_val = true;
+                format!("vbr_val({})", a(0, self))
+            }
+            ("cdbl", 1) => {
+                self.needs_cdbl = true;
+                format!("vbr_cdbl({})", a(0, self))
+            }
+            ("clng", 1) => {
+                self.needs_clng = true;
+                format!("vbr_clng({})", a(0, self))
+            }
+            ("cint", 1) => {
+                self.needs_cint = true;
+                format!("vbr_cint({})", a(0, self))
+            }
+            ("inputbox", 1) => {
+                self.needs_input = true;
+                format!("vbr_input_box({})", a(0, self))
+            }
+            ("split", 1) => {
+                self.needs_split = true;
+                format!("vbr_split({}, \" \")", a(0, self))
+            }
+            ("split", 2) => {
+                self.needs_split = true;
+                format!("vbr_split({}, {})", a(0, self), a(1, self))
+            }
+            ("join", 1) => {
+                self.needs_join = true;
+                format!("vbr_join({}, \" \")", a(0, self))
+            }
+            ("join", 2) => {
+                self.needs_join = true;
+                format!("vbr_join({}, {})", a(0, self), a(1, self))
+            }
+            ("space", 1) => {
+                self.needs_space = true;
+                format!("vbr_space({})", a(0, self))
+            }
+            ("format", 2) => {
+                let ExprKind::Str(pat) = &args[1].kind else {
+                    return None;
+                };
+                let parsed = crate::fmtpat::FormatPat::parse(pat)?;
+                let formatted = if parsed.is_bare() {
+                    self.as_str(&args[0])
+                } else if is_float(&self.type_of(&args[0])) {
+                    let spec = parsed.printf_spec(true)?;
+                    self.needs_fmt_double = true;
+                    format!("vbr_fmt_double({}, {})", a(0, self), c_string(&spec))
+                } else {
+                    let spec = parsed.printf_spec(false)?;
+                    self.needs_fmt_ll = true;
+                    format!("vbr_fmt_ll({}, {})", a(0, self), c_string(&spec))
+                };
+                let mut s = formatted;
+                if !parsed.prefix.is_empty() {
+                    self.need_concat = true;
+                    s = format!("vbr_concat({}, {})", c_string(&parsed.prefix), s);
+                }
+                if !parsed.suffix.is_empty() {
+                    self.need_concat = true;
+                    s = format!("vbr_concat({}, {})", s, c_string(&parsed.suffix));
+                }
+                s
+            }
+            _ => return None,
+        })
     }
 
     /// `expr?` — bind the Option/Result to a temp on a preceding line, return
@@ -1547,6 +1767,22 @@ impl Emitter {
     fn as_result_ty(&self, e: &Expr) -> DeclType {
         match &e.kind {
             ExprKind::Call { name, .. } => {
+                let err = || Box::new(DeclType::Plain(Type::Text));
+                match name.to_ascii_lowercase().as_str() {
+                    "cdbl" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Double)), err())
+                    }
+                    "clng" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Long)), err())
+                    }
+                    "cint" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Integer)), err())
+                    }
+                    "inputbox" => {
+                        return DeclType::Result(Box::new(DeclType::Plain(Type::Text)), err())
+                    }
+                    _ => {}
+                }
                 if let Some(ret) = self.user_fn_ret.get(&c_name(name)) {
                     return result_of(ret.as_ref());
                 }
@@ -1596,7 +1832,7 @@ impl Emitter {
         if matches!(lower.as_str(), "ok" | "err" | "some" | "none" | "iif" | "sleep") {
             return false;
         }
-        if matches!(lower.as_str(), "cdbl" | "clng" | "cint") {
+        if matches!(lower.as_str(), "cdbl" | "clng" | "cint" | "inputbox") {
             return true;
         }
         self.user_fns.contains(&c_name(name))
@@ -1848,7 +2084,18 @@ impl Emitter {
             || self.needs_shell
             || self.needs_json
             || self.needs_database
-            || self.needs_http;
+            || self.needs_http
+            || self.needs_strings
+            || self.needs_val
+            || self.needs_cdbl
+            || self.needs_clng
+            || self.needs_cint
+            || self.needs_input
+            || self.needs_split
+            || self.needs_join
+            || self.needs_space
+            || self.needs_fmt_double
+            || self.needs_fmt_ll;
         if need_dup {
             code.push_str(RT_DUP);
         }
@@ -1870,6 +2117,45 @@ impl Emitter {
         if self.needs_rnd {
             code.push_str(RT_RND);
         }
+        if self.needs_strings {
+            code.push_str(RT_STRINGS);
+        }
+        if self.needs_instr {
+            code.push_str(RT_INSTR);
+        }
+        if self.needs_val {
+            code.push_str(RT_VAL);
+        }
+        if self.needs_cdbl {
+            code.push_str(RT_CDBL);
+        }
+        if self.needs_clng {
+            code.push_str(RT_CLNG);
+        }
+        if self.needs_cint {
+            code.push_str(RT_CINT);
+        }
+        if self.needs_input {
+            code.push_str(RT_INPUT);
+        }
+        if self.needs_round_places {
+            code.push_str(RT_ROUND_PLACES);
+        }
+        if self.needs_split {
+            code.push_str(RT_SPLIT);
+        }
+        if self.needs_join {
+            code.push_str(RT_JOIN);
+        }
+        if self.needs_space {
+            code.push_str(RT_SPACE);
+        }
+        if self.needs_fmt_double {
+            code.push_str(RT_FMT_DOUBLE);
+        }
+        if self.needs_fmt_ll {
+            code.push_str(RT_FMT_LL);
+        }
         if need_dup
             || self.need_from_ll
             || self.need_from_bool
@@ -1877,6 +2163,19 @@ impl Emitter {
             || self.need_from_float
             || self.need_concat
             || self.needs_rnd
+            || self.needs_strings
+            || self.needs_instr
+            || self.needs_val
+            || self.needs_cdbl
+            || self.needs_clng
+            || self.needs_cint
+            || self.needs_input
+            || self.needs_round_places
+            || self.needs_split
+            || self.needs_join
+            || self.needs_space
+            || self.needs_fmt_double
+            || self.needs_fmt_ll
         {
             code.push('\n');
         }
@@ -2034,6 +2333,274 @@ static char* vbr_concat(const char* a, const char* b) {
     return s;
 }
 ";
+
+// VB string builtins: character counts (UTF-8 scalar values), not `strlen` bytes.
+const RT_STRINGS: &str = r#"static int vbr_utf8_clen(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+static long long vbr_len(const char* s) {
+    long long n = 0;
+    for (const unsigned char* p = (const unsigned char*)s; *p; ) {
+        p += vbr_utf8_clen(*p);
+        n++;
+    }
+    return n;
+}
+static char* vbr_left(const char* s, long long n) {
+    if (n <= 0) return vbr_dup("");
+    const unsigned char* p = (const unsigned char*)s;
+    long long i = 0;
+    while (*p && i < n) { p += vbr_utf8_clen(*p); i++; }
+    size_t nbytes = (size_t)(p - (const unsigned char*)s);
+    char* d = (char*)malloc(nbytes + 1);
+    memcpy(d, s, nbytes);
+    d[nbytes] = 0;
+    return d;
+}
+static char* vbr_right(const char* s, long long n) {
+    if (n <= 0) return vbr_dup("");
+    long long len = vbr_len(s);
+    long long skip = len > n ? len - n : 0;
+    const unsigned char* p = (const unsigned char*)s;
+    long long i = 0;
+    while (*p && i < skip) { p += vbr_utf8_clen(*p); i++; }
+    return vbr_dup((const char*)p);
+}
+static char* vbr_mid(const char* s, long long start) {
+    if (start < 1) start = 1;
+    const unsigned char* p = (const unsigned char*)s;
+    long long i = 1;
+    while (*p && i < start) { p += vbr_utf8_clen(*p); i++; }
+    return vbr_dup((const char*)p);
+}
+static char* vbr_mid_n(const char* s, long long start, long long count) {
+    if (count <= 0) return vbr_dup("");
+    if (start < 1) start = 1;
+    const unsigned char* p = (const unsigned char*)s;
+    long long i = 1;
+    while (*p && i < start) { p += vbr_utf8_clen(*p); i++; }
+    const unsigned char* b = p;
+    long long k = 0;
+    while (*p && k < count) { p += vbr_utf8_clen(*p); k++; }
+    size_t nbytes = (size_t)(p - b);
+    char* d = (char*)malloc(nbytes + 1);
+    memcpy(d, b, nbytes);
+    d[nbytes] = 0;
+    return d;
+}
+static char* vbr_ucase(const char* s) {
+    char* d = vbr_dup(s);
+    for (char* p = d; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+    return d;
+}
+static char* vbr_lcase(const char* s) {
+    char* d = vbr_dup(s);
+    for (char* p = d; *p; p++) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + 32);
+    return d;
+}
+static char* vbr_trim(const char* s) {
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    const char* e = s + strlen(s);
+    while (e > s && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\n' || e[-1] == '\r')) e--;
+    size_t n = (size_t)(e - s);
+    char* d = (char*)malloc(n + 1);
+    memcpy(d, s, n);
+    d[n] = 0;
+    return d;
+}
+static char* vbr_replace(const char* s, const char* a, const char* b) {
+    size_t al = strlen(a), bl = strlen(b);
+    if (al == 0) return vbr_dup(s);
+    size_t count = 0;
+    for (const char* p = s; (p = strstr(p, a)); p += al) count++;
+    char* out = (char*)malloc(strlen(s) + count * bl + 1);
+    char* o = out;
+    const char* p = s;
+    const char* hit;
+    while ((hit = strstr(p, a))) {
+        size_t n = (size_t)(hit - p);
+        memcpy(o, p, n); o += n;
+        memcpy(o, b, bl); o += bl;
+        p = hit + al;
+    }
+    strcpy(o, p);
+    return out;
+}
+static char* vbr_chr(long long n) {
+    unsigned char c = (unsigned char)n;
+    char* d = (char*)malloc(5);
+    if (c < 0x80) { d[0] = (char)c; d[1] = 0; }
+    else {
+        d[0] = (char)(0xC0 | (c >> 6));
+        d[1] = (char)(0x80 | (c & 0x3F));
+        d[2] = 0;
+    }
+    return d;
+}
+static long long vbr_asc(const char* s) {
+    if (!s || !*s) return 0;
+    const unsigned char* p = (const unsigned char*)s;
+    unsigned char c = p[0];
+    if (c < 0x80) return (long long)c;
+    if ((c & 0xE0) == 0xC0 && p[1])
+        return (long long)(((c & 0x1F) << 6) | (p[1] & 0x3F));
+    if ((c & 0xF0) == 0xE0 && p[1] && p[2])
+        return (long long)(((c & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F));
+    if ((c & 0xF8) == 0xF0 && p[1] && p[2] && p[3])
+        return (long long)(((c & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F));
+    return (long long)c;
+}
+"#;
+
+const RT_INSTR: &str = r#"static Option_longlong vbr_instr(const char* hay, const char* needle) {
+    const char* hit = strstr(hay, needle);
+    if (!hit) return (Option_longlong){ .is_some = false };
+    long long chars = 0;
+    for (const unsigned char* p = (const unsigned char*)hay; (const char*)p < hit; ) {
+        p += vbr_utf8_clen(*p);
+        chars++;
+    }
+    return (Option_longlong){ .is_some = true, .value = chars + 1 };
+}
+"#;
+
+const RT_VAL: &str = r#"static double vbr_val(const char* s) {
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    if (!*s) return 0.0;
+    char* end;
+    double d = strtod(s, &end);
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (end == s || *end) return 0.0;
+    return d;
+}
+"#;
+
+const RT_CDBL: &str = r#"static Result_double_str vbr_cdbl(const char* s) {
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    if (!*s) return (Result_double_str){ .is_ok = false, .err = vbr_dup("cannot parse float from empty string") };
+    char* end;
+    double d = strtod(s, &end);
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (end == s || *end) return (Result_double_str){ .is_ok = false, .err = vbr_dup("invalid float literal") };
+    return (Result_double_str){ .is_ok = true, .ok = d };
+}
+"#;
+
+const RT_CLNG: &str = r#"static Result_longlong_str vbr_clng(const char* s) {
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    if (!*s) return (Result_longlong_str){ .is_ok = false, .err = vbr_dup("cannot parse integer from empty string") };
+    char* end;
+    long long n = strtoll(s, &end, 10);
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (end == s || *end) return (Result_longlong_str){ .is_ok = false, .err = vbr_dup("invalid digit found in string") };
+    return (Result_longlong_str){ .is_ok = true, .ok = n };
+}
+"#;
+
+const RT_CINT: &str = r#"static Result_int_str vbr_cint(const char* s) {
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    if (!*s) return (Result_int_str){ .is_ok = false, .err = vbr_dup("cannot parse integer from empty string") };
+    char* end;
+    long long n = strtoll(s, &end, 10);
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (end == s || *end) return (Result_int_str){ .is_ok = false, .err = vbr_dup("invalid digit found in string") };
+    if (n < (-2147483647LL - 1) || n > 2147483647LL)
+        return (Result_int_str){ .is_ok = false, .err = vbr_dup("out of range") };
+    return (Result_int_str){ .is_ok = true, .ok = (int)n };
+}
+"#;
+
+const RT_INPUT: &str = r#"static Result_str_str vbr_input_box(const char* prompt) {
+    fputs(prompt, stdout);
+    fflush(stdout);
+    char buf[4096];
+    if (!fgets(buf, (int)sizeof buf, stdin))
+        return (Result_str_str){ .is_ok = false, .err = vbr_dup("end of input") };
+    size_t n = strlen(buf);
+    if (n && buf[n - 1] == '\n') buf[--n] = 0;
+    if (n && buf[n - 1] == '\r') buf[--n] = 0;
+    return (Result_str_str){ .is_ok = true, .ok = vbr_dup(buf) };
+}
+"#;
+
+const RT_ROUND_PLACES: &str = r#"static double vbr_round_places(double x, long long p) {
+    double s = pow(10.0, (double)p);
+    return round(x * s) / s;
+}
+"#;
+
+const RT_SPLIT: &str = r#"static Vec_str vbr_split(const char* s, const char* delim) {
+    Vec_str v = {0};
+    size_t dlen = strlen(delim);
+    if (dlen == 0) {
+        Vec_str_push(&v, vbr_dup(s));
+        return v;
+    }
+    const char* p = s;
+    for (;;) {
+        const char* hit = strstr(p, delim);
+        if (!hit) {
+            Vec_str_push(&v, vbr_dup(p));
+            break;
+        }
+        size_t n = (size_t)(hit - p);
+        char* part = (char*)malloc(n + 1);
+        memcpy(part, p, n);
+        part[n] = 0;
+        Vec_str_push(&v, part);
+        p = hit + dlen;
+    }
+    return v;
+}
+"#;
+
+const RT_JOIN: &str = r#"static char* vbr_join(Vec_str v, const char* delim) {
+    if (v.len == 0) return vbr_dup("");
+    size_t dlen = strlen(delim);
+    size_t total = dlen * (v.len - 1);
+    for (size_t i = 0; i < v.len; i++) total += strlen(v.data[i]);
+    char* out = (char*)malloc(total + 1);
+    char* o = out;
+    for (size_t i = 0; i < v.len; i++) {
+        size_t n = strlen(v.data[i]);
+        memcpy(o, v.data[i], n);
+        o += n;
+        if (i + 1 < v.len) {
+            memcpy(o, delim, dlen);
+            o += dlen;
+        }
+    }
+    *o = 0;
+    return out;
+}
+"#;
+
+const RT_SPACE: &str = r#"static char* vbr_space(long long n) {
+    if (n < 0) n = 0;
+    char* d = (char*)malloc((size_t)n + 1);
+    memset(d, ' ', (size_t)n);
+    d[n] = 0;
+    return d;
+}
+"#;
+
+const RT_FMT_DOUBLE: &str = r#"static char* vbr_fmt_double(double x, const char* spec) {
+    char b[128];
+    snprintf(b, sizeof b, spec, x);
+    return vbr_dup(b);
+}
+"#;
+
+const RT_FMT_LL: &str = r#"static char* vbr_fmt_ll(long long x, const char* spec) {
+    char b[128];
+    snprintf(b, sizeof b, spec, x);
+    return vbr_dup(b);
+}
+"#;
 
 // ---- standard library: FileSystem (file I/O over stdio + POSIX) ----
 // Each fallible call returns the same `Result<_, String>` the Rust stdlib does;
@@ -2715,6 +3282,7 @@ fn c_math_builtin(name: &str) -> Option<&'static str> {
         "sin" => "sin",
         "cos" => "cos",
         "tan" => "tan",
+        "atn" => "atan",
         "exp" => "exp",
         "log" => "log", // natural log, like Rust's `ln`
         _ => return None,

@@ -11,6 +11,8 @@ fn vbr_main() -> Result<(), String> {
     println!("round(3.5) = {}", 3.5f64.round());
     println!("sin(0)     = {}", angle.sin());
     println!("cos(0)     = {}", angle.cos());
+    println!("tan(0)     = {}", angle.tan());
+    println!("atn(0)     = {}", angle.atan());
     println!("exp(1)     = {}", 1.0f64.exp());
     println!("ln(e)      = {}", 2.718281828f64.ln());
     // Mod gives the remainder (→ Rust's %, same precedence as * and /)

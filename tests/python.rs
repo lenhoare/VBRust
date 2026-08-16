@@ -22,6 +22,7 @@ use std::process::Command;
 const PY: &[&str] = &[
     // slice 1
     "hello", "functions", "logic", "maths", "rnd", "doloop",
+    "string_funcs", "asc_iif", "conversions", "split_join", "format",
     // slice 2
     "types", "structs", "methods", "constants",
     // slice 3

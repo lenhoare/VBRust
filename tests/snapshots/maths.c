@@ -42,6 +42,8 @@ int main(void) {
     printf("%s\n", vbr_concat("round(3.5) = ", vbr_from_double(round(3.5))));
     printf("%s\n", vbr_concat("sin(0)     = ", vbr_from_double(sin(angle))));
     printf("%s\n", vbr_concat("cos(0)     = ", vbr_from_double(cos(angle))));
+    printf("%s\n", vbr_concat("tan(0)     = ", vbr_from_double(tan(angle))));
+    printf("%s\n", vbr_concat("atn(0)     = ", vbr_from_double(atan(angle))));
     printf("%s\n", vbr_concat("exp(1)     = ", vbr_from_double(exp(1.0))));
     printf("%s\n", vbr_concat("ln(e)      = ", vbr_from_double(log(2.718281828))));
     // Mod gives the remainder (→ Rust's %, same precedence as * and /)

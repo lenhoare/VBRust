@@ -307,6 +307,22 @@ End Handle
 number→number rounding (`CInt(2.5)`); that's a later refinement. Example:
 `examples/conversions.vbr`.
 
+### Split, Join, Space, Atn
+
+VB's remaining small string/maths builtins:
+
+- **`Split(s)` / `Split(s, delim)`** → `Vec<String>`. The default delimiter is a
+  single space (VB, not Unicode whitespace). Consecutive delimiters keep empty
+  pieces. Example: `examples/split_join.vbr`.
+- **`Join(parts)` / `Join(parts, delim)`** → String. Default delimiter is a space.
+  The inverse of `Split`. A `Vec<String>` also has the Rust method `.join(delim)`.
+- **`Space(n)`** → `n` spaces. `n <= 0` is empty.
+- **`Atn(x)`** → arctangent in **radians** (VB's name for `atan`).
+- **`Format(x, "{:.2}")`** → `format!("{:.2}", x)`. The pattern is a **Rust
+  format string** (a string literal, one placeholder). VB's `"#,###.00"`
+  pictures stay a hard error. Dates: `DateTime.Format` with strftime. Example:
+  `examples/format.vbr`.
+
 ---
 
 ## 6. Statements & control flow

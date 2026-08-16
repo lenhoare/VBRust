@@ -582,9 +582,11 @@ fn builtin_vtype(name: &str) -> Option<VType> {
         // feed a `&str` param (they were mis-typed as `&str` before).
         "trim" => VType::Str,
         "left" | "right" | "mid" => vt(Type::Text),
-        "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "inputbox"
-        | "getopenfilename" | "getsaveasfilename" | "getfoldername" => vt(Type::Text),
-        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "log" | "exp" | "rnd" => vt(Type::Double),
+        "ucase" | "lcase" | "replace" | "str" | "cstr" | "chr" | "inputbox" | "join" | "space"
+        | "format" | "getopenfilename" | "getsaveasfilename" | "getfoldername" => vt(Type::Text),
+        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "atn" | "log" | "exp" | "rnd" => {
+            vt(Type::Double)
+        }
         // `Val` is a lenient `Double` (`0.0` on failure), so `Dim n As Long =
         // Val(x)` casts f64 → i64 like any other Double would.
         "val" => vt(Type::Double),
@@ -1359,7 +1361,7 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
 fn maths_needs_float(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "sqr" | "sin" | "cos" | "tan" | "log" | "exp" | "int" | "round"
+        "sqr" | "sin" | "cos" | "tan" | "atn" | "log" | "exp" | "int" | "round"
     )
 }
 
@@ -2207,6 +2209,19 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     }
                 }
             }
+            // `Split`/`Join` take a `&str` delimiter (`str::split`, `Vec::join`).
+            // An owned String local needs the `&`; a literal or `&str` is fine.
+            if (name.eq_ignore_ascii_case("split") || name.eq_ignore_ascii_case("join"))
+                && args.len() == 2
+            {
+                let delim = &mut args[1];
+                if infer(delim, ctx) == VType::Decl(DeclType::Plain(Type::Text))
+                    && !matches!(&delim.kind, ExprKind::Str(_) | ExprKind::Ref(_))
+                {
+                    let inner = std::mem::replace(&mut delim.kind, ExprKind::Int(0)).at(delim.span);
+                    delim.kind = ExprKind::Ref(Box::new(inner));
+                }
+            }
             if let Some(sig) = ctx.fns.get(&snake(name)) {
                 apply_fn_sig(sig, args, ctx);
             }
@@ -2697,6 +2712,9 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
             // type is the arms' type, so infer from the true-part.
             if name.eq_ignore_ascii_case("iif") && args.len() == 3 {
                 return infer(&args[1], ctx);
+            }
+            if name.eq_ignore_ascii_case("split") {
+                return VType::Decl(DeclType::Vec(Box::new(DeclType::Plain(Type::Text))));
             }
             builtin_vtype(name).unwrap_or_else(|| {
             // A qualified cross-module call (`crate::life::steplife`) — the

@@ -1,4 +1,4 @@
-' MEANT to fail — Format(value, "pattern") isn't supported.
+' MEANT to fail — VB's "#,###.00" pictures aren't Format. Use "{:.2}".
 Function Main()
     Debug.Print Format(3.14159, "#,###.00")
 End Function

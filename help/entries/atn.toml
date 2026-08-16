@@ -1,0 +1,22 @@
+id = "atn"
+title = "Atn"
+category = "Math functions"
+kind = "function"
+
+syntax = """
+Atn(<number>)
+"""
+
+summary = "The arctangent of a number, in radians."
+
+remarks = """
+`Atn` is VB's name for arctangent — the inverse of `Tan`. The result is in **radians**, not degrees. `Atn(0)` is `0`; `Atn(1)` is π/4.
+"""
+
+example = """
+Function Main()
+    Debug.Print Atn(0.0)
+End Function
+"""
+
+see_also = ["tan", "sin", "cos"]

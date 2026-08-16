@@ -1,0 +1,26 @@
+id = "join"
+title = "Join"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Join(<parts>)
+Join(<parts>, <delimiter>)
+"""
+
+summary = "Glue a list of strings into one string."
+
+remarks = """
+`Join(parts, delim)` is the inverse of `Split`: it concatenates a `Vec<String>` with `delim` between each piece. Omit the delimiter and it joins with a single space, like VB.
+
+A `Vec<String>` also has the Rust method `.join(delim)`, which is the same operation written the other way around.
+"""
+
+example = """
+Function Main()
+    Dim parts As Vec<String> = Split("Ada,Grace", ",")
+    Debug.Print Join(parts, " & ")
+End Function
+"""
+
+see_also = ["split-string", "space-string"]

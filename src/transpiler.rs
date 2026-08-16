@@ -2562,13 +2562,21 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                          on a Window they open the OS dialog.",
                     );
                 }
-                "format" => diags.error_once(
-                    "builtin-format",
-                    "Format(value, \"pattern\") is not supported. For a fixed number of \
-                     decimals use a format specifier — `Debug.Print Str(x)` or directly \
-                     `format!(\"{:.2}\", x)`. For grouped thousands (\"#,###\"), add the \
-                     num-format crate (`Use num-format`).",
-                ),
+                "format" => match args.get(1).map(|a| &a.kind) {
+                    Some(ExprKind::Str(p)) if crate::fmtpat::FormatPat::parse(p).is_some() => {}
+                    Some(ExprKind::Str(_)) => diags.error_once(
+                        "builtin-format",
+                        "Format uses a Rust format string, not VB's \"#,###.00\" patterns. \
+                         Write Format(x, \"{:.2}\") for two decimals — that becomes \
+                         format!(\"{:.2}\", x). The pattern must be a string literal. \
+                         For grouped thousands, Use num-format.",
+                    ),
+                    _ => diags.error_once(
+                        "builtin-format-literal",
+                        "Format's pattern must be a string literal (Rust format strings \
+                         are compile-time). Write Format(x, \"{:.2}\"), not Format(x, pat).",
+                    ),
+                },
                 _ => {}
             }
             for a in args {
@@ -3434,6 +3442,29 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
             r(0),
             r(1)
         )),
+        // Split → Vec<String>. Default delimiter is a single space, like VB
+        // (consecutive spaces keep empty pieces — not Unicode whitespace).
+        ("split", 1) => Some(format!(
+            "{}.split(' ').map(|__p| __p.to_string()).collect::<Vec<_>>()",
+            render_recv(&args[0])
+        )),
+        ("split", 2) => Some(format!(
+            "{}.split({}).map(|__p| __p.to_string()).collect::<Vec<_>>()",
+            render_recv(&args[0]),
+            r(1)
+        )),
+        // Join is Split's inverse. Default delimiter is a space, like VB.
+        ("join", 1) => Some(format!("{}.join(\" \")", r(0))),
+        ("join", 2) => Some(format!("{}.join({})", r(0), r(1))),
+        // Space(n) → n spaces. A non-positive count is empty, not a panic.
+        ("space", 1) => Some(format!(
+            "\" \".repeat((({}) as i64).max(0) as usize)",
+            r(0)
+        )),
+        // `Format(x, "{:.2}")` — a Rust format string, not VB's `#.###`.
+        ("format", 2) if matches!(&args[1].kind, ExprKind::Str(p) if crate::fmtpat::FormatPat::parse(p).is_some()) => {
+            Some(format!("format!({}, {})", render_expr(&args[1], None), r(0)))
+        },
         // `Val` is VB's *lenient* numeric read: a `Double`, `0.0` on non-numeric
         // text, never fails (VB6 semantics — `Val` was the forgiving one). Leading
         // and trailing whitespace is ignored, as in VB. The strict, *fallible*
@@ -3473,6 +3504,8 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         ("sin", 1) => Some(math0(&args[0], "sin")),
         ("cos", 1) => Some(math0(&args[0], "cos")),
         ("tan", 1) => Some(math0(&args[0], "tan")),
+        // `Atn` is VB's name for arctangent (radians), the inverse of `Tan`.
+        ("atn", 1) => Some(math0(&args[0], "atan")),
         ("log", 1) => Some(math0(&args[0], "ln")),
         ("exp", 1) => Some(math0(&args[0], "exp")),
         ("rnd", 0) => Some("rnd()".to_string()),

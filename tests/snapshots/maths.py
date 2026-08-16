@@ -24,6 +24,8 @@ def main():
     print(f"round(3.5) = {_vb(_vb_round(3.5))}")
     print(f"sin(0)     = {_vb(math.sin(angle))}")
     print(f"cos(0)     = {_vb(math.cos(angle))}")
+    print(f"tan(0)     = {_vb(math.tan(angle))}")
+    print(f"atn(0)     = {_vb(math.atan(angle))}")
     print(f"exp(1)     = {_vb(math.exp(1.0))}")
     print(f"ln(e)      = {_vb(math.log(2.718281828))}")
     # Mod gives the remainder (→ Rust's %, same precedence as * and /)

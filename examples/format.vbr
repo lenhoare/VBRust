@@ -1,0 +1,6 @@
+' Format uses a Rust format string, not VB's #.### pictures.
+Function Main()
+    Debug.Print Format(3.14159, "{:.2}")
+    Debug.Print Format(7, "{:04}")
+    Debug.Print Format(3.5, "approx {:.1}")
+End Function

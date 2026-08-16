@@ -2,7 +2,7 @@
 `vbr_stdlib` Rust crate. A stdlib-using program is emitted as a project folder
 (`main.py` + this package beside it), the Python parallel of `vbr runproject`."""
 
-from .prelude import Some, Ok, Err, _vb, _unwrap, _vb_round
+from .prelude import Some, Ok, Err, _vb, _unwrap, _vb_round, _vb_val, _vb_cdbl, _vb_clng, _vb_cint, _vb_input_box
 from .filesystem import FileSystem
 from .regex import Regex
 from .jsonval import Json
@@ -39,6 +39,11 @@ __all__ = [
     "_vb",
     "_unwrap",
     "_vb_round",
+    "_vb_val",
+    "_vb_cdbl",
+    "_vb_clng",
+    "_vb_cint",
+    "_vb_input_box",
     "FileSystem",
     "Regex",
     "Json",

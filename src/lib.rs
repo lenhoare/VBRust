@@ -7,6 +7,7 @@ pub mod ast;
 pub mod c;
 pub mod complete;
 pub mod diagnostics;
+pub mod fmtpat;
 pub mod godot;
 pub mod gpu;
 pub mod gui;

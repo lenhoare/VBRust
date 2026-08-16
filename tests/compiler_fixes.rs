@@ -1838,6 +1838,38 @@ fn len_counts_characters_not_bytes() {
 }
 
 #[test]
+fn split_join_space_and_atn_lower() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim parts As Vec<String> = Split(\"a,b\", \",\")\n\
+        \x20   Debug.Print Join(parts, \"-\")\n\
+        \x20   Debug.Print Join(Split(\"a b c\"))\n\
+        \x20   Debug.Print Space(3)\n\
+        \x20   Debug.Print Atn(0.0)\n\
+        End Function\n",
+    );
+    assert!(rust.contains(".split(\",\")"), "Split with delim: {rust}");
+    assert!(rust.contains(".split(' ')"), "Split default space: {rust}");
+    assert!(rust.contains(".join(\"-\")"), "Join with delim: {rust}");
+    assert!(rust.contains(".join(\" \")"), "Join default space: {rust}");
+    assert!(rust.contains("\" \".repeat"), "Space: {rust}");
+    assert!(rust.contains(".atan()"), "Atn: {rust}");
+}
+
+#[test]
+fn format_uses_rust_format_strings() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Debug.Print Format(3.14159, \"{:.2}\")\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("format!(\"{:.2}\""),
+        "Format should wrap format!: {rust}"
+    );
+}
+
+#[test]
 fn instr_is_one_based_character_index() {
     let rust = rust_of(
         "Function Main()\n\

@@ -11,6 +11,8 @@ Function Main()
     Debug.Print "round(3.5) = " & Round(3.5)
     Debug.Print "sin(0)     = " & Sin(angle)
     Debug.Print "cos(0)     = " & Cos(angle)
+    Debug.Print "tan(0)     = " & Tan(angle)
+    Debug.Print "atn(0)     = " & Atn(angle)
     Debug.Print "exp(1)     = " & Exp(1.0)
     Debug.Print "ln(e)      = " & Log(2.718281828)
 

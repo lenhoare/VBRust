@@ -1,0 +1,22 @@
+id = "space-string"
+title = "Space"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Space(<count>)
+"""
+
+summary = "A string of that many spaces."
+
+remarks = """
+`Space(n)` returns `n` space characters. `Space(0)` (or a negative count) is an empty string. Useful for padding: `"[" & Space(4) & "]"`.
+"""
+
+example = """
+Function Main()
+    Debug.Print "[" & Space(4) & "]"
+End Function
+"""
+
+see_also = ["split-string", "join", "string"]

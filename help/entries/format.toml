@@ -1,0 +1,28 @@
+id = "format"
+title = "Format"
+category = "Conversion"
+kind = "function"
+
+syntax = """
+Format(<value>, <"{:.2}">)
+"""
+
+summary = "Turn a value into text with a Rust format string."
+
+remarks = """
+`Format(x, "{:.2}")` is a thin wrapper around Rust's `format!("{:.2}", x)`. The pattern is a **Rust format string**, not VB's `"#,###.00"` pictures.
+
+The pattern must be a string literal (`format!` is compile-time). One placeholder: `{:.2}` two decimals, `{:04}` zero-padded width 4, `{}` the default Display. Surrounding text is fine: `Format(x, "approx {:.1}")`.
+
+VB pictures (`"#,###.00"`, `"0000"`) are a hard error — this is the modern spelling. For grouped thousands, `Use num-format`. Dates use `DateTime.Format` with strftime (`"%Y-%m-%d"`), not this function.
+"""
+
+example = """
+Function Main()
+    Debug.Print Format(3.14159, "{:.2}")
+    Debug.Print Format(7, "{:04}")
+    Debug.Print Format(3.5, "approx {:.1}")
+End Function
+"""
+
+see_also = ["cstr", "str", "round"]

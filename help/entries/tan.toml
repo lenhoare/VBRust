@@ -20,4 +20,4 @@ Function Main()
 End Function
 """
 
-see_also = ["sin", "cos"]
+see_also = ["sin", "cos", "atn"]

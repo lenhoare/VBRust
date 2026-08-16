@@ -24,6 +24,7 @@ use std::thread;
 const C: &[&str] = &[
     // slice 1
     "hello", "functions", "logic", "maths", "rnd", "doloop", "memory",
+    "string_funcs", "asc_iif", "conversions", "split_join", "format",
     // slice 2
     "types", "structs", "methods", "constants",
     // slice 3

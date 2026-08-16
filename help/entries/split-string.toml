@@ -1,0 +1,26 @@
+id = "split-string"
+title = "Split"
+category = "String functions"
+kind = "function"
+
+syntax = """
+Split(<string>)
+Split(<string>, <delimiter>)
+"""
+
+summary = "Break a string into a list of pieces on a delimiter."
+
+remarks = """
+`Split(s, delim)` returns a `Vec<String>` — one piece for each stretch between `delim`. Omit the delimiter and it splits on a single space, the same default as VB. Consecutive delimiters keep empty pieces, so `Split("a  b")` is three items, not two.
+
+This is the string function. The Window widget of the same name (`Split Vertical` / `Split Horizontal`) is a layout pane.
+"""
+
+example = """
+Function Main()
+    Dim parts As Vec<String> = Split("a,b,c", ",")
+    Debug.Print Join(parts, "-")
+End Function
+"""
+
+see_also = ["join", "space-string", "replace"]
