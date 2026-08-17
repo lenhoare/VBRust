@@ -1,6 +1,6 @@
 //! Text styling for highlighted spans and decorations.
 
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 
 /// A styled slice of a line: `[start, end)` in chars.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,9 +41,7 @@ pub mod palette {
     use super::*;
 
     pub fn keyword() -> Style {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::White)
     }
 
     pub fn string() -> Style {

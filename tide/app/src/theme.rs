@@ -2,13 +2,15 @@
 
 use ratatui::style::{Color, Modifier, Style};
 
-/// Classic TP-ish blues and yellows.
+/// Classic Turbo Pascal: blue editor, grey menus, cyan status.
 pub struct TpTheme;
 
 impl TpTheme {
     pub const DESKTOP: Color = Color::Blue;
-    pub const MENU_FG: Color = Color::Yellow;
-    pub const MENU_BG: Color = Color::Blue;
+    /// Classic TP menu bar: light grey, black text, red accelerator.
+    pub const MENU_FG: Color = Color::Black;
+    pub const MENU_BG: Color = Color::Rgb(192, 192, 192);
+    pub const MENU_HOT: Color = Color::Red;
     pub const MENU_SEL_BG: Color = Color::Green;
     pub const MENU_SEL_FG: Color = Color::Black;
     pub const EDITOR_FG: Color = Color::Yellow;
@@ -29,7 +31,21 @@ impl TpTheme {
     }
 
     pub fn menu() -> Style {
-        Style::default().bg(Self::MENU_BG).fg(Self::MENU_FG)
+        Style::default()
+            .bg(Self::MENU_BG)
+            .fg(Self::MENU_FG)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn menu_hot(selected: bool) -> Style {
+        Style::default()
+            .bg(if selected {
+                Self::MENU_SEL_BG
+            } else {
+                Self::MENU_BG
+            })
+            .fg(Self::MENU_HOT)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn menu_selected() -> Style {
@@ -55,7 +71,10 @@ impl TpTheme {
     }
 
     pub fn status() -> Style {
-        Style::default().bg(Self::STATUS_BG).fg(Self::STATUS_FG)
+        Style::default()
+            .bg(Self::STATUS_BG)
+            .fg(Self::STATUS_FG)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn dialog() -> Style {

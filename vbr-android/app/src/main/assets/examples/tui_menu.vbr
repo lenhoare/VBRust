@@ -1,0 +1,42 @@
+Screen App
+    Title "Menu"
+    Status "F10 opens the bar"
+
+    Menu
+        Menu "File"
+            Item "Beep" Beep
+            Separator
+            Item "Quit" Quit
+        End Menu
+        Menu "Help"
+            Item "About" About
+        End Menu
+    End Menu
+
+    State
+        Dim log As String = "F10, then Enter on Quit — or Alt+F / Alt+H."
+    End State
+
+    View
+        Column
+            Length 1
+            Text log
+            Fill
+            Text "Arrows move. Esc closes the menu."
+        End Column
+    End View
+
+    On Key Esc Quit "quit"
+
+    Event Beep
+        log = "File → Beep"
+    End Event
+
+    Event About
+        log = "Help → About"
+    End Event
+End Screen
+
+Function Main()
+    App.Run
+End Function

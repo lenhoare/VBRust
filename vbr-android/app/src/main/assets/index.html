@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>TIDE</title>
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <div id="menubar" role="menubar">
+    <button type="button" class="mbtn" data-menu="file"> File </button>
+    <button type="button" class="mbtn" data-menu="edit"> Edit </button>
+    <button type="button" class="mbtn" data-menu="run"> Run </button>
+    <button type="button" class="mbtn" data-menu="help"> Help </button>
+    <div id="dropdown" hidden></div>
+  </div>
+
+  <div id="workspace">
+    <section id="editor-frame" class="frame">
+      <div class="frame-title" id="ed-title"> NONAME.VBR </div>
+      <div class="editor-wrap">
+        <pre id="hl" aria-hidden="true"></pre>
+        <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+      </div>
+    </section>
+    <section id="c-frame" class="frame rust">
+      <div class="frame-title" id="c-title"> C </div>
+      <pre id="cview"></pre>
+    </section>
+    <section id="watch-frame" class="frame watch hidden">
+      <div class="frame-title" id="watch-title"> Watch </div>
+      <div id="watch"></div>
+    </section>
+  </div>
+
+  <div id="symbar"></div>
+  <div id="cmdbar">
+    <button type="button" class="cmd" data-cmd="keys">F1 Help</button>
+    <button type="button" class="cmd" id="cmd-c" data-cmd="togglec">F4 C</button>
+    <button type="button" class="cmd" id="cmd-watch" data-cmd="togglewatch">F8 Watch</button>
+    <button type="button" class="cmd" data-cmd="run">F9 Run</button>
+  </div>
+  <div id="status"></div>
+
+  <div id="overlay" hidden>
+    <div id="dialog" class="tp-dialog" role="dialog"></div>
+  </div>
+
+  <div id="screen-host" hidden>
+    <div id="sc-menubar"></div>
+    <div id="sc-frame">
+      <div id="sc-title"></div>
+      <div id="sc-view"></div>
+    </div>
+    <div id="sc-status"></div>
+  </div>
+
+  <script src="editor.js"></script>
+</body>
+</html>

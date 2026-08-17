@@ -1,0 +1,70 @@
+' Button, Checkbox, and Radio on a Screen — Tab to move, Enter or Space to fire.
+Enum Size
+    Small
+    Medium
+    Large
+End Enum
+
+Screen Controls
+    Title "Controls"
+    Status log
+
+    State
+        Dim count As Integer = 0
+        Dim remember As Boolean = False
+        Dim choice As Size = Size.Small
+        Dim log As String = "Tab around, Enter or Space to fire"
+    End State
+
+    View
+        Column
+            Length 1
+            Button "Click me"
+                On Click Bumped
+            End Button
+            Length 1
+            Checkbox "Remember me", remember
+                On Toggle Toggled
+            End Checkbox
+            Length 1
+            Radio "Small", choice, Size.Small
+                On Select Picked
+            End Radio
+            Length 1
+            Radio "Medium", choice, Size.Medium
+                On Select Picked
+            End Radio
+            Length 1
+            Radio "Large", choice, Size.Large
+                On Select Picked
+            End Radio
+            Length 1
+            Text " clicks: " & count
+        End Column
+    End View
+
+    On Key "q" Quit "quit"
+
+    Event Bumped
+        count += 1
+        log = "button → " & count
+    End Event
+
+    Event Toggled(value As Boolean)
+        remember = value
+        If remember Then
+            log = "checkbox on"
+        Else
+            log = "checkbox off"
+        End If
+    End Event
+
+    Event Picked(value As Size)
+        choice = value
+        log = "radio changed"
+    End Event
+End Screen
+
+Function Main()
+    Controls.Run
+End Function

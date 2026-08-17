@@ -1,0 +1,47 @@
+Screen Tabs
+    Title "Tabs"
+    Status "tab " & tab
+
+    State
+        Dim tab As Integer = 0
+        Dim busy As Boolean = False
+    End State
+
+    View
+        Tabs tab
+            Tab "Overview"
+                Column
+                    Text "Welcome to tab one."
+                    If busy Then
+                        Text " ● working…"
+                    Else
+                        Text " ○ idle"
+                    End If
+                End Column
+            End Tab
+            Tab "Details"
+                Text "Tab two has the details."
+            End Tab
+            Tab "Settings"
+                Checkbox "Busy", busy
+                    On Toggle Toggled
+                End Checkbox
+            End Tab
+        End Tabs
+    End View
+
+    On Key "q" Quit "quit"
+    On Key "b" ToggleBusy "busy"
+
+    Event Toggled(value As Boolean)
+        busy = value
+    End Event
+
+    Event ToggleBusy
+        busy = Not busy
+    End Event
+End Screen
+
+Function Main()
+    Tabs.Run
+End Function

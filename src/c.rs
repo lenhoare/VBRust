@@ -31,6 +31,10 @@ pub struct CProgram {
     pub vendored: Vec<String>,
     /// Extra `-l` linker flags the `Makefile` must pass.
     pub link_flags: Vec<String>,
+    /// `(c_line, vbr_line)` 1-based checkpoints, same idea as the Rust
+    /// transpiler's `line_map` — so an IDE can scroll the C pane with the
+    /// cursor. Empty if nothing was emitted.
+    pub line_map: Vec<(usize, usize)>,
 }
 
 /// Emit C for a whole parsed program.
@@ -86,6 +90,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         user_fn_ret: HashMap::new(),
         err_names: HashSet::new(),
         success_ret: None,
+        line_map: Vec::new(),
     };
     e.program(program);
     e.finish(program)
@@ -188,6 +193,9 @@ struct Emitter {
     user_fn_ret: HashMap<String, Option<DeclType>>,
     err_names: HashSet<String>,
     success_ret: Option<DeclType>,
+    /// Checkpoints into `out` (function bodies). Offset by the header/runtime
+    /// prefix in `finish` so they index the final `.c`.
+    line_map: Vec<(usize, usize)>,
 }
 
 impl Emitter {
@@ -201,6 +209,12 @@ impl Emitter {
         }
         self.out.push_str(text);
         self.out.push('\n');
+    }
+
+    /// Record that the next C line in `out` came from this VBR source line.
+    fn map_line(&mut self, vbr_line: usize) {
+        let c_line = self.out.matches('\n').count() + 1;
+        self.line_map.push((c_line, vbr_line));
     }
 
     fn program(&mut self, program: &Program) {
@@ -569,6 +583,7 @@ impl Emitter {
         } else {
             Some(result_of(func.ret.as_ref()))
         };
+        self.map_line(func.line);
         let sig = self.signature(func, is_main);
         self.line(&format!("{} {{", sig));
         self.indent += 1;
@@ -622,7 +637,7 @@ impl Emitter {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
-            Stmt::LineMark(_) => {}
+            Stmt::LineMark(vbr_line) => self.map_line(*vbr_line),
             Stmt::Comment(c) => {
                 let text = c.trim_start_matches(['\'', ' ']).to_string();
                 self.line(&format!("// {}", text));
@@ -2228,7 +2243,13 @@ impl Emitter {
             code.push('\n');
         }
 
+        let prefix_lines = code.matches('\n').count();
         code.push_str(&self.out);
+        let line_map = self
+            .line_map
+            .into_iter()
+            .map(|(c, v)| (c + prefix_lines, v))
+            .collect();
 
         // Vendored/linked dependencies → a project folder + `Makefile`. `libm`
         // (`-lm`) is a link flag too when the maths builtins are used.
@@ -2247,7 +2268,13 @@ impl Emitter {
             link_flags.push("curl".to_string());
         }
 
-        CProgram { code, warnings: self.warnings, vendored, link_flags }
+        CProgram {
+            code,
+            warnings: self.warnings,
+            vendored,
+            link_flags,
+            line_map,
+        }
     }
 }
 

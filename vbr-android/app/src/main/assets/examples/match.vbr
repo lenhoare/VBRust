@@ -1,0 +1,12 @@
+' Match → Rust's `match`. Each arm is `pattern => body`; the patterns are real
+' Rust — literals, ranges (`..=`), alternation (`|`), and the `_` wildcard.
+Function Main()
+    Dim score As Long = 75
+    Match score
+        100 => Debug.Print "perfect"
+        90..=99 => Debug.Print "excellent"
+        70..=89 => Debug.Print "good"
+        0 | 1 | 2 => Debug.Print "very low"
+        _ => Debug.Print "somewhere in between"
+    End Match
+End Function

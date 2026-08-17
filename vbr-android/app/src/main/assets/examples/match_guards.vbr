@@ -1,0 +1,17 @@
+' Guards (`If`) and the `_` wildcard. A guard is a Rust match guard — the arm
+' only fires when its condition is also true. `x` binds the matched value.
+Function Describe(ByVal n As Long) As String
+    Match n
+        0 => Return "zero"
+        x If x < 0 => Return "negative"
+        x If x > 100 => Return "huge"
+        _ => Return "ordinary"
+    End Match
+End Function
+
+Function Main()
+    Debug.Print "-3 is " & Describe(-3)
+    Debug.Print "0 is " & Describe(0)
+    Debug.Print "42 is " & Describe(42)
+    Debug.Print "500 is " & Describe(500)
+End Function

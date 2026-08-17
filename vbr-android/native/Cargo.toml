@@ -1,0 +1,26 @@
+[package]
+name = "vbr-android"
+version = "0.1.0"
+edition = "2021"
+description = "VBR compiler + TinyCC runner for the Android editor (also host-testable)."
+
+[lib]
+name = "vbr_android"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+vbr = { path = "../.." }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jni = { version = "0.21", optional = true }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = []
+jni-bridge = ["jni"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(has_tcc)'] }

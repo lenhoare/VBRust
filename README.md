@@ -15,6 +15,7 @@ and the generated Rust is always there to read.
 - **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
 - **`targets_spec.md`** — the alternative transpile targets: `vbr py` (Python) and `vbr c` (C).
 - **`godot_spec.md`** — an optional extra: a `Node2D`/`Node3D` (…) → a Godot game, via godot-rust.
+- **`android_spec.md`** — a phone editor that **runs** VBR (`vbr-android/`).
 
 ## Building
 
@@ -288,6 +289,21 @@ needs `libsqlite3-dev` (`-lsqlite3`) and **`Http`** needs `libcurl4-openssl-dev`
 (`-lcurl`). The vendored ones (`Json` → cJSON) need nothing but a C compiler.
 Python's stdlib and the other C namespaces (FileSystem, DateTime, Shell, Regex)
 have no external requirements.
+
+## Android editor
+
+Phones don't have `rustc`, so the Android app ships a prebuilt compiler `.so`.
+F9 runs `Function Main()` / `Screen` in that process (TinyCC's in-process JIT
+hangs on Android). Spec: **`android_spec.md`**. The app lives in `vbr-android/`.
+
+```sh
+cd vbr-android
+./scripts/fetch-tcc.sh          # once: TinyCC + host libtcc
+cd native && cargo test         # proves VBR → C → TinyCC → stdout
+```
+
+The APK needs the Android NDK (the compiler .so is cross-compiled Rust + libtcc):
+see `vbr-android/README.md`.
 
 ## Running the tests
 

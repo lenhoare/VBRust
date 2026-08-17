@@ -1,0 +1,32 @@
+Screen Counter
+    Title "VBR Terminal Counter"
+
+    State
+        Dim count As Integer = 0
+    End State
+
+    Status "Count: " & count
+
+    View
+        Column
+            Text "A VBR terminal app"
+            Text "Count: " & count
+        End Column
+    End View
+
+    On Key "+" Increment "inc"
+    On Key "-" Decrement "dec"
+    On Key "q" Quit "quit"
+
+    Event Increment
+        count += 1
+    End Event
+
+    Event Decrement
+        count -= 1
+    End Event
+End Screen
+
+Function Main()
+    Counter.Run
+End Function

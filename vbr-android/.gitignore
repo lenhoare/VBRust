@@ -1,0 +1,9 @@
+third_party/tinycc/
+third_party/tcc-host/
+.gradle/
+local.properties
+app/build/
+app/src/main/jniLibs/**/*.so
+*.iml
+.idea/
+.cxx/

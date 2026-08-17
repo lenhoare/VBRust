@@ -407,6 +407,8 @@ pub struct CCompiled {
     /// Extra linker flags the `Makefile` must pass (`"m"` → `-lm`, `"curl"` →
     /// `-lcurl`) — a system library the program links rather than vendoring.
     pub link_flags: Vec<String>,
+    /// `(c_line, vbr_line)` 1-based checkpoints for an IDE's generated-C pane.
+    pub line_map: Vec<(usize, usize)>,
 }
 
 impl CCompiled {
@@ -433,6 +435,7 @@ pub fn compile_c(source: &str) -> CCompiled {
             warnings: Vec::new(),
             vendored: Vec::new(),
             link_flags: Vec::new(),
+            line_map: Vec::new(),
         };
     }
     let out = c::emit_c(&program);
@@ -443,6 +446,7 @@ pub fn compile_c(source: &str) -> CCompiled {
         warnings: out.warnings,
         vendored: out.vendored,
         link_flags: out.link_flags,
+        line_map: out.line_map,
     }
 }
 

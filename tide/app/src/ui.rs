@@ -408,14 +408,7 @@ fn draw_menu(f: &mut Frame, area: Rect, menu: &MenuBar) {
     let mut spans = Vec::new();
     for (id, label) in MenuBar::top_labels() {
         let selected = menu.open == Some(*id);
-        let style = if selected {
-            TpTheme::menu_selected()
-        } else {
-            TpTheme::menu()
-        };
-        // Hot key letter bold/white
-        let text = label.to_string();
-        spans.push(Span::styled(text, style));
+        spans.extend(hot_spans(label, selected));
     }
     f.render_widget(
         Paragraph::new(Line::from(spans)).style(TpTheme::menu()),
@@ -429,25 +422,53 @@ fn draw_dropdown(f: &mut Frame, menu_area: Rect, menu: &MenuBar, id: MenuId) {
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(TpTheme::frame())
+        .border_style(Style::default().fg(ratatui::style::Color::Black).bg(TpTheme::MENU_BG))
         .style(TpTheme::menu());
     let inner = block.inner(rect);
     f.render_widget(block, rect);
 
     for (i, (label, _)) in items.iter().enumerate() {
-        let style = if i == menu.selected {
-            TpTheme::menu_selected()
-        } else {
-            TpTheme::menu()
-        };
+        let selected = i == menu.selected;
         let row = Rect {
             x: inner.x,
             y: inner.y + i as u16,
             width: inner.width,
             height: 1,
         };
-        f.render_widget(Paragraph::new(format!(" {label}")).style(style), row);
+        f.render_widget(Paragraph::new(Line::from(hot_spans(&format!(" {label}"), selected))), row);
     }
+}
+
+/// First non-space letter is the accelerator (red), rest black on grey.
+fn hot_spans(text: &str, selected: bool) -> Vec<Span<'static>> {
+    let base = if selected {
+        TpTheme::menu_selected()
+    } else {
+        TpTheme::menu()
+    };
+    let hot = TpTheme::menu_hot(selected);
+    let mut spans = Vec::new();
+    let mut chars = text.chars();
+    let mut prefix = String::new();
+    let mut first = None;
+    for ch in chars.by_ref() {
+        if first.is_none() && !ch.is_whitespace() {
+            first = Some(ch);
+            break;
+        }
+        prefix.push(ch);
+    }
+    if !prefix.is_empty() {
+        spans.push(Span::styled(prefix, base));
+    }
+    if let Some(ch) = first {
+        spans.push(Span::styled(ch.to_string(), hot));
+        let rest: String = chars.collect();
+        if !rest.is_empty() {
+            spans.push(Span::styled(rest, base));
+        }
+    }
+    spans
 }
 
 /// Screen rect for the menu bar row (full width, top line).
@@ -627,7 +648,7 @@ fn draw_watch(f: &mut Frame, area: Rect, ui: &UiState) {
         .borders(Borders::ALL)
         .border_style(border)
         .title(title)
-        .style(TpTheme::menu());
+        .style(TpTheme::editor());
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -639,7 +660,7 @@ fn draw_watch(f: &mut Frame, area: Rect, ui: &UiState) {
         let style = if idx == sel && focused {
             TpTheme::menu_selected()
         } else {
-            TpTheme::menu()
+            TpTheme::editor()
         };
         let row_area = Rect {
             x: inner.x,
