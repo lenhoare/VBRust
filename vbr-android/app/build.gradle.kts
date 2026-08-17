@@ -30,6 +30,13 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    // Keep legacy JNI packaging so AGP extracts the .so files at install time
+    // (and injects extractNativeLibs=true into the merged manifest).
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 // Copy a curated set of core-language examples from the repo so they never drift.

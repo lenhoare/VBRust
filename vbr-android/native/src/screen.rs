@@ -501,7 +501,36 @@ impl Host {
                 to,
                 step,
                 body,
+                ty,
             } => {
+                if ty.is_float() {
+                    // Floating bounds/Step: counted loop, same walk as the
+                    // transpiler's `emit_counted_for`.
+                    let mut i = self.eval(locals, from)?.as_float();
+                    let end = self.eval(locals, to)?.as_float();
+                    let step = step
+                        .as_ref()
+                        .map(|s| self.eval(locals, s).map(|v| v.as_float()))
+                        .transpose()?
+                        .unwrap_or(1.0);
+                    if step == 0.0 {
+                        return Err("For step cannot be 0".into());
+                    }
+                    loop {
+                        if (step > 0.0 && i > end) || (step < 0.0 && i < end) {
+                            break;
+                        }
+                        locals.insert(Self::key(var), Val::Float(i));
+                        match self.exec_body(locals, body)? {
+                            Flow::Break => break,
+                            Flow::Continue => {}
+                            Flow::Return(v) => return Ok(Flow::Return(v)),
+                            Flow::Next => {}
+                        }
+                        i += step;
+                    }
+                    return Ok(Flow::Next);
+                }
                 let mut i = self.eval(locals, from)?.as_int();
                 let end = self.eval(locals, to)?.as_int();
                 let step = step
@@ -755,6 +784,7 @@ impl Host {
                 children,
                 spacing,
                 padding,
+                hatch: _,
             } => {
                 let mut kids = Vec::new();
                 for c in children {
@@ -774,6 +804,7 @@ impl Host {
                 children,
                 spacing,
                 padding,
+                hatch: _,
             } => {
                 let mut kids = Vec::new();
                 for c in children {
@@ -794,6 +825,10 @@ impl Host {
                 children,
                 spacing,
                 padding,
+                // Paint and hatch are Window/desktop-only decorations; a Screen
+                // ignores paint and the phone host can't splice raw ratatui.
+                paint: _,
+                hatch: _,
             } => {
                 let t = if let Some(e) = title {
                     self.eval(locals, e)?.stringify()
@@ -826,18 +861,34 @@ impl Host {
                 }),
                 size,
             )),
-            ViewNode::Text(e) => Ok(wrap(
-                json!({ "kind": "text", "text": self.eval(locals, e)?.stringify() }),
+            ViewNode::Text { content, .. } => Ok(wrap(
+                json!({ "kind": "text", "text": self.eval(locals, content)?.stringify() }),
                 size,
             )),
-            ViewNode::Button { label, on_click } => Ok(wrap(
-                json!({
-                    "kind": "button",
-                    "label": self.eval(locals, label)?.stringify(),
-                    "handler": on_click,
-                }),
-                size,
-            )),
+            ViewNode::Button {
+                label,
+                on_click,
+                enabled,
+                // Paint/hatch are Window-only decorations.
+                paint: _,
+                hatch: _,
+            } => {
+                // `Enabled <expr>` false → the button has no handler (Iced's
+                // disabled look), same as the desktop targets.
+                let on = match enabled {
+                    Some(e) => self.eval(locals, e)?.as_bool(),
+                    None => true,
+                };
+                let handler = if on { on_click.clone() } else { None };
+                Ok(wrap(
+                    json!({
+                        "kind": "button",
+                        "label": self.eval(locals, label)?.stringify(),
+                        "handler": handler,
+                    }),
+                    size,
+                ))
+            }
             ViewNode::Checkbox {
                 label,
                 value,
@@ -917,6 +968,8 @@ impl Host {
                 placeholder,
                 value,
                 on_input,
+                on_submit,
+                secure,
             } => {
                 let v = self
                     .get(locals, value)
@@ -928,7 +981,11 @@ impl Host {
                         "field": value,
                         "value": v,
                         "placeholder": self.eval(locals, placeholder)?.stringify(),
-                        "handler": on_input,
+                        // The WebView syncs the field on every keystroke and
+                        // fires `handler` on Enter — that's `On Submit` now
+                        // (`On Input` before it existed).
+                        "handler": on_submit.clone().or_else(|| on_input.clone()),
+                        "secure": secure,
                     }),
                     size,
                 ))
@@ -947,7 +1004,11 @@ impl Host {
                     size,
                 ))
             }
-            ViewNode::List { field, on_select } => {
+            ViewNode::List {
+                field,
+                on_select,
+                hatch: _,
+            } => {
                 let items = match self.get(locals, field).unwrap_or(Val::List(Vec::new())) {
                     Val::List(xs) => xs.into_iter().map(|v| v.stringify()).collect::<Vec<_>>(),
                     other => vec![other.stringify()],
@@ -968,6 +1029,7 @@ impl Host {
                 field,
                 tabs,
                 on_change,
+                hatch: _,
             } => {
                 let idx = self.get(locals, field).map(|v| v.as_int()).unwrap_or(0) as usize;
                 let mut out = Vec::new();
@@ -1090,10 +1152,19 @@ impl Host {
                 max,
                 value,
                 on_change,
+                step,
+                // `Vertical` is an Iced layout mode; the phone host draws a
+                // horizontal range slider either way.
+                vertical: _,
             } => {
                 let lo = self.eval(locals, min)?.as_float();
                 let hi = self.eval(locals, max)?.as_float();
                 let v = self.get(locals, value).map(|x| x.as_float()).unwrap_or(lo);
+                let step = match step {
+                    Some(e) => serde_json::to_value(self.eval(locals, e)?.as_float())
+                        .unwrap_or(Json::Null),
+                    None => Json::Null,
+                };
                 Ok(wrap(
                     json!({
                         "kind": "slider",
@@ -1102,6 +1173,7 @@ impl Host {
                         "max": hi,
                         "value": v,
                         "handler": on_change,
+                        "step": step,
                     }),
                     size,
                 ))
@@ -1284,6 +1356,7 @@ fn math_builtin(name: &str, args: &[Val]) -> Option<Val> {
         "sin" => x.sin(),
         "cos" => x.cos(),
         "tan" => x.tan(),
+        "atn" => x.atan(),
         "exp" => x.exp(),
         "log" => x.ln(),
         _ => return None,

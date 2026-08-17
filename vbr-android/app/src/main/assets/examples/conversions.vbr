@@ -4,14 +4,13 @@
 '           and returns 0 for text that isn't a number. It never fails, so
 '           there is nothing to handle.
 '   CDbl / CLng / CInt — the *strict* conversions. On text that isn't a
-'           number they fail, handing back a Result you deal with using `?`
-'           (propagate) or `Match` (branch). Use these when bad input is an
-'           error you want to catch, not silently turn into 0.
+'           number they fail. The error propagates automatically, or you
+'           intercept it with Handle. Use these when bad input is an error
+'           you want to catch, not silently turn into 0.
 
-Function PriceOf(ByVal txt As String) As Result<Double>
-    ' `?` bails out of this function with the error string on bad input.
-    Dim price As Double = CDbl(txt)?
-    Return Ok(price)
+Function PriceOf(ByVal txt As String) As Double
+    ' A bad CDbl fails this function — the caller Handle's it, or Main exits.
+    Return CDbl(txt)
 End Function
 
 Function Main()
@@ -20,18 +19,20 @@ Function Main()
     Debug.Print Val("  42  ")
     Debug.Print Val("nonsense")
 
-    ' A Double flows into a Long with VBR's automatic numeric cast.
+    ' A Double flows into a Long with Bust's automatic numeric cast.
     Dim count As Long = Val("100")
     Debug.Print count
 
-    ' Strict: branch on success or failure.
-    Match CLng("77")
-        Ok(v) => Debug.Print "parsed " & v
-        Err(e) => Debug.Print "not a number: " & e
-    End Match
+    ' Strict: intercept failure with Handle.
+    Dim v As Long = CLng("77") Handle e
+        Debug.Print "not a number: " & e
+        Return
+    End Handle
+    Debug.Print "parsed " & v
 
-    Match PriceOf("9.99")
-        Ok(p) => Debug.Print "price is " & p
-        Err(e) => Debug.Print e
-    End Match
+    Dim p As Double = PriceOf("9.99") Handle e
+        Debug.Print e
+        Return
+    End Handle
+    Debug.Print "price is " & p
 End Function

@@ -1695,7 +1695,7 @@ function renderSc(node, axis) {
     }
     case "input": {
       const inp = document.createElement("input");
-      inp.type = "text";
+      inp.type = node.secure ? "password" : "text";
       inp.className = "sc-input";
       inp.value = node.value || "";
       inp.placeholder = node.placeholder || "";
@@ -1801,6 +1801,7 @@ function renderSc(node, axis) {
       inp.min = node.min;
       inp.max = node.max;
       inp.value = node.value;
+      if (node.step != null) inp.step = node.step;
       inp.addEventListener("change", () => {
         dispatchScreen({
           op: "slider",
