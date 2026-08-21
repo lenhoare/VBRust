@@ -1,0 +1,49 @@
+' juliagpu — animated Julia set as a GPU kernel. c = 0.7885 * e^(it) traces
+' the classic "Douady rabbit" tour; palette from cosines of the escape count.
+' Run:  vbr runproject qwenprojects/juliagpu
+
+Sketch JuliaFlow
+    Title "Julia flow"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim zr As Double = -1.6 + x * 3.2 / width
+                Dim zi As Double = -1.2 + y * 2.4 / height
+                Dim cre As Double = 0.7885 * Cos(t)
+                Dim cim As Double = 0.7885 * Sin(t)
+                Dim n As Long = 0
+                Do While n < 120 And zr * zr + zi * zi < 4.0
+                    Dim tmp As Double = zr * zr - zi * zi + cre
+                    zi = 2 * zr * zi + cim
+                    zr = tmp
+                    n = n + 1
+                Loop
+                If n < 120 Then
+                    Dim ph As Double = n * 6.283185 / 120.0
+                    Set Pixel x, y, Color(127 + 127 * Sin(ph), 127 + 127 * Sin(ph + 2.094), 127 + 127 * Sin(ph + 4.188))
+                End If
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "julia flow — c orbits at radius 0.7885", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.004
+    End Event
+End Sketch
+
+Function Main()
+    JuliaFlow.Run
+End Function

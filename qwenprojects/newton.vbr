@@ -1,0 +1,98 @@
+' newton — Newton's method fractal for z^3 - 1 = 0. Each point is coloured
+' by WHICH root Newton's method converges to, and shaded by HOW FAST.
+' Roots: 1, and the two complex cube roots of unity.
+' Run:  vbr run qwenprojects/newton.vbr
+
+Const W As Long = 100
+Const H As Long = 40
+Const MaxIt As Long = 30
+
+Function Main()
+    ' the three roots of z^3 = 1
+    Dim r1x As Double = 1
+    Dim r1y As Double = 0
+    Dim r2x As Double = -0.5
+    Dim r2y As Double = 0.8660254037844386
+    Dim r3x As Double = -0.5
+    Dim r3y As Double = -0.8660254037844386
+
+    Dim y As Long
+    For y = 0 To H - 1
+        Dim row As String = ""
+        Dim x As Long
+        For x = 0 To W - 1
+            Dim zx As Double = -1.6 + x * 3.2 / W
+            Dim zy As Double = -1.1 + y * 2.2 / H
+
+            Dim it As Long = 0
+            Dim conv As Long = 0
+            Do While it < MaxIt
+                ' z^2
+                Dim z2x As Double = zx * zx - zy * zy
+                Dim z2y As Double = 2 * zx * zy
+                ' z^3
+                Dim z3x As Double = z2x * zx - z2y * zy
+                Dim z3y As Double = z2x * zy + z2y * zx
+                ' f = z^3 - 1, f' = 3 z^2
+                Dim fx As Double = z3x - 1
+                Dim fy As Double = z3y
+                Dim dx As Double = 3 * z2x
+                Dim dy As Double = 3 * z2y
+                Dim denom As Double = dx * dx + dy * dy
+                If denom < 0.0000001 Then
+                    Exit Do
+                End If
+                ' z = z - f/f'
+                Dim qx As Double = (fx * dx + fy * dy) / denom
+                Dim qy As Double = (fy * dx - fx * dy) / denom
+                zx = zx - qx
+                zy = zy - qy
+                it = it + 1
+                Dim ex As Double = zx - r1x
+                Dim ey As Double = zy - r1y
+                If ex * ex + ey * ey < 0.000001 Then
+                    conv = 1
+                    Exit Do
+                End If
+                ex = zx - r2x
+                ey = zy - r2y
+                If ex * ex + ey * ey < 0.000001 Then
+                    conv = 2
+                    Exit Do
+                End If
+                ex = zx - r3x
+                ey = zy - r3y
+                If ex * ex + ey * ey < 0.000001 Then
+                    conv = 3
+                    Exit Do
+                End If
+            Loop
+
+            If conv = 0 Then
+                row = row & " "
+            ElseIf it < 4 Then
+                If conv = 1 Then
+                    row = row & "A"
+                ElseIf conv = 2 Then
+                    row = row & "B"
+                Else
+                    row = row & "C"
+                End If
+            ElseIf it < 9 Then
+                If conv = 1 Then
+                    row = row & "a"
+                ElseIf conv = 2 Then
+                    row = row & "b"
+                Else
+                    row = row & "c"
+                End If
+            Else
+                row = row & "."
+            End If
+        Next
+        Debug.Print row
+    Next
+    Debug.Print ""
+    Debug.Print "A/a = root 1,  B/b = root e^(2pii/3),  C/c = root e^(-2pii/3)"
+    Debug.Print "uppercase = converged fast, lowercase = slower, . = slowest"
+End Function

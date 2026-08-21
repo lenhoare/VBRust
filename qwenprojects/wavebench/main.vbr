@@ -1,0 +1,252 @@
+' wavebench — additive synthesis lab. A Canvas plots the sum of three
+' harmonics live; sliders reshape it, radio buttons apply square/sawtooth
+' presets. Run:  vbr runproject qwenprojects/wavebench
+
+Const CW As Long = 520
+Const CH As Long = 240
+
+Type WavePoint
+    Public x As Integer
+    Public y As Integer
+End Type
+
+Window WaveBench
+    Title "Wavebench"
+    Theme TokyoNightStorm
+
+    State
+        Dim amp1 As Integer = 100
+        Dim freq1 As Integer = 1
+        Dim amp2 As Integer = 33
+        Dim freq2 As Integer = 3
+        Dim amp3 As Integer = 20
+        Dim freq3 As Integer = 5
+        Dim showParts As Boolean = False
+        Dim shape As Integer = 1
+        Dim rms As Integer = 58
+        Dim sum As Vec<WavePoint> = BuildSum(100, 1, 33, 3, 20, 5)
+        Dim c1 As Vec<WavePoint> = BuildComp(100, 1)
+        Dim c2 As Vec<WavePoint> = BuildComp(33, 3)
+        Dim c3 As Vec<WavePoint> = BuildComp(20, 5)
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 16
+
+            Text "WAVEBENCH — additive synthesis"
+
+            Canvas Wave Width 520 Height 240
+
+            Frame "Harmonics"
+                Row
+                    Spacing 20
+                    Column
+                        Spacing 4
+                        Text "H1 amplitude: " & amp1
+                        Slider 0..=100, amp1
+                            On Change SetAmp1
+                        End Slider
+                        Text "H1 frequency: " & freq1
+                        Slider 1..=8, freq1
+                            On Change SetFreq1
+                        End Slider
+                    End Column
+                    Column
+                        Spacing 4
+                        Text "H2 amplitude: " & amp2
+                        Slider 0..=100, amp2
+                            On Change SetAmp2
+                        End Slider
+                        Text "H2 frequency: " & freq2
+                        Slider 1..=8, freq2
+                            On Change SetFreq2
+                        End Slider
+                    End Column
+                    Column
+                        Spacing 4
+                        Text "H3 amplitude: " & amp3
+                        Slider 0..=100, amp3
+                            On Change SetAmp3
+                        End Slider
+                        Text "H3 frequency: " & freq3
+                        Slider 1..=8, freq3
+                            On Change SetFreq3
+                        End Slider
+                    End Column
+                End Row
+            End Frame
+
+            Frame "Shape"
+                Row
+                    Spacing 16
+                    Radio "Square-ish", shape, 1
+                        On Select PickShape
+                    End Radio
+                    Radio "Sawtooth-ish", shape, 2
+                        On Select PickShape
+                    End Radio
+                    Radio "Custom", shape, 0
+                        On Select PickShape
+                    End Radio
+                    Checkbox "show components", showParts
+                        On Toggle SetShowParts
+                    End Checkbox
+                    Fill
+                    Text "RMS: " & rms & "%"
+                End Row
+            End Frame
+        End Column
+    End View
+
+    Event SetAmp1(value As Integer)
+        amp1 = value
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+
+    Event SetFreq1(value As Integer)
+        freq1 = value
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+
+    Event SetAmp2(value As Integer)
+        amp2 = value
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+
+    Event SetFreq2(value As Integer)
+        freq2 = value
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+
+    Event SetAmp3(value As Integer)
+        amp3 = value
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+
+    Event SetFreq3(value As Integer)
+        freq3 = value
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+
+    Event SetShowParts(value As Boolean)
+        showParts = value
+    End Event
+
+    Event PickShape(value As Integer)
+        shape = value
+        If value = 1 Then
+            amp1 = 100
+            freq1 = 1
+            amp2 = 33
+            freq2 = 3
+            amp3 = 20
+            freq3 = 5
+        End If
+        If value = 2 Then
+            amp1 = 100
+            freq1 = 1
+            amp2 = 50
+            freq2 = 2
+            amp3 = 33
+            freq3 = 3
+        End If
+        RefreshWaves(sum, c1, c2, c3, rms, amp1, freq1, amp2, freq2, amp3, freq3)
+    End Event
+End Window
+
+' Events can't call Events (F-038) — shared recompute lives in this Sub,
+' with the touched state passed ByRef.
+Sub RefreshWaves(ByRef sum As Vec<WavePoint>, ByRef c1 As Vec<WavePoint>, ByRef c2 As Vec<WavePoint>, ByRef c3 As Vec<WavePoint>, ByRef rms As Integer, ByVal a1 As Integer, ByVal f1 As Integer, ByVal a2 As Integer, ByVal f2 As Integer, ByVal a3 As Integer, ByVal f3 As Integer)
+    sum = BuildSum(a1, f1, a2, f2, a3, f3)
+    c1 = BuildComp(a1, f1)
+    c2 = BuildComp(a2, f2)
+    c3 = BuildComp(a3, f3)
+    rms = RmsOf(sum)
+End Sub
+
+Canvas Wave
+    Draw
+        Fill Rect(0, 0, 520, 240), Color.Black
+        Stroke Line(0, 120, 520, 120), Color.Gray, 1
+        If showParts Then
+            Dim i As Long
+            For i = 1 To c1.Len() - 1
+                Stroke Line(c1[i - 1].x, c1[i - 1].y, c1[i].x, c1[i].y), Color.Blue, 1
+            Next
+            For i = 1 To c2.Len() - 1
+                Stroke Line(c2[i - 1].x, c2[i - 1].y, c2[i].x, c2[i].y), Color.Green, 1
+            Next
+            For i = 1 To c3.Len() - 1
+                Stroke Line(c3[i - 1].x, c3[i - 1].y, c3[i].x, c3[i].y), Color.Yellow, 1
+            Next
+        End If
+        Dim j As Long
+        For j = 1 To sum.Len() - 1
+            Stroke Line(sum[j - 1].x, sum[j - 1].y, sum[j].x, sum[j].y), Color.Cyan, 2
+        Next j
+        Text "sum of harmonics", 10, 16, Color.White
+    End Draw
+End Canvas
+
+Function WaveY(ByVal amp As Integer, ByVal freq As Integer, ByVal t As Double) As Double
+    Dim a As Double = amp
+    Dim f As Double = freq
+    Return a / 100 * 90 * Sin(f * t)
+End Function
+
+Function BuildComp(ByVal amp As Integer, ByVal freq As Integer) As Vec<WavePoint>
+    Dim out As Vec<WavePoint>
+    Dim k As Long
+    For k = 0 To 260
+        Dim t As Double = k * 2 * 3.141592653589793 / 260
+        Dim yd As Double = 120 - WaveY(amp, freq, t)
+        If yd < 4 Then
+            yd = 4
+        End If
+        If yd > 236 Then
+            yd = 236
+        End If
+        Dim yi As Integer = yd
+        Dim xi As Integer = k * CW / 260
+        out.Push(WavePoint { x: xi, y: yi })
+    Next
+    Return out
+End Function
+
+Function BuildSum(ByVal a1 As Integer, ByVal f1 As Integer, ByVal a2 As Integer, ByVal f2 As Integer, ByVal a3 As Integer, ByVal f3 As Integer) As Vec<WavePoint>
+    Dim out As Vec<WavePoint>
+    Dim k As Long
+    For k = 0 To 260
+        Dim t As Double = k * 2 * 3.141592653589793 / 260
+        Dim v As Double = WaveY(a1, f1, t) + WaveY(a2, f2, t) + WaveY(a3, f3, t)
+        Dim yd As Double = 120 - v
+        If yd < 4 Then
+            yd = 4
+        End If
+        If yd > 236 Then
+            yd = 236
+        End If
+        Dim yi As Integer = yd
+        Dim xi As Integer = k * CW / 260
+        out.Push(WavePoint { x: xi, y: yi })
+    Next
+    Return out
+End Function
+
+Function RmsOf(ByVal pts As Vec<WavePoint>) As Integer
+    Dim total As Double = 0
+    Dim i As Long
+    For i = 0 To pts.Len() - 1
+        Dim dy As Double = 120 - pts[i].y
+        total = total + dy * dy
+    Next
+    Dim mean As Double = total / pts.Len()
+    Dim r As Integer = Sqr(mean)
+    Return r
+End Function
+
+Function Main()
+    WaveBench.Run
+End Function

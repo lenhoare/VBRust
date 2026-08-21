@@ -1,0 +1,84 @@
+' textstat — word-frequency analyzer over sample.txt.
+' Tests: FileSystem.Read, HashMap + For Each k,v, Type literals, Vec index
+' assignment, selection sort, iterator chains, Is Some.
+' No Split() in VBR (F-011) — SplitWords hand-rolled like ledger's.
+
+Type WordCount
+    Public word As String
+    Public count As Long
+End Type
+
+Function IsWordChar(ByVal ch As String) As Boolean
+    Dim c As Long = Asc(ch)
+    Return (c >= Asc("a") And c <= Asc("z")) Or (c >= Asc("0") And c <= Asc("9"))
+End Function
+
+Function SplitWords(ByVal text As String) As Vec<String>
+    Dim out As Vec<String>
+    Dim cur As String = ""
+    Dim i As Long
+    For i = 1 To Len(text)
+        Dim ch As String = Mid(text, i, 1)
+        If IsWordChar(ch) Then
+            cur = cur & ch
+        Else
+            If cur <> "" Then
+                out.Push(cur)
+                cur = ""
+            End If
+        End If
+    Next
+    If cur <> "" Then
+        out.Push(cur)
+    End If
+    Return out
+End Function
+
+Function Main()
+    Dim text As String = FileSystem.Read("sample.txt")
+    text = LCase(text)
+    Dim words As Vec<String> = SplitWords(text)
+    Debug.Print "total words:  " & words.Len()
+
+    Dim freq As HashMap<String, Long>
+    For Each w In words
+        If freq.get(w) Is Some(c) Then
+            freq.insert(w, c + 1)
+        Else
+            freq.insert(w, 1)
+        End If
+    Next
+    Debug.Print "unique words: " & freq.Len()
+
+    Dim list As Vec<WordCount>
+    For Each w, c In freq
+        list.Push(WordCount { word: w, count: c })
+    Next
+
+    ' Selection sort, descending by count (pure VBR — no sort builtin tried yet).
+    Dim i As Long
+    For i = 0 To list.Len() - 2
+        Dim best As Long = i
+        Dim j As Long
+        For j = i + 1 To list.Len() - 1
+            If list[j].count > list[best].count Then
+                best = j
+            End If
+        Next
+        If best <> i Then
+            Dim tmp As WordCount = list[i]
+            list[i] = list[best]
+            list[best] = tmp
+        End If
+    Next
+
+    Dim shown As Long = 10
+    If list.Len() < shown Then
+        shown = list.Len()
+    End If
+    Debug.Print ""
+    Debug.Print "top words:"
+    For i = 0 To shown - 1
+        Debug.Print "  " & list[i].word & " x" & list[i].count
+    Next
+End Function

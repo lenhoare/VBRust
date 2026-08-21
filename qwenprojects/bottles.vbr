@@ -1,0 +1,35 @@
+' 99 Bottles of Beer — warmup #1.
+' Written the way a VB6 person would: For loop with Step -1, helper
+' functions returning strings, & concatenation throughout.
+
+Function Bottles(ByVal n As Long) As String
+    If n = 0 Then
+        Return "no more bottles of beer"
+    End If
+    If n = 1 Then
+        Return "1 bottle of beer"
+    End If
+    Return n & " bottles of beer"
+End Function
+
+Function WallLine(ByVal n As Long) As String
+    Return Bottles(n) & " on the wall, " & Bottles(n) & "."
+End Function
+
+Function TakeLine(ByVal n As Long) As String
+    If n = 1 Then
+        Return "Take it down and pass it around, no more bottles of beer on the wall."
+    End If
+    Return "Take one down and pass it around, " & Bottles(n - 1) & " on the wall."
+End Function
+
+Function Main()
+    Dim n As Long
+    For n = 99 To 1 Step -1
+        Debug.Print WallLine(n)
+        Debug.Print TakeLine(n)
+        Debug.Print ""
+    Next
+    Debug.Print WallLine(0)
+    Debug.Print "Go to the store and buy some more, 99 bottles of beer on the wall."
+End Function

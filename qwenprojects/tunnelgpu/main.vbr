@@ -1,0 +1,57 @@
+' tunnelgpu — the classic demoscene tunnel, GPU kernel edition. Each pixel
+' maps to (angle, 1/depth) around the centre; Noise supplies the wall
+' texture and it scrolls toward the viewer as t grows.
+' Run:  vbr runproject qwenprojects/tunnelgpu
+
+Sketch Tunnel
+    Title "Tunnel"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim dx As Double = x - width / 2
+                Dim dy As Double = y - height / 2
+                Dim dist As Double = Sqr(dx * dx + dy * dy)
+                Dim ang As Double = Atan2(dy, dx)
+
+                Dim depth As Double = 240 / (dist + 1) + t * 2.5
+                Dim tx As Double = ang * 3
+                Dim n As Double = Noise(tx, depth, 0)
+
+                Dim fade As Double = 1.4 - dist / (height / 2)
+                If fade < 0 Then
+                    fade = 0
+                End If
+                If fade > 1 Then
+                    fade = 1
+                End If
+
+                Dim band As Double = 0.75 + 0.25 * Sin(depth * 0.35)
+                Dim r As Double = fade * band * (60 + n * 195)
+                Dim g As Double = fade * band * (30 + n * 90)
+                Dim b As Double = fade * band * (110 + n * 145)
+                Set Pixel x, y, Color(r, g, b)
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "tunnel — angle x depth noise", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.03
+    End Event
+End Sketch
+
+Function Main()
+    Tunnel.Run
+End Function

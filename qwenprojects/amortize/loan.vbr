@@ -1,0 +1,82 @@
+' amortize — loan maths for the GUI. Pure and testable; the Window is thin.
+' Format() is not supported (examples/format_error.vbr), so Money() is
+' hand-rolled: rounding via positive-half-up, cents through Long.
+
+Public Type ScheduleRow
+    Public year As String
+    Public paid As String
+    Public interest As String
+    Public principal As String
+    Public balance As String
+End Type
+
+Public Type LoanResult
+    Public monthly As Double
+    Public totalPaid As Double
+    Public totalInterest As Double
+    Public rows As Vec<ScheduleRow>
+End Type
+
+Public Function Money(ByVal x As Double) As String
+    Dim sign As String = ""
+    Dim v As Double = x
+    If v < 0 Then
+        sign = "-"
+        v = 0.0 - v
+    End If
+    Dim cents As Long = v * 100 + 0.5
+    Dim s As String = "" & cents
+    Do While Len(s) < 3
+        s = "0" & s
+    Loop
+    Return sign & Left(s, Len(s) - 2) & "." & Mid(s, Len(s) - 1, 2)
+End Function
+
+Public Function MonthlyPayment(ByVal principal As Double, ByVal annualPct As Double, ByVal years As Long) As Double
+    Dim n As Long = years * 12
+    If n <= 0 Then
+        RaiseError "years must be positive"
+    End If
+    Dim r As Double = annualPct / 100 / 12
+    If r = 0 Then
+        Return principal / n
+    End If
+    ' F-027: Double ^ Long won't compile — give ^ two Doubles.
+    Dim nd As Double = n
+    Dim growth As Double = (1 + r) ^ nd
+    Return principal * r * growth / (growth - 1)
+End Function
+
+Public Function Amortize(ByVal principal As Double, ByVal annualPct As Double, ByVal years As Long) As LoanResult
+    If principal <= 0 Then
+        RaiseError "principal must be positive"
+    End If
+    If annualPct < 0 Then
+        RaiseError "rate cannot be negative"
+    End If
+    Dim monthly As Double = MonthlyPayment(principal, annualPct, years)
+    Dim r As Double = annualPct / 100 / 12
+    Dim balance As Double = principal
+    Dim totalInterest As Double = 0
+    Dim rows As Vec<ScheduleRow>
+    Dim y As Long
+    For y = 1 To years
+        Dim yearInterest As Double = 0
+        Dim yearPrincipal As Double = 0
+        Dim m As Long
+        For m = 1 To 12
+            Dim interest As Double = balance * r
+            Dim part As Double = monthly - interest
+            If balance - part < 0.005 Then
+                part = balance
+            End If
+            balance = balance - part
+            yearInterest = yearInterest + interest
+            yearPrincipal = yearPrincipal + part
+        Next
+        totalInterest = totalInterest + yearInterest
+        rows.Push(ScheduleRow { year: "" & y, paid: Money(yearInterest + yearPrincipal), interest: Money(yearInterest), principal: Money(yearPrincipal), balance: Money(balance) })
+    Next
+    Dim totalPaid As Double = principal + totalInterest
+    Return LoanResult { monthly: monthly, totalPaid: totalPaid, totalInterest: totalInterest, rows: rows }
+End Function

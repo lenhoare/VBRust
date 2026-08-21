@@ -1,0 +1,29 @@
+' primes — thin entry. Logic in primes.vbr, specs in primes.test.vbr.
+
+Function Main()
+    Dim ps As Vec<Long> = Primes.Sieve(1000000)
+    Debug.Print "primes up to 1,000,000: " & ps.Len()
+    Debug.Print "largest: " & ps[ps.Len() - 1]
+
+    Debug.Print ""
+    Dim evens As Vec<Long> = [10, 100, 1000, 10000]
+    For Each e In evens
+        Dim a As Long = 0
+        Dim b As Long = 0
+        Primes.GoldbachSplit(e, a, b)
+        Debug.Print e & " = " & a & " + " & b
+    Next
+
+    Debug.Print ""
+    Dim longest As Long = 0
+    Dim champion As Long = 0
+    Dim n As Long
+    For n = 1 To 999
+        Dim s As Long = Primes.Collatz(n)
+        If s > longest Then
+            longest = s
+            champion = n
+        End If
+    Next
+    Debug.Print "longest Collatz chain under 1000: " & champion & " with " & longest & " steps"
+End Function

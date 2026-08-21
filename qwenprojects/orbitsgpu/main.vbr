@@ -1,0 +1,67 @@
+' orbitsgpu — three Lissajous particles weaving trails on the GPU. Each
+' frame fades the previous picture a little and repaints the particles,
+' so their paths glow and decay. Sample(frame, x, y) reads the last frame
+' back; Copy frame lays it down first.
+' Run:  vbr runproject qwenprojects/orbitsgpu
+
+Sketch Orbits
+    Title "Orbits"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        Copy frame, 0, 0
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim last As Color = Sample(frame, x, y)
+                Dim r As Double = last.r * 0.93
+                Dim g As Double = last.g * 0.93
+                Dim b As Double = last.b * 0.93
+
+                Dim p As Long
+                For p = 0 To 2
+                    Dim ph As Double = p * 2.0944
+                    Dim ax As Double = width / 2 + (width / 2 - 30) * Sin(3 * (t + ph))
+                    Dim ay As Double = height / 2 + (height / 2 - 30) * Sin(2 * (t + ph) + ph)
+                    Dim dx As Double = x - ax
+                    Dim dy As Double = y - ay
+                    If dx * dx + dy * dy < 10 Then
+                        If p = 0 Then
+                            r = 255
+                            g = 120
+                            b = 60
+                        ElseIf p = 1 Then
+                            r = 60
+                            g = 255
+                            b = 160
+                        Else
+                            r = 90
+                            g = 140
+                            b = 255
+                        End If
+                    End If
+                Next
+
+                Set Pixel x, y, Color(r, g, b)
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "orbits — three lissajous trails", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.012
+    End Event
+End Sketch
+
+Function Main()
+    Orbits.Run
+End Function

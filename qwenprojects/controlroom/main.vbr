@@ -1,0 +1,226 @@
+' controlroom — a mission-control dashboard. Tabs, Frames, ProgressBars,
+' Sliders, Radio, Toggler, Table, Tooltip, Markdown. Dracula theme.
+' Run:  vbr runproject qwenprojects/controlroom
+
+Type Proc
+    Public name As String
+    Public cpu As Integer
+    Public mem As Integer
+End Type
+
+Window Control
+    Title "Mission Control"
+    Theme Dracula
+
+    State
+        Dim tab As Integer = 0
+        Dim cpu As Integer = 34
+        Dim mem As Integer = 61
+        Dim disk As Integer = 48
+        Dim uplink As Integer = 22
+        Dim threshold As Integer = 80
+        Dim mode As Integer = 0
+        Dim auto As Boolean = True
+        Dim procs As Vec<Proc> = MakeProcs(34)
+        Dim status As String = "all systems nominal"
+    End State
+
+    View
+        Column
+            Spacing 12
+            Padding 20
+
+            Row
+                Spacing 10
+                Text "MISSION CONTROL"
+                Fill
+                Text status
+            End Row
+            Rule Horizontal
+
+            Tabs tab
+                Tab "System"
+                    Column
+                        Spacing 12
+
+                        Frame "Load"
+                            Column
+                                Spacing 8
+                                Row
+                                    Spacing 10
+                                    Text "CPU"
+                                    Fill
+                                    ProgressBar 0..=100, cpu
+                                    Text cpu & "%"
+                                End Row
+                                Row
+                                    Spacing 10
+                                    Text "Memory"
+                                    Fill
+                                    ProgressBar 0..=100, mem
+                                    Text mem & "%"
+                                End Row
+                                Row
+                                    Spacing 10
+                                    Text "Disk"
+                                    Fill
+                                    ProgressBar 0..=100, disk
+                                    Text disk & "%"
+                                End Row
+                            End Column
+                        End Frame
+
+                        Frame "Tuning"
+                            Column
+                                Spacing 10
+                                Row
+                                    Spacing 16
+                                    Column
+                                        Spacing 4
+                                        Text "Alert threshold: " & threshold & "%"
+                                        Slider 10..=100, threshold
+                                            On Change SetThreshold
+                                        End Slider
+                                    End Column
+                                    Column
+                                        Spacing 4
+                                        Text "Mode"
+                                        Radio "Balanced", mode, 0
+                                            On Select PickMode
+                                        End Radio
+                                        Radio "Performance", mode, 1
+                                            On Select PickMode
+                                        End Radio
+                                        Radio "Economy", mode, 2
+                                            On Select PickMode
+                                        End Radio
+                                    End Column
+                                    Column
+                                        Spacing 4
+                                        Text "Auto-trim"
+                                        Toggler "trim hot subsystems", auto
+                                            On Toggle SetAuto
+                                        End Toggler
+                                    End Column
+                                End Row
+                            End Column
+                        End Frame
+
+                        Frame "Processes"
+                            Table procs
+                                On Select PickProc
+                            End Table
+                        End Frame
+                    End Column
+                End Tab
+
+                Tab "Network"
+                    Column
+                        Spacing 12
+                        Frame "Uplink"
+                            Column
+                                Spacing 8
+                                Row
+                                    Spacing 10
+                                    Text "Signal"
+                                    Fill
+                                    ProgressBar 0..=100, uplink
+                                    Text uplink & "%"
+                                End Row
+                                Tooltip "rolls the dice on a new signal reading"
+                                    Position Bottom
+                                    Button "Rescan"
+                                        On Click Rescan
+                                    End Button
+                                End Tooltip
+                            End Column
+                        End Frame
+                    End Column
+                End Tab
+
+                Tab "About"
+                    Scrollable
+                        Markdown "# Mission Control" & Chr(10) & Chr(10) & "A sample dashboard written in **VBR**." & Chr(10) & Chr(10) & "- Tabs, frames, and progress bars" & Chr(10) & "- A slider, radio group, and toggler" & Chr(10) & "- A selectable process table" & Chr(10) & Chr(10) & "Press **Simulate load** to shake everything up."
+                    End Scrollable
+                End Tab
+            End Tabs
+
+            Row
+                Spacing 10
+                Button "Simulate load"
+                    On Click Simulate
+                End Button
+                Text status
+            End Row
+        End Column
+    End View
+
+    Event SetThreshold(value As Integer)
+        threshold = value
+        If cpu > threshold Then
+            status = "⚠ cpu above threshold"
+        ElseIf mem > threshold Then
+            status = "⚠ memory above threshold"
+        Else
+            status = "all systems nominal"
+        End If
+    End Event
+
+    Event PickMode(value As Integer)
+        mode = value
+    End Event
+
+    Event SetAuto(value As Boolean)
+        auto = value
+    End Event
+
+    Event PickProc(row As Proc)
+        status = "selected " & row.name & " — cpu " & row.cpu & "%, mem " & row.mem & "%"
+    End Event
+
+    Event Rescan
+        uplink = NextRoll(uplink)
+        status = "uplink rescanned"
+    End Event
+
+    Event Simulate
+        cpu = NextRoll(cpu)
+        mem = NextRoll(mem)
+        disk = NextRoll(disk)
+        uplink = NextRoll(uplink)
+        procs = MakeProcs(cpu)
+        If cpu > threshold Then
+            status = "⚠ cpu above threshold"
+        ElseIf mem > threshold Then
+            status = "⚠ memory above threshold"
+        Else
+            status = "all systems nominal"
+        End If
+    End Event
+End Window
+
+Function NextRoll(ByVal prev As Integer) As Integer
+    Dim v As Integer = prev * 7 + 31
+    v = v Mod 97
+    If v < 5 Then
+        v = 5
+    End If
+    If v > 99 Then
+        v = 99
+    End If
+    Return v
+End Function
+
+Function MakeProcs(ByVal heat As Integer) As Vec<Proc>
+    Dim out As Vec<Proc>
+    out.Push(Proc { name: "telemetry", cpu: heat Mod 40 + 3, mem: 21 })
+    out.Push(Proc { name: "navigator", cpu: heat Mod 25 + 8, mem: 34 })
+    out.Push(Proc { name: "comms", cpu: heat Mod 33 + 2, mem: 12 })
+    out.Push(Proc { name: "life-support", cpu: heat Mod 15 + 5, mem: 55 })
+    out.Push(Proc { name: "archive", cpu: heat Mod 50 + 1, mem: 68 })
+    Return out
+End Function
+
+Function Main()
+    Control.Run
+End Function

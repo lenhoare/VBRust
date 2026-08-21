@@ -1,0 +1,99 @@
+' chaos — logistic-map bifurcation diagram and the Hénon attractor,
+' density-shaded ASCII. vbr run qwenprojects/chaos.vbr
+
+Const W As Long = 100
+Const H As Long = 40
+
+Function Ramp(ByVal n As Long) As String
+    If n = 0 Then
+        Return " "
+    End If
+    If n = 1 Then
+        Return "."
+    End If
+    If n <= 3 Then
+        Return ":"
+    End If
+    If n <= 7 Then
+        Return "+"
+    End If
+    If n <= 15 Then
+        Return "*"
+    End If
+    Return "#"
+End Function
+
+Function PrintGrid(ByVal g As Vec<Long>)
+    Dim y As Long
+    For y = 0 To H - 1
+        Dim row As String = ""
+        Dim x As Long
+        For x = 0 To W - 1
+            row = row & Ramp(g[y * W + x])
+        Next
+        Debug.Print row
+    Next
+End Function
+
+Function NewGrid() As Vec<Long>
+    Dim g As Vec<Long>
+    Dim i As Long
+    For i = 1 To W * H
+        g.Push(0)
+    Next
+    Return g
+End Function
+
+Function Bifurcation()
+    Dim g As Vec<Long> = NewGrid()
+    Dim x As Long
+    For x = 0 To W - 1
+        Dim r As Double = 2.9 + x * 1.1 / W
+        Dim v As Double = 0.5
+        Dim k As Long
+        For k = 1 To 200
+            v = r * v * (1 - v)
+        Next
+        For k = 1 To 400
+            v = r * v * (1 - v)
+            Dim y As Long = Int((1 - v) * H)
+            If y >= 0 And y < H Then
+                g[y * W + x] = g[y * W + x] + 1
+            End If
+        Next
+    Next
+    PrintGrid(g)
+End Function
+
+Function Henon()
+    Dim g As Vec<Long> = NewGrid()
+    Dim x As Double = 0.1
+    Dim y As Double = 0.0
+    Dim i As Long
+    For i = 1 To 100
+        Dim nx As Double = 1 - 1.4 * x * x + y
+        Dim ny As Double = 0.3 * x
+        x = nx
+        y = ny
+    Next
+    For i = 1 To 50000
+        Dim nx As Double = 1 - 1.4 * x * x + y
+        Dim ny As Double = 0.3 * x
+        x = nx
+        y = ny
+        Dim px As Long = Int((x + 1.5) / 3.0 * W)
+        Dim py As Long = Int((y + 0.5) / 1.0 * H)
+        If px >= 0 And px < W And py >= 0 And py < H Then
+            g[py * W + px] = g[py * W + px] + 1
+        End If
+    Next
+    PrintGrid(g)
+End Function
+
+Function Main()
+    Debug.Print "Logistic map bifurcation, r = 2.9 .. 4.0:"
+    Bifurcation()
+    Debug.Print ""
+    Debug.Print "Hénon attractor (a=1.4, b=0.3), 50000 points:"
+    Henon()
+End Function

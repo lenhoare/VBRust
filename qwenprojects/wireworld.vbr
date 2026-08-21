@@ -1,0 +1,133 @@
+' wireworld — the four-state cellular automaton for digital circuits.
+' States: empty, electron head, electron tail, wire. Two clock loops of
+' different periods feed an OR junction onto a shared bus.
+' Rules: head -> tail; tail -> wire; wire -> head when exactly 1 or 2 of
+' the eight neighbours are heads.
+
+Const W As Long = 60
+Const H As Long = 24
+
+' states
+Const Empty As Long = 0
+Const Head As Long = 1
+Const Tail As Long = 2
+Const Wire As Long = 3
+
+Function Idx(ByVal x As Long, ByVal y As Long) As Long
+    Return y * W + x
+End Function
+
+Sub WireH(ByRef g As Vec<Long>, ByVal x1 As Long, ByVal x2 As Long, ByVal y As Long)
+    Dim x As Long
+    For x = x1 To x2
+        g[Idx(x, y)] = Wire
+    Next
+End Sub
+
+Sub WireV(ByRef g As Vec<Long>, ByVal x As Long, ByVal y1 As Long, ByVal y2 As Long)
+    Dim y As Long
+    For y = y1 To y2
+        g[Idx(x, y)] = Wire
+    Next
+End Sub
+
+Sub Clock(ByRef g As Vec<Long>, ByVal x As Long, ByVal y As Long, ByVal r As Long)
+    ' rectangular ring of radius r with one head/tail pair
+    WireH(g, x, x + 2 * r, y)
+    WireH(g, x, x + 2 * r, y + 2 * r)
+    WireV(g, x, y, y + 2 * r)
+    WireV(g, x + 2 * r, y, y + 2 * r)
+    g[Idx(x + 1, y)] = Head
+    g[Idx(x + 2, y)] = Tail
+End Sub
+
+Function StepWorld(ByRef g As Vec<Long>)
+    Dim nxt As Vec<Long>
+    Dim i As Long
+    For i = 1 To W * H
+        nxt.Push(Empty)
+    Next
+    Dim y As Long
+    For y = 0 To H - 1
+        Dim x As Long
+        For x = 0 To W - 1
+            Dim c As Long = g[Idx(x, y)]
+            If c = Head Then
+                nxt[Idx(x, y)] = Tail
+            ElseIf c = Tail Then
+                nxt[Idx(x, y)] = Wire
+            ElseIf c = Wire Then
+                Dim heads As Long = 0
+                Dim dy As Long
+                For dy = -1 To 1
+                    Dim dx As Long
+                    For dx = -1 To 1
+                        If dx <> 0 Or dy <> 0 Then
+                            Dim yy As Long = y + dy
+                            Dim xx As Long = x + dx
+                            If xx >= 0 And xx < W And yy >= 0 And yy < H Then
+                                If g[Idx(xx, yy)] = Head Then
+                                    heads = heads + 1
+                                End If
+                            End If
+                        End If
+                    Next
+                Next
+                If heads = 1 Or heads = 2 Then
+                    nxt[Idx(x, y)] = Head
+                Else
+                    nxt[Idx(x, y)] = Wire
+                End If
+            End If
+        Next
+    Next
+    g = nxt
+End Function
+
+Function Main()
+    Dim g As Vec<Long>
+    Dim i As Long
+    For i = 1 To W * H
+        g.Push(Empty)
+    Next
+
+    ' clock A: small ring, period 8, on lane y=6
+    Clock(g, 4, 4, 2)
+    WireH(g, 9, 30, 6)
+    ' clock B: larger ring, period 16, on lane y=16
+    Clock(g, 4, 14, 3)
+    WireH(g, 11, 30, 17)
+    ' OR junction at x=34, y=11, shared bus to the right edge
+    WireV(g, 30, 6, 11)
+    WireV(g, 30, 11, 17)
+    WireH(g, 30, 56, 11)
+
+    Dim esc As String = Chr(27)
+    Debug.Print esc & "[2J"
+    Dim gen As Long
+    For gen = 0 To 240
+        Dim pic As String = esc & "[H"
+        Dim y As Long
+        For y = 0 To H - 1
+            Dim x As Long
+            For x = 0 To W - 1
+                Dim c As Long = g[Idx(x, y)]
+                If c = Empty Then
+                    pic = pic & " "
+                ElseIf c = Head Then
+                    pic = pic & "@"
+                ElseIf c = Tail Then
+                    pic = pic & "~"
+                Else
+                    pic = pic & "."
+                End If
+            Next
+            pic = pic & Chr(10)
+        Next
+        pic = pic & "wireworld — two clocks (period 8 and 16) into an OR junction, gen " & gen & Chr(10)
+        Debug.Print pic
+        StepWorld(g)
+        Sleep 60
+    Next
+    Debug.Print "done."
+End Function

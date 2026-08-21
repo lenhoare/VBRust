@@ -1,0 +1,43 @@
+Test "plain addition"
+    Assert Calc.Eval("1 + 2") = 3.0
+End Test
+
+Test "multiplication binds tighter than addition"
+    Assert Calc.Eval("1 + 2 * 3") = 7.0
+End Test
+
+Test "parentheses override precedence"
+    Assert Calc.Eval("(1 + 2) * 3") = 9.0
+End Test
+
+Test "division is real division"
+    Assert Calc.Eval("10 / 4") = 2.5
+End Test
+
+Test "unary minus applies to a whole factor"
+    Assert Calc.Eval("-(2 + 3) * 4") = -20.0
+End Test
+
+Test "decimals work"
+    Assert Calc.Eval("2.5 * 4") = 10.0
+End Test
+
+Test "nested parentheses"
+    Assert Calc.Eval("((2))") = 2.0
+End Test
+
+Test "junk is an error, not a crash"
+    Dim v As Double = Calc.Eval("1 + x") Handle err
+        Assert err <> ""
+        Return
+    End Handle
+    Assert v = -999.0
+End Test
+
+Test "trailing junk is refused"
+    Dim v As Double = Calc.Eval("1 2") Handle err
+        Assert err <> ""
+        Return
+    End Handle
+    Assert v = -999.0
+End Test

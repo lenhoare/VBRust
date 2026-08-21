@@ -1,0 +1,36 @@
+' caesar — shift cipher. VB string surgery: Asc, Chr, Mid, Len, Mod.
+' Mid/Len keep VB's 1-based semantics (see goodexamples/ledger/money.vbr).
+
+Function ShiftChar(ByVal ch As String, ByVal by As Long) As String
+    Dim code As Long = Asc(ch)
+    If code >= Asc("a") And code <= Asc("z") Then
+        Return Chr(((code - Asc("a") + by) Mod 26 + 26) Mod 26 + Asc("a"))
+    End If
+    If code >= Asc("A") And code <= Asc("Z") Then
+        Return Chr(((code - Asc("A") + by) Mod 26 + 26) Mod 26 + Asc("A"))
+    End If
+    Return ch
+End Function
+
+Function Caesar(ByVal text As String, ByVal by As Long) As String
+    Dim out As String = ""
+    Dim i As Long
+    For i = 1 To Len(text)
+        out = out & ShiftChar(Mid(text, i, 1), by)
+    Next
+    Return out
+End Function
+
+Function Main()
+    Dim msg As String = "The quick brown Fox jumps over the lazy dog!"
+    Dim enc As String = Caesar(msg, 7)
+    Dim dec As String = Caesar(enc, -7)
+    Debug.Print "plain:  " & msg
+    Debug.Print "cipher: " & enc
+    Debug.Print "back:   " & dec
+    If dec = msg Then
+        Debug.Print "round-trip: OK"
+    Else
+        Debug.Print "round-trip: FAILED"
+    End If
+End Function

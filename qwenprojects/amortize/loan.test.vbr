@@ -1,0 +1,35 @@
+Test "monthly payment of 100k at 6% over 30 years is 599.55"
+    Dim m As Double = Loan.MonthlyPayment(100000, 6, 30)
+    Assert m > 599.54 And m < 599.56
+End Test
+
+Test "zero rate divides evenly"
+    Assert Loan.MonthlyPayment(12000, 0, 10) = 100.0
+End Test
+
+Test "money formats cents with two places"
+    Assert Loan.Money(1234.5) = "1234.50"
+    Assert Loan.Money(0.05) = "0.05"
+    Assert Loan.Money(7) = "7.00"
+End Test
+
+Test "negative money keeps the sign"
+    Assert Loan.Money(-2.5) = "-2.50"
+End Test
+
+Test "schedule has one row per year"
+    Dim res As LoanResult = Loan.Amortize(100000, 6, 5)
+    Assert res.rows.Len() = 5
+End Test
+
+Test "the balance reaches zero"
+    Dim res As LoanResult = Loan.Amortize(100000, 6, 5)
+    Dim last As ScheduleRow = res.rows[res.rows.Len() - 1]
+    Assert last.balance = "0.00"
+End Test
+
+Test "total paid equals principal plus interest"
+    Dim res As LoanResult = Loan.Amortize(50000, 4.25, 15)
+    Dim diff As Double = res.totalPaid - (50000 + res.totalInterest)
+    Assert diff < 0.01 And diff > -0.01
+End Test

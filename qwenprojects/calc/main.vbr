@@ -1,0 +1,27 @@
+' calc — thin entry. Logic lives in calc.vbr; specs in calc.test.vbr.
+' Run:  vbr runproject qwenprojects/calc   ·   vbr test qwenprojects/calc
+
+Function Main()
+    Dim samples As Vec<String> = ["1 + 2 * 3", "(1 + 2) * 3", "10 / 4", "-(2 + 3) * 4", "2.5 * 4"]
+    For Each e In samples
+        Dim v As Double = Calc.Eval(e) Handle err
+            Debug.Print e & "  ->  ERROR: " & err
+            Continue
+        End Handle
+        Debug.Print e & "  =  " & v
+    Next
+
+    Debug.Print ""
+    Debug.Print "type expressions (blank line quits):"
+    Do
+        Dim line As String = Trim(InputBox("> "))
+        If line = "" Then
+            Return
+        End If
+        Dim r As Double = Calc.Eval(line) Handle err
+            Debug.Print "  ! " & err
+            Continue
+        End Handle
+        Debug.Print "  = " & r
+    Loop
+End Function

@@ -1,0 +1,264 @@
+' ecology — foxes and rabbits on a grass field. Rabbits eat grass and
+' breed; foxes eat rabbits and breed; both starve without food. The two
+' populations chase each other in the classic predator-prey oscillation,
+' plotted live as two sparklines at the bottom.
+' Run:  vbr run qwenprojects/ecology.vbr  (animated)
+
+Const W As Long = 70
+Const H As Long = 26
+
+Const Bare As Long = 0
+Const Grass As Long = 1
+Const Rabbit As Long = 2
+Const Fox As Long = 3
+
+Function Lcg(ByRef seed As Long) As Long
+    seed = (seed * 1103515245 + 12345) Mod 2147483648
+    Return seed
+End Function
+
+Function Roll(ByRef seed As Long, ByVal pct As Long) As Boolean
+    Return Lcg(seed) Mod 100 < pct
+End Function
+
+Function Idx(ByVal x As Long, ByVal y As Long) As Long
+    Return y * W + x
+End Function
+
+Sub StepField(ByRef g As Vec<Long>, ByRef seed As Long)
+    Dim nxt As Vec<Long>
+    Dim i As Long
+    For i = 0 To g.Len() - 1
+        nxt.Push(g[i])
+    Next
+
+    ' pass 1 — grass grows (from g, nothing else moves yet)
+    Dim y As Long
+    For y = 0 To H - 1
+        Dim x As Long
+        For x = 0 To W - 1
+            If g[Idx(x, y)] = Bare Then
+                Dim near As Boolean = False
+                If x > 0 And g[Idx(x - 1, y)] = Grass Then
+                    near = True
+                End If
+                If x < W - 1 And g[Idx(x + 1, y)] = Grass Then
+                    near = True
+                End If
+                If y > 0 And g[Idx(x, y - 1)] = Grass Then
+                    near = True
+                End If
+                If y < H - 1 And g[Idx(x, y + 1)] = Grass Then
+                    near = True
+                End If
+                If near And Roll(seed, 12) Then
+                    nxt[Idx(x, y)] = Grass
+                ElseIf Roll(seed, 1) Then
+                    nxt[Idx(x, y)] = Grass
+                End If
+            End If
+        Next
+    Next
+
+    ' pass 2 — foxes hunt. Nothing has moved yet, so nxt still mirrors g:
+    ' a fox that finds a rabbit in nxt really catches it.
+    For y = 0 To H - 1
+        For x = 0 To W - 1
+            If g[Idx(x, y)] = Fox Then
+                Dim tx As Long = -1
+                Dim ty As Long = -1
+                Dim d As Long = Lcg(seed) Mod 4
+                Dim tries As Long
+                For tries = 0 To 3
+                    Dim dd As Long = (d + tries) Mod 4
+                    Dim nx As Long = x
+                    Dim ny As Long = y
+                    If dd = 0 Then
+                        nx = x - 1
+                    ElseIf dd = 1 Then
+                        nx = x + 1
+                    ElseIf dd = 2 Then
+                        ny = y - 1
+                    Else
+                        ny = y + 1
+                    End If
+                    If nx >= 0 And nx < W And ny >= 0 And ny < H Then
+                        If nxt[Idx(nx, ny)] = Rabbit Then
+                            tx = nx
+                            ty = ny
+                            Exit For
+                        End If
+                    End If
+                Next
+                If tx >= 0 Then
+                    nxt[Idx(tx, ty)] = Fox
+                    If Roll(seed, 40) Then
+                        nxt[Idx(x, y)] = Fox
+                    Else
+                        nxt[Idx(x, y)] = Bare
+                    End If
+                Else
+                    If Roll(seed, 4) Then
+                        nxt[Idx(x, y)] = Bare
+                    End If
+                End If
+            End If
+        Next
+    Next
+
+    ' pass 3 — rabbits graze. A rabbit whose cell a fox moved onto was
+    ' eaten: its nxt cell is no longer Rabbit, so it skips its move.
+    For y = 0 To H - 1
+        For x = 0 To W - 1
+            If g[Idx(x, y)] = Rabbit And nxt[Idx(x, y)] = Rabbit Then
+                Dim tx As Long = -1
+                Dim ty As Long = -1
+                Dim d As Long = Lcg(seed) Mod 4
+                Dim tries As Long
+                For tries = 0 To 3
+                    Dim dd As Long = (d + tries) Mod 4
+                    Dim nx As Long = x
+                    Dim ny As Long = y
+                    If dd = 0 Then
+                        nx = x - 1
+                    ElseIf dd = 1 Then
+                        nx = x + 1
+                    ElseIf dd = 2 Then
+                        ny = y - 1
+                    Else
+                        ny = y + 1
+                    End If
+                    If nx >= 0 And nx < W And ny >= 0 And ny < H Then
+                        If nxt[Idx(nx, ny)] = Grass Then
+                            tx = nx
+                            ty = ny
+                            Exit For
+                        End If
+                    End If
+                Next
+                If tx >= 0 Then
+                    nxt[Idx(tx, ty)] = Rabbit
+                    If Roll(seed, 18) Then
+                        nxt[Idx(x, y)] = Rabbit
+                    Else
+                        nxt[Idx(x, y)] = Bare
+                    End If
+                Else
+                    If Roll(seed, 20) Then
+                        nxt[Idx(x, y)] = Bare
+                    End If
+                End If
+            End If
+        Next
+    Next
+    ' immigration keeps the oscillation alive: if a species dies out,
+    ' newcomers occasionally wander in from off-field
+    Dim fc As Long = Count(nxt, Fox)
+    If fc = 0 And Roll(seed, 3) Then
+        nxt[Idx(Lcg(seed) Mod W, Lcg(seed) Mod H)] = Fox
+    End If
+    Dim rc As Long = Count(nxt, Rabbit)
+    If rc = 0 And Roll(seed, 3) Then
+        nxt[Idx(Lcg(seed) Mod W, Lcg(seed) Mod H)] = Rabbit
+    End If
+    g = nxt
+End Sub
+
+Function Count(ByVal g As Vec<Long>, ByVal kind As Long) As Long
+    Dim total As Long = 0
+    Dim i As Long
+    For i = 0 To g.Len() - 1
+        If g[i] = kind Then
+            total = total + 1
+        End If
+    Next
+    Return total
+End Function
+
+Function Main()
+    Dim seed As Long = 20260816
+    Dim g As Vec<Long>
+    Dim i As Long
+    For i = 1 To W * H
+        If Roll(seed, 30) Then
+            g.Push(Grass)
+        Else
+            g.Push(Bare)
+        End If
+    Next
+    For i = 1 To 40
+        g[Idx(Lcg(seed) Mod W, Lcg(seed) Mod H)] = Rabbit
+    Next
+    For i = 1 To 14
+        g[Idx(Lcg(seed) Mod W, Lcg(seed) Mod H)] = Fox
+    Next
+
+    Dim histR As Vec<Long>
+    Dim histF As Vec<Long>
+
+    Dim esc As String = Chr(27)
+    Debug.Print esc & "[2J"
+    Dim gen As Long
+    For gen = 0 To 400
+        Dim pic As String = esc & "[H"
+        Dim y As Long
+        For y = 0 To H - 1
+            Dim x As Long
+            For x = 0 To W - 1
+                Dim c As Long = g[Idx(x, y)]
+                If c = Bare Then
+                    pic = pic & " "
+                ElseIf c = Grass Then
+                    pic = pic & ","
+                ElseIf c = Rabbit Then
+                    pic = pic & "r"
+                Else
+                    pic = pic & "F"
+                End If
+            Next
+            pic = pic & Chr(10)
+        Next
+
+        Dim r As Long = Count(g, Rabbit)
+        Dim f As Long = Count(g, Fox)
+        histR.Push(r)
+        histF.Push(f)
+        If histR.Len() > 68 Then
+            Dim kr As Vec<Long>
+            Dim kf As Vec<Long>
+            Dim q As Long
+            For q = 1 To histR.Len() - 1
+                kr.Push(histR[q])
+                kf.Push(histF[q])
+            Next
+            histR = kr
+            histF = kf
+        End If
+
+        Dim spark As String = "rabbits "
+        Dim k As Long
+        For k = 0 To histR.Len() - 1
+            Dim bar As Long = histR[k] / 20
+            If bar > 9 Then
+                bar = 9
+            End If
+            spark = spark & "" & bar
+        Next
+        pic = pic & spark & Chr(10)
+        Dim spark2 As String = "foxes   "
+        For k = 0 To histF.Len() - 1
+            Dim bar As Long = histF[k] / 4
+            If bar > 9 Then
+                bar = 9
+            End If
+            spark2 = spark2 & "" & bar
+        Next
+        pic = pic & spark2 & Chr(10)
+        pic = pic & "ecology — gen " & gen & "   rabbits " & r & "   foxes " & f
+        Debug.Print pic
+
+        StepField(g, seed)
+        Sleep 70
+    Next
+    Debug.Print Chr(10) & "done."
+End Function

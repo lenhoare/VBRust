@@ -1,0 +1,33 @@
+Test "the sieve finds the ten primes under 30"
+    Dim ps As Vec<Long> = Primes.Sieve(30)
+    Assert ps.Len() = 10
+    Assert ps[0] = 2
+    Assert ps[9] = 29
+End Test
+
+Test "trial division agrees on small values"
+    Assert Primes.IsPrime(2)
+    Assert Primes.IsPrime(97)
+    Assert Not Primes.IsPrime(1)
+    Assert Not Primes.IsPrime(91)
+End Test
+
+Test "every even number splits into two primes"
+    Dim e As Long
+    For e = 4 To 200 Step 2
+        Dim a As Long = 0
+        Dim b As Long = 0
+        Primes.GoldbachSplit(e, a, b)
+        Assert a + b = e
+        Assert Primes.IsPrime(a)
+        Assert Primes.IsPrime(b)
+    Next
+End Test
+
+Test "Collatz of 27 takes 111 steps"
+    Assert Primes.Collatz(27) = 111
+End Test
+
+Test "Collatz of 1 is already home"
+    Assert Primes.Collatz(1) = 0
+End Test

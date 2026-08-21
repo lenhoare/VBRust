@@ -1,0 +1,11 @@
+Bust looks like VB and compiles to idiomatic Rust. You write the familiar
+syntax; out comes real Rust, which is then built and run. The golden rule,
+whenever VB habit and Rust reality collide: Rust wins.
+
+Every value has a static type you name. Errors are values, not jumps. A
+failure is an ordinary returned value. Arrays are fixed; a list that grows
+is a Vec. Mutability is inferred, and names are case-insensitive, as in VB.
+
+The generated Rust is never a secret. Reading it beside your Bust is the
+fastest way to actually learn Rust, which, when you are ready, is the real
+destination. The magic is in the convenience, never in concealment.

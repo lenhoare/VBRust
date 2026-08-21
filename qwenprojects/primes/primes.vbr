@@ -1,0 +1,84 @@
+' primes — sieves, Goldbach, Collatz. Logic module; specs in primes.test.vbr.
+
+Public Function Sieve(ByVal limit As Long) As Vec<Long>
+    Dim flags As Vec<Boolean>
+    Dim i As Long
+    For i = 0 To limit
+        flags.Push(True)
+    Next
+    Dim out As Vec<Long>
+    If limit >= 2 Then
+        Dim p As Long
+        For p = 2 To limit
+            If flags[p] Then
+                out.Push(p)
+                ' F-019: "Step p" with a variable won't compile (usize/i64
+                ' mismatch), so cross off multiples with a Do loop instead.
+                Dim m As Long = p * p
+                Do While m <= limit
+                    flags[m] = False
+                    m = m + p
+                Loop
+            End If
+        Next
+    End If
+    Return out
+End Function
+
+Public Function IsPrime(ByVal n As Long) As Boolean
+    If n < 2 Then
+        Return False
+    End If
+    If n < 4 Then
+        Return True
+    End If
+    If n Mod 2 = 0 Then
+        Return False
+    End If
+    Dim d As Long = 3
+    Do While d * d <= n
+        If n Mod d = 0 Then
+            Return False
+        End If
+        d = d + 2
+    Loop
+    Return True
+End Function
+
+' VB-style out parameters: Goldbach's conjecture as a Sub with two ByRefs.
+Public Sub GoldbachSplit(ByVal even As Long, ByRef a As Long, ByRef b As Long)
+    If even < 4 Or even Mod 2 <> 0 Then
+        RaiseError "GoldbachSplit needs an even number >= 4"
+    End If
+    Dim p As Long
+    ' F-020: For bounds are integer ranges — even / 2 is f64 and won't
+    ' iterate; assigning into a Long truncates it. (Int() is no help:
+    ' faithful to VB6, it returns a Double.)
+    Dim half As Long = even / 2
+    For p = 2 To half
+        If IsPrime(p) And IsPrime(even - p) Then
+            a = p
+            b = even - p
+            Return
+        End If
+    Next
+    RaiseError "no Goldbach split found for " & even
+End Sub
+
+' Steps to reach 1.
+Public Function Collatz(ByVal n As Long) As Long
+    If n < 1 Then
+        RaiseError "Collatz needs n >= 1"
+    End If
+    Dim steps As Long = 0
+    Dim v As Long = n
+    Do While v <> 1
+        If v Mod 2 = 0 Then
+            v = v / 2
+        Else
+            v = 3 * v + 1
+        End If
+        steps = steps + 1
+    Loop
+    Return steps
+End Function

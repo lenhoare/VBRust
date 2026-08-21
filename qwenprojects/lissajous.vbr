@@ -1,0 +1,49 @@
+' lissajous — animated Lissajous curves in the terminal. x = sin(a t + d),
+' y = sin(b t); the phase d sweeps so the curve appears to rotate.
+' Atn() is absent (F-022), so pi is a literal.
+
+Const W As Long = 72
+Const H As Long = 34
+Const Pi As Double = 3.141592653589793
+
+Function Main()
+    Dim esc As String = Chr(27)
+    Debug.Print esc & "[2J"
+    Dim frame As Long
+    For frame = 0 To 119
+        Dim delta As Double = frame * Pi / 60
+        Dim grid As Vec<Boolean>
+        Dim i As Long
+        For i = 1 To W * H
+            grid.Push(False)
+        Next
+
+        Dim k As Long
+        For k = 0 To 900
+            Dim t As Double = k * 2 * Pi / 900
+            Dim x As Double = Sin(3 * t + delta)
+            Dim y As Double = Sin(2 * t)
+            Dim px As Long = Int((x * 0.95 + 1) / 2 * (W - 1))
+            Dim py As Long = Int((y * 0.95 + 1) / 2 * (H - 1))
+            grid[py * W + px] = True
+        Next
+
+        Dim pic As String = esc & "[H"
+        Dim row As Long
+        For row = 0 To H - 1
+            Dim col As Long
+            For col = 0 To W - 1
+                If grid[row * W + col] Then
+                    pic = pic & "*"
+                Else
+                    pic = pic & " "
+                End If
+            Next
+            pic = pic & Chr(10)
+        Next
+        pic = pic & "frame " & frame & "  a=3 b=2 d=" & Int(delta * 100 / Pi) & "/100*pi" & Chr(10)
+        Debug.Print pic
+        Sleep 40
+    Next
+    Debug.Print "done."
+End Function

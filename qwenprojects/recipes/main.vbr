@@ -1,0 +1,274 @@
+' recipes — a recipe box. List, TextInput, Chooser, Slider, Checkbox,
+' TextArea, Buttons, Tooltip; persistence through the Json + FileSystem
+' stdlib. Run:  vbr runproject qwenprojects/recipes
+
+Type Recipe
+    Public name As String
+    Public category As String
+    Public servings As Long
+    Public veggie As Boolean
+    Public method As String
+End Type
+
+Window Recipes
+    Title "Recipe Box"
+    Theme CatppuccinMocha
+
+    State
+        Dim book As Vec<Recipe> = LoadBook()
+        Dim names As Vec<String> = LoadNames()
+        Dim selected As String = ""
+        Dim title As String = ""
+        Dim category As String = "Mains"
+        Dim categories As Vec<String> = Categories()
+        Dim servings As Integer = 2
+        Dim veggie As Boolean = False
+        Dim method As TextArea = ""
+        Dim status As String = "pick a recipe, or start a new one"
+    End State
+
+    View
+        Row
+            Spacing 0
+
+            Column
+                Spacing 8
+                Padding 12
+                Text "RECIPES"
+                Fill
+                List names
+                    On Select PickName
+                End List
+                Row
+                    Spacing 8
+                    Button "New"
+                        On Click NewRecipe
+                    End Button
+                    Button "Delete"
+                        On Click DeleteRecipe
+                    End Button
+                End Row
+            End Column
+
+            Rule Vertical
+
+            Column
+                Spacing 10
+                Padding 16
+                Fill
+
+                TextInput "dish name", title
+                    On Input SetTitle
+                End TextInput
+
+                Row
+                    Spacing 16
+                    Chooser category From categories
+                        On Select PickCategory
+                    End Chooser
+                    Checkbox "vegetarian", veggie
+                        On Toggle SetVeggie
+                    End Checkbox
+                End Row
+
+                Row
+                    Spacing 10
+                    Text "Servings: " & servings
+                    Slider 1..=12, servings
+                        On Change SetServings
+                    End Slider
+                End Row
+
+                Rule Horizontal
+
+                TextArea method
+
+                Row
+                    Spacing 12
+                    Tooltip "saves the whole box to recipes.json"
+                        Position Bottom
+                        Button "Save"
+                            On Click SaveBook
+                        End Button
+                    End Tooltip
+                    Text status
+                End Row
+            End Column
+        End Row
+    End View
+
+    Event SetTitle(value As String)
+        title = value
+    End Event
+
+    Event PickCategory(value As String)
+        category = value
+    End Event
+
+    Event SetServings(value As Integer)
+        servings = value
+    End Event
+
+    Event SetVeggie(value As Boolean)
+        veggie = value
+    End Event
+
+    Event PickName(item As String)
+        selected = item
+        Dim i As Long
+        For i = 0 To book.Len() - 1
+            If book[i].name = selected Then
+                title = book[i].name
+                category = book[i].category
+                veggie = book[i].veggie
+                ' Long slider data -> Integer slider field via a Double hop
+                ' (direct i64 -> i32 reads are not cast, see FINDINGS F-034)
+                Dim portions As Double = book[i].servings
+                servings = portions
+                method = book[i].method
+                status = "loaded " & selected
+            End If
+        Next
+    End Event
+
+    Event NewRecipe
+        title = ""
+        category = "Mains"
+        servings = 2
+        veggie = False
+        method = ""
+        selected = ""
+        status = "new recipe — give it a name and save"
+    End Event
+
+    Event DeleteRecipe
+        If selected = "" Then
+            status = "nothing selected"
+        Else
+            Dim kept As Vec<Recipe>
+            Dim i As Long
+            For i = 0 To book.Len() - 1
+                If book[i].name <> selected Then
+                    kept.Push(book[i])
+                End If
+            Next
+            book = kept
+            names = NamesOf(book)
+            WriteBook(book)
+            status = "deleted " & selected
+            selected = ""
+        End If
+    End Event
+
+    Event SaveBook
+        If title = "" Then
+            status = "a recipe needs a name"
+        Else
+            ' Clone: building the struct moves the String fields out of state,
+            ' and r is assigned into the Vec AND pushed, so it can't move twice.
+            Dim r As Recipe = Recipe { name: title.Clone(), category: category.Clone(), servings: servings, veggie: veggie, method: method.Text() }
+            Dim replaced As Boolean = False
+            Dim i As Long
+            For i = 0 To book.Len() - 1
+                If book[i].name = title Then
+                    book[i] = r.Clone()
+                    replaced = True
+                End If
+            Next
+            If Not replaced Then
+                book.Push(r)
+            End If
+            names = NamesOf(book)
+            WriteBook(book)
+            status = "saved " & book.Len() & " recipes"
+        End If
+    End Event
+End Window
+
+Function Categories() As Vec<String>
+    Dim out As Vec<String>
+    out.Push("Mains")
+    out.Push("Sides")
+    out.Push("Puddings")
+    out.Push("Bakes")
+    Return out
+End Function
+
+Function NamesOf(ByVal b As Vec<Recipe>) As Vec<String>
+    Dim out As Vec<String>
+    Dim i As Long
+    For i = 0 To b.Len() - 1
+        out.Push(b[i].name)
+    Next
+    Return out
+End Function
+
+Function DefaultBook() As Vec<Recipe>
+    Dim out As Vec<Recipe>
+    out.Push(Recipe { name: "Butter beans", category: "Sides", servings: 4, veggie: True, method: "Simmer the beans in stock with a bay leaf until tender. Finish with butter, lemon, and a lot of black pepper." })
+    out.Push(Recipe { name: "Sunday roast", category: "Mains", servings: 6, veggie: False, method: "High heat for the first twenty minutes, then low and slow. Rest the meat before carving — this bit is not optional." })
+    Return out
+End Function
+
+Function WriteBook(ByVal b As Vec<Recipe>)
+    Dim arr As Json = Json.Array()
+    Dim i As Long
+    For i = 0 To b.Len() - 1
+        Dim o As Json = Json.Object()
+        o.Set_String("name", b[i].name)
+        o.Set_String("category", b[i].category)
+        o.Set_Int("servings", b[i].servings)
+        o.Set_Bool("veggie", b[i].veggie)
+        o.Set_String("method", b[i].method)
+        arr.Push(o)
+    Next
+    Dim root As Json = Json.Object()
+    root.Set("recipes", arr)
+    Dim text As String = root.To_Pretty() Handle err
+        Return
+    End Handle
+    FileSystem.Write("recipes.json", text)
+End Function
+
+Function LoadBook() As Vec<Recipe>
+    If Not FileSystem.Exists("recipes.json") Then
+        Return DefaultBook()
+    End If
+    Dim text As String = FileSystem.Read("recipes.json") Handle _
+        Return DefaultBook()
+    End Handle
+    Dim root As Json = Json.Parse(text) Handle _
+        Return DefaultBook()
+    End Handle
+    Dim items As Vec<Json> = root.Get_Array("recipes") Handle _
+        Return DefaultBook()
+    End Handle
+    Dim out As Vec<Recipe>
+    For Each j In items
+        Dim name As String = j.Get_String("name") Handle _
+            Continue
+        End Handle
+        Dim category As String = j.Get_String("category") Handle _
+            Continue
+        End Handle
+        Dim servings As Long = j.Get_Int("servings") Handle _
+            Continue
+        End Handle
+        Dim veggie As Boolean = j.Get_Bool("veggie") Handle _
+            Continue
+        End Handle
+        Dim method As String = j.Get_String("method") Handle _
+            Continue
+        End Handle
+        out.Push(Recipe { name: name, category: category, servings: servings, veggie: veggie, method: method })
+    Next
+    Return out
+End Function
+
+Function LoadNames() As Vec<String>
+    Return NamesOf(LoadBook())
+End Function
+
+Function Main()
+    Recipes.Run
+End Function

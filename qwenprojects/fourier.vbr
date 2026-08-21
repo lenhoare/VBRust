@@ -1,0 +1,109 @@
+' fourier — epicycles drawing a square wave. A chain of rotating circles
+' (odd harmonics 1, 3, 5, 7) whose tip traces the partial Fourier sum.
+' Geometry is squashed vertically by 0.5 everywhere (terminal characters
+' are twice as tall as wide).
+' Run:  vbr run qwenprojects/fourier.vbr  (animated, ~15s)
+
+Const W As Long = 72
+Const H As Long = 31
+Const CX As Long = 16
+Const CY As Long = 15
+Const WaveX As Long = 40
+Const Hist As Long = 31
+Const Pi As Double = 3.141592653589793
+
+Function Main()
+    Dim esc As String = Chr(27)
+    Debug.Print esc & "[2J"
+
+    Dim hist As Vec<Long>
+    Dim frame As Long
+    For frame = 0 To 299
+        Dim t As Double = frame * 0.06
+
+        Dim grid As Vec<String>
+        Dim i As Long
+        For i = 1 To W * H
+            grid.Push(" ")
+        Next
+
+        ' epicycle chain: odd harmonics of a square wave
+        Dim px As Double = CX
+        Dim py As Double = CY
+        Dim k As Long
+        For k = 1 To 4
+            Dim harm As Long = 2 * k - 1
+            Dim h As Double = harm
+            Dim r As Double = 14.0 / h
+            Dim ang As Double = h * t
+
+            Dim s As Long
+            For s = 0 To 23
+                Dim a As Double = s * 2 * Pi / 24
+                Dim rx As Long = Int(px + r * Cos(a))
+                Dim ry As Long = Int(py + r * Sin(a) * 0.5)
+                If rx >= 0 And rx < W And ry >= 0 And ry < H Then
+                    grid[ry * W + rx] = "."
+                End If
+            Next
+
+            px = px + r * Cos(ang)
+            py = py + r * Sin(ang) * 0.5
+            Dim jx As Long = Int(px)
+            Dim jy As Long = Int(py)
+            If jx >= 0 And jx < W And jy >= 0 And jy < H Then
+                grid[jy * W + jx] = "o"
+            End If
+        Next
+
+        Dim tipX As Long = Int(px)
+        Dim tipY As Long = Int(py)
+        If tipX >= 0 And tipX < W And tipY >= 0 And tipY < H Then
+            grid[tipY * W + tipX] = "@"
+        End If
+
+        hist.Push(tipY)
+        If hist.Len() > Hist Then
+            Dim kept As Vec<Long>
+            Dim q As Long
+            For q = 1 To hist.Len() - 1
+                kept.Push(hist[q])
+            Next
+            hist = kept
+        End If
+
+        Dim n As Long = hist.Len()
+        Dim c As Long
+        For c = 0 To n - 1
+            Dim wx As Long = WaveX + c
+            Dim wy As Long = hist[n - 1 - c]
+            If wx < W And wy >= 0 And wy < H Then
+                grid[wy * W + wx] = "*"
+            End If
+        Next
+
+        Dim rowY As Long = tipY
+        If rowY >= 0 And rowY < H Then
+            Dim m As Long
+            For m = tipX + 1 To WaveX - 1
+                If m >= 0 And m < W Then
+                    grid[rowY * W + m] = "-"
+                End If
+            Next
+        End If
+
+        Dim pic As String = esc & "[H"
+        Dim y As Long
+        For y = 0 To H - 1
+            Dim x As Long
+            For x = 0 To W - 1
+                pic = pic & grid[y * W + x]
+            Next
+            pic = pic & Chr(10)
+        Next
+        pic = pic & "fourier epicycles — square wave from harmonics 1,3,5,7   t=" & Int(t * 10) / 10 & Chr(10)
+        Debug.Print pic
+        Sleep 50
+    Next
+    Debug.Print "done."
+End Function

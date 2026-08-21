@@ -1,0 +1,32 @@
+' guess — "I'm thinking of a number between 1 and 100."
+' VB6's Rnd() is gone; the compiler's own error suggests `Use rand 0.8`
+' and shows the snippet below. One inline Rust block, then pure Bust.
+
+Use rand 0.8
+
+Function Main()
+    Dim secret As Long = Rust
+        use rand::Rng;
+        rand::thread_rng().gen_range(1..=100)
+    End Rust
+    Dim tries As Long = 0
+    Debug.Print "I'm thinking of a number between 1 and 100."
+    Do
+        Dim line As String = InputBox("Your guess: ")
+        If line = "" Then
+            Debug.Print "  (no more input — the number was " & secret & ")"
+            Exit Do
+        End If
+        Dim guess As Long = CLng(Trim(line)) Handle err
+            Debug.Print "  that's not a whole number — try again."
+            Continue
+        End Handle
+        tries = tries + 1
+        If guess < secret Then Debug.Print "  higher."
+        If guess > secret Then Debug.Print "  lower."
+        If guess = secret Then
+            Debug.Print "  got it in " & tries & " tries!"
+            Exit Do
+        End If
+    Loop
+End Function

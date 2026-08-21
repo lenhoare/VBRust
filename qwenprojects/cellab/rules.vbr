@@ -1,0 +1,93 @@
+' cellab — outer-totalistic 2-state cellular automata from B/S rule strings.
+' Conway's Life is B3/S23; the parser handles any B.../S... code.
+
+Public Type Rule
+    Public name As String
+    Public birth As Vec<Boolean>
+    Public survive As Vec<Boolean>
+End Type
+
+Public Function ParseRule(ByVal name As String, ByVal code As String) As Rule
+    Dim birth As Vec<Boolean>
+    Dim survive As Vec<Boolean>
+    Dim i As Long
+    For i = 1 To 9
+        birth.Push(False)
+        survive.Push(False)
+    Next
+
+    ' F-025: InStr returns Option and a ZERO-based position — only needed
+    ' the existence check here.
+    If InStr(code, "/") Is None Then
+        RaiseError "rule needs a '/': " & code
+    End If
+    Dim side As Long = 0
+    Dim p As Long
+    For p = 1 To Len(code)
+        Dim ch As String = Mid(code, p, 1)
+        If ch = "B" Or ch = "b" Then
+            side = 0
+        ElseIf ch = "S" Or ch = "s" Then
+            side = 1
+        ElseIf ch = "/" Then
+            ' separator, already found
+        Else
+            Dim d As Long = Asc(ch) - Asc("0")
+            If d < 0 Or d > 8 Then
+                RaiseError "bad digit in rule '" & code & "': " & ch
+            End If
+            If side = 0 Then
+                birth[d] = True
+            Else
+                survive[d] = True
+            End If
+        End If
+    Next
+    Return Rule { name: name, birth: birth, survive: survive }
+End Function
+
+' One generation, toroidal. Reads g, writes the next generation back through it.
+Public Function StepGrid(ByRef g As Vec<Long>, ByVal w As Long, ByVal h As Long, ByVal r As Rule)
+    Dim nxt As Vec<Long>
+    Dim i As Long
+    For i = 1 To w * h
+        nxt.Push(0)
+    Next
+    Dim y As Long
+    For y = 0 To h - 1
+        Dim x As Long
+        For x = 0 To w - 1
+            Dim n As Long = 0
+            Dim dy As Long
+            For dy = -1 To 1
+                Dim dx As Long
+                For dx = -1 To 1
+                    If dx <> 0 Or dy <> 0 Then
+                        Dim yy As Long = (y + dy + h) Mod h
+                        Dim xx As Long = (x + dx + w) Mod w
+                        n = n + g[yy * w + xx]
+                    End If
+                Next
+            Next
+            If g[y * w + x] = 1 Then
+                If r.survive[n] Then
+                    nxt[y * w + x] = 1
+                End If
+            Else
+                If r.birth[n] Then
+                    nxt[y * w + x] = 1
+                End If
+            End If
+        Next
+    Next
+    g = nxt
+End Function
+
+Public Function Population(ByVal g As Vec<Long>) As Long
+    Dim total As Long = 0
+    Dim i As Long
+    For i = 0 To g.Len() - 1
+        total = total + g[i]
+    Next
+    Return total
+End Function

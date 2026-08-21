@@ -1,0 +1,71 @@
+' cellab — animated cellular automata lab: Life, Day&Night, Maze.
+' LCG for seeding (no Rnd in VBR — the classic VB fallback).
+
+Const W As Long = 60
+Const H As Long = 28
+
+Function Lcg(ByRef seed As Long) As Long
+    seed = (seed * 1103515245 + 12345) Mod 2147483648
+    Return seed
+End Function
+
+Function NewSeed(ByVal seed As Long, ByVal density As Long) As Vec<Long>
+    Dim g As Vec<Long>
+    Dim s As Long = seed
+    Dim i As Long
+    For i = 1 To W * H
+        If Lcg(s) Mod 100 < density Then
+            g.Push(1)
+        Else
+            g.Push(0)
+        End If
+    Next
+    ' a glider near the top-left, for Life at least — (y, x) pairs
+    Dim pts As Vec<Long> = [0, 1, 1, 2, 2, 0, 2, 1, 2, 2]
+    Dim k As Long
+    For k = 0 To 4
+        g[pts[k * 2] * W + pts[k * 2 + 1]] = 1
+    Next
+    Return g
+End Function
+
+Function Render(ByVal g As Vec<Long>, ByVal r As Rule, ByVal gen As Long, ByVal esc As String)
+    Dim pic As String = esc & "[H"
+    Dim y As Long
+    For y = 0 To H - 1
+        Dim x As Long
+        For x = 0 To W - 1
+            If g[y * W + x] = 1 Then
+                pic = pic & "██"
+            Else
+                pic = pic & "  "
+            End If
+        Next
+        pic = pic & Chr(10)
+    Next
+    pic = pic & r.name & "  gen " & gen & "  pop " & Rules.Population(g) & Chr(10)
+    Debug.Print pic
+End Function
+
+Function RunRule(ByVal r As Rule, ByVal seed As Long, ByVal gens As Long, ByVal esc As String)
+    Debug.Print esc & "[2J"
+    Dim g As Vec<Long> = NewSeed(seed, 25)
+    Dim gen As Long
+    For gen = 0 To gens
+        Render(g, r, gen, esc)
+        Rules.StepGrid(g, W, H, r)
+        Sleep 50
+    Next
+End Function
+
+Function Main()
+    Dim esc As String = Chr(27)
+    Dim life As Rule = Rules.ParseRule("Life      B3/S23", "B3/S23")
+    Dim night As Rule = Rules.ParseRule("Day&Night B3678/S34678", "B3678/S34678")
+    Dim maze As Rule = Rules.ParseRule("Maze      B3/S12345", "B3/S12345")
+
+    RunRule(life, 12345, 60, esc)
+    RunRule(night, 98765, 60, esc)
+    RunRule(maze, 54321, 60, esc)
+    Debug.Print esc & "[2J" & Chr(10) & "lab finished."
+End Function

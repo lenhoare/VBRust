@@ -1,0 +1,145 @@
+' boids — Craig Reynolds' flocking in the terminal. Separation, alignment,
+' cohesion over an O(n^2) neighbourhood; toroidal world. LCG for seeding.
+
+Const W As Long = 72
+Const H As Long = 34
+Const N As Long = 50
+Const Pi As Double = 3.141592653589793
+
+Type Boid
+    Public x As Double
+    Public y As Double
+    Public vx As Double
+    Public vy As Double
+End Type
+
+Function Lcg(ByRef seed As Long) As Long
+    seed = (seed * 1103515245 + 12345) Mod 2147483648
+    Return seed
+End Function
+
+' 0..1 from the LCG
+Function LcgUnit(ByRef seed As Long) As Double
+    Return Lcg(seed) / 2147483648.0
+End Function
+
+Function Flock(ByRef boids As Vec<Boid>)
+    Dim i As Long
+    For i = 0 To N - 1
+        Dim cx As Double = 0
+        Dim cy As Double = 0
+        Dim avx As Double = 0
+        Dim avy As Double = 0
+        Dim sx As Double = 0
+        Dim sy As Double = 0
+        Dim mates As Long = 0
+        Dim j As Long
+        For j = 0 To N - 1
+            If j <> i Then
+                Dim dx As Double = boids[j].x - boids[i].x
+                Dim dy As Double = boids[j].y - boids[i].y
+                Dim d As Double = Sqr(dx * dx + dy * dy)
+                If d < 7 Then
+                    cx = cx + boids[j].x
+                    cy = cy + boids[j].y
+                    avx = avx + boids[j].vx
+                    avy = avy + boids[j].vy
+                    mates = mates + 1
+                    If d < 2.5 And d > 0 Then
+                        sx = sx - dx / d
+                        sy = sy - dy / d
+                    End If
+                End If
+            End If
+        Next
+
+        Dim b As Boid = boids[i]
+        If mates > 0 Then
+            b.vx = b.vx + 0.01 * (cx / mates - b.x) + 0.05 * (avx / mates - b.vx)
+            b.vy = b.vy + 0.01 * (cy / mates - b.y) + 0.05 * (avy / mates - b.vy)
+        End If
+        b.vx = b.vx + 0.15 * sx
+        b.vy = b.vy + 0.15 * sy
+
+        Dim speed As Double = Sqr(b.vx * b.vx + b.vy * b.vy)
+        If speed > 1 Then
+            b.vx = b.vx / speed
+            b.vy = b.vy / speed
+        End If
+        If speed < 0.3 And speed > 0 Then
+            b.vx = b.vx * 0.3 / speed
+            b.vy = b.vy * 0.3 / speed
+        End If
+
+        b.x = b.x + b.vx
+        b.y = b.y + b.vy
+        If b.x < 0 Then
+            b.x = b.x + W
+        End If
+        If b.x >= W Then
+            b.x = b.x - W
+        End If
+        If b.y < 0 Then
+            b.y = b.y + H
+        End If
+        If b.y >= H Then
+            b.y = b.y - H
+        End If
+        boids[i] = b
+    Next
+End Function
+
+Function Mark(ByVal b As Boid) As String
+    If Abs(b.vx) > Abs(b.vy) Then
+        If b.vx > 0 Then
+            Return ">"
+        End If
+        Return "<"
+    End If
+    If b.vy > 0 Then
+        Return "v"
+    End If
+    Return "^"
+End Function
+
+Function Main()
+    Dim esc As String = Chr(27)
+    Dim seed As Long = 42
+    Dim boids As Vec<Boid>
+    Dim i As Long
+    For i = 1 To N
+        Dim angle As Double = LcgUnit(seed) * 2 * Pi
+        boids.Push(Boid { x: LcgUnit(seed) * W, y: LcgUnit(seed) * H, vx: Cos(angle) * 0.6, vy: Sin(angle) * 0.6 })
+    Next
+
+    Debug.Print esc & "[2J"
+    Dim frame As Long
+    For frame = 0 To 149
+        Dim pic As String = ""
+        Dim row As Long
+        Dim grid As Vec<String>
+        Dim c As Long
+        For c = 1 To W * H
+            grid.Push(" ")
+        Next
+        For i = 0 To N - 1
+            Dim px As Long = Int(boids[i].x)
+            Dim py As Long = Int(boids[i].y)
+            If px >= 0 And px < W And py >= 0 And py < H Then
+                grid[py * W + px] = Mark(boids[i])
+            End If
+        Next
+        pic = esc & "[H"
+        For row = 0 To H - 1
+            For col = 0 To W - 1
+                pic = pic & grid[row * W + col]
+            Next
+            pic = pic & Chr(10)
+        Next
+        pic = pic & "boids: " & N & "  frame " & frame
+        Debug.Print pic
+        Flock(boids)
+        Sleep 40
+    Next
+    Debug.Print Chr(10) & "done."
+End Function

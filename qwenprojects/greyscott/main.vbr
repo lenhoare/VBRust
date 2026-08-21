@@ -1,0 +1,87 @@
+' greyscott — reaction-diffusion (artificial life) on the GPU.
+' U/V concentrations are carried in the last frame's red/green channels;
+' each frame is one Gray-Scott generation seeded at the mouse.
+
+Sketch GreyScott
+    Title "Gray-Scott"
+    Size 480, 360
+    Background Color.Black
+
+    State
+        Dim t As Double = 0.0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                Dim cu As Double = Sample(frame, x, y).r / 255.0
+                Dim cv As Double = Sample(frame, x, y).g / 255.0
+
+                Dim lapU As Double = -1.0 * cu
+                Dim lapV As Double = -1.0 * cv
+                ' F-031: no "Dim dx" before "For dx" inside a kernel — the
+                ' WGSL lowering emits the Dim AND the loop var (redefinition).
+                For dx = -1 To 1
+                    For dy = -1 To 1
+                        If dx <> 0 Or dy <> 0 Then
+                            Dim wx As Double = 0.2
+                            If dx <> 0 And dy <> 0 Then
+                                wx = 0.05
+                            End If
+                            Dim nu As Double = Sample(frame, x + dx, y + dy).r / 255.0
+                            Dim nv As Double = Sample(frame, x + dx, y + dy).g / 255.0
+                            lapU = lapU + wx * nu
+                            lapV = lapV + wx * nv
+                        End If
+                    Next
+                Next
+
+                Dim uvv As Double = cu * cv * cv
+                Dim feed As Double = 0.037
+                Dim kill As Double = 0.06
+                Dim du As Double = 0.16
+                Dim dv As Double = 0.08
+                Dim unext As Double = cu + du * lapU - uvv + feed * (1.0 - cu)
+                Dim vnext As Double = cv + dv * lapV + uvv - (kill + feed) * cv
+
+                ' seed chemistry at the pointer
+                Dim mdx As Double = x - mouse_x
+                Dim mdy As Double = y - mouse_y
+                If mdx * mdx + mdy * mdy < 8 * 8 Then
+                    vnext = 0.9
+                    unext = 0.1
+                End If
+
+                If unext < 0 Then
+                    unext = 0
+                End If
+                If unext > 1 Then
+                    unext = 1
+                End If
+                If vnext < 0 Then
+                    vnext = 0
+                End If
+                If vnext > 1 Then
+                    vnext = 1
+                End If
+
+                Dim shade As Double = cv * 255
+                Set Pixel x, y, Color(unext * 60, shade, 40 + cv * 120)
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "gray-scott — move the mouse to seed", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.05
+    End Event
+End Sketch
+
+Function Main()
+    GreyScott.Run
+End Function

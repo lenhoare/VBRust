@@ -1,0 +1,106 @@
+' calc — recursive-descent expression evaluator.
+' + - * / ( ) and unary minus, standard precedence. 1-based positions
+' to match Mid/Len. Errors RaiseError and propagate; the caller Handles.
+
+Public Type Parser
+    Public s As String
+    Public pos As Long
+End Type
+
+Public Function Eval(ByVal text As String) As Double
+    Dim p As Parser = Parser { s: text, pos: 1 }
+    Dim v As Double = p.ParseExpr()
+    p.SkipSpaces()
+    If p.pos <= Len(p.s) Then
+        RaiseError "unexpected '" & Mid(p.s, p.pos, 1) & "' at position " & p.pos
+    End If
+    Return v
+End Function
+
+Function Parser.SkipSpaces()
+    Do While Me.pos <= Len(Me.s) And Mid(Me.s, Me.pos, 1) = " "
+        Me.pos = Me.pos + 1
+    Loop
+End Function
+
+Function Parser.Peek() As String
+    If Me.pos > Len(Me.s) Then
+        Return ""
+    End If
+    Return Mid(Me.s, Me.pos, 1)
+End Function
+
+Function Parser.ParseExpr() As Double
+    Dim v As Double = Me.ParseTerm()
+    Do
+        Me.SkipSpaces()
+        Dim op As String = Me.Peek()
+        If op = "+" Then
+            Me.pos = Me.pos + 1
+            v = v + Me.ParseTerm()
+        ElseIf op = "-" Then
+            Me.pos = Me.pos + 1
+            v = v - Me.ParseTerm()
+        Else
+            Exit Do
+        End If
+    Loop
+    Return v
+End Function
+
+Function Parser.ParseTerm() As Double
+    Dim v As Double = Me.ParseFactor()
+    Do
+        Me.SkipSpaces()
+        Dim op As String = Me.Peek()
+        If op = "*" Then
+            Me.pos = Me.pos + 1
+            v = v * Me.ParseFactor()
+        ElseIf op = "/" Then
+            Me.pos = Me.pos + 1
+            Dim d As Double = Me.ParseFactor()
+            If d = 0 Then
+                RaiseError "division by zero"
+            End If
+            v = v / d
+        Else
+            Exit Do
+        End If
+    Loop
+    Return v
+End Function
+
+Function Parser.ParseFactor() As Double
+    Me.SkipSpaces()
+    Dim ch As String = Me.Peek()
+    If ch = "-" Then
+        Me.pos = Me.pos + 1
+        ' F-013: unary minus on a Double won't compile ("0 - x" with an
+        ' integer zero), so write the subtraction out.
+        Return 0.0 - Me.ParseFactor()
+    End If
+    If ch = "(" Then
+        Me.pos = Me.pos + 1
+        Dim v As Double = Me.ParseExpr()
+        Me.SkipSpaces()
+        If Me.Peek() <> ")" Then
+            RaiseError "expected ')' at position " & Me.pos
+        End If
+        Me.pos = Me.pos + 1
+        Return v
+    End If
+    Dim start As Long = Me.pos
+    Do While Me.pos <= Len(Me.s)
+        ' F-014: string ORDER comparisons (c >= "0") don't compile — use Asc.
+        Dim code As Long = Asc(Mid(Me.s, Me.pos, 1))
+        If (code >= Asc("0") And code <= Asc("9")) Or Mid(Me.s, Me.pos, 1) = "." Then
+            Me.pos = Me.pos + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If Me.pos = start Then
+        RaiseError "expected a number at position " & Me.pos
+    End If
+    Return CDbl(Mid(Me.s, start, Me.pos - start))
+End Function

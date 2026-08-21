@@ -1,0 +1,67 @@
+' pascal — Pascal's triangle: binomial rows, then the mod-2 shadow,
+' which is the Sierpinski triangle. i64 keeps rows 0..63 exact.
+
+Const Rows As Long = 64
+
+Function Spaces(ByVal n As Long) As String
+    Dim out As String = ""
+    Dim i As Long
+    For i = 1 To n
+        out = out & " "
+    Next
+    Return out
+End Function
+
+Function Main()
+    Dim row As Vec<Long>
+    row.Push(1)
+
+    Debug.Print "first 12 rows:"
+    Dim r As Long
+    For r = 0 To Rows - 1
+        If r < 12 Then
+            Dim line As String = Spaces((Rows - r) / 2)
+            Dim i As Long
+            For i = 0 To row.Len() - 1
+                line = line & row[i] & " "
+            Next
+            Debug.Print line
+        End If
+
+        ' build the next row (can't call it next — keyword, F-017)
+        Dim nxt As Vec<Long>
+        nxt.Push(1)
+        Dim j As Long
+        For j = 1 To r
+            nxt.Push(row[j - 1] + row[j])
+        Next
+        nxt.Push(1)
+        row = nxt
+    Next
+
+    ' mod 2 — the Sierpinski triangle
+    Debug.Print ""
+    Debug.Print "rows mod 2 (Sierpinski):"
+    Dim srow As Vec<Long>
+    srow.Push(1)
+    For r = 0 To Rows - 1
+        Dim line As String = Spaces(Rows - 1 - r)
+        Dim i As Long
+        For i = 0 To srow.Len() - 1
+            If srow[i] Mod 2 = 1 Then
+                line = line & "* "
+            Else
+                line = line & "  "
+            End If
+        Next
+        Debug.Print line
+        Dim nxt As Vec<Long>
+        nxt.Push(1)
+        Dim j As Long
+        For j = 1 To r
+            nxt.Push(srow[j - 1] + srow[j])
+        Next
+        nxt.Push(1)
+        srow = nxt
+    Next
+End Function

@@ -1,0 +1,128 @@
+' raymarch — a raymarched scene in one GPU kernel: a sphere resting on a
+' plane, soft diffuse lighting from a fixed sun, sky gradient behind.
+' The sphere bobs gently with t. SDF = signed distance function.
+' Run:  vbr runproject qwenprojects/raymarch
+
+Sketch Marcher
+    Title "Raymarch"
+    Size 640, 480
+    Background Color.Black
+
+    State
+        Dim t As Double = 0
+    End State
+
+    Every 16 Tick
+
+    Gpu Draw
+        For y = 0 To height - 1
+            For x = 0 To width - 1
+                ' camera and ray
+                Dim cx As Double = 0
+                Dim cy As Double = 1.2
+                Dim cz As Double = -3.2
+                Dim ux As Double = (x - width / 2) / height
+                Dim uy As Double = -(y - height / 2) / height
+                Dim rx As Double = ux
+                Dim ry As Double = uy
+                Dim rz As Double = 1.4
+                Dim rl As Double = Sqr(rx * rx + ry * ry + rz * rz)
+                rx = rx / rl
+                ry = ry / rl
+                rz = rz / rl
+
+                ' sphere centre bobs
+                Dim sy As Double = 1 + 0.25 * Sin(t)
+
+                ' march
+                Dim dist As Double = 0
+                Dim hit As Double = -1
+                Dim iter As Long
+                For iter = 0 To 47
+                    Dim px As Double = cx + rx * dist
+                    Dim py As Double = cy + ry * dist
+                    Dim pz As Double = cz + rz * dist
+                    ' sdf: sphere at (0, sy, 0) r=1, plane y=0
+                    Dim ox As Double = px
+                    Dim oy As Double = py - sy
+                    Dim oz As Double = pz
+                    Dim sd As Double = Sqr(ox * ox + oy * oy + oz * oz) - 1
+                    If py < sd Then
+                        sd = py
+                    End If
+                    If sd < 0.002 Then
+                        hit = dist
+                        Exit For
+                    End If
+                    dist = dist + sd
+                    If dist > 20 Then
+                        Exit For
+                    End If
+                Next
+
+                If hit < 0 Then
+                    ' sky gradient
+                    Dim sk As Double = 1 - y / height
+                    Set Pixel x, y, Color(30 + sk * 60, 40 + sk * 80, 80 + sk * 120)
+                Else
+                    ' point and normal by finite differences
+                    Dim hx As Double = cx + rx * hit
+                    Dim hy As Double = cy + ry * hit
+                    Dim hz As Double = cz + rz * hit
+                    Dim e As Double = 0.01
+                    Dim d0x As Double = hx - 0
+                    Dim d0y As Double = hy - sy
+                    Dim d0z As Double = hz - 0
+                    Dim sdd As Double = Sqr(d0x * d0x + d0y * d0y + d0z * d0z) - 1
+                    Dim nx As Double = 0
+                    Dim ny As Double = 1
+                    Dim nz As Double = 0
+                    If hy > sdd + 0.01 Then
+                        ' on the sphere
+                        nx = d0x / (sdd + 1)
+                        ny = d0y / (sdd + 1)
+                        nz = d0z / (sdd + 1)
+                    End If
+
+                    ' sun from the upper left front
+                    Dim lx As Double = -0.5
+                    Dim ly As Double = 0.8
+                    Dim lz As Double = -0.3
+                    Dim ll As Double = Sqr(lx * lx + ly * ly + lz * lz)
+                    lx = lx / ll
+                    ly = ly / ll
+                    lz = lz / ll
+                    Dim diff As Double = nx * lx + ny * ly + nz * lz
+                    If diff < 0 Then
+                        diff = 0
+                    End If
+                    Dim shade As Double = 0.15 + 0.85 * diff
+
+                    If hy <= sdd + 0.01 Then
+                        ' checkerboard floor
+                        Dim ck As Long = Int(hx * 2) + Int(hz * 2)
+                        If ck Mod 2 = 0 Then
+                            Set Pixel x, y, Color(shade * 170, shade * 160, shade * 150)
+                        Else
+                            Set Pixel x, y, Color(shade * 90, shade * 95, shade * 110)
+                        End If
+                    Else
+                        Set Pixel x, y, Color(shade * 220, shade * 120, shade * 60)
+                    End If
+                End If
+            Next x
+        Next y
+    End Draw
+
+    Draw
+        Text "raymarched sphere on a checker floor", 16, 22, Color.Gray
+    End Draw
+
+    Event Tick
+        t = t + 0.05
+    End Event
+End Sketch
+
+Function Main()
+    Marcher.Run
+End Function

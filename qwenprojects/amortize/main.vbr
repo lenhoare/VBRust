@@ -1,0 +1,96 @@
+' amortize — a formal GUI form: the classic VB loan calculator.
+' Logic lives in loan.vbr (tested by loan.test.vbr).
+' Run:  vbr runproject qwenprojects/amortize
+
+Window Amortize
+    Title "Loan amortiser"
+    Theme JellyFish
+
+    State
+        Dim principal As String = "200000"
+        Dim rate As String = "5.5"
+        Dim years As Integer = 30
+        Dim rows As Vec<ScheduleRow>
+        Dim summary As String = "Set the loan, then press Compute."
+        Dim status As String = ""
+    End State
+
+    View
+        Column
+            Spacing 10
+            Padding 20
+
+            Text "Loan amortiser"
+
+            Row
+                Spacing 24
+                Column
+                    Spacing 6
+                    Text "Principal"
+                    TextInput "200000", principal
+                        On Input SetPrincipal
+                    End TextInput
+                    Text "Annual rate %"
+                    TextInput "5.5", rate
+                        On Input SetRate
+                        On Submit Compute
+                    End TextInput
+                    Text "Years: " & years
+                    Slider 1..=40, years
+                        On Change SetYears
+                    End Slider
+                End Column
+                Column
+                    Spacing 8
+                    Text summary
+                    Button "Compute"
+                        On Click Compute
+                    End Button
+                    Text status
+                End Column
+            End Row
+
+            Rule Horizontal
+
+            Fill
+            Scrollable
+                Table rows
+                End Table
+            End Scrollable
+        End Column
+    End View
+
+    Event SetPrincipal(value As String)
+        principal = value
+    End Event
+
+    Event SetRate(value As String)
+        rate = value
+    End Event
+
+    Event SetYears(value As Integer)
+        years = value
+    End Event
+
+    Event Compute
+        Dim p As Double = CDbl(principal) Handle err
+            status = "principal: " & err
+            Return
+        End Handle
+        Dim r As Double = CDbl(rate) Handle err
+            status = "rate: " & err
+            Return
+        End Handle
+        Dim res As LoanResult = Loan.Amortize(p, r, years) Handle err
+            status = "loan: " & err
+            Return
+        End Handle
+        rows = res.rows
+        summary = "Monthly " & Loan.Money(res.monthly) & "   ·   total " & Loan.Money(res.totalPaid) & "   ·   interest " & Loan.Money(res.totalInterest)
+        status = "computed " & years & " years."
+    End Event
+End Window
+
+Function Main()
+    Amortize.Run
+End Function

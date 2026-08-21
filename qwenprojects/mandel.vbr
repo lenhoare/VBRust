@@ -1,0 +1,88 @@
+' mandel — Mandelbrot and Julia sets in the terminal. Escape-time fractal,
+' pure Double maths, no stdlib.  vbr run qwenprojects/mandel.vbr
+
+Const MaxIter As Long = 100
+
+Function EscapeM(ByVal cx As Double, ByVal cy As Double) As Long
+    Dim zr As Double = 0
+    Dim zi As Double = 0
+    Dim i As Long
+    For i = 1 To MaxIter
+        Dim nzr As Double = zr * zr - zi * zi + cx
+        Dim nzi As Double = 2 * zr * zi + cy
+        zr = nzr
+        zi = nzi
+        If zr * zr + zi * zi > 16 Then
+            Return i
+        End If
+    Next
+    Return MaxIter + 1
+End Function
+
+Function EscapeJ(ByVal zx As Double, ByVal zy As Double, ByVal cx As Double, ByVal cy As Double) As Long
+    Dim zr As Double = zx
+    Dim zi As Double = zy
+    Dim i As Long
+    For i = 1 To MaxIter
+        Dim nzr As Double = zr * zr - zi * zi + cx
+        Dim nzi As Double = 2 * zr * zi + cy
+        zr = nzr
+        zi = nzi
+        If zr * zr + zi * zi > 16 Then
+            Return i
+        End If
+    Next
+    Return MaxIter + 1
+End Function
+
+Function Shade(ByVal i As Long) As String
+    Dim ramp As String = " .:-=+*#%@"
+    If i > MaxIter Then
+        Return " "
+    End If
+    Dim idx As Long = Int(i * 9 / MaxIter) + 1
+    If idx > 9 Then
+        idx = 9
+    End If
+    Return Mid(ramp, idx, 1)
+End Function
+
+Function RenderMandel()
+    Dim w As Long = 100
+    Dim h As Long = 40
+    Dim y As Long
+    For y = 0 To h - 1
+        Dim row As String = ""
+        Dim x As Long
+        For x = 0 To w - 1
+            Dim cx As Double = -2.5 + x * 3.5 / w
+            Dim cy As Double = -1.0 + y * 2.0 / h
+            row = row & Shade(EscapeM(cx, cy))
+        Next
+        Debug.Print row
+    Next
+End Function
+
+Function RenderJulia(ByVal jx As Double, ByVal jy As Double)
+    Dim w As Long = 100
+    Dim h As Long = 40
+    Dim y As Long
+    For y = 0 To h - 1
+        Dim row As String = ""
+        Dim x As Long
+        For x = 0 To w - 1
+            Dim zx As Double = -1.5 + x * 3.0 / w
+            Dim zy As Double = -1.0 + y * 2.0 / h
+            row = row & Shade(EscapeJ(zx, zy, jx, jy))
+        Next
+        Debug.Print row
+    Next
+End Function
+
+Function Main()
+    Debug.Print "Mandelbrot set:"
+    RenderMandel()
+    Debug.Print ""
+    Debug.Print "Julia set at c = (-0.7269, 0.1889):"
+    RenderJulia(-0.7269, 0.1889)
+End Function
