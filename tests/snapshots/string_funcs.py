@@ -13,7 +13,7 @@ def main():
     print(f"upper:     {_vb((s).upper())}")
     print(f"lower:     {_vb((s).lower())}")
     print(f"left 5:    {_vb((s)[:max(int(5), 0)])}")
-    print(f"right 5:   {_vb(((s)[-int(5):] if int(5) else ""))}")
+    print(f"right 5:   {_vb(((s)[-int(5):] if int(5) else ''))}")
     print(f"mid 2,3:   {_vb((s)[max(int(2) - 1, 0):max(int(2) - 1, 0) + int(3)])}")
     print(f"trimmed:   {_vb(('   padded   ').strip())}")
     print(f"replaced:  {_vb((s).replace('World', 'Rust'))}")

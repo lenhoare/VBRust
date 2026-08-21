@@ -12,8 +12,8 @@ def main():
     parts: list[str] = (csv).split(',')
     print(_vb((' / ').join(parts)))
     # Default delimiter is a single space, both ways.
-    print(_vb(" ".join(('a b c').split(" "))))
-    print(f"[{_vb((" " * max(int(3), 0)))}]")
+    print(_vb(' '.join(('a b c').split(' '))))
+    print(f"[{_vb((' ' * max(int(3), 0)))}]")
 
 
 if __name__ == "__main__":

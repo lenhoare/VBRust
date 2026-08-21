@@ -1488,7 +1488,7 @@ impl Emitter {
             ("right", 2) => {
                 let s = a(0, self);
                 let n = a(1, self);
-                format!("(({s})[-int({n}):] if int({n}) else \"\")")
+                format!("(({s})[-int({n}):] if int({n}) else '')")
             }
             ("mid", 2) => format!("({})[max(int({}) - 1, 0):]", a(0, self), a(1, self)),
             ("mid", 3) => {
@@ -1514,11 +1514,11 @@ impl Emitter {
                 let p = a(1, self);
                 format!("_vb_round(({x}) * (10 ** int({p}))) / (10 ** int({p}))")
             }
-            ("split", 1) => format!("({}).split(\" \")", a(0, self)),
+            ("split", 1) => format!("({}).split(' ')", a(0, self)),
             ("split", 2) => format!("({}).split({})", a(0, self), a(1, self)),
-            ("join", 1) => format!("\" \".join({})", a(0, self)),
+            ("join", 1) => format!("' '.join({})", a(0, self)),
             ("join", 2) => format!("({}).join({})", a(1, self), a(0, self)),
-            ("space", 1) => format!("(\" \" * max(int({}), 0))", a(0, self)),
+            ("space", 1) => format!("(' ' * max(int({}), 0))", a(0, self)),
             ("format", 2) => {
                 let ExprKind::Str(pat) = &args[1].kind else {
                     return None;
