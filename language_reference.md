@@ -1042,7 +1042,7 @@ ones you use — so a program that just reads a file compiles nothing extra.
 | command | what it does |
 |---------|--------------|
 | `vbr run file.vbr` | compile one file with `rustc` and run it |
-| `vbr runproject [dir]` | build the visible `build/` Cargo project and run it |
+| `vbr runproject [dir]` | build the visible `build/` Cargo project and run it (`$VBR_BUILD` / `$VBR_TARGET` relocate it) |
 | `vbr build [dir]` | generate the project without running |
 | `vbr test [dir]` | run the `Test` blocks and report `✓ / ✗` |
 | `vbr transpile file.vbr` | write the generated Rust to a file |

@@ -3,7 +3,9 @@
 //!   vbr run <file.vbr>        transpile, compile with rustc, and run (single file,
 //!                             no standard library or external crates)
 //!   vbr runproject [path]     generate a cargo project in `build/` and run it
-//!                             (handles the standard library and external crates)
+//!                             (handles the standard library and external crates).
+//!                             `$VBR_BUILD` relocates the project; cargo artifacts
+//!                             go to `$VBR_TARGET` or `~/.cache/vbr/target`.
 //!   vbr runweb [path]         build a `Page` (or a `Screen`, via Ratzilla) for
 //!                             WebAssembly and serve it in the browser with trunk
 //!   vbr build [path]          generate the cargo project without running it
@@ -61,7 +63,13 @@ fn usage() {
          \t                        The project keeps building; you maintain that file in Rust\n\
          \t                        from now on. Graduate main.vbr last to finish the journey.\n\
          \tvbr help build [dir]    generate the offline help site + text skin from help/entries/\n\
-         \t                        into help/build/ (dir overrides the entries folder)."
+         \t                        into help/build/ (dir overrides the entries folder).\n\
+         Env:\n\
+         \tVBR_BUILD               put generated cargo projects under this directory\n\
+         \t                        (default: <project>/build). Use /tmp/vbr to keep\n\
+         \t                        example trees free of build folders.\n\
+         \tVBR_TARGET              cargo artifact directory (default: ~/.cache/vbr/target).\n\
+         \t                        Shared across examples so Iced is compiled once."
     );
 }
 
@@ -757,11 +765,10 @@ fn cmd_project(args: &[String], run: bool) {
         return;
     }
 
-    // Compiling Iced from scratch takes ~30s — and `build/` is shared across
-    // examples, so a different example's deps can force a recompile even when
-    // `target/` already exists. So whenever Iced is a dependency, give the
-    // heads-up; otherwise a long compile looks like a hang. (On a cached rebuild
-    // it's instant, and the note is harmless.)
+    // Compiling Iced from scratch takes ~30s. Artifacts live in a shared cargo
+    // cache (`~/.cache/vbr/target` unless `$VBR_TARGET` is set), so a later
+    // example reuses them. Still print the heads-up: a cold cache looks like a
+    // hang, and a cached rebuild is instant.
     let cargo_toml = fs::read_to_string(build.join("Cargo.toml")).unwrap_or_default();
     if cargo_toml.contains("yew") {
         eprintln!(
@@ -1192,6 +1199,7 @@ fn cmd_rungodot(args: &[String]) {
         }
     };
     write(rust_dir.join("Cargo.toml"), &godot_cargo_toml(&crate_name, &deps));
+    write_cargo_target_config(&rust_dir);
     write(proj.join("project.godot"), &godot_project_file(&name));
     write(proj.join(format!("{}.gdextension", crate_name)), &gdextension_file(&crate_name));
     // A project's assets (scenes, textures, audio, an `assets/` folder) → the
@@ -1697,6 +1705,107 @@ fn resolve_entry(arg: &str) -> Option<PathBuf> {
     }
 }
 
+/// Where the generated Cargo project lives.
+///
+/// `$VBR_BUILD/<project-id>` when that env is set (so a tree of examples can
+/// keep cargo output in `/tmp` or a cache), otherwise `<project_dir>/build`.
+fn project_build_dir(project_dir: &Path) -> PathBuf {
+    match std::env::var_os("VBR_BUILD") {
+        Some(root) if !root.is_empty() => PathBuf::from(root).join(project_build_id(project_dir)),
+        _ => project_dir.join("build"),
+    }
+}
+
+/// Stable, filesystem-safe subdirectory for a relocated build (`goodexamples-reef-a1b2c3d4`).
+fn project_build_id(project_dir: &Path) -> String {
+    let canon = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let mut parts: Vec<String> = canon
+        .iter()
+        .rev()
+        .take(2)
+        .map(|s| s.to_string_lossy().into_owned())
+        .collect();
+    parts.reverse();
+    let mut slug = parts
+        .join("-")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug = slug.trim_matches('-');
+    let slug = if slug.is_empty() { "project" } else { slug };
+    format!("{slug}-{hash:08x}", hash = fnv1a32(canon.to_string_lossy().as_bytes()))
+}
+
+fn fnv1a32(bytes: &[u8]) -> u32 {
+    let mut h: u32 = 0x811c9dc5;
+    for b in bytes {
+        h ^= u32::from(*b);
+        h = h.wrapping_mul(0x01000193);
+    }
+    h
+}
+
+/// Shared cargo artifact directory. `$VBR_TARGET` if set, else `~/.cache/vbr/target`
+/// (or `%LOCALAPPDATA%\vbr\target` on Windows). One Iced compile, many examples.
+fn cargo_target_dir() -> PathBuf {
+    match std::env::var("VBR_TARGET") {
+        Ok(p) if !p.is_empty() => PathBuf::from(p),
+        _ => vbr_cache_dir().join("target"),
+    }
+}
+
+fn vbr_cache_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("XDG_CACHE_HOME") {
+        if !p.is_empty() {
+            return PathBuf::from(p).join("vbr");
+        }
+    }
+    if cfg!(windows) {
+        if let Ok(p) = std::env::var("LOCALAPPDATA") {
+            if !p.is_empty() {
+                return PathBuf::from(p).join("vbr");
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return PathBuf::from(home).join(".cache").join("vbr");
+        }
+    }
+    std::env::temp_dir().join("vbr-cache")
+}
+
+/// Point this cargo package at the shared artifact cache so `target/` does not
+/// land next to the sources (or under every example's `build/`).
+fn write_cargo_target_config(package_dir: &Path) {
+    let dir = package_dir.join(".cargo");
+    if let Err(e) = fs::create_dir_all(&dir) {
+        eprintln!("⚠ Could not create {}: {}", dir.display(), e);
+        return;
+    }
+    let target = cargo_target_dir();
+    let path = target.display().to_string().replace('\\', "/").replace('"', "\\\"");
+    let body = format!(
+        "# Generated by vbr — cargo artifacts stay out of the source tree.\n\
+         [build]\n\
+         target-dir = \"{path}\"\n"
+    );
+    if let Err(e) = fs::write(dir.join("config.toml"), body) {
+        eprintln!("⚠ Could not write {}: {}", dir.join("config.toml").display(), e);
+    }
+}
+
 /// Translation info for one generated file: its path under the build dir, the
 /// `.vbr` it came from, and the (rust line → vbr line) map.
 struct FileMap {
@@ -1706,8 +1815,10 @@ struct FileMap {
     tests: Vec<vbr::TestInfo>,
 }
 
-/// Generate the cargo project under `<project>/build/` and return its path
-/// plus the per-file line maps (for translating build errors).
+/// Generate the cargo project and return its path plus the per-file line maps
+/// (for translating build errors). Default location is `<project>/build/`;
+/// `$VBR_BUILD` relocates it. Cargo artifacts go to a shared cache so a tree
+/// of examples does not grow a `target/` apiece.
 fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, Vec<FileMap>) {
     let project_dir = entry.parent().unwrap_or_else(|| Path::new("."));
 
@@ -1802,12 +1913,13 @@ fn generate_project(entry: &Path, web: bool, include_tests: bool) -> (PathBuf, V
         }
     }
 
-    let build = project_dir.join("build");
+    let build = project_build_dir(project_dir);
     let src = build.join("src");
     if let Err(e) = fs::create_dir_all(&src) {
         eprintln!("✘ Could not create {}: {}", src.display(), e);
         exit(1);
     }
+    write_cargo_target_config(&build);
 
     // Entry → main.rs (crate root: `mod` declarations + `fn main`).
     let mut file_maps: Vec<FileMap> = Vec::new();

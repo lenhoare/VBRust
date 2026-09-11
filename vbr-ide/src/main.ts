@@ -156,10 +156,63 @@ monaco.languages.registerDefinitionProvider(VBR_LANGUAGE_ID, {
 // examples picker instead.
 void SAMPLE;
 
+const ACCENT_KEY = "vbr-ide.accent";
+const ACCENT_DEFAULT = "#5ec8c5";
+
+function readAccent(): string {
+  const stored = localStorage.getItem(ACCENT_KEY);
+  return stored && /^#[0-9a-fA-F]{6}$/.test(stored) ? stored : ACCENT_DEFAULT;
+}
+
+function applyAccent(hex: string): void {
+  const color = /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : ACCENT_DEFAULT;
+  document.documentElement.style.setProperty("--accent", color);
+  localStorage.setItem(ACCENT_KEY, color);
+  const swatch = document.getElementById("accent") as HTMLInputElement | null;
+  if (swatch) swatch.value = color;
+  defineMonacoThemes();
+}
+
+function defineMonacoThemes(): void {
+  const accent =
+    getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() ||
+    ACCENT_DEFAULT;
+  monaco.editor.defineTheme("bust-dark", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#1e1f22",
+      "editor.lineHighlightBackground": `${accent}22`,
+      "editor.selectionBackground": `${accent}44`,
+      "editorCursor.foreground": accent,
+      "editorLineNumber.activeForeground": accent,
+    },
+  });
+  monaco.editor.defineTheme("bust-light", {
+    base: "vs",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#ffffff",
+      "editor.lineHighlightBackground": `${accent}18`,
+      "editor.selectionBackground": `${accent}33`,
+      "editorCursor.foreground": accent,
+      "editorLineNumber.activeForeground": accent,
+    },
+  });
+  monaco.editor.setTheme(document.body.classList.contains("light") ? "bust-light" : "bust-dark");
+}
+
+applyAccent(readAccent());
+(document.getElementById("accent") as HTMLInputElement).addEventListener("input", (e) => {
+  applyAccent((e.target as HTMLInputElement).value);
+});
+
 const editor = monaco.editor.create(document.getElementById("editor")!, {
   value: "",
   language: VBR_LANGUAGE_ID,
-  theme: "vs-dark",
+  theme: "bust-dark",
   minimap: { enabled: false },
   fontSize: 14,
   automaticLayout: true,
@@ -170,7 +223,7 @@ const editor = monaco.editor.create(document.getElementById("editor")!, {
 const rustView = monaco.editor.create(document.getElementById("rust")!, {
   value: "",
   language: "rust",
-  theme: "vs-dark",
+  theme: "bust-dark",
   readOnly: true,
   minimap: { enabled: false },
   fontSize: 14,
@@ -478,20 +531,29 @@ exampleSelect.addEventListener("change", () => {
 const runBtn = document.getElementById("run") as HTMLButtonElement;
 const consoleEl = document.getElementById("console")!;
 
+/** Path to hand `vbr runproject`: a saved .vbr, else the open folder if it has main.vbr. */
+function projectRunPath(): string | null {
+  const tab = activeTab();
+  if (tab?.path && /\.vbr$/i.test(tab.path)) return tab.path;
+  if (projectIsVbr && projectRoot) return projectRoot;
+  return null;
+}
+
 async function runProgram(): Promise<void> {
+  const runPath = projectRunPath();
   // Nothing to run for a lone non-Bust file (a config file, say).
-  if (!isProject && !isVbrTab(activeTab())) {
+  if (!runPath && !isVbrTab(activeTab())) {
     consoleEl.className = "err";
     consoleEl.textContent = "This isn't a Bust file — nothing to run.";
     return;
   }
-  // A project runs from the files on disk, so offer to save unsaved tabs first.
-  if (isProject && projectRoot) {
+  // runproject reads the files on disk, so offer to save unsaved tabs first.
+  if (runPath) {
     const dirty = tabs.filter((t) => t.dirty && t.path);
     if (
       dirty.length > 0 &&
       window.confirm(
-        `${dirty.length} open file(s) have unsaved changes. The project runs from the ` +
+        `${dirty.length} open file(s) have unsaved changes. Run uses the ` +
           `saved files — save them first?`,
       )
     ) {
@@ -502,17 +564,16 @@ async function runProgram(): Promise<void> {
   runBtn.textContent = "▶ Running…";
   consoleEl.className = "";
   const label = TARGET_LABELS[currentTarget] ?? "Rust";
-  consoleEl.textContent = isProject
+  consoleEl.textContent = runPath
     ? "Building and running the project…"
     : `Compiling and running (${label})…`;
   try {
-    const out =
-      isProject && projectRoot
-        ? await invoke<RunOutput>("run_project_at", { root: projectRoot })
-        : await invoke<RunOutput>("run_source", {
-            source: editor.getValue(),
-            target: currentTarget,
-          });
+    const out = runPath
+      ? await invoke<RunOutput>("run_project_at", { root: runPath })
+      : await invoke<RunOutput>("run_source", {
+          source: editor.getValue(),
+          target: currentTarget,
+        });
     renderRunOutput(out);
   } catch (e) {
     consoleEl.className = "err";
@@ -596,9 +657,11 @@ async function saveTab(tab: Tab, forceDialog: boolean): Promise<boolean> {
   return true;
 }
 
-async function openFile(): Promise<void> {
+async function openFile(): Promise<boolean> {
   const res = await invoke<OpenedFile | null>("open_file");
-  if (res) openTab(res.path, res.content, false);
+  if (!res) return false;
+  openTab(res.path, res.content, false);
+  return true;
 }
 
 async function saveFile(forceDialog: boolean): Promise<void> {
@@ -748,14 +811,14 @@ document.addEventListener("contextmenu", (e) => {
 });
 window.addEventListener("click", closeMenu);
 
-async function openFolder(): Promise<void> {
+async function openFolder(): Promise<boolean> {
   const proj = await invoke<Project | null>("open_folder");
-  if (!proj) return;
+  if (!proj) return false;
   projectRoot = proj.root;
   projectIsVbr = proj.is_project;
   isProject = proj.is_project;
   sidebarTitle.textContent = (proj.is_project ? "▣ " : "") + proj.name;
-  sidebar.classList.remove("hidden");
+  setSidebarVisible(true);
   renderTree(proj.files);
   // A project opens on its entry point.
   if (proj.entry) {
@@ -763,9 +826,10 @@ async function openFolder(): Promise<void> {
     if (el) openTreeFile(proj.entry, el);
   }
   updateProjectButtons();
+  return true;
 }
 
-openFolderBtn.addEventListener("click", openFolder);
+openFolderBtn.addEventListener("click", () => void openFolder());
 
 // --- Project actions: Test & Graduate --------------------------------------
 
@@ -831,67 +895,65 @@ async function graduateProgram(): Promise<void> {
 testBtn.addEventListener("click", testProgram);
 graduateBtn.addEventListener("click", graduateProgram);
 
-// --- Resizable split -------------------------------------------------------
+// --- Tool window (Rust / Output / Problems), toggled from the left rail ----
 
-const gutter = document.getElementById("gutter")!;
-const leftPane = document.getElementById("left-pane")!;
-const panesEl = document.getElementById("panes")!;
-const SPLIT_KEY = "vbr-ide.split";
-let dragging = false;
+type ToolId = "rust" | "output" | "problems";
+const TOOL_KEY = "vbr-ide.tool";
+const toolBtns = [...document.querySelectorAll<HTMLButtonElement>(".tool-btn")];
+let toolOpen = true;
+let activeTool: ToolId = "rust";
 
-const savedSplit = localStorage.getItem(SPLIT_KEY);
-if (savedSplit) leftPane.style.flexBasis = savedSplit;
+function applyTool(): void {
+  document.body.classList.toggle("tool-hidden", !toolOpen);
+  for (const btn of toolBtns) {
+    btn.classList.toggle("active", toolOpen && btn.dataset.tool === activeTool);
+  }
+  for (const view of document.querySelectorAll<HTMLElement>(".tool-view")) {
+    view.classList.toggle("active", view.dataset.tool === activeTool);
+  }
+  requestAnimationFrame(() => {
+    editor.layout();
+    rustView.layout();
+  });
+}
 
-gutter.addEventListener("mousedown", () => {
-  dragging = true;
-  panesEl.classList.add("dragging");
-});
-window.addEventListener("mousemove", (e) => {
-  if (!dragging) return;
-  const rect = panesEl.getBoundingClientRect();
-  const pct = Math.min(85, Math.max(15, ((e.clientX - rect.left) / rect.width) * 100));
-  leftPane.style.flexBasis = `${pct}%`;
-});
-window.addEventListener("mouseup", () => {
-  if (dragging) localStorage.setItem(SPLIT_KEY, leftPane.style.flexBasis);
-  dragging = false;
-  panesEl.classList.remove("dragging");
-});
+function selectTool(next: ToolId): void {
+  if (toolOpen && activeTool === next) {
+    toolOpen = false;
+  } else {
+    toolOpen = true;
+    activeTool = next;
+  }
+  localStorage.setItem(TOOL_KEY, toolOpen ? activeTool : "hidden");
+  applyTool();
+}
 
-// Bottom panel: drag its top edge (height) and the Problems|Output divider (width).
+for (const btn of toolBtns) {
+  btn.addEventListener("click", () => selectTool(btn.dataset.tool as ToolId));
+}
+
+applyTool();
+
 const gutterBottom = document.getElementById("gutter-bottom")!;
-const gutterProblems = document.getElementById("gutter-problems")!;
 const bottomEl = document.getElementById("bottom")!;
 const appEl = document.getElementById("app")!;
 const statusbarEl = document.getElementById("statusbar")!;
-const problemsPane = document.getElementById("problems-pane")!;
 let draggingBottomH = false;
-let draggingProblems = false;
 
 gutterBottom.addEventListener("mousedown", () => {
   draggingBottomH = true;
-  document.body.classList.add("resizing");
-});
-gutterProblems.addEventListener("mousedown", () => {
-  draggingProblems = true;
   document.body.classList.add("resizing");
 });
 window.addEventListener("mousemove", (e) => {
   if (draggingBottomH) {
     const appRect = appEl.getBoundingClientRect();
     const statusH = statusbarEl.getBoundingClientRect().height;
-    const h = Math.min(appRect.height * 0.8, Math.max(60, appRect.bottom - statusH - e.clientY));
+    const h = Math.min(appRect.height * 0.8, Math.max(80, appRect.bottom - statusH - e.clientY));
     bottomEl.style.height = `${h}px`;
-  }
-  if (draggingProblems) {
-    const rect = bottomEl.getBoundingClientRect();
-    const pct = Math.min(85, Math.max(15, ((e.clientX - rect.left) / rect.width) * 100));
-    problemsPane.style.flexBasis = `${pct}%`;
   }
 });
 window.addEventListener("mouseup", () => {
   draggingBottomH = false;
-  draggingProblems = false;
   document.body.classList.remove("resizing");
 });
 
@@ -902,8 +964,25 @@ const workspaceEl = document.getElementById("workspace")!;
 const gutterDesign = document.getElementById("gutter-design")!;
 const designCodeWrap = document.getElementById("design-code-wrap")!;
 const designerEl = document.getElementById("designer")!;
+const toggleSidebarBtn = document.getElementById("toggle-sidebar") as HTMLButtonElement;
+const SIDEBAR_KEY = "vbr-ide.sidebar";
 let draggingSidebar = false;
 let draggingDesign = false;
+
+function setSidebarVisible(show: boolean): void {
+  sidebar.classList.toggle("hidden", !show);
+  gutterSidebar.classList.toggle("hidden", !show);
+  toggleSidebarBtn.classList.toggle("active", show);
+  localStorage.setItem(SIDEBAR_KEY, show ? "1" : "0");
+  requestAnimationFrame(() => editor.layout());
+}
+
+toggleSidebarBtn.addEventListener("click", () => {
+  setSidebarVisible(sidebar.classList.contains("hidden"));
+});
+if (localStorage.getItem(SIDEBAR_KEY) === "1") {
+  setSidebarVisible(true);
+}
 
 gutterSidebar.addEventListener("mousedown", () => {
   draggingSidebar = true;
@@ -957,8 +1036,8 @@ const THEME_KEY = "vbr-ide.theme";
 
 function applyTheme(light: boolean): void {
   document.body.classList.toggle("light", light);
-  monaco.editor.setTheme(light ? "vs" : "vs-dark");
   localStorage.setItem(THEME_KEY, light ? "light" : "dark");
+  defineMonacoThemes();
 }
 
 themeBtn.addEventListener("click", () => {
@@ -1009,7 +1088,59 @@ exitDesignerBtn.addEventListener("click", () => {
   document.body.classList.remove("designer-mode");
 });
 
-// Open the first (blank) tab, disposing the editor's auto-created empty model.
-const autoModel = editor.getModel();
-openTab(null, "");
-if (autoModel && autoModel !== activeTab()?.model) autoModel.dispose();
+function enterIde(): void {
+  document.body.classList.remove("splash");
+  toolOpen = true;
+  activeTool = "rust";
+  applyTool();
+  if (tabs.length === 0) openTab(null, "");
+  requestAnimationFrame(() => {
+    editor.layout();
+    rustView.layout();
+    editor.focus();
+  });
+}
+
+document.getElementById("splash-folder")!.addEventListener("click", async () => {
+  if (await openFolder()) enterIde();
+});
+document.getElementById("splash-file")!.addEventListener("click", async () => {
+  if (await openFile()) enterIde();
+});
+
+{
+  const splashTiles = document.getElementById("splash-tiles")!;
+  const splashExamples = document.getElementById("splash-examples")!;
+  const splashList = document.getElementById("splash-example-list")!;
+  document.getElementById("splash-example")!.addEventListener("click", () => {
+    if (!splashList.childElementCount) {
+      let last = "";
+      EXAMPLES.forEach((ex) => {
+        if (ex.group !== last) {
+          const h = document.createElement("div");
+          h.className = "splash-ex-group";
+          h.textContent = ex.group;
+          splashList.appendChild(h);
+          last = ex.group;
+        }
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "splash-ex-item";
+        b.textContent = ex.label;
+        b.addEventListener("click", () => {
+          openTab(null, ex.source);
+          enterIde();
+        });
+        splashList.appendChild(b);
+      });
+    }
+    splashTiles.classList.add("hidden");
+    splashExamples.classList.remove("hidden");
+  });
+  document.getElementById("splash-examples-back")!.addEventListener("click", () => {
+    splashExamples.classList.add("hidden");
+    splashTiles.classList.remove("hidden");
+  });
+}
+
+// Tabs are created when the splash is dismissed (file / folder / example / blank).

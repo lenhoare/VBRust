@@ -6,7 +6,7 @@
     <title>Bust IDE</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body>
+  <body class="splash">
     <div id="app">
       <header id="toolbar">
         <button id="new-file" class="btn code-only" title="New (Ctrl+N)">New</button>
@@ -19,6 +19,12 @@
         <select id="examples" class="select code-only" title="Load an example">
           <option value="">Load example…</option>
         </select>
+        <label class="toolbar-target code-only" for="target">Target</label>
+        <select id="target" class="select code-only" title="Output language — Rust is primary; Python and C are additive">
+          <option value="rust">Rust</option>
+          <option value="python">Python</option>
+          <option value="c">C</option>
+        </select>
         <button id="copy-rust" class="btn code-only" title="Copy the generated output">Copy</button>
         <button id="test" class="btn code-only" title="Run the project's tests (vbr test)" disabled>Test</button>
         <button id="graduate" class="btn code-only" title="Promote this module's Rust to source (vbr graduate)" disabled>Graduate</button>
@@ -26,51 +32,101 @@
         <button id="enter-designer" class="btn code-only" title="Design a new GUI window visually">New Form</button>
         <button id="enter-screen" class="btn code-only" title="Design a new terminal screen visually">New Screen</button>
         <button id="exit-designer" class="btn designer-only" title="Back to the code editor">← Back to code</button>
+        <label class="accent-swatch" title="Accent colour (also vbr-ide.accent in localStorage)">
+          <input type="color" id="accent" value="#5ec8c5" />
+        </label>
         <button id="theme" class="btn" title="Toggle light / dark">◐</button>
         <button id="help" class="btn" title="Keyboard shortcuts (?)">?</button>
       </header>
-      <main id="workspace">
-        <aside id="sidebar">
-          <div class="pane-label" id="sidebar-title">Files</div>
-          <div id="filetree">
-            <div class="tree-empty">No folder open — click <b>Folder</b>.</div>
+
+      <section id="splash">
+        <div class="splash-inner">
+          <h1>Bust</h1>
+          <p class="splash-lead">
+            A small, fast editor for Bust. Type VB-flavoured source, watch it
+            become Rust, and run — without the weight of a full IDE.
+          </p>
+          <div id="splash-tiles" class="splash-tiles">
+            <button type="button" class="splash-tile" id="splash-folder">
+              <span class="splash-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M10 4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6c0-1.1.9-2 2-2h6z"/></svg>
+              </span>
+              <span class="splash-tile-title">Open folder</span>
+              <span class="splash-tile-hint">A project with <code>main.vbr</code></span>
+            </button>
+            <button type="button" class="splash-tile" id="splash-file">
+              <span class="splash-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V8l-6-6zm1 7V3.5L19.5 9H15z"/></svg>
+              </span>
+              <span class="splash-tile-title">Open file</span>
+              <span class="splash-tile-hint">A single <code>.vbr</code> or any text</span>
+            </button>
+            <button type="button" class="splash-tile" id="splash-example">
+              <span class="splash-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
+              </span>
+              <span class="splash-tile-title">Open example</span>
+              <span class="splash-tile-hint">Try a built-in program</span>
+            </button>
           </div>
+          <div id="splash-examples" class="splash-examples hidden">
+            <button type="button" class="splash-back" id="splash-examples-back">← Back</button>
+            <div id="splash-example-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <div id="ide">
+        <aside id="tool-rail">
+          <button type="button" id="toggle-sidebar" class="rail-btn" title="Project files">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M10 4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6c0-1.1.9-2 2-2h6z"/></svg>
+          </button>
+          <span class="rail-spacer"></span>
+          <button type="button" class="rail-btn tool-btn active" data-tool="rust" title="Generated output">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
+          </button>
+          <button type="button" class="rail-btn tool-btn" data-tool="output" title="Output">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M4 4h16v4H4V4zm0 6h10v2H4v-2zm0 4h16v2H4v-2zm0 4h10v2H4v-2z"/></svg>
+          </button>
+          <button type="button" class="rail-btn tool-btn" data-tool="problems" title="Problems">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+          </button>
         </aside>
-        <div class="gutter" id="gutter-sidebar" title="Drag to resize"></div>
-        <div id="editor-area">
-          <div id="tabbar"></div>
-          <div id="panes">
-            <section class="pane" id="left-pane">
-              <div class="pane-label">Bust</div>
-              <div id="editor" class="editor"></div>
-            </section>
-            <div class="gutter" id="gutter" title="Drag to resize"></div>
-            <section class="pane">
-              <div class="pane-label with-select">
-                <label for="target">Target</label>
-                <select id="target" class="select small" title="Output language — Rust is primary; Python and C are additive">
-                  <option value="rust">Rust</option>
-                  <option value="python">Python</option>
-                  <option value="c">C</option>
-                </select>
+        <div id="ide-main">
+          <main id="workspace">
+            <aside id="sidebar" class="hidden">
+              <div class="pane-label" id="sidebar-title">Files</div>
+              <div id="filetree">
+                <div class="tree-empty">No folder open — click <b>Folder</b>.</div>
               </div>
-              <div id="rust" class="editor"></div>
-            </section>
-          </div>
+            </aside>
+            <div class="gutter hidden" id="gutter-sidebar" title="Drag to resize"></div>
+            <div id="editor-area">
+              <div id="tabbar"></div>
+              <div id="panes">
+                <section class="pane" id="left-pane">
+                  <div id="editor" class="editor"></div>
+                </section>
+              </div>
+            </div>
+          </main>
+          <div class="gutter-h" id="gutter-bottom" title="Drag to resize"></div>
+          <footer id="bottom">
+            <div id="tool-views">
+              <div class="tool-view active" id="view-rust" data-tool="rust">
+                <div id="rust" class="editor"></div>
+              </div>
+              <div class="tool-view" id="view-output" data-tool="output">
+                <pre id="console"></pre>
+              </div>
+              <div class="tool-view" id="view-problems" data-tool="problems">
+                <div id="diagnostics"></div>
+              </div>
+            </div>
+          </footer>
         </div>
-      </main>
-      <div class="gutter-h" id="gutter-bottom" title="Drag to resize"></div>
-      <footer id="bottom">
-        <div class="bottom-pane" id="problems-pane">
-          <div class="pane-label">Problems</div>
-          <div id="diagnostics"></div>
-        </div>
-        <div class="gutter" id="gutter-problems" title="Drag to resize"></div>
-        <div class="bottom-pane">
-          <div class="pane-label">Output</div>
-          <pre id="console"></pre>
-        </div>
-      </footer>
+      </div>
+
       <div id="designer">
         <aside id="palette">
           <div class="pane-label">Controls</div>

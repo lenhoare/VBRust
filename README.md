@@ -63,8 +63,11 @@ cargo run -- build myapp          # generate the project without running it
 ```
 
 `runproject` writes an explorable Cargo project to `myapp/build/` and runs it with
-`cargo run`. Projects that use `vbr_stdlib` link it by path; override its location
-with the `VBR_STDLIB_PATH` environment variable if needed.
+`cargo run`. Cargo's `target/` does **not** live there — artifacts go to
+`~/.cache/vbr/target` (override with `VBR_TARGET`) so a folder of examples does
+not grow a gigabyte apiece. Set `VBR_BUILD=/tmp/vbr` to put the generated
+projects themselves out of the source tree. Projects that use `vbr_stdlib` link
+it by path; override its location with `VBR_STDLIB_PATH` if needed.
 
 ## Using the standard library
 

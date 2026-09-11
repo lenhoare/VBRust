@@ -194,9 +194,9 @@ pub fn run(source: &str) -> RunOutput {
             "project",
             compiled.rust,
             diagnostics,
-            "This program uses the standard library or an external crate, so it \
-             needs the project runner (a folder-based build). That's coming to \
-             the IDE; for now, run it from the CLI with `vbr runproject`."
+            "This program needs `vbr runproject` (a Sketch, Window, Screen, \
+             stdlib, or crate). Save the file and Run — the IDE will use the \
+             project runner — or run it from the CLI."
                 .to_string(),
         );
     }
@@ -497,9 +497,9 @@ pub fn read_project(root: &Path) -> Project {
     }
 }
 
-/// Locate the `vbr` binary: an explicit `VBR_BIN`, then a built `vbr` near the
-/// working dir / executable (the IDE runs from `vbr-ide/`, so the repo's
-/// `target/` is one level up), and finally `PATH`.
+/// Locate the `vbr` binary: `$VBR_BIN`, then a repo `target/{debug,release}/vbr`
+/// found by walking up from cwd / the IDE executable (Tauri lives several
+/// folders below the crate root), and finally `PATH`.
 fn vbr_binary() -> PathBuf {
     if let Some(p) = std::env::var("VBR_BIN")
         .ok()
@@ -510,14 +510,6 @@ fn vbr_binary() -> PathBuf {
     }
 
     let exe = format!("vbr{}", std::env::consts::EXE_SUFFIX);
-    let rels = [
-        format!("target/release/{exe}"),
-        format!("target/debug/{exe}"),
-        format!("../target/release/{exe}"),
-        format!("../target/debug/{exe}"),
-        format!("../../target/release/{exe}"),
-        format!("../../target/debug/{exe}"),
-    ];
     let mut bases: Vec<PathBuf> = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
         bases.push(cwd);
@@ -527,12 +519,16 @@ fn vbr_binary() -> PathBuf {
             bases.push(dir.to_path_buf());
         }
     }
-    for base in &bases {
-        for rel in &rels {
-            let cand = base.join(rel);
-            if cand.is_file() {
-                return cand;
+    for start in bases {
+        let mut dir = Some(start);
+        while let Some(d) = dir {
+            for profile in ["release", "debug"] {
+                let cand = d.join("target").join(profile).join(&exe);
+                if cand.is_file() {
+                    return cand;
+                }
             }
+            dir = d.parent().map(Path::to_path_buf);
         }
     }
 
@@ -543,22 +539,31 @@ fn vbr_binary() -> PathBuf {
 /// project actions (runproject / graduate / test). Needs the `vbr` binary on
 /// `PATH` or in `VBR_BIN`.
 fn run_vbr(subcommand: &str, target: &Path) -> RunOutput {
-    match Command::new(vbr_binary()).arg(subcommand).arg(target).output() {
-        Ok(o) => RunOutput {
-            stage: "run".to_string(),
-            rust: String::new(),
-            diagnostics: Vec::new(),
-            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
-            success: o.status.success(),
-        },
+    let bin = vbr_binary();
+    match Command::new(&bin).arg(subcommand).arg(target).output() {
+        Ok(o) => {
+            let mut stderr = String::from_utf8_lossy(&o.stderr).into_owned();
+            if !o.status.success() {
+                let used = bin.display();
+                stderr = format!("(using {used})\n{stderr}");
+            }
+            RunOutput {
+                stage: "run".to_string(),
+                rust: String::new(),
+                diagnostics: Vec::new(),
+                stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+                stderr,
+                success: o.status.success(),
+            }
+        }
         Err(e) => RunOutput::blocked(
             "compile",
             String::new(),
             Vec::new(),
             format!(
-                "Couldn't launch the `vbr` binary ({e}). Put `vbr` on your PATH, \
-                 or set the VBR_BIN environment variable to its path."
+                "Couldn't launch `{bin}` ({e}). Put `vbr` on your PATH, \
+                 or set VBR_BIN to the compiler you just built.",
+                bin = bin.display()
             ),
         ),
     }
@@ -825,6 +830,25 @@ mod tests {
         ));
         assert_eq!(out.stage, "project", "expected the project nudge, got: {out:?}");
         assert!(!out.success);
+        assert!(
+            out.stderr.contains("runproject"),
+            "nudge should name the project runner: {}",
+            out.stderr
+        );
+    }
+
+    #[test]
+    fn sketch_file_is_a_project_and_parses() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../goodexamples/bloom");
+        let proj = read_project(&root);
+        assert!(proj.is_project, "bloom/main.vbr → project");
+        let src = std::fs::read_to_string(root.join("main.vbr")).expect("bloom source");
+        let out = transpile(&src);
+        assert!(
+            !out.diagnostics.iter().any(|d| d.message.contains("Ident(\"Sketch\")")),
+            "Sketch must parse in-process, got {:?}",
+            out.diagnostics
+        );
     }
 
     #[test]

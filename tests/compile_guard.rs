@@ -13,7 +13,8 @@
 //!     cargo test -- --ignored
 //!
 //! It builds into the shared `examples/build/` project sequentially, exactly
-//! as `vbr build` does, so it reuses the same warm target cache.
+//! as `vbr build` does. Cargo artifacts go to `~/.cache/vbr/target` (or
+//! `$VBR_TARGET`), so the in-tree `build/` stays small.
 
 use std::path::Path;
 use std::process::Command;

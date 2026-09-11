@@ -7,8 +7,11 @@ is exactly what the CLI would produce.
 
 **Status: a working editor.** What's in:
 
-- **Two live panes** — editable Bust left, read-only generated Rust right,
-  updating as you type, with a draggable divider to resize them.
+- **Splash, then an editor** — Open folder / file / example. Bust is the page;
+  generated Rust, Output, and Problems share one bottom tool window. The left
+  rail has the folder tree at the top and those three icons at the bottom
+  (click the active one to hide the pane). Target (Rust / Python / C) lives on
+  the toolbar. Accent colour is one token (`--accent` / the toolbar swatch).
 - **Inline diagnostics** — squiggles on the exact offending span (teaching
   message on hover), a summary strip you can click to jump to the problem, and
   counts in the status bar.
@@ -25,8 +28,9 @@ is exactly what the CLI would produce.
 - **Files** — New / Open / Save (`Ctrl+N`/`O`/`S`, native dialogs via `rfd`),
   with the filename in the status bar; work also auto-persists to localStorage.
 - **Projects** — Open a folder to get a file-tree sidebar; a folder with a
-  `main.vbr` is a *project* (opens on its entry point), and Run then builds and
-  runs the whole thing via `vbr runproject` — so stdlib/GUI programs run too.
+  `main.vbr` is a *project* (opens on its entry point). **Run** on any saved
+  `.vbr` uses `vbr runproject` (the file, or its folder) — Sketch / Window /
+  stdlib programs included. An unsaved buffer still uses the single-file runner.
 - **Graduate & Test** — for an open project, **Test** runs `vbr test`, and
   **Graduate** promotes the selected module's generated Rust to source
   (`vbr graduate`) and refreshes the tree. Both stream output to the console.

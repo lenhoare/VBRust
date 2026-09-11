@@ -205,6 +205,9 @@ never have to. The door stays wide open for everything else.
 - Operates on a project folder (default: current directory).
 - Generates a **visible** `build/` cargo project and `cargo run`s it (with
   `--quiet`, so only the program's own output shows).
+- Cargo artifacts (`target/`) go to `~/.cache/vbr/target` by default — one
+  shared cache, not a gigabyte inside every example. `$VBR_TARGET` overrides
+  the cache; `$VBR_BUILD=/tmp/vbr` relocates the generated project itself.
 - Handles the stdlib, external crates (`Use`), and multifile modules.
 
 ### (later) `vbr build [dir]` / `vbr emit <file>`
@@ -261,6 +264,7 @@ myapp/                       ← you edit these
 ├── main.vbr
 ├── utils.vbr
 └── build/                   ← GENERATED, visible, explorable
+    ├── .cargo/config.toml   ← points cargo `target/` at ~/.cache/vbr/target
     ├── Cargo.toml
     └── src/
         ├── main.rs          ← fn main + `mod utils;`
@@ -269,7 +273,9 @@ myapp/                       ← you edit these
 
 You edit `.vbr` files; `build/` is regenerated each run. It's visible on purpose —
 ignore it while comfortable, peek when curious, run `cargo run` yourself when
-ready, keep it and graduate to Rust one day. Honest, not hidden.
+ready, keep it and graduate to Rust one day. Honest, not hidden. The heavy
+`target/` tree is not in `build/`; it lives in `~/.cache/vbr/target` (or
+`$VBR_TARGET`). Set `$VBR_BUILD` to keep `build/` out of the source tree too.
 
 **Data files ride along.** The program runs with `build/` as its working
 directory, so a folder project's build copies its data files there on every
@@ -306,7 +312,6 @@ Bust is for (the transition to Rust).
 
 - `run` currently writes `<file>.rs` next to the source — maybe run from a temp
   dir to avoid littering.
-- `build/` is generated — should be treated as disposable (gitignore-style).
 - Cross-module **types** (`Public Type` / `Enum` used from another file) — the
   interface harvest covers functions and consts; types are the next slice.
 - A surface *view* expression can't read a sibling module's constant (views

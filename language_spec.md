@@ -775,7 +775,7 @@ The CLI compiles a `.vbr` source through lexer → parser → resolver → trans
 | Command       | Behaviour                                                       |
 |---------------|-----------------------------------------------------------------|
 | `run <file>`  | Transpile a single file with `rustc` and execute. **Errors** if it uses the stdlib or any `Use` crate (those can't be linked by `rustc` alone — use `runproject`). |
-| `runproject [dir]` | Generate a visible `build/` Cargo project — multifile `.vbr`/`.rs` modules, the stdlib, and `Use` crates — then `cargo run` it. Defaults to the current directory. |
+| `runproject [dir]` | Generate a visible `build/` Cargo project — multifile `.vbr`/`.rs` modules, the stdlib, and `Use` crates — then `cargo run` it. Defaults to the current directory. `$VBR_BUILD` relocates the generated project; cargo artifacts go to `$VBR_TARGET` or `~/.cache/vbr/target`. |
 | `build [dir]` | Generate the project without running.                           |
 | `test [dir]`  | Run the program's `Test` blocks and report `✓ / ✗` by description (see below). |
 | `transpile <file>` | Write the generated Rust to `<file>.rs` (or `-o`).         |
@@ -830,6 +830,9 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
   doesn't see its signatures, argument types must match the Rust side directly.
 - Generated layout is **visible and explorable** under `build/`
   (`src/main.rs`, `src/<module>.rs`, `Cargo.toml`); regenerated each run.
+  Cargo artifacts (`target/`) go to `~/.cache/vbr/target` (or `$VBR_TARGET`)
+  so they are not copied into every example. `$VBR_BUILD` relocates the
+  generated project itself.
 
 ### External crates — `Use`
 
