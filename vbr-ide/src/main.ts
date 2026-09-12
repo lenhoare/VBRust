@@ -548,40 +548,19 @@ editor.onDidChangeModelContent(() => {
   timer = window.setTimeout(refresh, 150);
 });
 
-// --- Example picker --------------------------------------------------------
-
-const exampleSelect = document.getElementById("examples") as HTMLSelectElement;
-{
-  let lastGroup = "";
-  let group: HTMLOptGroupElement | null = null;
-  EXAMPLES.forEach((ex, i) => {
-    if (ex.group !== lastGroup) {
-      group = document.createElement("optgroup");
-      group.label = ex.group;
-      exampleSelect.appendChild(group);
-      lastGroup = ex.group;
-    }
-    const opt = document.createElement("option");
-    opt.value = String(i);
-    opt.textContent = ex.label;
-    (group ?? exampleSelect).appendChild(opt);
-  });
-}
-exampleSelect.addEventListener("change", () => {
-  const ex = EXAMPLES[Number(exampleSelect.value)];
-  exampleSelect.value = ""; // reset to the "Load example…" placeholder
+function loadExample(index: number): void {
+  const ex = EXAMPLES[index];
   if (!ex) return;
-  openTab(null, ex.source); // a new untitled scratch tab
+  openTab(null, ex.source);
   editor.focus();
-});
+}
 
 // --- Run -------------------------------------------------------------------
 
-const runBtn = document.getElementById("run") as HTMLButtonElement;
 const runAsideBtn = document.getElementById("run-aside") as HTMLButtonElement;
 const runFileBtn = document.getElementById("run-file") as HTMLButtonElement;
 const consoleEl = document.getElementById("console")!;
-const runButtons = [runBtn, runAsideBtn, runFileBtn];
+const runButtons = [runAsideBtn, runFileBtn];
 
 /** Path to hand `vbr runproject`: a saved .vbr, else the open folder if it has main.vbr. */
 function projectRunPath(): string | null {
@@ -591,12 +570,16 @@ function projectRunPath(): string | null {
   return null;
 }
 
+function showTool(id: ToolId): void {
+  toolOpen = true;
+  activeTool = id;
+  localStorage.setItem(TOOL_KEY, id);
+  applyTool();
+}
+
 function revealOutput(): void {
   if (toolOpen && activeTool === "output") return;
-  toolOpen = true;
-  activeTool = "output";
-  localStorage.setItem(TOOL_KEY, "output");
-  applyTool();
+  showTool("output");
 }
 
 async function runNow(fileOnly: boolean): Promise<void> {
@@ -623,7 +606,6 @@ async function runNow(fileOnly: boolean): Promise<void> {
   }
   revealOutput();
   for (const btn of runButtons) btn.disabled = true;
-  runBtn.textContent = "▶ Running…";
   consoleEl.className = "";
   const label = TARGET_LABELS[currentTarget] ?? "Rust";
   consoleEl.textContent = runPath
@@ -642,7 +624,6 @@ async function runNow(fileOnly: boolean): Promise<void> {
     consoleEl.textContent = String(e);
   } finally {
     for (const btn of runButtons) btn.disabled = false;
-    runBtn.textContent = "▶ Run";
   }
 }
 
@@ -675,7 +656,6 @@ function renderRunOutput(out: RunOutput): void {
   consoleEl.textContent = body || "(the program produced no output)";
 }
 
-runBtn.addEventListener("click", runProgram);
 runAsideBtn.addEventListener("click", runProgram);
 runFileBtn.addEventListener("click", runFile);
 // Ctrl/Cmd+Enter runs from anywhere in the editor.
@@ -686,9 +666,6 @@ editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProgram);
 const copyBtn = document.getElementById("copy-rust") as HTMLButtonElement;
 copyBtn.addEventListener("click", async () => {
   await navigator.clipboard.writeText(rustView.getValue());
-  const original = copyBtn.textContent;
-  copyBtn.textContent = "Copied ✓";
-  window.setTimeout(() => (copyBtn.textContent = original), 1200);
 });
 
 // --- File: New / Open / Save -----------------------------------------------
@@ -921,8 +898,8 @@ async function refreshTree(): Promise<void> {
 
 async function testProgram(): Promise<void> {
   if (!projectRoot) return;
+  revealOutput();
   testBtn.disabled = true;
-  testBtn.textContent = "Testing…";
   consoleEl.className = "";
   consoleEl.textContent = "Running tests…";
   try {
@@ -931,7 +908,6 @@ async function testProgram(): Promise<void> {
     consoleEl.className = "err";
     consoleEl.textContent = String(e);
   } finally {
-    testBtn.textContent = "Test";
     updateProjectButtons();
   }
 }
@@ -1071,7 +1047,7 @@ gutterDesign.addEventListener("mousedown", () => {
 window.addEventListener("mousemove", (e) => {
   if (draggingSidebar) {
     const rect = ideMain.getBoundingClientRect();
-    const w = Math.min(rect.width * 0.6, Math.max(120, e.clientX - rect.left));
+    const w = Math.min(rect.width * 0.6, Math.max(40, e.clientX - rect.left));
     ideMain.style.setProperty("--sidebar-width", `${w}px`);
   }
   if (draggingDesign) {
@@ -1104,6 +1080,7 @@ helpOverlay.addEventListener("click", () => toggleHelp(false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     toggleHelp(false);
+    closeAppMenu();
   } else if (e.key === "?" && !editor.hasTextFocus() && !rustView.hasTextFocus()) {
     toggleHelp(true);
   }
@@ -1129,7 +1106,7 @@ applyTheme(localStorage.getItem(THEME_KEY) === "light");
 
 async function createForm(tree: unknown, target: string): Promise<void> {
   if (!projectRoot) {
-    window.alert("Open a project folder first (the Folder button) — that's where the file is saved.");
+    window.alert("Open a project folder first — that's where the file is saved.");
     return;
   }
   try {
@@ -1224,3 +1201,149 @@ document.getElementById("splash-file")!.addEventListener("click", async () => {
 }
 
 // Tabs are created when the splash is dismissed (file / folder / example / blank).
+
+// --- Application menu (File / Edit / View / Run / Gui) ---------------------
+
+const appMenuBtn = document.getElementById("app-menu-btn") as HTMLButtonElement;
+const appMenu = document.getElementById("app-menu")!;
+const appSubmenu = document.getElementById("app-submenu")!;
+let openSub: string | null = null;
+
+function closeAppMenu(): void {
+  appMenu.classList.add("hidden");
+  appSubmenu.classList.add("hidden");
+  appSubmenu.replaceChildren();
+  appMenuBtn.setAttribute("aria-expanded", "false");
+  openSub = null;
+  for (const el of appMenu.querySelectorAll(".menu-item.open")) el.classList.remove("open");
+}
+
+function placeMenu(el: HTMLElement, x: number, y: number): void {
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+}
+
+function menuItem(label: string, action: () => void, extra?: { kbd?: string; disabled?: boolean }): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "menu-item";
+  b.append(label);
+  if (extra?.kbd) {
+    const k = document.createElement("span");
+    k.textContent = extra.kbd;
+    b.append(k);
+  }
+  if (extra?.disabled) b.disabled = true;
+  b.addEventListener("click", () => {
+    if (b.disabled) return;
+    closeAppMenu();
+    action();
+  });
+  return b;
+}
+
+function menuSep(): HTMLDivElement {
+  const d = document.createElement("div");
+  d.className = "menu-sep";
+  return d;
+}
+
+function menuHead(label: string): HTMLDivElement {
+  const d = document.createElement("div");
+  d.className = "menu-head";
+  d.textContent = label;
+  return d;
+}
+
+function fillSubmenu(which: string): void {
+  const box = appSubmenu;
+  box.replaceChildren();
+  if (which === "file") {
+    box.append(
+      menuItem("New", () => newBtn.click(), { kbd: "Ctrl+N" }),
+      menuItem("Open file…", () => openBtn.click(), { kbd: "Ctrl+O" }),
+      menuItem("Open folder…", () => openFolderBtn.click()),
+      menuItem("Save", () => saveBtn.click(), { kbd: "Ctrl+S" }),
+      menuItem("Save As…", () => saveAsBtn.click(), { kbd: "Ctrl+Shift+S" }),
+      menuSep(),
+    );
+    let last = "";
+    EXAMPLES.forEach((ex, i) => {
+      if (ex.group !== last) {
+        box.append(menuHead(ex.group));
+        last = ex.group;
+      }
+      box.append(menuItem(ex.label, () => loadExample(i)));
+    });
+  } else if (which === "edit") {
+    box.append(
+      menuItem("Copy generated output", () => copyBtn.click()),
+      menuItem("Find", () => void editor.getAction("actions.find")?.run(), { kbd: "Ctrl+F" }),
+    );
+  } else if (which === "view") {
+    box.append(
+      menuItem("Left pane", () => toggleSidebarBtn.click()),
+      menuItem("Rust", () => showTool("rust")),
+      menuItem("Output", () => showTool("output")),
+      menuItem("Problems", () => showTool("problems")),
+    );
+  } else if (which === "run") {
+    box.append(
+      menuItem("Run", () => runProgram(), { kbd: "Ctrl+Enter" }),
+      menuItem("Run file", () => runFile()),
+      menuItem("Test", () => void testProgram(), { disabled: !projectRoot }),
+      menuItem("Graduate", () => void graduateProgram(), {
+        disabled: graduateBtn.disabled,
+      }),
+    );
+  } else if (which === "gui") {
+    box.append(
+      menuItem("New Form", () => enterDesignerBtn.click()),
+      menuItem("New Screen", () => enterScreenBtn.click()),
+    );
+  }
+}
+
+function openSubmenu(which: string, from: HTMLElement): void {
+  openSub = which;
+  for (const el of appMenu.querySelectorAll(".menu-item")) {
+    el.classList.toggle("open", (el as HTMLElement).dataset.sub === which);
+  }
+  fillSubmenu(which);
+  appSubmenu.classList.remove("hidden");
+  const r = appMenu.getBoundingClientRect();
+  const row = from.getBoundingClientRect();
+  placeMenu(appSubmenu, r.right + 4, row.top);
+}
+
+function openAppMenu(): void {
+  const r = appMenuBtn.getBoundingClientRect();
+  placeMenu(appMenu, r.right + 6, r.top);
+  appMenu.classList.remove("hidden");
+  appMenuBtn.setAttribute("aria-expanded", "true");
+  const first = appMenu.querySelector<HTMLElement>("[data-sub='file']");
+  if (first) openSubmenu("file", first);
+}
+
+appMenuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!appMenu.classList.contains("hidden")) closeAppMenu();
+  else openAppMenu();
+});
+
+for (const btn of appMenu.querySelectorAll<HTMLButtonElement>(".has-sub")) {
+  btn.addEventListener("mouseenter", () => {
+    if (appMenu.classList.contains("hidden")) return;
+    openSubmenu(btn.dataset.sub ?? "file", btn);
+  });
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openSubmenu(btn.dataset.sub ?? "file", btn);
+  });
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target as Node;
+  if (appMenu.contains(t) || appSubmenu.contains(t) || appMenuBtn.contains(t)) return;
+  closeAppMenu();
+});

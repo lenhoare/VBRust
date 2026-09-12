@@ -11,8 +11,9 @@ is exactly what the CLI would produce.
   generated Rust, Output, and Problems share one bottom tool window. One left
   column holds the file tree above and the tool menus below (targets, Run,
   filters); the folder icon shows or hides that whole column, and one divider
-  resizes both halves. The rail icons at the bottom show, hide, or switch the
-  bottom pane. Accent colour is one token (`--accent` / the toolbar swatch).
+  resizes both halves. The   rail icons at the bottom show, hide, or switch the
+  bottom pane. File actions, menus, accent, theme, and help live on the left
+  rail — there is no top toolbar.
 - **Inline diagnostics** — squiggles on the exact offending span (teaching
   message on hover), a summary strip you can click to jump to the problem, and
   counts in the status bar.

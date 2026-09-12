@@ -58,7 +58,6 @@ body {
 body.splash #splash {
   display: flex;
 }
-body.splash #toolbar,
 body.splash #ide,
 body.splash #statusbar {
   display: none;
@@ -169,15 +168,6 @@ body.splash #statusbar {
 
 /* --- Chrome --------------------------------------------------------------- */
 
-#toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-}
-
 .spacer {
   flex: 1;
 }
@@ -213,29 +203,9 @@ body.splash #statusbar {
   color: #fff;
 }
 
-.designer-only {
-  display: none;
-}
-body.designer-mode .code-only {
-  display: none;
-}
-body.designer-mode .designer-only {
-  display: inline-block;
-}
 .designer-title {
   font-size: 12px;
   opacity: 0.6;
-}
-
-.select {
-  font: inherit;
-  font-size: 12px;
-  color: var(--text);
-  background: var(--tile);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
 }
 
 .accent-swatch {
@@ -246,6 +216,7 @@ body.designer-mode .designer-only {
   overflow: hidden;
   border: 2px solid var(--accent);
   cursor: pointer;
+  margin: 6px 0 2px;
 }
 .accent-swatch input {
   position: absolute;
@@ -344,6 +315,74 @@ body.tool-hidden #editor-area {
 }
 .rail-spacer {
   flex: 1;
+}
+.rail-rule {
+  width: 18px;
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}
+#tool-rail .accent-swatch {
+  flex: 0 0 22px;
+}
+body.light .icon-when-dark {
+  display: none;
+}
+body:not(.light) .icon-when-light {
+  display: none;
+}
+
+.app-menu,
+.app-submenu {
+  position: fixed;
+  z-index: 80;
+  min-width: 180px;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 4px 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 5px 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover,
+.menu-item.open {
+  background: rgba(127, 127, 127, 0.15);
+}
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.menu-item span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+.menu-head {
+  padding: 6px 14px 2px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .rail-btn {
   width: 32px;
@@ -500,6 +539,30 @@ body.tool-hidden #editor-area {
 .editor {
   flex: 1;
   min-height: 0;
+}
+
+/* Generated output: darker than the Bust editor, no accent tint.
+   Yellow line highlight would read as "debugger is here" (VS Code, Rider,
+   Visual Studio), so this pane uses a steel current-line instead. */
+#view-rust,
+#rust {
+  background-color: #141516;
+}
+#rust .monaco-editor {
+  --vscode-editor-background: #141516;
+  --vscode-editorGutter-background: #141516;
+  --vscode-editor-lineHighlightBackground: #2c3036;
+  --vscode-editor-selectionBackground: #3a3e44;
+}
+body.light #view-rust,
+body.light #rust {
+  background-color: #e6e7e9;
+}
+body.light #rust .monaco-editor {
+  --vscode-editor-background: #e6e7e9;
+  --vscode-editorGutter-background: #e6e7e9;
+  --vscode-editor-lineHighlightBackground: #d0d3d8;
+  --vscode-editor-selectionBackground: #c5c8cd;
 }
 
 /* --- Bottom tool window --------------------------------------------------- */
@@ -687,6 +750,20 @@ body.resizing #console {
 #designer {
   display: none;
   flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+#designer-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+#designer-body {
+  flex: 1;
+  display: flex;
   min-height: 0;
 }
 body.designer-mode #ide,
