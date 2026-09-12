@@ -6,7 +6,7 @@
     <title>Bust IDE</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body class="splash">
+  <body class="splash sidebar-hidden">
     <div id="app">
       <header id="toolbar">
         <button id="new-file" class="btn code-only" title="New (Ctrl+N)">New</button>
@@ -87,26 +87,23 @@
           </button>
         </aside>
         <div id="ide-main">
-          <main id="workspace">
-            <aside id="sidebar" class="hidden">
-              <div class="pane-label" id="sidebar-title">Files</div>
-              <div id="filetree">
-                <div class="tree-empty">No folder open — click <b>Folder</b>.</div>
-              </div>
-            </aside>
-            <div class="gutter hidden" id="gutter-sidebar" title="Drag to resize"></div>
-            <div id="editor-area">
-              <div id="tabbar"></div>
-              <div id="panes">
-                <section class="pane" id="left-pane">
-                  <div id="editor" class="editor"></div>
-                </section>
-              </div>
+          <aside id="sidebar">
+            <div class="pane-label" id="sidebar-title">Files</div>
+            <div id="filetree">
+              <div class="tree-empty">No folder open — click <b>Folder</b>.</div>
             </div>
-          </main>
+          </aside>
+          <div class="gutter" id="gutter-sidebar" title="Drag to resize"></div>
+          <div id="editor-area">
+            <div id="tabbar"></div>
+            <div id="panes">
+              <section class="pane" id="left-pane">
+                <div id="editor" class="editor"></div>
+              </section>
+            </div>
+          </div>
           <div class="gutter-h" id="gutter-bottom" title="Drag to resize"></div>
-          <footer id="bottom">
-            <aside id="tool-aside">
+          <aside id="tool-aside">
               <div class="aside-icons active" data-tool="rust">
                 <button type="button" class="aside-btn target-btn" data-target="rust" title="Target: Rust">
                   <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M7 4h6.3c2.7 0 4.4 1.6 4.4 4 0 1.8-1 3.2-2.7 3.7L19 20h-4l-3.4-7.4H10.4V20H7V4zm3.4 3.1v3.6h3c1.3 0 2-.7 2-1.8s-.7-1.8-2-1.8h-3z"/></svg>
@@ -141,7 +138,8 @@
                   <span>Warnings</span>
                 </button>
               </div>
-            </aside>
+          </aside>
+          <footer id="bottom">
             <div id="tool-views">
               <div class="tool-view active" id="view-rust" data-tool="rust">
                 <div id="rust" class="editor"></div>

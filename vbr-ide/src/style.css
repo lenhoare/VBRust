@@ -264,17 +264,72 @@ body.designer-mode .designer-only {
 }
 
 #ide-main {
+  --sidebar-width: 210px;
+  --bottom-height: 32%;
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 4px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 4px var(--bottom-height);
   min-width: 0;
   min-height: 0;
 }
 
-#workspace {
-  flex: 1;
-  display: flex;
-  min-height: 0;
+#sidebar {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+#gutter-sidebar {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+
+#editor-area {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+#gutter-bottom {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+#tool-aside {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+#bottom {
+  grid-column: 3;
+  grid-row: 3;
+}
+
+body.sidebar-hidden #ide-main {
+  grid-template-columns: minmax(0, 1fr);
+}
+body.sidebar-hidden #sidebar,
+body.sidebar-hidden #gutter-sidebar,
+body.sidebar-hidden #tool-aside {
+  display: none;
+}
+body.sidebar-hidden #editor-area,
+body.sidebar-hidden #gutter-bottom,
+body.sidebar-hidden #bottom {
+  grid-column: 1;
+}
+
+body.tool-hidden #ide-main {
+  grid-template-rows: minmax(0, 1fr);
+}
+body.tool-hidden #gutter-bottom,
+body.tool-hidden #bottom,
+body.tool-hidden #tool-aside {
+  display: none;
+}
+body.tool-hidden #sidebar,
+body.tool-hidden #gutter-sidebar,
+body.tool-hidden #editor-area {
+  grid-row: 1;
 }
 
 #tool-rail {
@@ -352,17 +407,12 @@ body.designer-mode .designer-only {
 }
 
 #sidebar {
-  flex: 0 0 210px;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-right: 1px solid var(--border);
+  min-height: 0;
   background: var(--panel);
   overflow: hidden;
-}
-#sidebar.hidden,
-#gutter-sidebar.hidden {
-  display: none;
 }
 
 #filetree {
@@ -456,21 +506,20 @@ body.designer-mode .designer-only {
 
 #bottom {
   display: flex;
-  height: 32%;
-  min-height: 28px;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   background: var(--panel);
 }
 
 #tool-aside {
-  flex: 0 0 110px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   padding: 8px 4px;
   background: var(--panel);
-  border-right: 1px solid var(--border);
-  box-sizing: border-box;
   min-width: 0;
+  min-height: 0;
 }
 .aside-icons {
   display: none;
@@ -522,12 +571,6 @@ body.designer-mode .designer-only {
 }
 .gutter-h:hover {
   background: var(--accent);
-}
-
-body.tool-hidden #tool-views,
-body.tool-hidden #gutter-bottom,
-body.tool-hidden #bottom {
-  display: none;
 }
 
 #tool-views {

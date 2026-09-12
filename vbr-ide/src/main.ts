@@ -986,7 +986,6 @@ function applyTool(): void {
   for (const icons of document.querySelectorAll<HTMLElement>(".aside-icons")) {
     icons.classList.toggle("active", icons.dataset.tool === activeTool);
   }
-  syncToolAsideWidth();
   requestAnimationFrame(() => {
     editor.layout();
     rustView.layout();
@@ -1011,9 +1010,7 @@ for (const btn of toolBtns) {
 applyTool();
 
 const gutterBottom = document.getElementById("gutter-bottom")!;
-const bottomEl = document.getElementById("bottom")!;
-const appEl = document.getElementById("app")!;
-const statusbarEl = document.getElementById("statusbar")!;
+const ideMain = document.getElementById("ide-main")!;
 let draggingBottomH = false;
 
 gutterBottom.addEventListener("mousedown", () => {
@@ -1022,21 +1019,22 @@ gutterBottom.addEventListener("mousedown", () => {
 });
 window.addEventListener("mousemove", (e) => {
   if (draggingBottomH) {
-    const appRect = appEl.getBoundingClientRect();
-    const statusH = statusbarEl.getBoundingClientRect().height;
-    const h = Math.min(appRect.height * 0.8, Math.max(80, appRect.bottom - statusH - e.clientY));
-    bottomEl.style.height = `${h}px`;
+    const rect = ideMain.getBoundingClientRect();
+    const h = Math.min(rect.height * 0.8, Math.max(80, rect.bottom - e.clientY));
+    ideMain.style.setProperty("--bottom-height", `${h}px`);
   }
 });
 window.addEventListener("mouseup", () => {
+  if (draggingBottomH) {
+    editor.layout();
+    rustView.layout();
+  }
   draggingBottomH = false;
   document.body.classList.remove("resizing");
 });
 
-// Sidebar (folder bar) width, and the designer's surface | Bust split.
+// One left column (files + tool menus). The designer's surface | Bust split.
 const gutterSidebar = document.getElementById("gutter-sidebar")!;
-const sidebarEl2 = document.getElementById("sidebar")!;
-const workspaceEl = document.getElementById("workspace")!;
 const gutterDesign = document.getElementById("gutter-design")!;
 const designCodeWrap = document.getElementById("design-code-wrap")!;
 const designerEl = document.getElementById("designer")!;
@@ -1045,24 +1043,10 @@ const SIDEBAR_KEY = "vbr-ide.sidebar";
 let draggingSidebar = false;
 let draggingDesign = false;
 
-function syncToolAsideWidth(): void {
-  const aside = document.getElementById("tool-aside");
-  const side = document.getElementById("sidebar");
-  const gutter = document.getElementById("gutter-sidebar");
-  if (!aside || !side || !gutter) return;
-  const open = !side.classList.contains("hidden");
-  const w = open
-    ? Math.max(110, Math.round(side.getBoundingClientRect().width + gutter.getBoundingClientRect().width) - 5)
-    : 110;
-  aside.style.flexBasis = `${w}px`;
-}
-
 function setSidebarVisible(show: boolean): void {
-  sidebar.classList.toggle("hidden", !show);
-  gutterSidebar.classList.toggle("hidden", !show);
+  document.body.classList.toggle("sidebar-hidden", !show);
   toggleSidebarBtn.classList.toggle("active", show);
   localStorage.setItem(SIDEBAR_KEY, show ? "1" : "0");
-  syncToolAsideWidth();
   requestAnimationFrame(() => {
     editor.layout();
     rustView.layout();
@@ -1070,7 +1054,7 @@ function setSidebarVisible(show: boolean): void {
 }
 
 toggleSidebarBtn.addEventListener("click", () => {
-  setSidebarVisible(sidebar.classList.contains("hidden"));
+  setSidebarVisible(document.body.classList.contains("sidebar-hidden"));
 });
 if (localStorage.getItem(SIDEBAR_KEY) === "1") {
   setSidebarVisible(true);
@@ -1086,10 +1070,9 @@ gutterDesign.addEventListener("mousedown", () => {
 });
 window.addEventListener("mousemove", (e) => {
   if (draggingSidebar) {
-    const rect = workspaceEl.getBoundingClientRect();
+    const rect = ideMain.getBoundingClientRect();
     const w = Math.min(rect.width * 0.6, Math.max(120, e.clientX - rect.left));
-    sidebarEl2.style.flexBasis = `${w}px`;
-    syncToolAsideWidth();
+    ideMain.style.setProperty("--sidebar-width", `${w}px`);
   }
   if (draggingDesign) {
     const rect = designerEl.getBoundingClientRect();
@@ -1099,7 +1082,7 @@ window.addEventListener("mousemove", (e) => {
 });
 window.addEventListener("mouseup", () => {
   if (draggingSidebar) {
-    syncToolAsideWidth();
+    editor.layout();
     rustView.layout();
   }
   draggingSidebar = false;

@@ -8,11 +8,11 @@ is exactly what the CLI would produce.
 **Status: a working editor.** What's in:
 
 - **Splash, then an editor** — Open folder / file / example. Bust is the page;
-  generated Rust, Output, and Problems share one bottom tool window. The left
-  rail has the folder tree at the top and those three icons at the bottom
-  (click the active one to hide the pane). A left strip in that pane lines up
-  with the file tree: Rust / Python / C targets, Run / Run file, or error /
-  warning filters. Accent colour is one token (`--accent` / the toolbar swatch).
+  generated Rust, Output, and Problems share one bottom tool window. One left
+  column holds the file tree above and the tool menus below (targets, Run,
+  filters); the folder icon shows or hides that whole column, and one divider
+  resizes both halves. The rail icons at the bottom show, hide, or switch the
+  bottom pane. Accent colour is one token (`--accent` / the toolbar swatch).
 - **Inline diagnostics** — squiggles on the exact offending span (teaching
   message on hover), a summary strip you can click to jump to the problem, and
   counts in the status bar.
