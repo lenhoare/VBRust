@@ -559,8 +559,9 @@ function loadExample(index: number): void {
 
 const runAsideBtn = document.getElementById("run-aside") as HTMLButtonElement;
 const runFileBtn = document.getElementById("run-file") as HTMLButtonElement;
+const runRailBtn = document.getElementById("run-rail") as HTMLButtonElement;
 const consoleEl = document.getElementById("console")!;
-const runButtons = [runAsideBtn, runFileBtn];
+const runButtons = [runAsideBtn, runFileBtn, runRailBtn];
 
 /** Path to hand `vbr runproject`: a saved .vbr, else the open folder if it has main.vbr. */
 function projectRunPath(): string | null {
@@ -657,6 +658,7 @@ function renderRunOutput(out: RunOutput): void {
 }
 
 runAsideBtn.addEventListener("click", runProgram);
+runRailBtn.addEventListener("click", runProgram);
 runFileBtn.addEventListener("click", runFile);
 // Ctrl/Cmd+Enter runs from anywhere in the editor.
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProgram);
@@ -1242,12 +1244,6 @@ function menuItem(label: string, action: () => void, extra?: { kbd?: string; dis
   return b;
 }
 
-function menuSep(): HTMLDivElement {
-  const d = document.createElement("div");
-  d.className = "menu-sep";
-  return d;
-}
-
 function menuHead(label: string): HTMLDivElement {
   const d = document.createElement("div");
   d.className = "menu-head";
@@ -1265,8 +1261,8 @@ function fillSubmenu(which: string): void {
       menuItem("Open folder…", () => openFolderBtn.click()),
       menuItem("Save", () => saveBtn.click(), { kbd: "Ctrl+S" }),
       menuItem("Save As…", () => saveAsBtn.click(), { kbd: "Ctrl+Shift+S" }),
-      menuSep(),
     );
+  } else if (which === "examples") {
     let last = "";
     EXAMPLES.forEach((ex, i) => {
       if (ex.group !== last) {

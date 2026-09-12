@@ -235,7 +235,7 @@ body.splash #statusbar {
 }
 
 #ide-main {
-  --sidebar-width: 210px;
+  --sidebar-width: 126px;
   --bottom-height: 32%;
   flex: 1;
   display: grid;
@@ -541,28 +541,44 @@ body:not(.light) .icon-when-light {
   min-height: 0;
 }
 
-/* Generated output: darker than the Bust editor, no accent tint.
-   Yellow line highlight would read as "debugger is here" (VS Code, Rider,
-   Visual Studio), so this pane uses a steel current-line instead. */
+/* Generated output shares the tool-pane surface in dark mode (--panel).
+   Monaco's theme is global, so the current-line must be forced here or it
+   stays the Bust accent tint. Steel, not yellow: yellow means debugger. */
 #view-rust,
 #rust {
-  background-color: #141516;
+  background-color: var(--panel);
 }
-#rust .monaco-editor {
-  --vscode-editor-background: #141516;
-  --vscode-editorGutter-background: #141516;
-  --vscode-editor-lineHighlightBackground: #2c3036;
-  --vscode-editor-selectionBackground: #3a3e44;
+#rust .monaco-editor,
+#rust .monaco-editor-background,
+#rust .monaco-editor .margin {
+  background-color: var(--panel) !important;
+}
+#rust .monaco-editor .view-overlays .current-line,
+#rust .monaco-editor .margin-view-overlays .current-line,
+#rust .monaco-editor .margin-view-overlays .current-line-margin {
+  background-color: #454a52 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+#rust .monaco-editor .selected-text {
+  background-color: #565c66 !important;
 }
 body.light #view-rust,
 body.light #rust {
   background-color: #e6e7e9;
 }
-body.light #rust .monaco-editor {
-  --vscode-editor-background: #e6e7e9;
-  --vscode-editorGutter-background: #e6e7e9;
-  --vscode-editor-lineHighlightBackground: #d0d3d8;
-  --vscode-editor-selectionBackground: #c5c8cd;
+body.light #rust .monaco-editor,
+body.light #rust .monaco-editor-background,
+body.light #rust .monaco-editor .margin {
+  background-color: #e6e7e9 !important;
+}
+body.light #rust .monaco-editor .view-overlays .current-line,
+body.light #rust .monaco-editor .margin-view-overlays .current-line,
+body.light #rust .monaco-editor .margin-view-overlays .current-line-margin {
+  background-color: #d0d3d8 !important;
+}
+body.light #rust .monaco-editor .selected-text {
+  background-color: #c5c8cd !important;
 }
 
 /* --- Bottom tool window --------------------------------------------------- */
