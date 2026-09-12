@@ -238,11 +238,6 @@ body.designer-mode .designer-only {
   cursor: pointer;
 }
 
-.toolbar-target {
-  font-size: 11px;
-  color: var(--muted);
-}
-
 .accent-swatch {
   position: relative;
   width: 22px;
@@ -461,10 +456,29 @@ body.designer-mode .designer-only {
 
 #bottom {
   display: flex;
-  flex-direction: column;
   height: 32%;
   min-height: 28px;
   background: var(--panel);
+}
+
+#tool-aside {
+  flex: 0 0 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 4px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.aside-icons {
+  display: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.aside-icons.active {
+  display: flex;
 }
 
 .gutter-h {

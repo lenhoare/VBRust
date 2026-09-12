@@ -19,12 +19,6 @@
         <select id="examples" class="select code-only" title="Load an example">
           <option value="">Load example…</option>
         </select>
-        <label class="toolbar-target code-only" for="target">Target</label>
-        <select id="target" class="select code-only" title="Output language — Rust is primary; Python and C are additive">
-          <option value="rust">Rust</option>
-          <option value="python">Python</option>
-          <option value="c">C</option>
-        </select>
         <button id="copy-rust" class="btn code-only" title="Copy the generated output">Copy</button>
         <button id="test" class="btn code-only" title="Run the project's tests (vbr test)" disabled>Test</button>
         <button id="graduate" class="btn code-only" title="Promote this module's Rust to source (vbr graduate)" disabled>Graduate</button>
@@ -112,6 +106,28 @@
           </main>
           <div class="gutter-h" id="gutter-bottom" title="Drag to resize"></div>
           <footer id="bottom">
+            <aside id="tool-aside">
+              <div class="aside-icons active" data-tool="rust">
+                <button type="button" class="rail-btn target-btn" data-target="rust" title="Target: Rust">
+                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M7.2 4h7.4a5.1 5.1 0 0 1 0 10.2H11v5.8H7.2V4zm3.8 3.2v3.8h3.6a1.9 1.9 0 1 0 0-3.8H11z"/></svg>
+                </button>
+                <button type="button" class="rail-btn target-btn" data-target="python" title="Target: Python">
+                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12.1 3c-2.6 0-2.6 1.1-2.6 1.1v1.9h5.2V7H7.2S4 6.9 4 12s2.6 4.9 2.6 4.9h1.5v-2.2s0-2.4 2.4-2.4h5.2s2.3.1 2.3-2.3V7.2S18 3 12.1 3zm-1.6 1.4a.85.85 0 1 1 0 1.7.85.85 0 0 1 0-1.7z"/><path fill="currentColor" d="M11.9 21c2.6 0 2.6-1.1 2.6-1.1v-1.9H9.3V17h7.5s3.2.1 3.2-5.1-2.6-4.9-2.6-4.9h-1.5v2.2s0 2.4-2.4 2.4H8.3S6 11.5 6 13.9v2.9S6 21 11.9 21zm1.6-1.4a.85.85 0 1 1 0-1.7.85.85 0 0 1 0 1.7z"/></svg>
+                </button>
+                <button type="button" class="rail-btn target-btn" data-target="c" title="Target: C">
+                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12.6 4.2c3.6 0 5.7 2.2 6.2 5.2h-3.4c-.3-1.4-1.3-2.3-2.8-2.3-2.2 0-3.6 1.8-3.6 4.9s1.4 4.9 3.6 4.9c1.5 0 2.5-.9 2.8-2.3h3.4c-.5 3-2.6 5.2-6.2 5.2-4.4 0-7.2-3.1-7.2-7.8s2.8-7.8 7.2-7.8z"/></svg>
+                </button>
+              </div>
+              <div class="aside-icons" data-tool="output"></div>
+              <div class="aside-icons" data-tool="problems">
+                <button type="button" class="rail-btn diag-filter active" data-level="error" title="Show errors">
+                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm3.5 13.1L14.1 16.5 12 14.4l-2.1 2.1-1.4-1.4 2.1-2.1-2.1-2.1 1.4-1.4 2.1 2.1 2.1-2.1 1.4 1.4-2.1 2.1 2.1 2.1z"/></svg>
+                </button>
+                <button type="button" class="rail-btn diag-filter active" data-level="warning" title="Show warnings">
+                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                </button>
+              </div>
+            </aside>
             <div id="tool-views">
               <div class="tool-view active" id="view-rust" data-tool="rust">
                 <div id="rust" class="editor"></div>

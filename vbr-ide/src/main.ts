@@ -360,14 +360,27 @@ function renderTabs(): void {
 // is primary; Python and C are additive views of the same source.
 const TARGET_KEY = "vbr-ide.target";
 const TARGET_LABELS: Record<string, string> = { rust: "Rust", python: "Python", c: "C" };
-const targetSelect = document.getElementById("target") as HTMLSelectElement;
+const targetBtns = [...document.querySelectorAll<HTMLButtonElement>(".target-btn")];
 let currentTarget = localStorage.getItem(TARGET_KEY) ?? "rust";
-targetSelect.value = currentTarget;
-targetSelect.addEventListener("change", () => {
-  currentTarget = targetSelect.value;
+
+function applyTargetButtons(): void {
+  for (const btn of targetBtns) {
+    btn.classList.toggle("active", btn.dataset.target === currentTarget);
+  }
+}
+
+function setTarget(next: string): void {
+  if (next === currentTarget) return;
+  currentTarget = next;
   localStorage.setItem(TARGET_KEY, currentTarget);
+  applyTargetButtons();
   void refresh();
-});
+}
+
+for (const btn of targetBtns) {
+  btn.addEventListener("click", () => setTarget(btn.dataset.target ?? "rust"));
+}
+applyTargetButtons();
 
 async function refresh(): Promise<void> {
   // Non-Bust files keep the split but blank the output view.
@@ -461,12 +474,33 @@ function setMarkers(diags: Diagnostic[]): void {
   monaco.editor.setModelMarkers(model, "vbr", markers);
 }
 
+const DIAG_FILTER_KEY = "vbr-ide.diag-filter";
+const diagFilterBtns = [...document.querySelectorAll<HTMLButtonElement>(".diag-filter")];
+let showErrors = localStorage.getItem(`${DIAG_FILTER_KEY}.error`) !== "0";
+let showWarnings = localStorage.getItem(`${DIAG_FILTER_KEY}.warning`) !== "0";
+let lastDiags: Diagnostic[] = [];
+
+function applyDiagFilters(): void {
+  for (const btn of diagFilterBtns) {
+    const on = btn.dataset.level === "error" ? showErrors : showWarnings;
+    btn.classList.toggle("active", on);
+  }
+}
+
 function renderDiagnostics(diags: Diagnostic[]): void {
-  if (diags.length === 0) {
-    diagnosticsEl.innerHTML = `<span class="ok">✓ no diagnostics</span>`;
+  lastDiags = diags;
+  const visible = diags.filter((d) => {
+    if (d.level === "error") return showErrors;
+    if (d.level === "warning") return showWarnings;
+    return true;
+  });
+  if (visible.length === 0) {
+    diagnosticsEl.innerHTML = diags.length
+      ? `<span class="ok">— hidden by filters —</span>`
+      : `<span class="ok">✓ no diagnostics</span>`;
     return;
   }
-  diagnosticsEl.innerHTML = diags
+  diagnosticsEl.innerHTML = visible
     .map((d) => {
       const icon = d.level === "error" ? "✘" : d.level === "warning" ? "⚠" : "ℹ";
       const line = d.range?.startLineNumber ?? d.line ?? 0;
@@ -476,6 +510,21 @@ function renderDiagnostics(diags: Diagnostic[]): void {
     })
     .join("");
 }
+
+for (const btn of diagFilterBtns) {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.level === "error") {
+      showErrors = !showErrors;
+      localStorage.setItem(`${DIAG_FILTER_KEY}.error`, showErrors ? "1" : "0");
+    } else {
+      showWarnings = !showWarnings;
+      localStorage.setItem(`${DIAG_FILTER_KEY}.warning`, showWarnings ? "1" : "0");
+    }
+    applyDiagFilters();
+    renderDiagnostics(lastDiags);
+  });
+}
+applyDiagFilters();
 
 // Click a problem to jump the cursor to it.
 diagnosticsEl.addEventListener("click", (ev) => {
@@ -911,6 +960,10 @@ function applyTool(): void {
   for (const view of document.querySelectorAll<HTMLElement>(".tool-view")) {
     view.classList.toggle("active", view.dataset.tool === activeTool);
   }
+  for (const icons of document.querySelectorAll<HTMLElement>(".aside-icons")) {
+    icons.classList.toggle("active", icons.dataset.tool === activeTool);
+  }
+  syncToolAsideWidth();
   requestAnimationFrame(() => {
     editor.layout();
     rustView.layout();
@@ -969,12 +1022,28 @@ const SIDEBAR_KEY = "vbr-ide.sidebar";
 let draggingSidebar = false;
 let draggingDesign = false;
 
+function syncToolAsideWidth(): void {
+  const aside = document.getElementById("tool-aside");
+  const side = document.getElementById("sidebar");
+  const gutter = document.getElementById("gutter-sidebar");
+  if (!aside || !side || !gutter) return;
+  const open = !side.classList.contains("hidden");
+  const w = open
+    ? Math.round(side.getBoundingClientRect().width + gutter.getBoundingClientRect().width)
+    : 40;
+  aside.style.flexBasis = `${w}px`;
+}
+
 function setSidebarVisible(show: boolean): void {
   sidebar.classList.toggle("hidden", !show);
   gutterSidebar.classList.toggle("hidden", !show);
   toggleSidebarBtn.classList.toggle("active", show);
   localStorage.setItem(SIDEBAR_KEY, show ? "1" : "0");
-  requestAnimationFrame(() => editor.layout());
+  syncToolAsideWidth();
+  requestAnimationFrame(() => {
+    editor.layout();
+    rustView.layout();
+  });
 }
 
 toggleSidebarBtn.addEventListener("click", () => {
@@ -997,6 +1066,7 @@ window.addEventListener("mousemove", (e) => {
     const rect = workspaceEl.getBoundingClientRect();
     const w = Math.min(rect.width * 0.6, Math.max(120, e.clientX - rect.left));
     sidebarEl2.style.flexBasis = `${w}px`;
+    syncToolAsideWidth();
   }
   if (draggingDesign) {
     const rect = designerEl.getBoundingClientRect();
@@ -1005,6 +1075,10 @@ window.addEventListener("mousemove", (e) => {
   }
 });
 window.addEventListener("mouseup", () => {
+  if (draggingSidebar) {
+    syncToolAsideWidth();
+    rustView.layout();
+  }
   draggingSidebar = false;
   draggingDesign = false;
   document.body.classList.remove("resizing");
