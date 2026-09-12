@@ -11,8 +11,8 @@ is exactly what the CLI would produce.
   generated Rust, Output, and Problems share one bottom tool window. The left
   rail has the folder tree at the top and those three icons at the bottom
   (click the active one to hide the pane). A left strip in that pane lines up
-  with the file tree: Rust / Python / C target icons, or error / warning
-  filters. Accent colour is one token (`--accent` / the toolbar swatch).
+  with the file tree: Rust / Python / C targets, Run / Run file, or error /
+  warning filters. Accent colour is one token (`--accent` / the toolbar swatch).
 - **Inline diagnostics** — squiggles on the exact offending span (teaching
   message on hover), a summary strip you can click to jump to the problem, and
   counts in the status bar.

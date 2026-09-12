@@ -578,7 +578,10 @@ exampleSelect.addEventListener("change", () => {
 // --- Run -------------------------------------------------------------------
 
 const runBtn = document.getElementById("run") as HTMLButtonElement;
+const runAsideBtn = document.getElementById("run-aside") as HTMLButtonElement;
+const runFileBtn = document.getElementById("run-file") as HTMLButtonElement;
 const consoleEl = document.getElementById("console")!;
+const runButtons = [runBtn, runAsideBtn, runFileBtn];
 
 /** Path to hand `vbr runproject`: a saved .vbr, else the open folder if it has main.vbr. */
 function projectRunPath(): string | null {
@@ -588,10 +591,19 @@ function projectRunPath(): string | null {
   return null;
 }
 
-async function runProgram(): Promise<void> {
-  const runPath = projectRunPath();
+function revealOutput(): void {
+  if (toolOpen && activeTool === "output") return;
+  toolOpen = true;
+  activeTool = "output";
+  localStorage.setItem(TOOL_KEY, "output");
+  applyTool();
+}
+
+async function runNow(fileOnly: boolean): Promise<void> {
+  const runPath = fileOnly ? null : projectRunPath();
   // Nothing to run for a lone non-Bust file (a config file, say).
   if (!runPath && !isVbrTab(activeTab())) {
+    revealOutput();
     consoleEl.className = "err";
     consoleEl.textContent = "This isn't a Bust file — nothing to run.";
     return;
@@ -609,7 +621,8 @@ async function runProgram(): Promise<void> {
       for (const t of dirty) await saveTab(t, false);
     }
   }
-  runBtn.disabled = true;
+  revealOutput();
+  for (const btn of runButtons) btn.disabled = true;
   runBtn.textContent = "▶ Running…";
   consoleEl.className = "";
   const label = TARGET_LABELS[currentTarget] ?? "Rust";
@@ -628,9 +641,17 @@ async function runProgram(): Promise<void> {
     consoleEl.className = "err";
     consoleEl.textContent = String(e);
   } finally {
-    runBtn.disabled = false;
+    for (const btn of runButtons) btn.disabled = false;
     runBtn.textContent = "▶ Run";
   }
+}
+
+function runProgram(): void {
+  void runNow(false);
+}
+
+function runFile(): void {
+  void runNow(true);
 }
 
 function renderRunOutput(out: RunOutput): void {
@@ -655,6 +676,8 @@ function renderRunOutput(out: RunOutput): void {
 }
 
 runBtn.addEventListener("click", runProgram);
+runAsideBtn.addEventListener("click", runProgram);
+runFileBtn.addEventListener("click", runFile);
 // Ctrl/Cmd+Enter runs from anywhere in the editor.
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProgram);
 
@@ -1029,8 +1052,8 @@ function syncToolAsideWidth(): void {
   if (!aside || !side || !gutter) return;
   const open = !side.classList.contains("hidden");
   const w = open
-    ? Math.round(side.getBoundingClientRect().width + gutter.getBoundingClientRect().width)
-    : 40;
+    ? Math.max(110, Math.round(side.getBoundingClientRect().width + gutter.getBoundingClientRect().width) - 5)
+    : 110;
   aside.style.flexBasis = `${w}px`;
 }
 
