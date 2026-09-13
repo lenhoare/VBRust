@@ -9,6 +9,7 @@
   --status: #1e1f22;
   --rail: #2b2d30;
   --tile: #3c3f43;
+  --tool: #2b2d30;
 }
 
 body.light {
@@ -20,6 +21,7 @@ body.light {
   --status: #f2f2f2;
   --rail: #ececec;
   --tile: #e4e4e4;
+  --tool: #e6e7e9;
 }
 
 * {
@@ -401,6 +403,12 @@ body:not(.light) .icon-when-light {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
+.rail-btn .target-icon {
+  display: none;
+}
+.rail-btn .target-icon.is-current {
+  display: block;
+}
 
 #editor-area {
   flex: 1;
@@ -541,17 +549,17 @@ body:not(.light) .icon-when-light {
   min-height: 0;
 }
 
-/* Generated output shares the tool-pane surface in dark mode (--panel).
+/* Generated output shares --tool with Output / Problems / the left icon strip.
    Monaco's theme is global, so the current-line must be forced here or it
    stays the Bust accent tint. Steel, not yellow: yellow means debugger. */
 #view-rust,
 #rust {
-  background-color: var(--panel);
+  background-color: var(--tool);
 }
 #rust .monaco-editor,
 #rust .monaco-editor-background,
 #rust .monaco-editor .margin {
-  background-color: var(--panel) !important;
+  background-color: var(--tool) !important;
 }
 #rust .monaco-editor .view-overlays .current-line,
 #rust .monaco-editor .margin-view-overlays .current-line,
@@ -562,15 +570,6 @@ body:not(.light) .icon-when-light {
 }
 #rust .monaco-editor .selected-text {
   background-color: #565c66 !important;
-}
-body.light #view-rust,
-body.light #rust {
-  background-color: #e6e7e9;
-}
-body.light #rust .monaco-editor,
-body.light #rust .monaco-editor-background,
-body.light #rust .monaco-editor .margin {
-  background-color: #e6e7e9 !important;
 }
 body.light #rust .monaco-editor .view-overlays .current-line,
 body.light #rust .monaco-editor .margin-view-overlays .current-line,
@@ -588,7 +587,11 @@ body.light #rust .monaco-editor .selected-text {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--panel);
+  background: var(--tool);
+}
+
+#bottom .pane-label {
+  background: var(--tool);
 }
 
 #tool-aside {
@@ -596,7 +599,7 @@ body.light #rust .monaco-editor .selected-text {
   flex-direction: column;
   align-items: stretch;
   padding: 8px 4px;
-  background: var(--panel);
+  background: var(--tool);
   min-width: 0;
   min-height: 0;
 }

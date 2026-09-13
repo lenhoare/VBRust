@@ -5,9 +5,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Emitter};
 use vbr_ide_core::{
     complete, create_form as core_create_form, definition, design_to_vbr, graduate, hover,
-    read_file, read_project, run_project, run_target, test_project, transpile_target,
+    read_file, read_project, run_project_with, run_target, test_project_with, transpile_target,
     CompletionItem, Node, Project, Range, RunOutput, TranspileResult,
 };
 
@@ -159,32 +160,40 @@ async fn graduate_at(path: String) -> RunOutput {
 
 /// Run a project's tests: `vbr test <root>`.
 #[tauri::command]
-async fn test_at(root: String) -> RunOutput {
-    tauri::async_runtime::spawn_blocking(move || test_project(Path::new(&root)))
-        .await
-        .unwrap_or_else(|e| RunOutput {
-            stage: "compile".to_string(),
-            rust: String::new(),
-            diagnostics: Vec::new(),
-            stdout: String::new(),
-            stderr: format!("The test task failed to complete: {e}"),
-            success: false,
+async fn test_at(app: AppHandle, root: String) -> RunOutput {
+    tauri::async_runtime::spawn_blocking(move || {
+        test_project_with(Path::new(&root), |chunk| {
+            let _ = app.emit("vbr-run-log", chunk);
         })
+    })
+    .await
+    .unwrap_or_else(|e| RunOutput {
+        stage: "compile".to_string(),
+        rust: String::new(),
+        diagnostics: Vec::new(),
+        stdout: String::new(),
+        stderr: format!("The test task failed to complete: {e}"),
+        success: false,
+    })
 }
 
 /// Build and run a whole project folder via `vbr runproject`.
 #[tauri::command]
-async fn run_project_at(root: String) -> RunOutput {
-    tauri::async_runtime::spawn_blocking(move || run_project(Path::new(&root)))
-        .await
-        .unwrap_or_else(|e| RunOutput {
-            stage: "compile".to_string(),
-            rust: String::new(),
-            diagnostics: Vec::new(),
-            stdout: String::new(),
-            stderr: format!("The project run failed to complete: {e}"),
-            success: false,
+async fn run_project_at(app: AppHandle, root: String) -> RunOutput {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_project_with(Path::new(&root), |chunk| {
+            let _ = app.emit("vbr-run-log", chunk);
         })
+    })
+    .await
+    .unwrap_or_else(|e| RunOutput {
+        stage: "compile".to_string(),
+        rust: String::new(),
+        diagnostics: Vec::new(),
+        stdout: String::new(),
+        stderr: format!("The project run failed to complete: {e}"),
+        success: false,
+    })
 }
 
 /// Generate a complete Bust `Window`/`Screen` from a form-designer widget tree

@@ -9,8 +9,11 @@
 //! button-press triggers is the same one the tests exercise.
 
 use serde::Serialize;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod design;
@@ -80,6 +83,10 @@ pub struct TranspileResult {
     /// (C is highlighted with Monaco's C/C++ grammar).
     pub language: String,
     pub diagnostics: Vec<Diagnostic>,
+    /// `(generated line, Bust line)` 1-based checkpoints, same map Tide uses
+    /// to keep the two panes on the same statement. Empty for Python (no
+    /// emitter map yet) and some GUI programs.
+    pub line_map: Vec<(usize, usize)>,
 }
 
 /// Transpile a single Bust source string to Rust, collecting diagnostics.
@@ -116,20 +123,25 @@ pub fn transpile(source: &str) -> TranspileResult {
 pub fn transpile_target(source: &str, target: &str) -> TranspileResult {
     let base = vbr::compile(source);
     let mut diagnostics = map_diagnostics(source, &base.diagnostic_items);
-    let (code, language) = match target {
+    let (code, language, line_map) = match target {
         "python" => {
             let out = vbr::compile_python(source);
             append_warnings(&mut diagnostics, &out.warnings);
-            (out.code, "python")
+            (out.code, "python", Vec::new())
         }
         "c" => {
             let out = vbr::compile_c(source);
             append_warnings(&mut diagnostics, &out.warnings);
-            (out.code, "cpp")
+            (out.code, "cpp", out.line_map)
         }
-        _ => (base.rust, "rust"),
+        _ => (base.rust, "rust", base.line_map),
     };
-    TranspileResult { code, language: language.to_string(), diagnostics }
+    TranspileResult {
+        code,
+        language: language.to_string(),
+        diagnostics,
+        line_map,
+    }
 }
 
 /// Append a target backend's warnings (plain strings, no span) as note-level
@@ -535,55 +547,130 @@ fn vbr_binary() -> PathBuf {
     PathBuf::from("vbr") // last resort: PATH
 }
 
+/// Cargo's `--message-format json` writes one JSON object per stdout line.
+/// Those are for the compiler, not the Output pane.
+fn is_cargo_json_line(line: &str) -> bool {
+    line.trim_start().starts_with("{\"reason\":")
+}
+
+/// Pipe a child stream into `tx` as `(is_stdout, chunk)` until EOF. Chunks keep
+/// their trailing newline (or `\r`) so the IDE can append them as-is.
+fn pump_pipe(stream: impl Read + Send, is_stdout: bool, tx: mpsc::Sender<(bool, String)>) {
+    let mut reader = BufReader::new(stream);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                let _ = tx.send((is_stdout, String::from_utf8_lossy(&buf).into_owned()));
+            }
+            Err(_) => break,
+        }
+    }
+}
+
 /// Run a `vbr <subcommand> <target>` and capture its output. Shared by the
 /// project actions (runproject / graduate / test). Needs the `vbr` binary on
 /// `PATH` or in `VBR_BIN`.
-fn run_vbr(subcommand: &str, target: &Path) -> RunOutput {
+///
+/// `emit` is called with each stderr chunk (and non-JSON stdout) as it arrives,
+/// so the IDE can stream cargo progress instead of waiting for the whole run.
+fn run_vbr(subcommand: &str, target: &Path, mut emit: impl FnMut(&str)) -> RunOutput {
     let bin = vbr_binary();
-    match Command::new(&bin).arg(subcommand).arg(target).output() {
-        Ok(o) => {
-            let mut stderr = String::from_utf8_lossy(&o.stderr).into_owned();
-            if !o.status.success() {
-                let used = bin.display();
-                stderr = format!("(using {used})\n{stderr}");
-            }
-            RunOutput {
-                stage: "run".to_string(),
-                rust: String::new(),
-                diagnostics: Vec::new(),
-                stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
-                stderr,
-                success: o.status.success(),
-            }
+    emit(&format!("$ {} {} {}\n", bin.display(), subcommand, target.display()));
+
+    let mut child = match Command::new(&bin)
+        .arg(subcommand)
+        .arg(target)
+        // Ask `vbr` to leave cargo's `Compiling …` lines on (CLI stays `--quiet`).
+        .env("VBR_CARGO_PROGRESS", "1")
+        .env("CARGO_TERM_COLOR", "never")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return RunOutput::blocked(
+                "compile",
+                String::new(),
+                Vec::new(),
+                format!(
+                    "Couldn't launch `{bin}` ({e}). Put `vbr` on your PATH, \
+                     or set VBR_BIN to the compiler you just built.",
+                    bin = bin.display()
+                ),
+            );
         }
-        Err(e) => RunOutput::blocked(
-            "compile",
-            String::new(),
-            Vec::new(),
-            format!(
-                "Couldn't launch `{bin}` ({e}). Put `vbr` on your PATH, \
-                 or set VBR_BIN to the compiler you just built.",
-                bin = bin.display()
-            ),
-        ),
+    };
+
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let (tx, rx) = mpsc::channel::<(bool, String)>();
+    let tx_err = tx.clone();
+    thread::spawn(move || pump_pipe(stdout, true, tx));
+    thread::spawn(move || pump_pipe(stderr, false, tx_err));
+
+    let mut stdout_acc = String::new();
+    let mut stderr_acc = String::new();
+    while let Ok((is_stdout, chunk)) = rx.recv() {
+        if is_stdout {
+            stdout_acc.push_str(&chunk);
+            if !is_cargo_json_line(&chunk) {
+                emit(&chunk);
+            }
+        } else {
+            stderr_acc.push_str(&chunk);
+            emit(&chunk);
+        }
+    }
+
+    let success = child.wait().map(|s| s.success()).unwrap_or(false);
+    let stdout = stdout_acc
+        .lines()
+        .filter(|l| !is_cargo_json_line(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut stderr = stderr_acc;
+    if !success {
+        stderr = format!("(using {})\n{stderr}", bin.display());
+    }
+    RunOutput {
+        stage: "run".to_string(),
+        rust: String::new(),
+        diagnostics: Vec::new(),
+        stdout,
+        stderr,
+        success,
     }
 }
 
 /// Build and run a whole project via `vbr runproject` (the folder-based runner
 /// that wires up the stdlib and crates).
 pub fn run_project(root: &Path) -> RunOutput {
-    run_vbr("runproject", root)
+    run_vbr("runproject", root, |_| {})
+}
+
+/// Same as [`run_project`], forwarding live compiler output to `emit`.
+pub fn run_project_with(root: &Path, emit: impl FnMut(&str)) -> RunOutput {
+    run_vbr("runproject", root, emit)
 }
 
 /// Promote a module's generated Rust to source via `vbr graduate` — retires the
 /// `.vbr` (kept as `.vbr.graduated`) and drops a `.rs` beside it.
 pub fn graduate(target: &Path) -> RunOutput {
-    run_vbr("graduate", target)
+    run_vbr("graduate", target, |_| {})
 }
 
 /// Run a project's tests via `vbr test`.
 pub fn test_project(target: &Path) -> RunOutput {
-    run_vbr("test", target)
+    run_vbr("test", target, |_| {})
+}
+
+/// Same as [`test_project`], forwarding live compiler output to `emit`.
+pub fn test_project_with(target: &Path, emit: impl FnMut(&str)) -> RunOutput {
+    run_vbr("test", target, emit)
 }
 
 /// Read a single file's text (for opening a node from the tree).
@@ -714,6 +801,10 @@ mod tests {
             out.code.contains("println!"),
             "expected a println! in the generated Rust, got:\n{}",
             out.code
+        );
+        assert!(
+            !out.line_map.is_empty(),
+            "Rust transpile should carry a line map for the IDE split"
         );
     }
 

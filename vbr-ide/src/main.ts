@@ -1,6 +1,7 @@
 import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
 import { setupDesigner, resetDesigner, isDesignerDirty } from "./designer";
@@ -30,6 +31,8 @@ interface TranspileResult {
   code: string;
   language: string;
   diagnostics: Diagnostic[];
+  /** `[generatedLine, bustLine]` 1-based checkpoints (Tide's line map). */
+  line_map: [number, number][];
 }
 
 interface RunOutput {
@@ -361,11 +364,20 @@ function renderTabs(): void {
 const TARGET_KEY = "vbr-ide.target";
 const TARGET_LABELS: Record<string, string> = { rust: "Rust", python: "Python", c: "C" };
 const targetBtns = [...document.querySelectorAll<HTMLButtonElement>(".target-btn")];
+const generatedToolBtn = document.getElementById("tool-generated") as HTMLButtonElement;
+const generatedIcons = [
+  ...generatedToolBtn.querySelectorAll<SVGElement>("[data-target-icon]"),
+];
 let currentTarget = localStorage.getItem(TARGET_KEY) ?? "rust";
 
 function applyTargetButtons(): void {
   for (const btn of targetBtns) {
     btn.classList.toggle("active", btn.dataset.target === currentTarget);
+  }
+  const label = TARGET_LABELS[currentTarget] ?? "Rust";
+  generatedToolBtn.title = `Generated output (${label})`;
+  for (const icon of generatedIcons) {
+    icon.classList.toggle("is-current", icon.dataset.targetIcon === currentTarget);
   }
 }
 
@@ -382,9 +394,91 @@ for (const btn of targetBtns) {
 }
 applyTargetButtons();
 
+// Same `(generated, bust)` checkpoints Tide uses. Empty → proportional scroll.
+let lineMap: [number, number][] = [];
+let syncingLines = false;
+
+function rustSpanForVbr(
+  map: [number, number][],
+  vbr1: number,
+  rustLines: number,
+): { start: number; end: number } | null {
+  if (!map.length || rustLines === 0 || vbr1 === 0) return null;
+  let startR: number | undefined;
+  let endR: number | undefined;
+  for (let i = 0; i < map.length; i++) {
+    const [r1, v] = map[i];
+    if (v !== vbr1) continue;
+    const next = map[i + 1];
+    const segEnd = next ? Math.max(r1, next[0] - 1) : Math.max(r1, rustLines);
+    startR = startR === undefined ? r1 : Math.min(startR, r1);
+    endR = endR === undefined ? segEnd : Math.max(endR, segEnd);
+  }
+  if (startR !== undefined && endR !== undefined) {
+    return { start: startR, end: Math.min(endR, rustLines) };
+  }
+  const earlier = [...map].reverse().find(([, v]) => v <= vbr1) ?? map[0];
+  const r = Math.min(earlier[0], rustLines);
+  return { start: r, end: r };
+}
+
+function vbrLineForRust(map: [number, number][], rust1: number): number | null {
+  let last: number | null = null;
+  for (const [r, v] of map) {
+    if (r > rust1) break;
+    last = v;
+  }
+  return last;
+}
+
+function syncRustFromVbr(): void {
+  if (syncingLines) return;
+  const vbrLine = editor.getPosition()?.lineNumber ?? 1;
+  const rustLines = rustView.getModel()?.getLineCount() ?? 0;
+  let start: number;
+  if (lineMap.length) {
+    const span = rustSpanForVbr(lineMap, vbrLine, rustLines);
+    if (!span) return;
+    start = span.start;
+  } else if (rustLines > 0) {
+    const vCount = editor.getModel()?.getLineCount() ?? 1;
+    start = Math.min(rustLines, Math.max(1, Math.round((vbrLine / vCount) * rustLines)));
+  } else {
+    return;
+  }
+  if ((rustView.getPosition()?.lineNumber ?? 0) === start) return;
+  syncingLines = true;
+  rustView.setPosition({ lineNumber: start, column: 1 });
+  rustView.revealLineInCenterIfOutsideViewport(start);
+  syncingLines = false;
+}
+
+function syncVbrFromRust(): void {
+  if (syncingLines) return;
+  const rustLine = rustView.getPosition()?.lineNumber ?? 1;
+  const rustLines = rustView.getModel()?.getLineCount() ?? 1;
+  const vCount = editor.getModel()?.getLineCount() ?? 1;
+  let vbr: number;
+  if (lineMap.length) {
+    const mapped = vbrLineForRust(lineMap, rustLine);
+    if (mapped == null) return;
+    vbr = mapped;
+  } else {
+    vbr = Math.min(vCount, Math.max(1, Math.round((rustLine / Math.max(1, rustLines)) * vCount)));
+  }
+  if ((editor.getPosition()?.lineNumber ?? 0) === vbr) return;
+  syncingLines = true;
+  const col = editor.getPosition()?.column ?? 1;
+  const maxCol = editor.getModel()?.getLineMaxColumn(vbr) ?? 1;
+  editor.setPosition({ lineNumber: vbr, column: Math.min(col, maxCol) });
+  editor.revealLineInCenterIfOutsideViewport(vbr);
+  syncingLines = false;
+}
+
 async function refresh(): Promise<void> {
   // Non-Bust files keep the split but blank the output view.
   if (!isVbrTab(activeTab())) {
+    lineMap = [];
     rustView.setValue("");
     const m = editor.getModel();
     if (m) monaco.editor.setModelMarkers(m, "vbr", []);
@@ -406,9 +500,11 @@ async function refresh(): Promise<void> {
     // Highlight the output pane in the target's own language.
     const outModel = rustView.getModel();
     if (outModel) monaco.editor.setModelLanguage(outModel, result.language);
+    lineMap = result.line_map ?? [];
     renderDiagnostics(result.diagnostics);
     setMarkers(result.diagnostics);
     updateStatus(result.diagnostics, ms);
+    syncRustFromVbr();
   } catch (e) {
     diagnosticsEl.textContent = String(e);
   }
@@ -420,6 +516,10 @@ const statusTiming = document.getElementById("status-timing")!;
 
 editor.onDidChangeCursorPosition((e) => {
   statusPos.textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+  if (editor.hasTextFocus()) syncRustFromVbr();
+});
+rustView.onDidChangeCursorPosition(() => {
+  if (rustView.hasTextFocus()) syncVbrFromRust();
 });
 
 function updateStatus(diags: Diagnostic[], ms: number): void {
@@ -583,6 +683,26 @@ function revealOutput(): void {
   showTool("output");
 }
 
+function appendRunLog(chunk: string): void {
+  consoleEl.textContent += chunk;
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+/** Stream `vbr runproject` / `vbr test` lines into Output as cargo works. */
+async function invokeWithRunLog(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<RunOutput> {
+  const unlisten = await listen<string>("vbr-run-log", (e) => {
+    appendRunLog(e.payload);
+  });
+  try {
+    return await invoke<RunOutput>(cmd, args);
+  } finally {
+    unlisten();
+  }
+}
+
 async function runNow(fileOnly: boolean): Promise<void> {
   const runPath = fileOnly ? null : projectRunPath();
   // Nothing to run for a lone non-Bust file (a config file, say).
@@ -610,16 +730,16 @@ async function runNow(fileOnly: boolean): Promise<void> {
   consoleEl.className = "";
   const label = TARGET_LABELS[currentTarget] ?? "Rust";
   consoleEl.textContent = runPath
-    ? "Building and running the project…"
+    ? "Building and running the project…\n"
     : `Compiling and running (${label})…`;
   try {
     const out = runPath
-      ? await invoke<RunOutput>("run_project_at", { root: runPath })
+      ? await invokeWithRunLog("run_project_at", { root: runPath })
       : await invoke<RunOutput>("run_source", {
           source: editor.getValue(),
           target: currentTarget,
         });
-    renderRunOutput(out);
+    renderRunOutput(out, Boolean(runPath));
   } catch (e) {
     consoleEl.className = "err";
     consoleEl.textContent = String(e);
@@ -636,7 +756,7 @@ function runFile(): void {
   void runNow(true);
 }
 
-function renderRunOutput(out: RunOutput): void {
+function renderRunOutput(out: RunOutput, keepLog = false): void {
   if (out.stage === "diagnostics") {
     consoleEl.className = "err";
     consoleEl.textContent = "✘ Fix the errors above before running.";
@@ -652,8 +772,13 @@ function renderRunOutput(out: RunOutput): void {
     consoleEl.textContent = "The generated code did not compile:\n\n" + out.stderr;
     return;
   }
-  const body = [out.stdout, out.stderr].filter(Boolean).join("\n").trimEnd();
   consoleEl.className = out.success ? "ok" : "err";
+  // Project/test runs already streamed cargo + program lines; don't reshuffle them.
+  if (keepLog && (consoleEl.textContent ?? "").trim().length > 0) {
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+    return;
+  }
+  const body = [out.stderr, out.stdout].filter(Boolean).join("\n").trimEnd();
   consoleEl.textContent = body || "(the program produced no output)";
 }
 
@@ -668,6 +793,13 @@ editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProgram);
 const copyBtn = document.getElementById("copy-rust") as HTMLButtonElement;
 copyBtn.addEventListener("click", async () => {
   await navigator.clipboard.writeText(rustView.getValue());
+  const label = copyBtn.querySelector("span");
+  if (!label) return;
+  const prev = label.textContent;
+  label.textContent = "Copied";
+  window.setTimeout(() => {
+    label.textContent = prev;
+  }, 1200);
 });
 
 // --- File: New / Open / Save -----------------------------------------------
@@ -903,9 +1035,9 @@ async function testProgram(): Promise<void> {
   revealOutput();
   testBtn.disabled = true;
   consoleEl.className = "";
-  consoleEl.textContent = "Running tests…";
+  consoleEl.textContent = "Running tests…\n";
   try {
-    renderRunOutput(await invoke<RunOutput>("test_at", { root: projectRoot }));
+    renderRunOutput(await invokeWithRunLog("test_at", { root: projectRoot }), true);
   } catch (e) {
     consoleEl.className = "err";
     consoleEl.textContent = String(e);

@@ -796,10 +796,14 @@ fn cmd_project(args: &[String], run: bool) {
 
     // Build first with JSON diagnostics, so a failure can be translated back
     // to .vbr lines; the run afterwards reuses the cached build instantly.
-    let built = Command::new("cargo")
-        .args(["build", "--message-format", "json", "--quiet"])
-        .current_dir(&build)
-        .output();
+    // `--quiet` hides crate progress (a long Iced/polars compile looks hung).
+    // The IDE sets `VBR_CARGO_PROGRESS` so those `Compiling …` lines stream.
+    let mut build_cmd = Command::new("cargo");
+    build_cmd.args(["build", "--message-format", "json"]).current_dir(&build);
+    if std::env::var_os("VBR_CARGO_PROGRESS").is_none() {
+        build_cmd.arg("--quiet");
+    }
+    let built = build_cmd.output();
     match built {
         Ok(o) if o.status.success() => {}
         Ok(o) => {
@@ -883,10 +887,14 @@ fn cmd_test(args: &[String]) {
     // Build the test binary first with JSON diagnostics, so a compile failure is
     // translated back to `.vbr` lines (same as `vbr run`). `--no-run` keeps the
     // run's output clean of cargo's build JSON.
-    let built = Command::new("cargo")
-        .args(["test", "--no-run", "--message-format", "json", "--quiet"])
-        .current_dir(&build)
-        .output();
+    let mut build_cmd = Command::new("cargo");
+    build_cmd
+        .args(["test", "--no-run", "--message-format", "json"])
+        .current_dir(&build);
+    if std::env::var_os("VBR_CARGO_PROGRESS").is_none() {
+        build_cmd.arg("--quiet");
+    }
+    let built = build_cmd.output();
     match built {
         Ok(o) if o.status.success() => {}
         Ok(o) => {
