@@ -4,7 +4,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
-import { setupDesigner, resetDesigner, isDesignerDirty } from "./designer";
 
 // Monaco needs a worker for the editor itself; Bust and Rust are both
 // Monarch-tokenised on the main thread here, so the base editor worker is all
@@ -1143,15 +1142,11 @@ window.addEventListener("mouseup", () => {
   document.body.classList.remove("resizing");
 });
 
-// One left column (files + tool menus). The designer's surface | Bust split.
+// One left column (files + tool menus).
 const gutterSidebar = document.getElementById("gutter-sidebar")!;
-const gutterDesign = document.getElementById("gutter-design")!;
-const designCodeWrap = document.getElementById("design-code-wrap")!;
-const designerEl = document.getElementById("designer")!;
 const toggleSidebarBtn = document.getElementById("toggle-sidebar") as HTMLButtonElement;
 const SIDEBAR_KEY = "vbr-ide.sidebar";
 let draggingSidebar = false;
-let draggingDesign = false;
 
 function setSidebarVisible(show: boolean): void {
   document.body.classList.toggle("sidebar-hidden", !show);
@@ -1174,20 +1169,11 @@ gutterSidebar.addEventListener("mousedown", () => {
   draggingSidebar = true;
   document.body.classList.add("resizing");
 });
-gutterDesign.addEventListener("mousedown", () => {
-  draggingDesign = true;
-  document.body.classList.add("resizing");
-});
 window.addEventListener("mousemove", (e) => {
   if (draggingSidebar) {
     const rect = ideMain.getBoundingClientRect();
     const w = Math.min(rect.width * 0.6, Math.max(40, e.clientX - rect.left));
     ideMain.style.setProperty("--sidebar-width", `${w}px`);
-  }
-  if (draggingDesign) {
-    const rect = designerEl.getBoundingClientRect();
-    const w = Math.min(rect.width * 0.7, Math.max(200, rect.right - e.clientX));
-    designCodeWrap.style.flexBasis = `${w}px`;
   }
 });
 window.addEventListener("mouseup", () => {
@@ -1196,7 +1182,6 @@ window.addEventListener("mouseup", () => {
     rustView.layout();
   }
   draggingSidebar = false;
-  draggingDesign = false;
   document.body.classList.remove("resizing");
 });
 
@@ -1236,47 +1221,28 @@ themeBtn.addEventListener("click", () => {
 });
 applyTheme(localStorage.getItem(THEME_KEY) === "light");
 
-// --- Form designer ---------------------------------------------------------
+// --- Form designer (separate window) ---------------------------------------
 
-async function createForm(tree: unknown, target: string): Promise<void> {
-  if (!projectRoot) {
-    window.alert("Open a project folder first — that's where the file is saved.");
-    return;
-  }
+const enterDesignerBtn = document.getElementById("enter-designer") as HTMLButtonElement;
+const enterScreenBtn = document.getElementById("enter-screen") as HTMLButtonElement;
+
+async function enterDesigner(t: "gui" | "tui"): Promise<void> {
+  if (!projectRoot) await openFolder();
+  if (!projectRoot) return;
   try {
-    const created = await invoke<{ path: string; name: string }>("create_form", {
-      dir: projectRoot,
-      tree,
-      target,
-    });
-    await refreshTree();
-    document.body.classList.remove("designer-mode");
-    const content = await invoke<string>("read_file_at", { path: created.path });
-    openTab(created.path, content, projectIsVbr);
+    await invoke("open_designer", { target: t, root: projectRoot });
   } catch (e) {
     window.alert(String(e));
   }
 }
 
-setupDesigner(createForm);
+enterDesignerBtn.addEventListener("click", () => void enterDesigner("gui"));
+enterScreenBtn.addEventListener("click", () => void enterDesigner("tui"));
 
-const enterDesignerBtn = document.getElementById("enter-designer") as HTMLButtonElement;
-const enterScreenBtn = document.getElementById("enter-screen") as HTMLButtonElement;
-const exitDesignerBtn = document.getElementById("exit-designer") as HTMLButtonElement;
-
-async function enterDesigner(t: "gui" | "tui"): Promise<void> {
-  // The file is saved into a project, so make sure one is open first.
-  if (!projectRoot) await openFolder();
-  resetDesigner(t); // a fresh, blank design every time
-  document.body.classList.add("designer-mode");
-}
-
-enterDesignerBtn.addEventListener("click", () => enterDesigner("gui"));
-enterScreenBtn.addEventListener("click", () => enterDesigner("tui"));
-
-exitDesignerBtn.addEventListener("click", () => {
-  if (isDesignerDirty() && !window.confirm("Discard this design? It hasn't been created yet.")) return;
-  document.body.classList.remove("designer-mode");
+void listen<{ path: string; name: string }>("designer-form-created", async (e) => {
+  await refreshTree();
+  const content = await invoke<string>("read_file_at", { path: e.payload.path });
+  openTab(e.payload.path, content, projectIsVbr);
 });
 
 function enterIde(): void {

@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Main editor and form designer",
+  "windows": ["main", "designer"],
+  "permissions": ["core:default"]
+}

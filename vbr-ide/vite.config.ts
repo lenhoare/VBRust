@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 // Tauri drives the dev server, so pin the port and keep its logs on screen.
@@ -19,5 +20,11 @@ export default defineConfig({
     target: "es2020",
     // Monaco is a large dependency by nature; don't nag about chunk size.
     chunkSizeWarningLimit: 4000,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        designer: fileURLToPath(new URL("./designer.html", import.meta.url)),
+      },
+    },
   },
 });

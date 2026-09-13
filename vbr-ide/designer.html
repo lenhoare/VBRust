@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Form Designer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="designer-page">
+    <div id="app">
+      <div id="designer">
+        <aside id="tool-rail">
+          <button type="button" id="save-design" class="rail-btn" title="Save into the project (Ctrl+S)">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M17 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-1 16H8v-5h8v5zm1-13V8h-5V6h5z"/></svg>
+          </button>
+        </aside>
+        <div id="designer-body">
+          <aside id="palette">
+            <div class="pane-label">Controls</div>
+            <div id="palette-items"></div>
+            <div class="pane-label">Properties</div>
+            <div id="props"></div>
+          </aside>
+          <div id="surface-wrap">
+            <div class="pane-label">
+              Form
+              <button id="new-form" class="btn small" title="Clear and start a new empty design">Clear</button>
+              <button id="del-node" class="btn small danger" title="Delete the selected control (Del)">Delete</button>
+            </div>
+            <div id="surface"></div>
+          </div>
+          <div class="gutter" id="gutter-design" title="Drag to resize"></div>
+          <div id="design-code-wrap">
+            <div class="pane-label">Generated Bust</div>
+            <pre id="design-code"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/designer-app.ts"></script>
+  </body>
+</html>

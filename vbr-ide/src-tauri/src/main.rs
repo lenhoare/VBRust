@@ -5,7 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use vbr_ide_core::{
     complete, create_form as core_create_form, definition, design_to_vbr, graduate, hover,
     read_file, read_project, run_project_with, run_target, test_project_with, transpile_target,
@@ -223,6 +223,62 @@ fn create_form(dir: String, tree: Node, target: String) -> Result<CreatedForm, S
         .map_err(|e| e.to_string())
 }
 
+fn query_encode(s: &str) -> String {
+    let mut out = String::new();
+    for &b in s.as_bytes() {
+        if matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+#[derive(serde::Serialize, Clone)]
+struct DesignerOpen {
+    target: String,
+    root: String,
+}
+
+/// Open (or focus) the form/screen designer in its own window.
+#[tauri::command]
+async fn open_designer(app: AppHandle, target: String, root: String) -> Result<(), String> {
+    let kind = if target.eq_ignore_ascii_case("tui") {
+        "tui"
+    } else {
+        "gui"
+    };
+    let title = if kind == "tui" {
+        "Screen Designer"
+    } else {
+        "Form Designer"
+    };
+    if let Some(win) = app.get_webview_window("designer") {
+        let _ = win.set_title(title);
+        let _ = win.set_focus();
+        let _ = app.emit(
+            "designer-open",
+            DesignerOpen {
+                target: kind.to_string(),
+                root,
+            },
+        );
+        return Ok(());
+    }
+    let url = format!(
+        "designer.html?target={kind}&root={}",
+        query_encode(&root)
+    );
+    WebviewWindowBuilder::new(&app, "designer", WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(1100.0, 740.0)
+        .min_inner_size(720.0, 480.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -241,7 +297,8 @@ fn main() {
             graduate_at,
             test_at,
             generate_design,
-            create_form
+            create_form,
+            open_designer
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Bust IDE");

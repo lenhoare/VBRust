@@ -81,6 +81,11 @@ function defaults(kind: string): DProps {
 
 let root: DNode = { id: nextId(), kind: "Column", props: { spacing: 8, padding: 16 }, children: [] };
 let selectedId = root.id;
+let lastSaved = "";
+
+function snapshot(): string {
+  return JSON.stringify(root);
+}
 
 const CONTAINER_ARROW: Record<string, string> = { Column: "Column ↓", Row: "Row →" };
 
@@ -88,7 +93,7 @@ let paletteItemsEl: HTMLElement;
 let surfaceEl: HTMLElement;
 let propsEl: HTMLElement;
 let codeEl: HTMLElement;
-let onCreate: (tree: unknown, target: string) => void = () => {};
+let onCreate: (tree: unknown, target: string) => void | Promise<void> = () => {};
 
 function findNode(
   id: number,
@@ -136,6 +141,7 @@ function newForm(): void {
   uid = 1;
   root = { id: nextId(), kind: "Column", props: { spacing: 8, padding: 16 }, children: [] };
   selectedId = root.id;
+  lastSaved = snapshot();
   render();
 }
 
@@ -144,20 +150,16 @@ export function resetDesigner(t: "gui" | "tui"): void {
   target = t;
   newForm();
   renderPalette();
-  const title = document.getElementById("designer-title");
-  if (title) {
-    title.textContent =
-      target === "tui"
-        ? "Screen Designer — a new terminal Screen (read-only Bust)"
-        : "Form Designer — a new Window (read-only Bust)";
-  }
+  document.title =
+    target === "tui" ? "Screen Designer" : "Form Designer";
 }
 
 function renderPalette(): void {
   paletteItemsEl.innerHTML = "";
   for (const kind of PALETTES[target]) {
     const b = document.createElement("button");
-    b.className = "palette-item";
+    b.type = "button";
+    b.className = "tree-item";
     b.textContent = CONTAINER_ARROW[kind] ?? kind;
     b.addEventListener("click", () => addControl(kind));
     paletteItemsEl.appendChild(b);
@@ -166,7 +168,17 @@ function renderPalette(): void {
 
 /** True if the form has controls that haven't been written to a file yet. */
 export function isDesignerDirty(): boolean {
-  return root.children.length > 0;
+  return snapshot() !== lastSaved;
+}
+
+/** Mark the current tree as saved (after a successful write). */
+export function markDesignerSaved(): void {
+  lastSaved = snapshot();
+}
+
+/** Write the current design through the host's `createForm` callback. */
+export async function saveDesign(): Promise<void> {
+  await onCreate(root, target);
 }
 
 /** The "Clear" button: start over, warning if there's unsaved work. */
@@ -365,9 +377,11 @@ async function regenerate(): Promise<void> {
 
 /**
  * Wire up the designer UI. `createForm` is called with the current widget tree
- * when the user clicks "Create form" (the host writes the file + opens it).
+ * when the user saves (the host writes the file + opens it in the editor).
  */
-export function setupDesigner(createForm: (tree: unknown, target: string) => void): void {
+export function setupDesigner(
+  createForm: (tree: unknown, target: string) => void | Promise<void>,
+): void {
   onCreate = createForm;
   paletteItemsEl = document.getElementById("palette-items")!;
   surfaceEl = document.getElementById("surface")!;
@@ -385,12 +399,11 @@ export function setupDesigner(createForm: (tree: unknown, target: string) => voi
   renderPalette();
   document.getElementById("del-node")!.addEventListener("click", deleteSelected);
   document.getElementById("new-form")!.addEventListener("click", clearDesign);
-  document.getElementById("create-form")!.addEventListener("click", () => onCreate(root, target));
 
   // Delete / Backspace removes the selected control (unless you're typing in a
   // properties field).
   document.addEventListener("keydown", (e) => {
-    if (!document.body.classList.contains("designer-mode")) return;
+    if (!document.body.classList.contains("designer-page")) return;
     const t = e.target as HTMLElement | null;
     if (t && ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName)) return;
     if (e.key === "Delete" || e.key === "Backspace") {

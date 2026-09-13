@@ -1,5 +1,6 @@
 /* Accent is one token. Override with localStorage `vbr-ide.accent` or the swatch. */
 :root {
+  --sidebar-width: 126px;
   --accent: #5ec8c5;
   --bg: #1e1f22;
   --panel: #2b2d30;
@@ -203,11 +204,6 @@ body.splash #statusbar {
   background: #a1260d;
   border-color: #c1352b;
   color: #fff;
-}
-
-.designer-title {
-  font-size: 12px;
-  opacity: 0.6;
 }
 
 .accent-swatch {
@@ -765,63 +761,51 @@ body.resizing #console {
   opacity: 0.6;
 }
 
-/* --- Form designer --- */
-#designer {
-  display: none;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-#designer-bar {
+/* --- Form designer (own window) --- */
+body.designer-page #designer {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  flex: 1;
+  flex-direction: row;
+  min-height: 0;
 }
 #designer-body {
   flex: 1;
   display: flex;
+  min-width: 0;
   min-height: 0;
-}
-body.designer-mode #ide,
-body.designer-mode #splash {
-  display: none;
-}
-body.designer-mode #designer {
-  display: flex;
 }
 
 #palette {
-  flex: 0 0 220px;
+  flex: 0 0 var(--sidebar-width, 126px);
+  width: var(--sidebar-width, 126px);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--panel);
 }
 #palette-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px;
+  flex: 0 0 auto;
+  overflow: auto;
+  padding: 4px 0;
+  font-size: 13px;
 }
-.palette-item {
-  font-size: 12px;
-  padding: 5px 9px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--tile);
-  color: var(--text);
-  cursor: pointer;
-}
-.palette-item:hover {
-  filter: brightness(1.08);
+#palette-items .tree-item {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
 }
 
 #props {
+  flex: 1;
+  overflow: auto;
   padding: 8px;
   font-size: 12px;
 }
