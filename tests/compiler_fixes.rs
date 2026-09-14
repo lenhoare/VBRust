@@ -2117,5 +2117,66 @@ fn for_counted_continue_still_advances() {
     assert_rustc_clean("for_counted_continue", &rust);
 }
 
+#[test]
+fn parallel_for_emits_cpu_helper() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim a As Vec<Long> = [1, 2, 3, 4]\n\
+        \x20   Dim b As Vec<Long> = [0, 0, 0, 0]\n\
+        \x20   Parallel For i = 0 To a.Len() - 1\n\
+        \x20       b[i] = a[i] * a[i]\n\
+        \x20   Next\n\
+        \x20   Debug.Print b[0]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_parallel_for") && rust.contains("__vbr_at"),
+        "Parallel For should emit the CPU-thread helper: {rust}"
+    );
+    assert!(
+        rust.contains("as_mut_ptr") && rust.contains("thread::scope"),
+        "Parallel For should take pointers and spawn threads: {rust}"
+    );
+    assert_rustc_clean("parallel_for", &rust);
+}
+
+#[test]
+fn parallel_for_rejects_reduction() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim a As Vec<Long> = [1, 2, 3]\n\
+        \x20   Dim total As Long = 0\n\
+        \x20   Parallel For i = 0 To a.Len() - 1\n\
+        \x20       total = total + a[i]\n\
+        \x20   Next\n\
+        \x20   Debug.Print total\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "reduction should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("race") || joined.contains("Parallel Sum") || joined.contains("can't all write"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn parallel_for_rejects_for_each() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim a As Vec<Long> = [1, 2, 3]\n\
+        \x20   Parallel For Each n In a\n\
+        \x20       Debug.Print n\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Parallel For Each should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Parallel For Each"),
+        "teaching error: {joined}"
+    );
+}
+
 
 

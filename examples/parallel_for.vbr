@@ -1,0 +1,13 @@
+' Parallel For — independent iterations, run on CPU threads.
+Function Main()
+    Dim input As Vec<Long> = [1, 2, 3, 4]
+    Dim output As Vec<Long> = [0, 0, 0, 0]
+
+    Parallel For i = 0 To input.Len() - 1
+        output[i] = input[i] * input[i]
+    Next
+
+    For Each n In output
+        Debug.Print n
+    Next
+End Function

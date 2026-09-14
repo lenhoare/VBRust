@@ -955,6 +955,11 @@ pub enum Stmt {
         /// Widened numeric type of the counter — bounds and `Step` together.
         /// Filled in by the resolver (`Integer` until then).
         ty: Type,
+        /// `Parallel For` — the iterations are independent. Ordinary `For` is
+        /// `false`. Nested `Parallel For` is rejected in v1.
+        parallel: bool,
+        /// Source line of the `For` / `Parallel For` header (diagnostics).
+        line: usize,
     },
     /// `Do … Loop` in its various forms → `while` / `loop`.
     DoLoop {

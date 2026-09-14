@@ -90,6 +90,7 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("if", "If…Then…Else", "Control flow", Keyword, "kw/If"),
         item!("match", "Match", "Control flow", Keyword, "kw/Match"),
         item!("for", "For…Next", "Control flow", Keyword, "kw/For"),
+        item!("parallel-for", "Parallel For", "Control flow", Keyword, "kw/ParallelFor"),
         item!("for-each", "For Each", "Control flow", Keyword, "kw/ForEach"),
         item!("do-loop", "Do…Loop", "Control flow", Keyword, "kw/Do"),
         item!("while", "While", "Control flow", Keyword, "kw/While"),

@@ -2,5 +2,9 @@
   "identifier": "default",
   "description": "Main editor and form designer",
   "windows": ["main", "designer"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-destroy",
+    "core:window:allow-set-focus"
+  ]
 }

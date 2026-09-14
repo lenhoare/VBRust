@@ -2,6 +2,7 @@ import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
 
@@ -1243,6 +1244,10 @@ void listen<{ path: string; name: string }>("designer-form-created", async (e) =
   await refreshTree();
   const content = await invoke<string>("read_file_at", { path: e.payload.path });
   openTab(e.payload.path, content, projectIsVbr);
+});
+
+void listen("designer-closing", () => {
+  void getCurrentWebviewWindow().setFocus();
 });
 
 function enterIde(): void {

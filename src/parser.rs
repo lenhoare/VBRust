@@ -3577,7 +3577,16 @@ impl<'a> Parser<'a> {
                 );
                 None
             }
-            Tok::For => self.parse_for(),
+            Tok::For => self.parse_for(false),
+            // Soft keyword: `Parallel For i = … To …`. Only at statement start
+            // and only when `For` follows, so a variable named `Parallel` is
+            // untouched (`parallel = 1`, `parallel.Push(x)`).
+            Tok::Ident(w)
+                if w.eq_ignore_ascii_case("parallel") && matches!(self.peek2(), Tok::For) =>
+            {
+                self.advance(); // `Parallel`
+                self.parse_for(true)
+            }
             // A standalone inline Rust block (side effects; no value used).
             Tok::InlineRust(_) => Some(Stmt::Expr(self.parse_primary()?)),
             Tok::InlineIced(_) | Tok::InlineRatatui(_) => {
@@ -4533,9 +4542,17 @@ impl<'a> Parser<'a> {
         false
     }
 
-    fn parse_for(&mut self) -> Option<Stmt> {
+    fn parse_for(&mut self, parallel: bool) -> Option<Stmt> {
+        let line = self.line();
         self.expect(&Tok::For, "")?;
         if self.eat(&Tok::Each) {
+            if parallel {
+                self.diags.error(
+                    line,
+                    "`Parallel For Each` isn't supported — `Parallel For` counts a \
+                     numeric range. Walk a Vec with `Parallel For i = 0 To xs.Len() - 1`.",
+                );
+            }
             return self.parse_for_each();
         }
         let var = self.expect_ident("for the loop variable")?;
@@ -4562,6 +4579,8 @@ impl<'a> Parser<'a> {
             step,
             body,
             ty: Type::Integer,
+            parallel,
+            line,
         })
     }
 

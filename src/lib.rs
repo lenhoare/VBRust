@@ -14,6 +14,7 @@ pub mod gui;
 pub mod help;
 pub mod iter;
 pub mod lexer;
+pub mod parallel;
 pub mod parser;
 pub mod pattern;
 pub mod python;

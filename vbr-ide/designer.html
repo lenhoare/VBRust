@@ -16,23 +16,30 @@
         </aside>
         <div id="designer-body">
           <aside id="palette">
-            <div class="pane-label">Controls</div>
+            <div class="pane-label">Controls (click to add &gt;)</div>
             <div id="palette-items"></div>
             <div class="pane-label">Properties</div>
             <div id="props"></div>
           </aside>
+          <div class="gutter" id="gutter-palette" title="Drag to resize"></div>
           <div id="surface-wrap">
             <div class="pane-label">
               Form
-              <button id="new-form" class="btn small" title="Clear and start a new empty design">Clear</button>
-              <button id="del-node" class="btn small danger" title="Delete the selected control (Del)">Delete</button>
+              <span class="form-actions">
+                <button type="button" id="new-form" class="form-icon-btn" title="New form">
+                  <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2zm7 3.5v4H8v2h4v4h2v-4h4v-2h-4v-4h-2z"/></svg>
+                </button>
+                <button type="button" id="del-node" class="form-icon-btn danger" title="Delete the selected control (Del)">
+                  <span aria-hidden="true">×</span>
+                </button>
+              </span>
             </div>
             <div id="surface"></div>
           </div>
           <div class="gutter" id="gutter-design" title="Drag to resize"></div>
           <div id="design-code-wrap">
             <div class="pane-label">Generated Bust</div>
-            <pre id="design-code"></pre>
+            <div id="design-code" class="editor"></div>
           </div>
         </div>
       </div>

@@ -62,7 +62,7 @@ function defaults(kind: string): DProps {
     case "Checkbox":
       return { text: "Check me", field: "checked", event: "Toggled" };
     case "Toggler":
-      return { text: "Toggle me", field: "on", event: "Toggled" };
+      return { text: "Toggle me", field: "onoff", event: "Toggled" };
     case "Slider":
       return { field: "amount", event: "Changed", min: 0, max: 100 };
     case "ProgressBar":
@@ -92,7 +92,12 @@ const CONTAINER_ARROW: Record<string, string> = { Column: "Column ↓", Row: "Ro
 let paletteItemsEl: HTMLElement;
 let surfaceEl: HTMLElement;
 let propsEl: HTMLElement;
-let codeEl: HTMLElement;
+let writeCode: (text: string) => void = () => {};
+
+/** The generated-Bust pane (Monaco in the designer window). */
+export function bindGeneratedCode(sink: (text: string) => void): void {
+  writeCode = sink;
+}
 let onCreate: (tree: unknown, target: string) => void | Promise<void> = () => {};
 
 function findNode(
@@ -369,9 +374,9 @@ function renderProps(): void {
 
 async function regenerate(): Promise<void> {
   try {
-    codeEl.textContent = await invoke<string>("generate_design", { tree: root, target });
+    writeCode(await invoke<string>("generate_design", { tree: root, target }));
   } catch (e) {
-    codeEl.textContent = String(e);
+    writeCode(String(e));
   }
 }
 
@@ -386,7 +391,6 @@ export function setupDesigner(
   paletteItemsEl = document.getElementById("palette-items")!;
   surfaceEl = document.getElementById("surface")!;
   propsEl = document.getElementById("props")!;
-  codeEl = document.getElementById("design-code")!;
 
   // Clicking the empty surface selects the root form, so new controls land at
   // the top level (an escape hatch out of a nested container). Widget clicks

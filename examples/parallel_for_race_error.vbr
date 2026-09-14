@@ -1,0 +1,11 @@
+' Parallel For rejects a shared scalar write (a reduction race).
+Function Main()
+    Dim input As Vec<Long> = [1, 2, 3, 4]
+    Dim total As Long = 0
+
+    Parallel For i = 0 To input.Len() - 1
+        total = total + input[i]
+    Next
+
+    Debug.Print total
+End Function

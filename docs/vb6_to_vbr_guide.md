@@ -168,6 +168,10 @@ Next
 
 Do While total < 100 ... Loop        ' test first
 Do ... Loop Until done               ' test after
+
+Parallel For i = 0 To xs.Len() - 1   ' independent iterations (CPU threads on Rust)
+    out[i] = xs[i] * 2               ' writes must be arr[i] — no shared total =
+Next
 ```
 
 `Exit For/Do/Function` and `Continue` do the obvious. And the pause every module

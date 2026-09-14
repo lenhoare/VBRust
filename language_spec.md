@@ -452,6 +452,20 @@ The counter's type is the widened type of the bounds and `Step`. `For i = 1 To
 variable, or floating bounds (`For x = 0.0 To 1.0 Step 0.1`), is a counted loop
 of that type: `To` is inclusive, and direction follows the sign of `Step`.
 
+```
+Parallel For i = lo To hi [Step s]
+    out[i] = in[i] * 2
+Next
+```
+
+`Parallel For` asserts that the iterations are independent. Each may read
+anything; two iterations may not write the same location. Writes must be
+`arr[i]` where `i` is the loop variable (`out[i] = in[i] * 2` is fine;
+`total = total + in[i]` is a compile error). Nested `Parallel For`, `Exit For`,
+`Continue`, `Return`, and a variable or floating `Step` are rejected in this
+slice. The Rust target runs the loop on CPU threads; Python and C run it
+sequentially. CUDA / GPU buffers are later — ordinary `Vec`s stay on the CPU.
+
 ### Loop control
 `Exit Do`, `Exit For`, `Exit Function`, `Continue`.
 

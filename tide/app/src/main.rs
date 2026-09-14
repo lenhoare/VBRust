@@ -47,6 +47,7 @@ fn vbr_highlighter() -> KeywordHighlighter {
         "Else",
         "ElseIf",
         "For",
+        "Parallel",
         "To",
         "Step",
         "Next",

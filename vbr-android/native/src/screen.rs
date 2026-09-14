@@ -502,6 +502,7 @@ impl Host {
                 step,
                 body,
                 ty,
+                ..
             } => {
                 if ty.is_float() {
                     // Floating bounds/Step: counted loop, same walk as the

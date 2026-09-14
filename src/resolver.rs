@@ -1077,7 +1077,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_stmts(body, ctx);
                 }
             }
-            Stmt::For { var, from, to, step, body, ty } => {
+            Stmt::For { var, from, to, step, body, ty, parallel, line } => {
                 resolve_expr(from, ctx);
                 clone_rvalue_indexes(from, ctx);
                 resolve_expr(to, ctx);
@@ -1100,6 +1100,9 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
                 ctx.bind(var, DeclType::Plain(var_ty));
                 resolve_stmts(body, ctx);
+                if *parallel {
+                    crate::parallel::check(var, step.as_ref(), body, *ty, *line, ctx.diags);
+                }
             }
             Stmt::DoLoop { cond, body } => {
                 if let Some(

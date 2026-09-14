@@ -422,7 +422,7 @@ const NAMESPACES: &[(&str, &str)] = &[
 ];
 
 const KEYWORDS: &[&str] = &[
-    "Dim", "Set", "If", "Then", "ElseIf", "Else", "End", "For", "Each", "In", "To", "Step",
+    "Dim", "Set", "If", "Then", "ElseIf", "Else", "End", "For", "Parallel", "Each", "In", "To", "Step",
     "Next", "Do", "While", "Until", "Loop", "Match", "Return", "Exit", "Continue", "Function",
     "Sub", "Const", "Type", "Enum", "True", "False", "Not", "And", "Or", "Await", "Log", "Test",
     "Assert", "Handle", "RaiseError", "Raw", "Theme", "Rust", "Python",

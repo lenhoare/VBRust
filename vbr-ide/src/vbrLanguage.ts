@@ -18,6 +18,7 @@ const KEYWORDS = [
   // Soft structural words — idents to the lexer, but they read as keywords and
   // head the GUI/TUI/web/module constructs.
   "Screen", "Window", "Page", "State", "View", "Events", "Use", "Me", "Nothing",
+  "Parallel",
 ];
 
 const TYPE_KEYWORDS = [

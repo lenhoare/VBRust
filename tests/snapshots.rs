@@ -78,6 +78,7 @@ const HAPPY: &[&str] = &[
     "conversions",
     "tests",
     "logging",
+    "parallel_for",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile
@@ -123,6 +124,7 @@ const ERRORS: &[&str] = &[
     "use_no_version_error",
     "blocking_no_await_error",
     "sleep_in_event_error",
+    "parallel_for_race_error",
 ];
 
 fn examples_dir() -> PathBuf {

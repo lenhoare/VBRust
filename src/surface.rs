@@ -1378,13 +1378,15 @@ pub(crate) fn rewrite_stmt(
             deferred,
             line,
         },
-        Stmt::For { var, from, to, step, body, ty } => Stmt::For {
+        Stmt::For { var, from, to, step, body, ty, parallel, line } => Stmt::For {
             var,
             from: re(from),
             to: re(to),
             step: step.map(&re),
             body: body.into_iter().map(|s| rewrite_stmt(s, recv, fields, enums, subs)).collect(),
             ty,
+            parallel,
+            line,
         },
         Stmt::ForEach { var1, var2, iter, body } => Stmt::ForEach {
             var1,

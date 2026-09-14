@@ -448,7 +448,13 @@ impl Emitter {
                     self.block_or_pass(body, indent + 1);
                 }
             }
-            Stmt::For { var, from, to, step, body, .. } => {
+            Stmt::For { var, from, to, step, body, parallel, .. } => {
+                if *parallel {
+                    self.warn(
+                        "`Parallel For` runs sequentially on the Python target — \
+                         the Rust target uses CPU threads.",
+                    );
+                }
                 self.declare(var, &DeclType::Plain(Type::Long));
                 let header = self.for_range(var, from, to, step.as_ref());
                 self.line(indent, &header);

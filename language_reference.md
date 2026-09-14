@@ -351,6 +351,11 @@ before the loop, Bust quietly drops that line — Rust's `for` creates its own
 VB6 follows: the counter is gone after `Next` (copy it to another variable
 inside the loop if you need its final value).
 
+`Parallel For` is the same range with an independence claim: iterations may
+run at the same time. Writes must be `arr[i]` for the loop variable (`out[i]
+= in[i] * 2`); a shared scalar (`total = total + in[i]`) is a compile error.
+The Rust target uses CPU threads; Python and C stay sequential for now.
+
 `For Each` walks a collection, borrowing each element:
 
 ```vb

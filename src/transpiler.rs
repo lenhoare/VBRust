@@ -490,6 +490,10 @@ pub fn transpile_module(
         sep(&mut out);
         out.push_str(RND_HELPER);
     }
+    if crate::parallel::program_uses_parallel_for(program) {
+        sep(&mut out);
+        out.push_str(crate::parallel::PARALLEL_HELPER);
+    }
     // The `Log` sink helper, emitted only when the program logs.
     if program_uses_log(program) {
         sep(&mut out);
@@ -2002,30 +2006,38 @@ pub(crate) fn emit_stmt(
             step,
             body,
             ty,
+            parallel,
+            ..
         } => {
-            // VB's "repeat N times" loop often never reads its counter — Rust
-            // warns on the unused binding, so an unread counter emits as `_`.
-            let mut used = HashSet::new();
-            body.iter().for_each(|s| collect_stmt_idents(s, &mut used));
-            let loop_var = if used.contains(&rust_name(var)) || used.contains("*") {
-                rust_name(var)
-            } else {
-                "_".to_string()
-            };
-            if for_uses_rust_range(*ty, step.as_ref()) {
-                let range = render_range(from, to, step.as_ref(), diags);
-                out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
-            } else {
-                diags.note(
-                    "for-counted-loop",
-                    "A `For` whose Step isn't a fixed integer — or whose bounds are floating — \
-                     is a counted loop, not a Rust range. `To` is still inclusive; direction \
-                     follows the sign of Step.",
+            if *parallel {
+                emit_parallel_for(
+                    var, from, to, step.as_ref(), body, *ty, mutated, byref, indent, diags, out,
                 );
-                emit_counted_for(&pad, indent, var, &loop_var, from, to, step.as_ref(), *ty, out);
+            } else {
+                // VB's "repeat N times" loop often never reads its counter — Rust
+                // warns on the unused binding, so an unread counter emits as `_`.
+                let mut used = HashSet::new();
+                body.iter().for_each(|s| collect_stmt_idents(s, &mut used));
+                let loop_var = if used.contains(&rust_name(var)) || used.contains("*") {
+                    rust_name(var)
+                } else {
+                    "_".to_string()
+                };
+                if for_uses_rust_range(*ty, step.as_ref()) {
+                    let range = render_range(from, to, step.as_ref(), diags);
+                    out.push_str(&format!("{}for {} in {} {{\n", pad, loop_var, range));
+                } else {
+                    diags.note(
+                        "for-counted-loop",
+                        "A `For` whose Step isn't a fixed integer — or whose bounds are floating — \
+                         is a counted loop, not a Rust range. `To` is still inclusive; direction \
+                         follows the sign of Step.",
+                    );
+                    emit_counted_for(&pad, indent, var, &loop_var, from, to, step.as_ref(), *ty, out);
+                }
+                emit_block(body, mutated, byref, indent + 1, diags, out);
+                out.push_str(&format!("{}}}\n", pad));
             }
-            emit_block(body, mutated, byref, indent + 1, diags, out);
-            out.push_str(&format!("{}}}\n", pad));
         }
         Stmt::DoLoop { cond, body } => {
             let inner = "    ".repeat(indent + 1);
@@ -2992,6 +3004,325 @@ fn for_uses_rust_range(ty: Type, step: Option<&Expr>) -> bool {
         None => true,
         Some(Expr { kind: ExprKind::Int(n), .. }) if *n != 0 => true,
         _ => false,
+    }
+}
+
+/// CPU-thread `Parallel For`: snapshot the range, take pointers to written
+/// Vecs, then `__vbr_parallel_for` over the iteration count. The checker has
+/// already proved each iteration writes a distinct slot.
+fn emit_parallel_for(
+    var: &str,
+    from: &Expr,
+    to: &Expr,
+    step: Option<&Expr>,
+    body: &[Stmt],
+    ty: Type,
+    mutated: &HashSet<String>,
+    byref: &HashSet<String>,
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    if !diags.has_errors() {
+        diags.note(
+            "parallel-for-cpu",
+            "`Parallel For` runs across CPU threads. Each iteration must write a \
+             different slot — typically `out[i] = …`. CUDA / GPU buffers are a later slice.",
+        );
+    }
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    let kpad = "    ".repeat(indent + 2);
+    let v = rust_name(var);
+    let rt = ty.rust();
+    let step_n = peel_step_int(step).unwrap_or(1);
+
+    let mut locals = HashSet::new();
+    crate::parallel::collect_locals(body, &mut locals);
+    let written = crate::parallel::written_arrays(var, body, &locals);
+    let mut names: Vec<String> = written.into_iter().collect();
+    names.sort();
+    let mut ptrs = HashMap::new();
+    for arr in &names {
+        ptrs.insert(arr.clone(), format!("__p_{}", rust_name(arr)));
+    }
+
+    out.push_str(&format!("{}{{\n", pad));
+    out.push_str(&format!(
+        "{}let __from = {};\n",
+        inner,
+        render_expr(from, Some(ty))
+    ));
+    out.push_str(&format!("{}let __to = {};\n", inner, render_expr(to, Some(ty))));
+    if step_n != 1 {
+        out.push_str(&format!("{}let __step: {} = {};\n", inner, rt, step_n));
+    }
+    out.push_str(&format!("{}let __n: usize = {};\n", inner, parallel_n_expr(step_n, rt)));
+    for arr in &names {
+        let ptr = &ptrs[arr];
+        out.push_str(&format!(
+            "{}let {} = {}.as_mut_ptr() as usize;\n",
+            inner,
+            ptr,
+            rust_name(arr)
+        ));
+    }
+    out.push_str(&format!("{}__vbr_parallel_for(__n, &|__k| {{\n", inner));
+    out.push_str(&format!("{}#[allow(unused_variables)]\n", kpad));
+    if step_n == 1 {
+        out.push_str(&format!("{}let {} = __from + (__k as {});\n", kpad, v, rt));
+    } else {
+        out.push_str(&format!(
+            "{}let {} = __from + (__k as {}) * __step;\n",
+            kpad, v, rt
+        ));
+    }
+
+    let mut body = body.to_vec();
+    rewrite_parallel_stmts(&mut body, &ptrs);
+    emit_block(&body, mutated, byref, indent + 2, diags, out);
+    out.push_str(&format!("{inner}}});\n{pad}}}\n"));
+}
+
+fn peel_step_int(step: Option<&Expr>) -> Option<i64> {
+    match step {
+        None => Some(1),
+        Some(Expr { kind: ExprKind::Int(n), .. }) => Some(*n),
+        Some(Expr { kind: ExprKind::Cast(inner, _), .. }) => peel_step_int(Some(inner)),
+        _ => None,
+    }
+}
+
+fn parallel_n_expr(step: i64, rt: &str) -> String {
+    if step == 1 {
+        "if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 }".to_string()
+    } else if step > 0 {
+        format!(
+            "if __to >= __from {{ (((__to - __from) / ({step} as {rt})) as usize).saturating_add(1) }} else {{ 0 }}"
+        )
+    } else {
+        let abs = -step;
+        format!(
+            "if __to <= __from {{ (((__from - __to) / ({abs} as {rt})) as usize).saturating_add(1) }} else {{ 0 }}"
+        )
+    }
+}
+
+fn rewrite_parallel_stmts(stmts: &mut [Stmt], ptrs: &HashMap<String, String>) {
+    for s in stmts {
+        rewrite_parallel_stmt(s, ptrs);
+    }
+}
+
+fn rewrite_parallel_stmt(s: &mut Stmt, ptrs: &HashMap<String, String>) {
+    match s {
+        Stmt::Assign { .. } => {
+            let Stmt::Assign {
+                mut target,
+                mut value,
+                op,
+            } = std::mem::replace(s, Stmt::Break)
+            else {
+                unreachable!()
+            };
+            rewrite_parallel_expr(&mut value, ptrs);
+            let ptr = match &target.kind {
+                ExprKind::Index(inner, _) => match &inner.kind {
+                    ExprKind::Ident(name) => ptrs.get(&name.to_ascii_lowercase()).cloned(),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(ptr) = ptr {
+                if let ExprKind::Index(_, idx) = &mut target.kind {
+                    rewrite_parallel_expr(idx, ptrs);
+                    let i = render_expr(idx, None);
+                    let v = render_expr(&value, None);
+                    let assign = match op {
+                        Some(o) => format!("{}=", op_str(o)),
+                        None => "=".to_string(),
+                    };
+                    *s = Stmt::Expr(
+                        ExprKind::InlineRust(format!(
+                            "unsafe {{ *__vbr_at({ptr}, ({i}) as usize) {assign} {v} }}"
+                        ))
+                        .synth(),
+                    );
+                    return;
+                }
+            }
+            rewrite_parallel_expr(&mut target, ptrs);
+            *s = Stmt::Assign { target, value, op };
+        }
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Set { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. }
+        | Stmt::Return(Some(e))
+        | Stmt::RaiseError(e)
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Expr(e)
+        | Stmt::Assert(e) => rewrite_parallel_expr(e, ptrs),
+        Stmt::If { branches, else_body } => {
+            for (c, b) in branches {
+                rewrite_parallel_expr(c, ptrs);
+                rewrite_parallel_stmts(b, ptrs);
+            }
+            if let Some(b) = else_body {
+                rewrite_parallel_stmts(b, ptrs);
+            }
+        }
+        Stmt::For { from, to, step, body, .. } => {
+            rewrite_parallel_expr(from, ptrs);
+            rewrite_parallel_expr(to, ptrs);
+            if let Some(st) = step {
+                rewrite_parallel_expr(st, ptrs);
+            }
+            rewrite_parallel_stmts(body, ptrs);
+        }
+        Stmt::ForEach { iter, body, .. } => {
+            rewrite_parallel_expr(iter, ptrs);
+            rewrite_parallel_stmts(body, ptrs);
+        }
+        Stmt::DoLoop { cond, body } => {
+            if let Some(
+                DoCond::PreWhile(c)
+                | DoCond::PreUntil(c)
+                | DoCond::PostWhile(c)
+                | DoCond::PostUntil(c),
+            ) = cond
+            {
+                rewrite_parallel_expr(c, ptrs);
+            }
+            rewrite_parallel_stmts(body, ptrs);
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            rewrite_parallel_expr(scrutinee, ptrs);
+            for a in arms {
+                if let Some(g) = &mut a.guard {
+                    rewrite_parallel_expr(g, ptrs);
+                }
+                rewrite_parallel_stmts(&mut a.body, ptrs);
+            }
+        }
+        Stmt::HandleErr { target, call, body, .. } => {
+            if let Some(t) = target {
+                rewrite_parallel_expr(t, ptrs);
+            }
+            rewrite_parallel_expr(call, ptrs);
+            rewrite_parallel_stmts(body, ptrs);
+        }
+        Stmt::GpuInto { body, .. } => rewrite_parallel_stmts(body, ptrs),
+        Stmt::Draw(cmd) => rewrite_draw_cmd(cmd, ptrs),
+        _ => {}
+    }
+}
+
+fn rewrite_draw_cmd(cmd: &mut DrawCmd, ptrs: &HashMap<String, String>) {
+    match cmd {
+        DrawCmd::Fill { shape, color } => {
+            rewrite_shape(shape, ptrs);
+            rewrite_parallel_expr(color, ptrs);
+        }
+        DrawCmd::Stroke { shape, color, width } => {
+            rewrite_shape(shape, ptrs);
+            rewrite_parallel_expr(color, ptrs);
+            if let Some(w) = width {
+                rewrite_parallel_expr(w, ptrs);
+            }
+        }
+        DrawCmd::Text { text, x, y, color } => {
+            rewrite_parallel_expr(text, ptrs);
+            rewrite_parallel_expr(x, ptrs);
+            rewrite_parallel_expr(y, ptrs);
+            if let Some(c) = color {
+                rewrite_parallel_expr(c, ptrs);
+            }
+        }
+        DrawCmd::Pixel { x, y, color } => {
+            rewrite_parallel_expr(x, ptrs);
+            rewrite_parallel_expr(y, ptrs);
+            rewrite_parallel_expr(color, ptrs);
+        }
+        DrawCmd::Clear { color } => rewrite_parallel_expr(color, ptrs),
+        DrawCmd::Copy { args, color_key, .. } => {
+            for a in args {
+                rewrite_parallel_expr(a, ptrs);
+            }
+            if let Some(c) = color_key {
+                rewrite_parallel_expr(c, ptrs);
+            }
+        }
+        DrawCmd::Paint { args, .. } => {
+            for a in args {
+                rewrite_parallel_expr(a, ptrs);
+            }
+        }
+    }
+}
+
+fn rewrite_shape(shape: &mut Shape, ptrs: &HashMap<String, String>) {
+    match shape {
+        Shape::Circle(a, b, c) => {
+            rewrite_parallel_expr(a, ptrs);
+            rewrite_parallel_expr(b, ptrs);
+            rewrite_parallel_expr(c, ptrs);
+        }
+        Shape::Rect(a, b, c, d) | Shape::Line(a, b, c, d) => {
+            rewrite_parallel_expr(a, ptrs);
+            rewrite_parallel_expr(b, ptrs);
+            rewrite_parallel_expr(c, ptrs);
+            rewrite_parallel_expr(d, ptrs);
+        }
+    }
+}
+
+fn rewrite_parallel_expr(e: &mut Expr, ptrs: &HashMap<String, String>) {
+    match &mut e.kind {
+        ExprKind::Index(inner, idx) => {
+            rewrite_parallel_expr(inner, ptrs);
+            rewrite_parallel_expr(idx, ptrs);
+            if let ExprKind::Ident(name) = &inner.kind {
+                if let Some(ptr) = ptrs.get(&name.to_ascii_lowercase()) {
+                    let i = render_expr(idx, None);
+                    e.kind = ExprKind::InlineRust(format!(
+                        "unsafe {{ *__vbr_at({ptr}, ({i}) as usize) }}"
+                    ));
+                }
+            }
+        }
+        ExprKind::Binary { lhs, rhs, .. } => {
+            rewrite_parallel_expr(lhs, ptrs);
+            rewrite_parallel_expr(rhs, ptrs);
+        }
+        ExprKind::MethodCall { recv, args, .. } => {
+            rewrite_parallel_expr(recv, ptrs);
+            for a in args {
+                rewrite_parallel_expr(a, ptrs);
+            }
+        }
+        ExprKind::Call { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) => {
+            for a in args {
+                rewrite_parallel_expr(a, ptrs);
+            }
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, v) in fields {
+                rewrite_parallel_expr(v, ptrs);
+            }
+        }
+        ExprKind::Field(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Try(inner)
+        | ExprKind::Raw(inner)
+        | ExprKind::Not(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::TupleIndex(inner, _)
+        | ExprKind::Closure { body: inner, .. } => rewrite_parallel_expr(inner, ptrs),
+        _ => {}
     }
 }
 

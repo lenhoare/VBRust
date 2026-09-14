@@ -1,0 +1,41 @@
+id = "parallel-for"
+title = "Parallel For"
+category = "Control flow"
+kind = "keyword"
+
+syntax = """
+Parallel For <var> = <start> To <end> [Step <n>]
+    <statements>
+Next
+"""
+
+summary = "A For whose iterations are independent — the compiler may run them on CPU threads (and later, a GPU)."
+
+remarks = """
+`Parallel For` is the explicit index-space form of the same idea as a DataFrame formula: you describe work per element, and the compiler is allowed to do the elements at the same time.
+
+Each iteration may *read* anything. Two iterations may not *write* the same location. `out[i] = in[i] * 2` is fine; `total = total + in[i]` is a compile error (that's a reduction — `Parallel Sum` later). A stencil that *reads* a neighbour of a different array (`in[i + 1]`) is fine so long as writes stay `out[i]`.
+
+Writes must be `arr[i]` where `i` is exactly the loop variable. `Exit For`, `Continue`, `Return`, nested `Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating `Step` are rejected. `Dim` inside the body is a per-iteration local.
+
+The Rust target runs the loop on CPU threads (`std::thread`). Python and C run it sequentially for now. CUDA / GPU buffers are a later slice — ordinary `Vec`s stay on the CPU; nothing is silently uploaded.
+
+`Parallel` is a soft keyword: a variable named `Parallel` is still a variable. Only `Parallel For` at the start of a statement is the loop.
+"""
+
+example = """
+Function Main()
+    Dim input As Vec<Long> = [1, 2, 3, 4]
+    Dim output As Vec<Long> = [0, 0, 0, 0]
+
+    Parallel For i = 0 To input.Len() - 1
+        output[i] = input[i] * input[i]
+    Next
+
+    For Each n In output
+        Debug.Print n
+    Next
+End Function
+"""
+
+see_also = ["for", "for-each", "vec"]
