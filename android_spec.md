@@ -1,11 +1,11 @@
-# VBR — Android editor
+# Vinyl — Android editor
 
-A phone-sized editor that **runs** VBR. The desktop IDE (`vbr-ide`) shells out to
+A phone-sized editor that **runs** Vinyl. The desktop IDE (`vbr-ide`) shells out to
 `rustc`; a phone has no Rust toolchain, so this app takes the **C target**
 (`language_spec.md` §15, `targets_spec.md` §4) and compiles it in-process with
 **TinyCC**.
 
-The VBR compiler itself still runs on the device — as a prebuilt native library,
+The Vinyl compiler itself still runs on the device — as a prebuilt native library,
 not as `rustc`. User programs never touch the Rust toolchain.
 
 The editor uses **unscii** (public domain VGA-style terminal glyphs) so the
@@ -28,14 +28,14 @@ as `Screen`.
 A phone-sized **TIDE**: Turbo Pascal chrome (blue / yellow / cyan), not a
 remake of the desktop Monaco IDE.
 
-- **Edit** `.vbr` with VBR highlighting (keywords, `' comments`, strings).
+- **Edit** `.vbr` with Vinyl highlighting (keywords, `' comments`, strings).
 - **File** menu: New, Open file, Open project (folder with `main.vbr` or
   several `.vbr`), Units, Examples, Save / Save As, Quit. Phone storage uses
   the system picker (SAF); app-private `programs/` is always available.
 - **Edit** menu: Undo/Redo, Cut/Copy/Paste, Find, Replace.
 - **Run** menu: Compile (fills Watch), Run (F9), toggle the generated **C
   pane** (F4) — Turbo Debugger–style strip at the bottom, ~42% height,
-  syntax-coloured, scrolls with the cursor via a VBR↔C line map.
+  syntax-coloured, scrolls with the cursor via a Vinyl↔C line map.
 - **Watch** window when diagnostics exist; tap / Enter jumps to the line.
 - **Help**: keys and About.
 - **Run** `Function Main()`: the same in-process interpreter as `Screen`

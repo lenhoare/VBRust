@@ -18,7 +18,7 @@ Function CountLive(ByVal grid As Vec<Long>) As Long
 End Function
 
 Screen Life
-    Title "Bust Life"
+    Title "Vinyl Life"
 
     State
         Dim grid As Vec<Long> = SeedGrid()

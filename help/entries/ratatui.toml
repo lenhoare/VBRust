@@ -20,7 +20,7 @@ End Column
 summary = "Splices raw ratatui into a Screen View — a suffix on a widget, or raw draw statements."
 
 remarks = """
-Bust's View covers everyday ratatui widgets. For everything else, this is the door: a `Ratatui … End Ratatui` block is captured verbatim. Look up the ratatui API; Bust does not parse the blob.
+Vinyl's View covers everyday ratatui widgets. For everything else, this is the door: a `Ratatui … End Ratatui` block is captured verbatim. Look up the ratatui API; Vinyl does not parse the blob.
 
 Two placements. A blob that **starts with `.`** is a suffix on the widget around it (`Column`, `Row`, `Frame`, `Scrollable`, `Stack`, `Split`, `Tabs`, `Button`, `Text`, `List`, `Table`).
 

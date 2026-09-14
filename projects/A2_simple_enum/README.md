@@ -1,6 +1,6 @@
 # A2 — Simple Enum Demo
 
-The second A-series project demonstrates the use of `Enum` in Bust:
+The second A-series project demonstrates the use of `Enum` in Vinyl:
 a tiny traffic-light state machine.
 
 ## What it does
@@ -24,7 +24,7 @@ projects/A2_simple_enum/
   expected_output.txt exact stdout of running main.vbr
 ```
 
-## Which Bust language features it tests
+## Which Vinyl language features it tests
 
 - A **multi-module project**: `main.vbr` calls the sibling module with a
   **qualified name** — `Traffic.DurationSec(...)`.
@@ -73,7 +73,7 @@ Expected:
 
 - No new quirks surfaced; the project built and ran on the first try after
   making the enum `Public` (required for cross-module use) and providing a
-  `Public Function Name` to print the variant (Bust does not yet derive
+  `Public Function Name` to print the variant (Vinyl does not yet derive
   `Display` for enums, so `Debug.Print light` fails to compile).
 - Two quirks from A1 still apply when passing literals:
   1. Qualified calls don't yet adapt integer literals to `Double`/`Long`

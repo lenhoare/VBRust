@@ -1,4 +1,4 @@
-//! Suspend the designer, run the Screen through Bust, come back.
+//! Suspend the designer, run the Screen through Vinyl, come back.
 
 use std::env;
 use std::io::{self, Write};

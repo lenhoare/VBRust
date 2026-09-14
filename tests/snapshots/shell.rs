@@ -12,7 +12,7 @@ use vbr_stdlib::{Shell, Process};
 fn vbr_main() -> Result<(), String> {
     #[allow(unused_mut)]
     let mut output: String;
-    output = match Shell::run("echo hello from Bust") {
+    output = match Shell::run("echo hello from Vinyl") {
         Ok(__vbr_ok) => __vbr_ok,
         Err(why) => {
             println!("echo failed: {}", why);

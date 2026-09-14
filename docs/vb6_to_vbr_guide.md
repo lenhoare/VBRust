@@ -1,10 +1,10 @@
-# Bust for VB6 Programmers
+# Vinyl for VB6 Programmers
 
 *The quick on-ramp. If you already know VB6, this is the short list of what's
 different — enough to be productive in an afternoon. For the full story see
 `language_reference.md`; when the two disagree, the reference wins.*
 
-Bust looks like VB and compiles to idiomatic Rust. You write the familiar syntax;
+Vinyl looks like VB and compiles to idiomatic Rust. You write the familiar syntax;
 out comes real Rust, which is then built and run. The golden rule, whenever VB
 habit and Rust reality collide: **Rust wins.** This guide is just the collisions.
 
@@ -12,7 +12,7 @@ habit and Rust reality collide: **Rust wins.** This guide is just the collisions
 
 ## The five-minute mental shift
 
-| VB6 habit | In Bust |
+| VB6 habit | In Vinyl |
 |-----------|--------|
 | `Variant`, late binding | Gone. Every value has a static type you name. |
 | `Dim x` with no type | `Dim` always carries `As` — the type is never guessed. |
@@ -33,7 +33,7 @@ Everything else — `If/Then/Else`, `For/Next`, `Do/Loop`, `&` for concatenation
 
 The primitives are VB's names on Rust's machine types:
 
-| Bust | Rust | | Bust | Rust |
+| Vinyl | Rust | | Vinyl | Rust |
 |-----|------|-|-----|------|
 | `Integer` | `i32` | | `Boolean` | `bool` |
 | `Long` / `LongLong` | `i64` | | `Byte` | `u8` |
@@ -77,7 +77,7 @@ just store the result in a `Long` (it truncates: `Dim n As Long = 7 / 2` gives
 `3`). And for an even/odd test reach for `Mod` (`n Mod 2 = 0`), which stays
 integer.
 
-Where VB silently converted numbers, Bust inserts a visible `as` cast — assign a
+Where VB silently converted numbers, Vinyl inserts a visible `as` cast — assign a
 `Long` into a `Double` and you'll see `as f64` appear. That's a teaching moment,
 not a wart.
 
@@ -111,7 +111,7 @@ Function AddTo(ByRef total As Long, ByVal amount As Long)  ' total is &mut — w
 - A parameter with **no keyword defaults to `ByVal`**, which for a `String` is a
   *read-only borrow*. Read it freely; you just can't reassign it.
 - Reach for **`ByRef`** only when you actually need to change the caller's value.
-  Bust inserts the `&mut` at the call site and marks the caller's variable mutable.
+  Vinyl inserts the `&mut` at the call site and marks the caller's variable mutable.
 
 Trying to mutate a `ByVal` string is a friendly error that names the fix ("declare
 it `ByRef`"). That nagging is the whole point — it's Rust's ownership, introduced
@@ -153,7 +153,7 @@ Match n
 End Match
 ```
 
-(Keep pattern bindings lowercase — the pattern is raw Rust, the body is Bust, and
+(Keep pattern bindings lowercase — the pattern is raw Rust, the body is Vinyl, and
 lowercase makes the two halves line up.)
 
 ### Loops
@@ -183,7 +183,7 @@ Function Square(ByVal n As Long) As Long
 End Function
 ```
 
-A `Sub` is just a `Function` with no `As` (no return) — Bust accepts it as familiar
+A `Sub` is just a `Function` with no `As` (no return) — Vinyl accepts it as familiar
 sugar and reminds you they're the same thing. `Public` makes a function visible to
 other modules in a project (`pub fn`); without it, it's private to its file.
 
@@ -202,7 +202,7 @@ End Type
 Dim p As Person = Person { name: "Ada", age: 36 }   ' built complete, all at once
 ```
 
-Methods carry the type name; `Me` is the receiver. Bust works out `&self` vs
+Methods carry the type name; `Me` is the receiver. Vinyl works out `&self` vs
 `&mut self` by watching whether you assign to a field:
 
 ```vb
@@ -256,7 +256,7 @@ End Handle
 not a failure. Do not treat `None` as an error.
 
 When you only care about the `Some` case, skip the full `Match` and use
-**`If <expr> Is <pattern> Then`** (Bust's `if let`) — `Is` is VB's own word, and it
+**`If <expr> Is <pattern> Then`** (Vinyl's `if let`) — `Is` is VB's own word, and it
 runs the block only when the value matches, binding what's inside:
 
 ```vb
@@ -305,8 +305,8 @@ Dim big As Vec<Long> = nums.filter(|x| x > 2).map(|x| x * 2).collect()
 
 ## The escape hatch: inline Rust (and Python)
 
-Bust covers a friendly slice of Rust. For *everything else*, splice in a block of
-the real thing. A `Rust … End Rust` block is a **Rust expression**: your Bust
+Vinyl covers a friendly slice of Rust. For *everything else*, splice in a block of
+the real thing. A `Rust … End Rust` block is a **Rust expression**: your Vinyl
 variables are already in scope (by their lowercased names), and the block's value
 is its **last line written with no semicolon**.
 
@@ -318,8 +318,8 @@ Dim big As Long = Rust
 End Rust
 ```
 
-This is "inline assembly" for Bust — the door to Rust operators, traits, ranges and
-crates Bust doesn't surface. Declare a crate with `Use rand 0.8`; the trait and
+This is "inline assembly" for Vinyl — the door to Rust operators, traits, ranges and
+crates Vinyl doesn't surface. Declare a crate with `Use rand 0.8`; the trait and
 generic complexity stays sealed inside the block, and only a plain value comes
 back. A `Dim` with **no `As`** holds an *opaque handle* (an iterator, a client) you
 can pass back into later blocks.
@@ -337,10 +337,10 @@ End Python
 
 ---
 
-## The mirror: embedding Bust *inside* Rust
+## The mirror: embedding Vinyl *inside* Rust
 
-If you have a Rust file and want to write a chunk of it in Bust, do the reverse.
-Write Bust inside a `/* vbr … */` block comment, then run `vbr embed <file.rs>`:
+If you have a Rust file and want to write a chunk of it in Vinyl, do the reverse.
+Write Vinyl inside a `/* vbr … */` block comment, then run `vbr embed <file.rs>`:
 
 ```rust
 fn main() {
@@ -359,8 +359,8 @@ fn square(n: i64) -> i64 { n * n }
 
 `vbr embed` transpiles the block and writes the Rust into a managed
 `// vbr:gen … // vbr:gen-end` region right after it (re-run any time; it's
-idempotent). Because embedding resolves at build time, the Bust and the Rust share
-one scope — a Bust loop can read Rust variables (`limit`) and call Rust functions
+idempotent). Because embedding resolves at build time, the Vinyl and the Rust share
+one scope — a Vinyl loop can read Rust variables (`limit`) and call Rust functions
 (`square`) with no ceremony; rustc checks the seam. In VS Code the ▶ button (or
 **Ctrl+Alt+R**) expands and runs such a file in one click.
 
@@ -381,7 +381,7 @@ high. Each has its own spec in `docs/`.
   their own (`parallel_spec.md`), not something mixed into ordinary `For`.
 - **Other backends.** The same core-language file can transpile to **Python**
   (`vbr py`) or **C** (`vbr c`), not just Rust — handy for teaching or for dropping
-  Bust logic into an existing codebase.
+  Vinyl logic into an existing codebase.
 - **A real standard library.** Namespaced calls for `FileSystem`, `DateTime`,
   `Shell`, `Regex`, `Json`, `Database` (SQLite), `Http`, and a native
   Excel-style `DataFrame` (over polars) — pulled in only when you use them.
@@ -390,7 +390,7 @@ high. Each has its own spec in `docs/`.
 - **Tests and logging.** `vbr test` runs `Test`/`Assert` blocks that read like a
   spec; `Log <expr>` writes a timestamped line even inside a GUI/TUI.
 - **Editor support.** A VS Code extension gives colours, completion, hover,
-  go-to-def, live error squiggles, and a side pane showing the Rust your Bust
+  go-to-def, live error squiggles, and a side pane showing the Rust your Vinyl
   becomes as you type — the transpiler's whole point, made visible.
 
 ---
@@ -405,17 +405,17 @@ vbr py hello.vbr           # transpile to Python instead
 vbr test hello.vbr         # run the Test blocks
 ```
 
-The generated Rust is never a secret — reading it beside your Bust is the fastest
+The generated Rust is never a secret — reading it beside your Vinyl is the fastest
 way to actually *learn* Rust, which, when you're ready, is the real destination.
 
 ---
 
 ## One-screen cheat sheet
 
-| VB6 | Bust |
+| VB6 | Vinyl |
 |-----|-----|
 | `Select Case x` / `Case 1` | `Match x` / `1 => …` (no `Case`; bare name binds) |
-| *(handle one case)* | `If x Is Some(v) Then …` (Bust's `if let`) |
+| *(handle one case)* | `If x Is Some(v) Then …` (Vinyl's `if let`) |
 | `On Error GoTo` | a call propagates; `Handle err` intercepts; `RaiseError` fails |
 | `ReDim arr(n)` | `Dim v As Vec<T>` … `v.push(x)` |
 | `arr(i)` | `arr[i]` (or `arr.get(i)`) |

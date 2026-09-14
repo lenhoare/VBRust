@@ -60,7 +60,7 @@ static Result_unit_str vbr_fs_write(char* path, char* contents) {
 }
 
 int main(void) {
-    Result_unit_str _t0 = vbr_fs_write("vbr_fs_demo.txt", "Hello from Bust");
+    Result_unit_str _t0 = vbr_fs_write("vbr_fs_demo.txt", "Hello from Vinyl");
     if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
     (void)0;
     Result_str_str _t1 = vbr_fs_read("vbr_fs_demo.txt");

@@ -40,7 +40,7 @@ Public Function SplitCsv(ByVal line As String) As Vec<String>
 End Function
 
 ' The element with this symbol, or Nothing (checked by the caller via
-' FoundFlag). Returns the found state through a ByRef flag — Bust has no
+' FoundFlag). Returns the found state through a ByRef flag — Vinyl has no
 ' null element, so this is the idiomatic "maybe absent" for a struct.
 Public Function FindBySymbol(ByVal elements As Vec<Element>, ByVal symbol As String, ByRef found As Boolean) As Element
     Dim i As Long = 0

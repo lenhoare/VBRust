@@ -1,4 +1,4 @@
-"""`Regex` — the Bust standard library's regex, on Python's `re`. Mirrors
+"""`Regex` — the Vinyl standard library's regex, on Python's `re`. Mirrors
 `vbr_stdlib::Regex`: a bad pattern is an `Err`, `find` returns `Ok(Option<..>)`.
 
 Note: replacement group references differ from Rust — Python uses `\\1`, Rust

@@ -3,7 +3,7 @@
 use vbr_stdlib::{FileSystem, Regex};
 
 fn vbr_main() -> Result<(), String> {
-    FileSystem::write("greeting.txt", "Hello   from   Bust")?;
+    FileSystem::write("greeting.txt", "Hello   from   Vinyl")?;
     let text: String = FileSystem::read("greeting.txt")?;
     println!("file says: {}", text);
     let cleaned: String = Regex::replace_all("\\s+", &text, " ")?;

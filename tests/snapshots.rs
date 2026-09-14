@@ -1,4 +1,4 @@
-//! Snapshot tests for the Bust transpiler.
+//! Snapshot tests for the Vinyl transpiler.
 //!
 //! Each example in `examples/` is locked against a stored snapshot:
 //!   * happy-path programs   → their generated Rust (`tests/snapshots/<name>.rs`)
@@ -396,7 +396,7 @@ fn mixed_rs_project_compiles() {
     let main_src = fs::read_to_string(proj.join("main.vbr")).unwrap();
     let text_rs = fs::read_to_string(proj.join("text.rs")).unwrap();
     let modules = vec![vbr::module_name("text")];
-    // A verbatim `.rs` module has no Bust interface to harvest — its calls stay
+    // A verbatim `.rs` module has no Vinyl interface to harvest — its calls stay
     // name-qualified, matching the Rust side by hand.
     let interfaces = vbr::resolver::ProjectInterfaces::new();
 

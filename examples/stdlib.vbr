@@ -1,6 +1,6 @@
 ' Standard library — file I/O and regex. Calls translate `.` to `::`.
 Function Main()
-    FileSystem.Write("greeting.txt", "Hello   from   Bust")
+    FileSystem.Write("greeting.txt", "Hello   from   Vinyl")
 
     Dim text As String = FileSystem.Read("greeting.txt")
     Debug.Print "file says: " & text

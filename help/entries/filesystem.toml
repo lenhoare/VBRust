@@ -30,7 +30,7 @@ method | Delete(path)       | Delete a file. Can fail.
 
 example = """
 Function Main()
-    FileSystem.Write("notes.txt", "Hello from Bust")
+    FileSystem.Write("notes.txt", "Hello from Vinyl")
 
     Dim text As String = FileSystem.Read("notes.txt")
     Debug.Print text

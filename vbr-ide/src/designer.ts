@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// A widget tree, built visually and sent to the compiler core to become Bust
+// A widget tree, built visually and sent to the compiler core to become Vinyl
 // `View` code. `id` is frontend-only bookkeeping — the Rust side ignores it.
 interface DProps {
   text?: string;
@@ -94,7 +94,7 @@ let surfaceEl: HTMLElement;
 let propsEl: HTMLElement;
 let writeCode: (text: string) => void = () => {};
 
-/** The generated-Bust pane (Monaco in the designer window). */
+/** The generated-Vinyl pane (Monaco in the designer window). */
 export function bindGeneratedCode(sink: (text: string) => void): void {
   writeCode = sink;
 }

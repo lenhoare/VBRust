@@ -1,5 +1,5 @@
 Screen Counter
-    Title "Bust Terminal Counter"
+    Title "Vinyl Terminal Counter"
 
     State
         Dim count As Integer = 0
@@ -9,7 +9,7 @@ Screen Counter
 
     View
         Column
-            Text "A Bust terminal app"
+            Text "A Vinyl terminal app"
             Text "Count: " & count
         End Column
     End View

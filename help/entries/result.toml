@@ -16,7 +16,7 @@ replaces = "On Error and the Err object"
 summary = "The underlying success-or-failure box — only when you ask for it with Raw."
 
 remarks = """
-Ordinary Bust never writes `Result`. A function declares its success type (`As Long`); a normal call gives you that value, or fails. To look at the box itself, prefix the call with `Raw`.
+Ordinary Vinyl never writes `Result`. A function declares its success type (`As Long`); a normal call gives you that value, or fails. To look at the box itself, prefix the call with `Raw`.
 
 The box is either `Ok(value)` or `Err(message)`. Inspect it with `Match`. `.Is_Ok` / `.Is_Err` / `.Unwrap_Or` work on a Raw result. `.Unwrap()` is gone — intercept with `Handle` instead.
 """

@@ -3,9 +3,9 @@
 Builds printable monthly calendars as text grids (Monday-first, ISO
 weeks), for any year and month. Uses the **DateTime** stdlib for weekday
 calculation (deterministic via `Parse`, not `Now`), with leap-year and
-days-per-month logic in pure Bust.
+days-per-month logic in pure Vinyl.
 
-## Bust language features tested
+## Vinyl language features tested
 
 **Standard library — DateTime (first project to use it):**
 - `DateTime.Parse(text, pattern)` — build a fixed moment

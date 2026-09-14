@@ -4,7 +4,7 @@ import sys
 from vbrpy import Ok, Err, _vb, FileSystem, Regex
 
 def main():
-    _t0 = FileSystem.write('greeting.txt', 'Hello   from   Bust')
+    _t0 = FileSystem.write('greeting.txt', 'Hello   from   Vinyl')
     if isinstance(_t0, Err):
         print(f"Error: {_t0.error}", file=sys.stderr)
         raise SystemExit(1)

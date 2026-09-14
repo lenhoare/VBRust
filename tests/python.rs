@@ -1,4 +1,4 @@
-//! Golden tests for the Bust → Python backend (`vbr::compile_python`).
+//! Golden tests for the Vinyl → Python backend (`vbr::compile_python`).
 //!
 //! Two guarantees, per the "compile-against-truth" discipline:
 //!   1. the generated Python is locked against a stored snapshot

@@ -29,7 +29,7 @@ fn view(state: &Counter, frame: &mut Frame) {
     let inner = block.inner(chunks_status[0]);
     frame.render_widget(block, chunks_status[0]);
     let chunks_0 = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
-    frame.render_widget(Paragraph::new("A themed Bust terminal app").style(theme_body), chunks_0[0]);
+    frame.render_widget(Paragraph::new("A themed Vinyl terminal app").style(theme_body), chunks_0[0]);
     frame.render_widget(Paragraph::new(format!("Count: {}", state.count)).style(theme_body), chunks_0[1]);
     frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(format!(" {}  ", format!("Count: {}", state.count))), Span::styled(" + ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" inc  "), Span::styled(" - ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" dec  "), Span::styled(" q ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" quit  ")])).style(theme_chrome), chunks_status[1]);
 }

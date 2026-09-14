@@ -1,6 +1,6 @@
-# Bust DataFrame Specification
+# Vinyl DataFrame Specification
 
-A `DataFrame` is a native, first-class table in Bust — columns of typed data you
+A `DataFrame` is a native, first-class table in Vinyl — columns of typed data you
 read, transform with **column formulas**, and write back out. It is backed by the
 Rust **polars** crate: pure Rust, no Python, no GIL, self-contained. (This is a
 different track from inline `Python` blocks — see `inline_python_spec` notes — and
@@ -65,8 +65,8 @@ Inspecting:
 ## 4. Column formulas — the heart
 
 The arguments to `Filter`, `With_Column`, and `Select` are a **column-formula
-context**. Your ordinary Bust expression is read as a formula over columns: it
-applies down the whole column and broadcasts elementwise. The same Bust operators
+context**. Your ordinary Vinyl expression is read as a formula over columns: it
+applies down the whole column and broadcasts elementwise. The same Vinyl operators
 and grammar you already use — only the meaning of the operands changes:
 
 | You write | Means | Lowers to |
@@ -147,7 +147,7 @@ Dim union As DataFrame = people.Outer_Join(orders, "name")   ' all rows, both si
   `left_on`/`right_on` — are a later slice). Key columns come out **coalesced**:
   one `name` column, not `name` and `name_right`.
 - **Nulls.** Where a key found no match, the new cells are **null** — a state
-  Bust has no type for. `Is_Null(col)` in a `Filter` formula finds those rows
+  Vinyl has no type for. `Is_Null(col)` in a `Filter` formula finds those rows
   (`df.Filter(Not Is_Null(item))` removes them), and `df.Column(...)` **refuses**
   a column containing nulls rather than silently returning a shortened `Vec`.
 
@@ -155,7 +155,7 @@ Dim union As DataFrame = people.Outer_Join(orders, "name")   ' all rows, both si
 
 ## 5. Getting data out
 
-Cross the boundary into plain Bust by naming a type — one bulk extraction:
+Cross the boundary into plain Vinyl by naming a type — one bulk extraction:
 
 ```vb
 Dim ages As Vec<Long> = df.Column("age")

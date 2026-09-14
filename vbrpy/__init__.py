@@ -1,4 +1,4 @@
-"""vbrpy — the Bust standard library for the Python target, mirroring the
+"""vbrpy — the Vinyl standard library for the Python target, mirroring the
 `vbr_stdlib` Rust crate. A stdlib-using program is emitted as a project folder
 (`main.py` + this package beside it), the Python parallel of `vbr runproject`."""
 

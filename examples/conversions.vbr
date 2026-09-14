@@ -19,7 +19,7 @@ Function Main()
     Debug.Print Val("  42  ")
     Debug.Print Val("nonsense")
 
-    ' A Double flows into a Long with Bust's automatic numeric cast.
+    ' A Double flows into a Long with Vinyl's automatic numeric cast.
     Dim count As Long = Val("100")
     Debug.Print count
 

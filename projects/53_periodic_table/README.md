@@ -2,7 +2,7 @@
 
 A terminal app that reads element data and prints a table with lookups.
 This project exists to exercise the **Python target** (`vbr py`): the same
-Bust source transpiles to idiomatic Python and its output is checked
+Vinyl source transpiles to idiomatic Python and its output is checked
 **byte-for-byte against the Rust build** (the ground-truth discipline from
 `targets_spec.md`).
 
@@ -32,7 +32,7 @@ The Python output is **byte-identical** to the Rust output. The generated
 code is idiomatic: `Type` → `@dataclass`, `.Len()` → `len()`, f-strings,
 and the `vbrpy/` stdlib package (FileSystem on pure Python batteries).
 
-## Bust language features tested
+## Vinyl language features tested
 
 **Python target (the point of the project):**
 - `vbr py` single-file transpilation → project folder with `vbrpy/`

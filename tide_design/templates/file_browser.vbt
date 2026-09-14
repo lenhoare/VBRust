@@ -1,4 +1,4 @@
-' Bust Screen template — structure only. Open in tide_design.
+' Vinyl Screen template — structure only. Open in tide_design.
 ' Two-pane commander. Norton Commander, Midnight Commander, FAR.
 Screen FileBrowser
     Title "Files"

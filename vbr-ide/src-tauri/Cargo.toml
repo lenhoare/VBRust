@@ -2,7 +2,7 @@
 name = "vbr-ide"
 version = "0.1.0"
 edition = "2021"
-description = "The Bust IDE — a desktop shell (Tauri) around the vbr compiler: edit Bust, watch the Rust, build and run."
+description = "The Vinyl IDE — a desktop shell (Tauri) around the vbr compiler: edit Vinyl, watch the Rust, build and run."
 default-run = "vbr-ide"
 
 [build-dependencies]

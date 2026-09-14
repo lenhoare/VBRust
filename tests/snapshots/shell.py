@@ -12,7 +12,7 @@ from vbrpy import Ok, Err, _vb, Process, Shell
 
 def main():
     output: str = ""
-    _t0 = Shell.run('echo hello from Bust')
+    _t0 = Shell.run('echo hello from Vinyl')
     if isinstance(_t0, Err):
         why = _t0.error
         print(f"echo failed: {_vb(why)}")

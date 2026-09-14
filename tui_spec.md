@@ -1,4 +1,4 @@
-# Bust TUI Specification
+# Vinyl TUI Specification
 
 A `Screen` is a terminal (text) user interface, the counterpart to a `Window`
 (the graphical GUI — see `gui_spec.md`). It compiles to a **ratatui** application.
@@ -175,7 +175,7 @@ In the browser the bar draws but isn't interactive yet (`tui-web-menu`).
 Example: `examples/tui_menu.vbr`. In tide_design, **F4** switches the Menu page
 (the view tree stays on View).
 
-Event bodies are ordinary Bust — the same resolution pass a function body gets
+Event bodies are ordinary Vinyl — the same resolution pass a function body gets
 (stdlib methods, string/numeric coercions, iterator chains, teaching
 diagnostics), with the screen's state fields in scope — at any statement depth:
 state fields inside `For`/`For Each`/`Do` bodies, `Match` arms, and `If`
@@ -483,7 +483,7 @@ lowers to a plain "kick off the work, resume in the continuation" pair with no
 hidden state machine, keeping the generated loop readable. To guard the call, put
 the check *before* the `Await` (`If busy Then Return`, or set a flag first), or
 move the guard into the awaited helper (return early). Nesting an `Await` earns a
-teaching error that points at these options — Bust keeps async simple on purpose;
+teaching error that points at these options — Vinyl keeps async simple on purpose;
 reach for real Rust when you need more.
 
 ---
@@ -498,7 +498,7 @@ terminal (not piped), and it restores on exit. Adding a `Screen` pulls in
 
 ### 8.0 Diagnosing a running screen — `Log`, not `Debug.Print`
 
-A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — Bust warns
+A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — Vinyl warns
 and sends you to **`Log`**. `Log "message"` (composes with `&` like
 `Debug.Print`) appends a timestamped line to `build/vbr.log`; open a second
 terminal and `tail -f build/vbr.log` to watch the app think while it runs. `Log`

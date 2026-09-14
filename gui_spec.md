@@ -1,14 +1,14 @@
-# Bust GUI Specification
+# Vinyl GUI Specification
 
 Status: Draft V0.1  
 Target backend: Iced  
-Purpose: Define the first GUI model for Bust using a VB-like surface syntax and a modern state/message/view architecture.
+Purpose: Define the first GUI model for Vinyl using a VB-like surface syntax and a modern state/message/view architecture.
 
 ---
 
 ## 1. Design Goals
 
-The Bust GUI system should provide a simple, productive way to build desktop applications while preserving Bust's core philosophy:
+The Vinyl GUI system should provide a simple, productive way to build desktop applications while preserving Vinyl's core philosophy:
 
 - VB-like approachability.
 - Rust-powered implementation.
@@ -19,7 +19,7 @@ The Bust GUI system should provide a simple, productive way to build desktop app
 
 The GUI system should feel familiar to a Visual Basic programmer, but it should not reproduce the old mutable-control-object model internally.
 
-Instead, Bust GUI programs use:
+Instead, Vinyl GUI programs use:
 
 ```text
 State
@@ -35,7 +35,7 @@ Events update the state.
 
 ## 2. Conceptual Model
 cargo run -- run examples/hello.vbr
-A Bust GUI window consists of:
+A Vinyl GUI window consists of:
 
 ```text
 Window
@@ -84,7 +84,7 @@ Events use the ready value (`db` is `state.db`); passing it to one of your
 functions borrows it (`&Database`). This is native-only — a browser `Page` or
 `Screen` has no startup moment to fail in, and gets a teaching error.
 
-More generally, an initialiser is **ordinary Bust** — it runs the same
+More generally, an initialiser is **ordinary Vinyl** — it runs the same
 resolution pass as a function-body `Dim`, so calling your own functions works
 with full argument treatment (`Dim living As Long = CountLive(SeedGrid())`
 borrows the ByVal `Vec` exactly as anywhere else).
@@ -288,25 +288,25 @@ Rules:
 
 ## 3. Backend Mapping
 
-The Bust GUI model is intended to compile naturally to Iced.
+The Vinyl GUI model is intended to compile naturally to Iced.
 
-A Bust window maps approximately to:
+A Vinyl window maps approximately to:
 
 ```rust
 struct WindowState {
-    // Bust State fields
+    // Vinyl State fields
 }
 
 enum Message {
-    // Bust Events and generated control messages
+    // Vinyl Events and generated control messages
 }
 
 fn update(state: &mut WindowState, message: Message) {
-    // Bust Event bodies
+    // Vinyl Event bodies
 }
 
 fn view(state: &WindowState) -> Element<Message> {
-    // Bust View tree
+    // Vinyl View tree
 }
 ```
 
@@ -319,7 +319,7 @@ The compiler may generate additional internal messages for bound controls such a
 The V1 GUI library should include the following controls.
 
 **Naming principle:** controls take their **Iced names**, not VB history —
-`TextInput` (not `TextBox`), `Checkbox`, `Slider`, etc. Bust is a stepping stone
+`TextInput` (not `TextBox`), `Checkbox`, `Slider`, etc. Vinyl is a stepping stone
 to Rust, so the names you learn here are the ones you'll meet in real Iced code.
 (Where this spec still shows older VB-flavoured names for unbuilt controls, those
 will be renamed to their Iced equivalent when built.)
@@ -877,7 +877,7 @@ See `examples/sketch.vbr` (still), `examples/sketch_pulse.vbr` (animated), `exam
 
 ### 4.6 Structure — Frame, Tabs, List, Table  *(BUILT)*
 
-The same Bust names a `Screen` already uses. On a Window they lower to Iced
+The same Vinyl names a `Screen` already uses. On a Window they lower to Iced
 widgets (not ratatui).
 
 #### Frame
@@ -939,7 +939,7 @@ End Table
 
 ## 5. Layout Controls
 
-Layout is not optional. Bust GUI should avoid absolute positioning in V1.
+Layout is not optional. Vinyl GUI should avoid absolute positioning in V1.
 
 The V1 layout controls are:
 
@@ -1256,11 +1256,11 @@ End Event
 
 Events may update window state.
 
-Events may call normal Bust procedures.
+Events may call normal Vinyl procedures.
 
 Events may call inline Rust if allowed elsewhere in the language.
 
-An event body is ordinary Bust — it runs the same resolution pass as a function
+An event body is ordinary Vinyl — it runs the same resolution pass as a function
 body, with the window's state fields and the event's parameters in scope. So
 stdlib methods (`now.Add_Days(30)`), string/numeric coercions, iterator chains
 (`nums.Iter().Sum()`), and the usual teaching diagnostics all work inside an
@@ -1272,7 +1272,7 @@ event exactly as they do in a function. *(BUILT — 2026-07-04.)*
 
 Internally, every event maps to a backend message.
 
-Example Bust:
+Example Vinyl:
 
 ```vb
 Button "Increment"
@@ -1302,7 +1302,7 @@ fn update(state: &mut AppState, message: Message) {
 
 For bound controls, messages may be generated automatically.
 
-Example Bust:
+Example Vinyl:
 
 ```vb
 TextBox name
@@ -1328,7 +1328,7 @@ state.name = value;
 
 A window may set a built-in **`Theme`** *(BUILT — slice 9)* — one of Iced's
 ~20 palettes (`Dark`, `Light`, `Dracula`, `Nord`, `GruvboxDark`,
-`CatppuccinMocha`, `TokyoNight`, …) plus Bust's **`NightOwl`** and **`JellyFish`**.
+`CatppuccinMocha`, `TokyoNight`, …) plus Vinyl's **`NightOwl`** and **`JellyFish`**.
 It restyles the **whole** window — Iced themes cascade to every widget, so there's
 no per-control styling:
 
@@ -1596,7 +1596,7 @@ Way down the line, maybe
 CustomControl
 ```
 
-Some of these map to existing Iced widgets or common extension patterns, but they are not required for the first usable Bust GUI layer.
+Some of these map to existing Iced widgets or common extension patterns, but they are not required for the first usable Vinyl GUI layer.
 
 ---
 
@@ -1616,7 +1616,7 @@ GuiModule
             Bindings
 ```
 
-This avoids coupling the Bust syntax directly to Iced and leaves open the possibility of future backends.
+This avoids coupling the Vinyl syntax directly to Iced and leaves open the possibility of future backends.
 
 The Iced backend should be the first supported backend.
 
@@ -1633,7 +1633,7 @@ Inline Rust may be supported inside events...
 
 ## 17. Summary
 
-Bust GUI V1 should provide:
+Vinyl GUI V1 should provide:
 
 ```text
 Text
@@ -1675,4 +1675,4 @@ View displays state.
 Events change state.
 ```
 
-This gives Bust a GUI system that feels approachable like classic Visual Basic, but compiles cleanly to a modern Rust/Iced architecture.
+This gives Vinyl a GUI system that feels approachable like classic Visual Basic, but compiles cleanly to a modern Rust/Iced architecture.

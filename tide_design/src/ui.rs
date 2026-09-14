@@ -161,7 +161,7 @@ pub enum Dialog {
         has_event: bool,
     },
     Add,
-    /// Emitted Bust peek — parked until a View/Help menu exists (F10 is File now).
+    /// Emitted Vinyl peek — parked until a View/Help menu exists (F10 is File now).
     #[allow(dead_code)]
     Code { scroll: usize },
     Path {
@@ -699,7 +699,7 @@ fn draw_dialog(
             popup(
                 f,
                 area,
-                " Emitted Bust (F10) ",
+                " Emitted Vinyl (F10) ",
                 &format!("{view}\n\n↑↓ scroll  Esc=close"),
                 70,
                 22,

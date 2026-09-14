@@ -145,7 +145,7 @@ fn rfd_pick(kind: &str, initial: &str) -> String {
     }
     if cfg!(target_os = "linux") {
         eprintln!(
-            "Bust: no file dialog. On WSL/Linux install zenity:  sudo apt install zenity"
+            "Vinyl: no file dialog. On WSL/Linux install zenity:  sudo apt install zenity"
         );
     }
     String::new()

@@ -1,6 +1,6 @@
-Bitmap message (Bust):
-     VBRVB     
-  RVB     RVB  
-RVB         RVB
-RVB         RVB
-  RVB     RVB  
+Bitmap message (Vinyl):
+     Vinyl     
+  Vin     ylV  
+iny         lVi
+nyl         Vin
+  ylV     iny  

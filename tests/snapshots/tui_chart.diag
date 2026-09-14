@@ -1,2 +1,2 @@
-ℹ Bust names are their lowercase self in Rust — e.g. `Curve` becomes `curve`. (Functions and variables lowercase, constants uppercase; shown once.)
-ℹ VB converts between number types silently; Rust wants it spelled out, so Bust inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float to an integer) can lose data.
+ℹ Vinyl names are their lowercase self in Rust — e.g. `Curve` becomes `curve`. (Functions and variables lowercase, constants uppercase; shown once.)
+ℹ VB converts between number types silently; Rust wants it spelled out, so Vinyl inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float to an integer) can lose data.

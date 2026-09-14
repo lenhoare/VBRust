@@ -1,4 +1,4 @@
-// Rust won't silently convert between number types — Bust inserts `as` for you.
+// Rust won't silently convert between number types — Vinyl inserts `as` for you.
 
 fn vbr_main() -> Result<(), String> {
     let length: i64 = "hello world".chars().count() as i64;

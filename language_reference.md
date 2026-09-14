@@ -1,8 +1,8 @@
-# The Bust Programming Language
+# The Vinyl Programming Language
 
 *A reference for programmers who already know Visual Basic.*
 
-Bust is a small language. You write something that looks like VB; out comes
+Vinyl is a small language. You write something that looks like VB; out comes
 idiomatic Rust, which is then compiled and run. The point is not to hide Rust but
 to lead you into it: the syntax is familiar, the semantics are Rust's, and where
 the two disagree, **Rust wins**. You will meet ownership, static types, and
@@ -14,7 +14,7 @@ normative reference; when in doubt, that document is the law. In a hurry, or com
 straight from VB6? `vb6_to_vbr_guide.md` is the short on-ramp — just the
 differences, readable in an afternoon. Independent loops and CUDA are a niche of
 their own (`parallel_spec.md`) — they are not part of this tour. Throughout, examples
-are shown as a pair — the Bust on the left of the arrow, the Rust it becomes on the
+are shown as a pair — the Vinyl on the left of the arrow, the Rust it becomes on the
 right — because the second half is the whole point.
 
 ```
@@ -68,7 +68,7 @@ must be given a type with `As`. The loop variable `i` is declared by the `For`
 itself. `total += i` is compound assignment — the familiar `+=`, `-=`, `*=`, `/=`;
 write `total = total + i` if you prefer, but you needn't. The `&` operator joins
 strings, converting `total` to text as it goes. And `total` was declared without
-`mut`, yet we change it — Bust notices and makes the binding mutable for you. The
+`mut`, yet we change it — Vinyl notices and makes the binding mutable for you. The
 Rust is what you would have written by hand:
 
 ```rust
@@ -92,9 +92,9 @@ directory beside your sources and runs it. We return to projects in §10.
 
 ### Types
 
-Bust's primitive types are VB's names mapped to Rust's machine types:
+Vinyl's primitive types are VB's names mapped to Rust's machine types:
 
-| Bust | Rust | | Bust | Rust |
+| Vinyl | Rust | | Vinyl | Rust |
 |-----|------|-|-----|------|
 | `Integer` | `i32` | | `Boolean` | `bool` |
 | `Long` | `i64` | | `Byte` | `u8` |
@@ -108,7 +108,7 @@ dictates: `Integer` is the everyday 32-bit integer, not a 16-bit relic, and
 Some VB types are deliberately absent. `Currency` has no Rust counterpart (use
 `Double`, or count integer cents in a `Long`). `Variant` cannot exist in a
 statically typed language — name the type you mean. `Date` is gone too: a date
-with no calendar behind it is just a number wearing a costume, so Bust sends you to
+with no calendar behind it is just a number wearing a costume, so Vinyl sends you to
 the `DateTime` type in the standard library (§10).
 
 ### Declarations
@@ -122,7 +122,7 @@ Dim x As Long = 0, y As Long = 0     ' several at once, one As each
 A `Dim` always carries `As`; the type is never guessed. You can declare several
 variables on one line — each keeps its own `As Type` (and its own optional
 `= …`). The old VB6 habit `Dim a, b As Integer`, where `a` would quietly become
-a `Variant`, is refused with a nudge to give each its type — Bust has no
+a `Variant`, is refused with a nudge to give each its type — Vinyl has no
 `Variant`. **Mutability is inferred**: a binding that is later assigned or
 modified is emitted `let mut`, otherwise plain `let`. You never write `mut`
 yourself.
@@ -183,7 +183,7 @@ There is no bitwise overload of `And`/`Or` (for those, or any other Rust operato
 drop into an inline `Rust` block, §9) and no integer-division `\` (use `Int(a / b)`,
 as above).
 
-Where VB would quietly convert one number to another, Bust inserts an explicit Rust
+Where VB would quietly convert one number to another, Vinyl inserts an explicit Rust
 `as` cast — the conversion VB hides, made visible. Assign a `Long` to a `Double`
 and you will see `as f64` appear; this is a teaching moment, not a wart.
 
@@ -204,7 +204,7 @@ End Text
 
 Everything between the two markers is the string, **exactly as written** —
 quotes, backslashes and braces are all literal, so you never double a `""` or
-escape anything. Bust strips the common indentation (the block lines up with your
+escape anything. Vinyl strips the common indentation (the block lines up with your
 code without dragging the indent into the string), keeps blank lines, and adds no
 trailing newline. The result is an ordinary `String`, so `Text … End Text & " → " & who`
 concatenates like any other.
@@ -212,12 +212,12 @@ concatenates like any other.
 `Text` only opens a block when the rest of its line is blank *and* the next line
 indents beneath it, so the `Text` view widget (`Text "hi"`), a member (`row.Text`),
 and a plain variable named `text` (`"said: " & text`) are never mistaken for one.
-This is the only place a `\n` ever enters a Bust string — a quoted literal never
+This is the only place a `\n` ever enters a Vinyl string — a quoted literal never
 grows one behind your back.
 
 ### Wrapping across lines
 
-Bust ends a statement at the newline, the way VB does — but, like Python, **a
+Vinyl ends a statement at the newline, the way VB does — but, like Python, **a
 newline inside an open bracket `(` `[` `{` is just whitespace.** So a list
 literal, a call, or a struct literal may span as many lines as it likes, and a
 trailing comma is allowed:
@@ -242,7 +242,7 @@ statement is still one line, and a `"…"` string is still one line; reach for
 
 ### Reserved words
 
-You can't name a function, variable, parameter, or field after a **Bust keyword**
+You can't name a function, variable, parameter, or field after a **Vinyl keyword**
 — the same rule VB6 has. These are reserved:
 
 > `Dim` `ReDim` `Const` `As` `ByVal` `ByRef` `Function` `Sub` `End` `If` `Then`
@@ -250,15 +250,15 @@ You can't name a function, variable, parameter, or field after a **Bust keyword*
 > `Until` `Match` `Select` `Case` `Return` `Type` `Enum` `Public` `Private`
 > `True` `False` `Nothing` `Is` `And` `Or` `Not` `Xor` `Mod` `New` `Me` `Use`
 
-Bust tells you when you hit one, and suggests a fix:
+Vinyl tells you when you hit one, and suggests a fix:
 
 ```
-✘ `Step` is a Bust keyword, so it can't be used as a name for the function.
+✘ `Step` is a Vinyl keyword, so it can't be used as a name for the function.
   Pick another (for example a more descriptive word, or a `_` suffix like `step_`).
 ```
 
 A name that is only a **Rust** keyword — `Move`, `Loop` used as an identifier,
-`Ref`, `Trait` — is *not* reserved in Bust: you may use it freely, and Bust quietly
+`Ref`, `Trait` — is *not* reserved in Vinyl: you may use it freely, and Vinyl quietly
 escapes it in the generated Rust (`Move` → `r#move`). So the rule is simply: if
 it's a word you'd write a VB statement with, pick a different name.
 
@@ -330,7 +330,7 @@ End Match
 
 Write pattern bindings **lowercase**. A pattern is raw Rust passed through
 verbatim, so a binding you write as `Ok(runId)` stays `runId` in the pattern — but
-the arm's *body* runs through Bust's usual lowercasing, where `runId` becomes
+the arm's *body* runs through Vinyl's usual lowercasing, where `runId` becomes
 `runid`, and the two no longer refer to the same variable (the body reads an
 unknown `runid`). Keep the binding lowercase in both places — `Ok(runid)` — and
 they line up. (This bites hardest in an `Await` continuation, where the bound name
@@ -347,7 +347,7 @@ Next                            }
 ```
 
 A `Step` clause changes the stride. If VB6 habit makes you `Dim i As Long`
-before the loop, Bust quietly drops that line — Rust's `for` creates its own
+before the loop, Vinyl quietly drops that line — Rust's `for` creates its own
 `i`, so the separate declaration would just sit unused. One difference from
 VB6 follows: the counter is gone after `Next` (copy it to another variable
 inside the loop if you need its final value).
@@ -400,7 +400,7 @@ End Function
 ```
 
 The return type follows `As`. A function with no `As` returns nothing — that is
-the whole meaning of a `Sub`, which Bust accepts as familiar sugar:
+the whole meaning of a `Sub`, which Vinyl accepts as familiar sugar:
 
 ```vb
 Sub Greet(ByVal name As String)        →     fn greet(name: &str) {
@@ -408,7 +408,7 @@ Sub Greet(ByVal name As String)        →     fn greet(name: &str) {
 End Sub                                       }
 ```
 
-(Bust will gently remind you that a `Sub` is just a returnless `Function`; both
+(Vinyl will gently remind you that a `Sub` is just a returnless `Function`; both
 become a plain Rust `fn`.) A trailing `Return value` is lowered to Rust's bare
 tail expression, so the generated code reads as a Rust programmer would write it.
 
@@ -434,7 +434,7 @@ Function AddTo(ByRef total As Long, ByVal amount As Long)
 End Function
 ```
 
-Bust inserts the `&mut` at the call site for you, and marks the caller's variable
+Vinyl inserts the `&mut` at the call site for you, and marks the caller's variable
 mutable. Passing a literal where a `ByRef` is expected is an error — there is
 nothing for the reference to point at.
 
@@ -480,7 +480,7 @@ the ordinary rules for a `Sub`.
 ## 5. Strings and Ownership
 
 Here is the heart of Rust, met gently. A `String` owns its characters; a `&str`
-borrows a view of someone else's. Bust makes every `String` an owned, heap value,
+borrows a view of someone else's. Vinyl makes every `String` an owned, heap value,
 so the rules are uniform:
 
 ```vb
@@ -494,14 +494,14 @@ Dim full As String = greeting & ", World"
 ```
 
 Now suppose you want a second name for the same string without paying for a copy.
-That is a **borrow**, and Bust spells it `Set`:
+That is a **borrow**, and Vinyl spells it `Set`:
 
 ```vb
 Set view = greeting            →     let view = &greeting;
 ```
 
 This is `Set` doing more than VB ever asked of it. In VB, `Set` assigned object
-references; in Bust it means "make `view` point at this value rather than copy it,"
+references; in Vinyl it means "make `view` point at this value rather than copy it,"
 and it works on *any* variable, not just objects. It is meaningful for owned types
 like `String` and structs, where a borrow saves a move or a clone; on a small
 `Copy` number it is legal but pointless.
@@ -514,7 +514,7 @@ Dim copy As String = greeting.Clone()
 
 The contrast between `Set view = greeting` (borrow — no copy) and
 `greeting.Clone()` (a new owned string) is the contrast between a reference and
-ownership, the single most important idea in Rust. Bust shows it to you in VB
+ownership, the single most important idea in Rust. Vinyl shows it to you in VB
 clothing.
 
 When the rules are broken — using a value after it has been moved, say — the error
@@ -576,7 +576,7 @@ You walk either with `For Each`, which borrows the elements.
 
 ### Iterators
 
-For transforming a collection without writing a loop, Bust offers Rust's iterator
+For transforming a collection without writing a loop, Vinyl offers Rust's iterator
 adapters, driven by closures written `|x| expr`:
 
 ```vb
@@ -628,7 +628,7 @@ End Function
 ```
 
 These become an `impl` block. A method that only reads takes `&self`; one that
-assigns to a field of `Me` — like `HaveBirthday` — takes `&mut self`, and Bust works
+assigns to a field of `Me` — like `HaveBirthday` — takes `&mut self`, and Vinyl works
 out which by watching what the method does. Call them with a dot:
 
 ```vb
@@ -702,7 +702,7 @@ compiler makes sure every `Match` handles all of them.
 ## 8. Errors as Values
 
 VB signalled failure by jumping: `On Error GoTo`. Rust has no jumps and no
-exceptions. **A failure is an ordinary value**, but ordinary Bust never writes
+exceptions. **A failure is an ordinary value**, but ordinary Vinyl never writes
 `Result`, `?`, `Ok`, `Err`, or `.Unwrap()`.
 
 Every function is internally fallible. The type you declare is the success
@@ -736,7 +736,7 @@ separate — absence is not failure; do not treat `None` as an error.
 To look at the underlying `Result` as data, prefix the call with `Raw` and
 `Match` it. That is the drop-through, not the everyday path.
 
-**Handle just one case** of an `Option` with `If <expr> Is <pattern> Then` — Bust's spelling of
+**Handle just one case** of an `Option` with `If <expr> Is <pattern> Then` — Vinyl's spelling of
 Rust's `if let`. When you care about *only* the `Some`, a full `Match` (with
 an empty `None` arm) is overkill:
 
@@ -782,7 +782,7 @@ Dim n As Double = Val(" 42x ")     ' 42 — bad tail ignored, 0 if hopeless
 ```
 
 The strict conversions — `CDbl`, `CLng`, `CInt` — are the other choice. In VB
-they raised a runtime error on junk; in Bust that failure propagates from a
+they raised a runtime error on junk; in Vinyl that failure propagates from a
 normal call, or you intercept it:
 
 ```vb
@@ -804,7 +804,7 @@ These currently handle text; VB's number-rounding `CInt(2.5)` is a later additio
 
 ## 9. Inline Rust and Python
 
-Bust covers a friendly slice of Rust. For everything else there is an escape hatch:
+Vinyl covers a friendly slice of Rust. For everything else there is an escape hatch:
 a block of real Rust, spliced in where you write it.
 
 ```vb
@@ -817,23 +817,23 @@ Dim big As Long = Rust
 End Rust
 ```
 
-A `Rust … End Rust` block is a Rust *expression*. Your Bust variables are already
+A `Rust … End Rust` block is a Rust *expression*. Your Vinyl variables are already
 in scope inside it by their lowercased names (`myValue` is `myvalue`) — no
 passing required — and the
 block's value is its last line written **without** a semicolon, exactly as a Rust
 block returns its tail expression. The declared type (`As Long` here) says what the
-block must produce, and that value flows back into Bust. For several results, return
+block must produce, and that value flows back into Vinyl. For several results, return
 a tuple and destructure it.
 
-This is the place for the Rust operators, traits, and library calls that Bust does
-not surface directly. It is "inline assembly" for Bust: a deliberate, visible door
+This is the place for the Rust operators, traits, and library calls that Vinyl does
+not surface directly. It is "inline assembly" for Vinyl: a deliberate, visible door
 into the lower level, used in small doses.
 
 ### Opaque handles
 
-Sometimes you want to hold a Rust value that Bust has no type for — an iterator, a
+Sometimes you want to hold a Rust value that Vinyl has no type for — an iterator, a
 network client, a parser — and reuse it across several blocks. Declare it with no
-`As`, and Bust will hold it as an **opaque handle**:
+`As`, and Vinyl will hold it as an **opaque handle**:
 
 ```vb
 Dim client = Rust reqwest::blocking::Client::new() End Rust
@@ -843,9 +843,9 @@ Dim body As String = Rust
 End Rust
 ```
 
-Rust infers the handle's type; Bust keeps it but cannot interpret it. The one thing
+Rust infers the handle's type; Vinyl keeps it but cannot interpret it. The one thing
 you may do with a handle is hand it back into another `Rust` block — you cannot
-print it, compare it, or assign it, because Bust does not know what it is. It lives
+print it, compare it, or assign it, because Vinyl does not know what it is. It lives
 for the duration of its function, and state held inside it persists from one block
 to the next. That is how a connection or an iterator survives across calls without
 a global and without a wrapper.
@@ -874,7 +874,7 @@ Dim (name, weights) As (String, Vec<Double>) = Python
 End Python
 ```
 
-Some Python values have no Bust type — a pandas DataFrame, a trained model. Hold one
+Some Python values have no Vinyl type — a pandas DataFrame, a trained model. Hold one
 as an **opaque `PyObject` handle** (a `Dim` with no `As`), and pass it back into
 later blocks, exactly like a Rust handle:
 
@@ -889,7 +889,7 @@ Dim spread As Double = Python(data)      ' pass the handle back in
 End Python
 ```
 
-Each block is its own scope; the `(data)` after `Python` lists the Bust variables to
+Each block is its own scope; the `(data)` after `Python` lists the Vinyl variables to
 make available inside it. Because a Python block links a real interpreter, it needs
 the project build and a Python installed on the machine — it is pulled in only when
 you actually use one. (For *tables* specifically, prefer the native `DataFrame`
@@ -931,13 +931,13 @@ use crate::geometry::Rule;
 ```
 
 So the VB6 habit and the Rust idiom agree: *functions say where they came from;
-types are simply vocabulary.* If two files both export the same type name, Bust
+types are simply vocabulary.* If two files both export the same type name, Vinyl
 asks you to rename one; a type you didn't mark `Public` stays private to its
 file, and using it elsewhere earns a friendly correction. Remember that fields
 another file touches need `Public` too — `Public Width As Double` becomes
 `pub width: f64`.
 
-A module need not be Bust. A `.rs` file dropped in the same folder is included
+A module need not be Vinyl. A `.rs` file dropped in the same folder is included
 **verbatim** as a hand-written Rust module, called with the same qualified syntax.
 This is the in-project "wrapper": when you have some gnarly or stateful Rust — a
 session object, a custom parser — you keep it in a small `.rs` file of your own,

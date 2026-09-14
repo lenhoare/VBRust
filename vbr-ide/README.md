@@ -1,13 +1,13 @@
-# Bust IDE
+# Vinyl IDE
 
-A desktop editor for Bust: type VB-flavoured source on the left, watch the
+A desktop editor for Vinyl: type VB-flavoured source on the left, watch the
 idiomatic Rust appear on the right — the whole point of the language, in one
 window. It's a thin shell around the `vbr` compiler itself, so the Rust you see
 is exactly what the CLI would produce.
 
 **Status: a working editor.** What's in:
 
-- **Splash, then an editor** — Open folder / file / example. Bust is the page;
+- **Splash, then an editor** — Open folder / file / example. Vinyl is the page;
   generated Rust, Output, and Problems share one bottom tool window. One left
   column holds the file tree above and the tool menus below (targets, Run,
   filters); the folder icon shows or hides that whole column, and one divider

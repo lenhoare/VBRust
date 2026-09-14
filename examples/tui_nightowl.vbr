@@ -12,7 +12,7 @@ Screen Counter
 
     View
         Column
-            Text "A themed Bust terminal app"
+            Text "A themed Vinyl terminal app"
             Text "Count: " & count
         End Column
     End View

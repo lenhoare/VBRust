@@ -5,7 +5,7 @@ positions through the alphabet, wrapping at Z (ROT13 is just key 13).
 Non-letters pass through unchanged. `Encrypt` shifts forward; `Decrypt`
 shifts by `26 - key`.
 
-## Bust language features tested
+## Vinyl language features tested
 
 - `Mid(s, pos, len)` per-character access and `message.Len()`
 - `Chr(code)` builtin
@@ -13,9 +13,9 @@ shifts by `26 - key`.
 - `Do While ... Loop`, `If / ElseIf / Else`
 - String building with `&` in a loop
 - Cross-module qualified calls (`Caesar.Encrypt(...)`) in main and tests
-- Note: Bust has **no `Asc()`** and no `IIf()` — see notes.md. The cipher is
+- Note: Vinyl has **no `Asc()`** and no `IIf()` — see notes.md. The cipher is
   implemented with an alphabet-string lookup (`FindIn`) instead of character
-  codes, keeping it pure Bust.
+  codes, keeping it pure Vinyl.
 
 ## Standard-library features tested
 

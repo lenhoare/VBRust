@@ -1,13 +1,13 @@
-// Bust Standard Library
+// Vinyl Standard Library
 // A collection of friendly wrappers for common Rust operations
-// designed for VBA developers learning Rust via Bust.
+// designed for VBA developers learning Rust via Vinyl.
 //
 // Each module wraps a standard Rust library or crate, and is a *namespace* of
 // functions — you call them as `FileSystem::read(path)`, never an instance.
 // Reading the source of each module is encouraged — it is real idiomatic Rust
 // and a great learning resource.
 //
-// Every fallible function returns `Result<T, String>`. Bust hides that box:
+// Every fallible function returns `Result<T, String>`. Vinyl hides that box:
 // a normal call propagates the error; `Handle err` intercepts it; `Raw F()`
 // yields the `Result` as a value.
 

@@ -1,18 +1,18 @@
-# VBR for Android
+# Vinyl for Android
 
-A Turbo Pascal–inspired IDE (same chrome as desktop **TIDE**) that **runs** VBR
+A Turbo Pascal–inspired IDE (same chrome as desktop **TIDE**) that **runs** Vinyl
 on a phone. Spec: [`android_spec.md`](../android_spec.md). The generated-code
-pane is **C** (this phone has no `rustc`), with a VBR↔C line map so it scrolls
+pane is **C** (this phone has no `rustc`), with a Vinyl↔C line map so it scrolls
 with the cursor.
 
-The Rust toolchain does **not** live on the phone. The VBR compiler is a
+The Rust toolchain does **not** live on the phone. The Vinyl compiler is a
 prebuilt `.so`. `Debug.Print` / `Function Main()` and `Screen` both run in that
 `.so` (an AST interpreter). TinyCC is linked for host tests; Android will not
 let it JIT (`tcc_relocate` hangs).
 
 ## Host tests (no phone, no NDK)
 
-These prove the pipeline this machine can run today: VBR → C → TinyCC → stdout.
+These prove the pipeline this machine can run today: Vinyl → C → TinyCC → stdout.
 
 ```sh
 ./scripts/fetch-tcc.sh          # once: clone TinyCC, build host libtcc

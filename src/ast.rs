@@ -1,11 +1,11 @@
-//! Abstract syntax tree for Bust.
+//! Abstract syntax tree for Vinyl.
 //!
 //! This is the vertical-slice subset of spec_01: functions, primitive `Dim`,
 //! `Debug.Print`, arithmetic, `If`, and `For`. It will grow one slice at a time.
 
 use crate::span::Span;
 
-/// A Bust primitive type. Spec_01 is authoritative on the Rust mapping
+/// A Vinyl primitive type. Spec_01 is authoritative on the Rust mapping
 /// (Rust-first: `Integer` → `i32`, `Long` → `i64` — not VBA's 16/32-bit widths).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
@@ -103,7 +103,7 @@ pub struct Program {
 }
 
 /// A `Test "description" … End Test` block. The description is the spec sentence
-/// a reader verifies against; the body is ordinary Bust (Arrange-Act-`Assert`).
+/// a reader verifies against; the body is ordinary Vinyl (Arrange-Act-`Assert`).
 #[derive(Debug, Clone)]
 pub struct TestBlock {
     pub description: String,
@@ -111,7 +111,7 @@ pub struct TestBlock {
     pub line: usize,
 }
 
-/// A Godot game object: a node class Bust contributes to a Godot scene. Unlike a
+/// A Godot game object: a node class Vinyl contributes to a Godot scene. Unlike a
 /// `Window`/`Screen` (a whole State/View/Events app), a `Node2D` block is *one
 /// class* that Godot instantiates and drives — inversion of control. `base` is
 /// the Godot base class (`Node2D`, later `CharacterBody2D`…); `fields` are the
@@ -159,7 +159,7 @@ pub struct GodotField {
 }
 
 /// A lifecycle callback on a `GodotNode` (`On Ready`, `On Process(delta)`). `name`
-/// is the Bust event name (`Ready`, `Process`); `params` carry the one built-in
+/// is the Vinyl event name (`Ready`, `Process`); `params` carry the one built-in
 /// argument some callbacks get (`Process`'s `delta`). Lowers to the matching
 /// gdext virtual method (`fn ready`, `fn process(&mut self, delta: f64)`).
 #[derive(Debug, Clone)]
@@ -923,7 +923,7 @@ pub enum Stmt {
         value: Expr,
     },
     /// `Dim name = Rust … End Rust` — an opaque Rust handle. No `As` type: the
-    /// value's type lives only in Rust (inferred there). Bust can pass it back
+    /// value's type lives only in Rust (inferred there). Vinyl can pass it back
     /// into another inline-Rust block but never use it as a value.
     HandleDim {
         name: String,
@@ -986,7 +986,7 @@ pub enum Stmt {
     },
     /// `Exit Do` / `Exit For` → `break`.
     Break,
-    /// `Continue` → `continue` (a Bust extension over classic VBA).
+    /// `Continue` → `continue` (a Vinyl extension over classic VBA).
     Continue,
     /// `For Each item In coll` / `For Each k, v In map` → `for … in &coll`.
     ForEach {
@@ -1018,9 +1018,9 @@ pub enum Stmt {
     /// failure messages.
     Assert(Expr),
     Comment(String),
-    /// Not a statement: marks that whatever is emitted next came from this Bust
+    /// Not a statement: marks that whatever is emitted next came from this Vinyl
     /// source line. The parser drops one before each statement; the emitter
-    /// turns them into (generated-Rust line → Bust line) checkpoints, which is
+    /// turns them into (generated-Rust line → Vinyl line) checkpoints, which is
     /// how `vbr run` points rustc errors back at the `.vbr` source. Emits
     /// nothing, so generated output is unchanged.
     LineMark(usize),
@@ -1145,7 +1145,7 @@ pub enum ExprKind {
     /// A `Python … End Python` block — the body is *run* at runtime via pyo3 (not
     /// spliced like inline Rust). The last non-blank line is the value; it is
     /// extracted into the annotated type (`As T`) or held as an opaque `PyObject`
-    /// handle (no `As`). `inputs` are Bust variables passed in via `Python(a, b)` —
+    /// handle (no `As`). `inputs` are Vinyl variables passed in via `Python(a, b)` —
     /// scalars are converted, a `PyObject` handle is re-borrowed under the GIL.
     InlinePython { inputs: Vec<String>, body: String },
     /// `Not inner` — logical negation → `!(inner)`.

@@ -1,4 +1,4 @@
-// String ownership coercions: Bust inserts `.to_string()` wherever an owned String
+// String ownership coercions: Vinyl inserts `.to_string()` wherever an owned String
 // is expected but a &str is supplied — function returns, Vec<String>.push, Mid
 // results, and assigning a literal to a String variable.
 

@@ -1,4 +1,4 @@
-' Window Frame, Tabs, List, and Table — same Bust names as a Screen.
+' Window Frame, Tabs, List, and Table — same Vinyl names as a Screen.
 Type Person
     Public name As String
     Public city As String

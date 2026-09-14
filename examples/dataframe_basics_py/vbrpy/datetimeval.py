@@ -1,4 +1,4 @@
-"""`DateTime` — the Bust standard library's date/time, on Python's `datetime`. A
+"""`DateTime` — the Vinyl standard library's date/time, on Python's `datetime`. A
 moment in local time you hold and call methods on, mirroring `vbr_stdlib::
 DateTime` (chrono). `Format`/`Parse` use strftime patterns, the same language
 chrono uses (`%Y-%m-%d %H:%M:%S`). Named `datetimeval` internally so

@@ -11,7 +11,7 @@ Function Knows(ByVal scores As HashMap<String, Long>, ByVal who As String) As Bo
 End Function
 
 Function FirstName(ByVal names As Vec<String>) As String
-    ' Indexing a Vec can't *move* the String out — Bust clones it for you.
+    ' Indexing a Vec can't *move* the String out — Vinyl clones it for you.
     Return names[0]
 End Function
 

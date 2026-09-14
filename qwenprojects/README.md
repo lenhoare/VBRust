@@ -1,6 +1,6 @@
-# qwenprojects — VBR language-testing projects
+# qwenprojects — Vinyl language-testing projects
 
-Built by an assistant to shake out the VBR (Bust) language by writing real
+Built by an assistant to shake out the Vinyl language by writing real
 programs in it. No Rust/transpiler source was changed; every problem met was
 either worked around in-language or skipped, and logged in **FINDINGS.md**
 (F-001 … F-032, dated, kinded bug/quirk/ergonomic/positive, with repros).

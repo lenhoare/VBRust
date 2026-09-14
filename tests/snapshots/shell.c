@@ -102,7 +102,7 @@ Result_longlong_str runchild(void);
 
 int main(void) {
     char* output = NULL;
-    Result_str_str _t0 = vbr_shell_run("echo hello from Bust");
+    Result_str_str _t0 = vbr_shell_run("echo hello from Vinyl");
     if (!_t0.is_ok) {
         char* why = _t0.err;
         printf("%s\n", vbr_concat("echo failed: ", why));

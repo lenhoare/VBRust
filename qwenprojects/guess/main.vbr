@@ -1,6 +1,6 @@
 ' guess — "I'm thinking of a number between 1 and 100."
 ' VB6's Rnd() is gone; the compiler's own error suggests `Use rand 0.8`
-' and shows the snippet below. One inline Rust block, then pure Bust.
+' and shows the snippet below. One inline Rust block, then pure Vinyl.
 
 Use rand 0.8
 

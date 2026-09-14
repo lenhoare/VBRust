@@ -1,7 +1,7 @@
 {
   "name": "vbr-lsp",
-  "displayName": "Bust Language Support",
-  "description": "Language assistance for Bust — live diagnostics (proof of concept).",
+  "displayName": "Vinyl Language Support",
+  "description": "Language assistance for Vinyl — live diagnostics (proof of concept).",
   "version": "0.0.1",
   "publisher": "vbr",
   "engines": {
@@ -16,14 +16,14 @@
     "commands": [
       {
         "command": "vbr.runFile",
-        "title": "Bust: Run File",
-        "category": "Bust",
+        "title": "Vinyl: Run File",
+        "category": "Vinyl",
         "icon": "$(play)"
       },
       {
         "command": "vbr.showRustOutput",
-        "title": "Bust: Open Rust Output to the Side",
-        "category": "Bust",
+        "title": "Vinyl: Open Rust Output to the Side",
+        "category": "Vinyl",
         "icon": "$(split-horizontal)"
       }
     ],
@@ -62,7 +62,7 @@
       {
         "id": "vbr",
         "aliases": [
-          "Bust",
+          "Vinyl",
           "vbr"
         ],
         "extensions": [
@@ -84,7 +84,7 @@
       }
     ],
     "configuration": {
-      "title": "Bust",
+      "title": "Vinyl",
       "properties": {
         "vbr.serverPath": {
           "type": "string",

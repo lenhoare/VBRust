@@ -1,4 +1,4 @@
-"""`Database` — the Bust standard library's SQLite, on Python's `sqlite3`. A
+"""`Database` — the Vinyl standard library's SQLite, on Python's `sqlite3`. A
 `Database` is a live connection you hold and call methods on, mirroring
 `vbr_stdlib::Database` (rusqlite): `execute` returns the affected-row count,
 `query` returns each row as a `Json` object keyed by column name (values in

@@ -1,11 +1,11 @@
-# Bust — Language Specification
+# Vinyl — Language Specification
 
-Concise, normative reference for the Bust language as transpiled by this
+Concise, normative reference for the Vinyl language as transpiled by this
 implementation. Not a tutorial. Where a construct is unsupported it is listed in
 §12, with the diagnostic the compiler emits.
 
 **Prime directive:** VBA-flavoured syntax in, idiomatic Rust out. Where VBA
-semantics and Rust semantics conflict, **Rust wins** — Bust exposes Rust's rules
+semantics and Rust semantics conflict, **Rust wins** — Vinyl exposes Rust's rules
 (ownership, static typing, exhaustive matching) rather than hiding them.
 
 ---
@@ -20,7 +20,7 @@ semantics and Rust semantics conflict, **Rust wins** — Bust exposes Rust's rul
   and fields are lowercased (`myTotal` → `mytotal`); `Const` names are uppercased
   (`MaxSize` → `MAXSIZE`); `Type` (struct) and `Enum` names are kept as written
   (expected PascalCase). Underscores you write are kept (`my_total` stays
-  `my_total`), so one rule covers everything: *a Bust name is its lowercase self
+  `my_total`), so one rule covers everything: *a Vinyl name is its lowercase self
   on the Rust side.* Names differing only in case collapse to the same
   identifier — use one consistent spelling per name. A re-spelling emits a
   one-time `ℹ`/`⚠` note.
@@ -47,9 +47,9 @@ semantics and Rust semantics conflict, **Rust wins** — Bust exposes Rust's rul
 
 ## 2. Types
 
-Primitive Bust types map to Rust as follows:
+Primitive Vinyl types map to Rust as follows:
 
-| Bust        | Rust     | Notes                                            |
+| Vinyl        | Rust     | Notes                                            |
 |------------|----------|--------------------------------------------------|
 | `Integer`  | `i32`    | Rust's default integer (not VBA's 16-bit).       |
 | `Long`     | `i64`    |                                                  |
@@ -77,7 +77,7 @@ Compound / declared types:
 - **Named type:** a user `Type` (§7) or stdlib type (§10), used by name.
 
 `Currency` and `Variant` are rejected (§12). Where VB would coerce one numeric
-type to another silently, Bust inserts an **explicit Rust `as` cast** (e.g. a
+type to another silently, Vinyl inserts an **explicit Rust `as` cast** (e.g. a
 `Long` assigned into a `Double` becomes `… as f64`) — the conversion VB hides,
 made visible. Bare numeric literals adapt to their context instead (a `5` in a
 float slot is emitted `5.0`).
@@ -101,7 +101,7 @@ Dim (a, b) As (T, U) = expr      ' tuple destructuring (typed)
 - A **multi-variable `Dim`** declares several variables on one line, each with
   its own `As Type` and optional `= expr`. Because every variable is typed
   independently, VBA's `Dim a, b As Integer` — which would leave `a` an untyped
-  `Variant` — is **rejected**; Bust has no `Variant`, so write `Dim a As …, b As
+  `Variant` — is **rejected**; Vinyl has no `Variant`, so write `Dim a As …, b As
   Integer`. (The bare `Dim a, b = expr` remains tuple destructuring; the `As`
   is what distinguishes a declaration list from a destructure.)
 - Mutability is **inferred**: a variable is emitted `let mut` iff it is later
@@ -264,7 +264,7 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
   (and owning a string element) is inserted for you — unlike `str.contains`,
   which is left as-is.
 - **Iterator chains** work on a `Vec`/fixed array —
-  `nums.filter(|x| x > 2).map(|x| x * x).collect()`. Bust builds the chain root
+  `nums.filter(|x| x > 2).map(|x| x * x).collect()`. Vinyl builds the chain root
   for you: `.iter().copied()` when the element is a Copy primitive (free), or
   `.iter().cloned()` when it owns data (`String`/struct — a real copy, the same
   explicit-cost trade as `.clone()`). The closure parameter carries the element
@@ -283,7 +283,7 @@ Debug.Print name.trim().to_uppercase()   ' methods chain
 
 ### Text → number: `Val` (lenient) vs `CDbl`/`CLng`/`CInt` (strict)
 
-VB has two ways to read a number out of text, and Bust keeps both — they differ in
+VB has two ways to read a number out of text, and Vinyl keeps both — they differ in
 what they do with bad input:
 
 - **`Val(x)`** is the *forgiving* one: always a `Double`, surrounding whitespace
@@ -294,7 +294,7 @@ what they do with bad input:
 - **`CDbl(x)` / `CLng(x)` / `CInt(x)`** are the *strict* conversions (VB raised a
   runtime "type mismatch" here): on non-numeric text they **fail**. A normal call
   propagates that error (§8); intercept it with `Handle`. Lower to
-  `x.trim().parse::<…>().map_err(|e| e.to_string())`, so the error joins Bust's
+  `x.trim().parse::<…>().map_err(|e| e.to_string())`, so the error joins Vinyl's
   String-error convention.
 
 ```vb
@@ -349,7 +349,7 @@ Set name = value         ' shared borrow   → let name = &value;
 Set Mut name = value     ' mutable borrow  → let name = &mut value;
 ```
 
-Unlike VB — where `Set` is for object references only — **Bust's `Set` works on
+Unlike VB — where `Set` is for object references only — **Vinyl's `Set` works on
 any variable**. It is the one explicit way to say "point at this, don't copy it."
 
 `Set` is meaningful for **owned / non-`Copy`** types (`String`, structs, `Vec`,
@@ -381,7 +381,7 @@ greeting = Nothing                   ' → drop(greeting);   (Rust)
 ```
 
 `Nothing` is valid **only** as an assignment right-hand side on a plain variable.
-Because Bust's `Set` means *borrow* (above), **`Set x = Nothing`** is a teaching
+Because Vinyl's `Set` means *borrow* (above), **`Set x = Nothing`** is a teaching
 error pointing you to `x = Nothing`. VB6's `Is Nothing` test is not provided:
 Rust has no null (a dropped value is gone, not testable) — the idiomatic
 "maybe-absent, check it" tool is `Option`/`None` + `Match` (§8).
@@ -479,7 +479,7 @@ when `Log` is used — `[14:32:05.887 INFO ] message`. It composes with `&` exac
 like `Debug.Print`, and is available everywhere — plain code, functions, methods,
 and surface events. It's the diagnostic channel for when stdout is taken: a
 **`Screen`** draws into the terminal, so `Debug.Print` there scribbles on the UI
-(Bust warns and points you at `Log`); `Log` writes to the file instead, so
+(Vinyl warns and points you at `Log`); `Log` writes to the file instead, so
 `tail -f build/vbr.log` in another terminal shows a running app's trace.
 
 Bare `Log expr` is `INFO`; **`Log.Debug` / `Log.Info` / `Log.Warn` / `Log.Error`**
@@ -561,7 +561,7 @@ End Enum
 **Rule:** errors propagate automatically unless intercepted at the producing call.
 
 Failure is a value, not an exception. Propagation is implicit. Handling is local.
-Ordinary Bust never writes `Result`, `?`, `Ok`, `Err`, or `.Unwrap()`.
+Ordinary Vinyl never writes `Result`, `?`, `Ok`, `Err`, or `.Unwrap()`.
 
 Every user `Function` / `Sub` is internally fallible. The visible return type is
 the success value. The channel is `Result<T, String>` so `vbr run file.vbr` stays
@@ -576,7 +576,7 @@ Function LoadNumber(path As String) As Long
 End Function
 ```
 
-A normal call is an implicit `?`. The Bust variable holds `T`, not `Result<T>`.
+A normal call is an implicit `?`. The Vinyl variable holds `T`, not `Result<T>`.
 `Return value` is success. `RaiseError` is failure.
 
 ### The four call forms
@@ -612,11 +612,11 @@ inside that call are a teaching error — intercept each call separately.
 (explicit swallow). Bare `F()` still propagates. `Handle` on an infallible call
 is a teaching error.
 
-`Raw` cannot fail at the Bust layer; inspect with `Match` or inline Rust.
+`Raw` cannot fail at the Vinyl layer; inspect with `Match` or inline Rust.
 `Handle` and `Raw` do not combine.
 
 `?`, `As Result<T>` on functions, `Return Ok(…)`, `Return Err(…)`, and
-`.Unwrap()` leave ordinary Bust. `Match` stays for `Option`, enums, `Await`,
+`.Unwrap()` leave ordinary Vinyl. `Match` stays for `Option`, enums, `Await`,
 and `Raw` results.
 
 ### Top-level sinks
@@ -646,25 +646,25 @@ Dim x As T = Rust
     <raw Rust>
 End Rust
 ```
-- **Inputs:** in-scope Bust variables are available by their emitted (lowercase)
+- **Inputs:** in-scope Vinyl variables are available by their emitted (lowercase)
   Rust name — `myTotal` is `mytotal`. No declaration needed.
 - **Output:** the block's value is its last line **without** a semicolon (Rust
   tail expression). A trailing `;` discards the value.
 - **Multiple outputs:** return a tuple; bind with `Dim a, b = Rust … End Rust`.
-- **Typed form** (`Dim x As T = …`): the block must produce a Bust-expressible
-  type `T`, which crosses fully back into Bust.
+- **Typed form** (`Dim x As T = …`): the block must produce a Vinyl-expressible
+  type `T`, which crosses fully back into Vinyl.
 - The block body is captured **verbatim** (not tokenised); terminated by a line
   that is exactly `End Rust`.
 
 **Opaque handles** — `Dim name = Rust … End Rust` with **no `As`**:
-- Hold a value whose type is not Bust-expressible; Rust infers and owns the type.
+- Hold a value whose type is not Vinyl-expressible; Rust infers and owns the type.
 - The handle's **only** legal use is being spliced into a later inline-Rust block
   (by name). Any other appearance — printing, comparison, assignment, passing to
   a procedure — is rejected (§12).
-- Confined to one function (it cannot cross a procedure boundary, since Bust has
+- Confined to one function (it cannot cross a procedure boundary, since Vinyl has
   no type name for it). Within the function it may flow between any number of
   Rust blocks, persisting state between them.
-- Emitted `let mut` (Bust cannot see whether a later block mutates it).
+- Emitted `let mut` (Vinyl cannot see whether a later block mutates it).
 
 An inline block may use an external crate: declare it with `Use` (§13) and run
 the project with `runproject`.
@@ -688,9 +688,9 @@ End Python
 - **Several outputs:** a typed destructure — `Dim (name, xs) As (String, Vec<Double>)
   = Python … End Python` — extracts a Python tuple in one call.
 - **Opaque `PyObject` handles:** `Dim df = Python … End Python` with **no `As`**
-  holds a Python value Bust has no type for (a DataFrame, a model). Its only use is
+  holds a Python value Vinyl has no type for (a DataFrame, a model). Its only use is
   being passed back into another block.
-- **Inputs:** `Python(a, b) … End Python` injects the Bust variables `a`, `b`
+- **Inputs:** `Python(a, b) … End Python` injects the Vinyl variables `a`, `b`
   (scalars are converted; a `PyObject` handle is re-borrowed) so the Python body
   can use them by name.
 - Needs the project build; requires a Python interpreter (with dev headers)
@@ -757,7 +757,7 @@ These parse but are deliberately refused, each with guidance:
 | Mutable module-level globals    | Use `Const`, or pass state / wrap it in a `Type`. |
 | `Option Base` / `Option Explicit` | Rust is always zero-indexed and explicit.    |
 | `Exit` (other than Do/For/Function) | Only those three targets.                  |
-| `?` / `As Result<T>` / `Return Ok` / `Return Err` / `.Unwrap()` | Ordinary Bust: a call propagates; `Handle err` intercepts; `RaiseError` fails; `Raw F()` yields the box. |
+| `?` / `As Result<T>` / `Return Ok` / `Return Err` / `.Unwrap()` | Ordinary Vinyl: a call propagates; `Handle err` intercepts; `RaiseError` fails; `Raw F()` yields the box. |
 | Passing a literal to `ByRef`    | Needs an assignable place.                      |
 | Declaring a struct uninitialised | Construct fully at `Dim`.                      |
 | Indexing where a bound/type is unknown | Compile-time error with explanation.     |
@@ -829,7 +829,7 @@ A **project is a folder of `.vbr` files**, built by `runproject`/`build`:
 - A sibling **`.rs` file is a hand-written module**, included **verbatim** (it
   skips transpilation) and called with the same qualified syntax —
   `Text.Shout(s)` → `crate::text::shout(s)`. This is the in-project "wrapper"
-  for stateful or unwrapped Rust, with no published crate required. Since Bust
+  for stateful or unwrapped Rust, with no published crate required. Since Vinyl
   doesn't see its signatures, argument types must match the Rust side directly.
 - Generated layout is **visible and explorable** under `build/`
   (`src/main.rs`, `src/<module>.rs`, `Cargo.toml`); regenerated each run.
@@ -870,7 +870,7 @@ do not lower it — a sequential stand-in would teach the wrong model.
 
 ## 15. Alternative targets — Python & C
 
-Bust is **Rust-first**: the semantics are Rust's and the language is defined around
+Vinyl is **Rust-first**: the semantics are Rust's and the language is defined around
 Rust (§1–§13). As an additive bolt-on, the *same source* can also transpile to:
 
 - **`vbr py <file>`** — idiomatic **Python** (core language **and** the full

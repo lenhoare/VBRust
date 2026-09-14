@@ -249,7 +249,7 @@ fn transpile_only_examples_compile() {
 }
 
 /// `vbr test` end to end: the runner parses `Test`/`Assert`, emits `#[test]`
-/// functions, runs `cargo test`, and translates the result back to Bust terms.
+/// functions, runs `cargo test`, and translates the result back to Vinyl terms.
 /// Covers the single-file form (the `tests.vbr` example) and the `.test.vbr`
 /// sibling placement — including a deliberate failure, to prove the operand
 /// values and `.vbr` line come through.
@@ -328,7 +328,7 @@ fn vbr_test_runs_specs() {
 
 /// `vbr graduate` — the journey out. Copies the Life project (the hard case:
 /// its interface has ByRef grids and borrowed collections, so callers depend
-/// on Bust's argument treatment), graduates the module, proves the project
+/// on Vinyl's argument treatment), graduates the module, proves the project
 /// still runs with `main.vbr` calling Rust, then graduates the entry and
 /// proves the handed-over cargo project runs on its own.
 #[test]
@@ -344,7 +344,7 @@ fn vbr_graduate_promotes_generated_rust() {
         fs::copy(src_proj.join(f), proj.join(f)).unwrap();
     }
 
-    // The entry refuses to graduate while a module is still Bust.
+    // The entry refuses to graduate while a module is still Vinyl.
     let out = Command::new(vbr).arg("graduate").arg(proj.join("main.vbr")).output().unwrap();
     assert!(!out.status.success());
     assert!(

@@ -3,7 +3,7 @@
 // type you annotate with `As`. (Slice 1: scalars in, scalars out.)
 
 fn vbr_main() -> Result<(), String> {
-    // A one-liner reaching a library Bust doesn't have.
+    // A one-liner reaching a library Vinyl doesn't have.
     let mean: f64 = {
         use pyo3::prelude::*;
         pyo3::Python::with_gil(|py| -> pyo3::PyResult<f64> {

@@ -1,4 +1,4 @@
-//! text.rs — a hand-written Rust module, called from Bust like any other.
+//! text.rs — a hand-written Rust module, called from Vinyl like any other.
 //! It just skips the transpile step; the qualified-call machinery treats it
 //! exactly like a .vbr module.
 

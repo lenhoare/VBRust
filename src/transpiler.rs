@@ -401,7 +401,7 @@ pub fn transpile_module(
     }
     // A Godot program (one with a `Node2D`/… block) compiles to a gdext
     // GDExtension: a cdylib of node classes Godot loads and drives. No `fn main`
-    // — Godot is the host; Bust contributes the node scripts.
+    // — Godot is the host; Vinyl contributes the node scripts.
     if !program.godot_nodes.is_empty() {
         let rust = crate::godot::emit_godot_program(program, modules, interfaces, is_entry, diags);
         diags.clear_line_map();
@@ -664,7 +664,7 @@ fn ambiguous_type_error(name: &str, mods: &[String], diags: &mut Diagnostics) {
     diags.error_once(
         &format!("ambiguous-type-{}", name),
         format!(
-            "The type '{}' is Public in more than one file ({}) — Bust can't tell \
+            "The type '{}' is Public in more than one file ({}) — Vinyl can't tell \
              which one you mean. Rename one of them.",
             name,
             mods.iter().map(|m| format!("'{}'", module_vbr_label(m))).collect::<Vec<_>>().join(" and "),
@@ -729,7 +729,7 @@ pub(crate) fn emit_const(c: &ConstDef, out: &mut String, diags: &mut Diagnostics
         diags.note(
             "name-case",
             format!(
-                "Bust names change case in Rust — the constant `{}` becomes `{}`. \
+                "Vinyl names change case in Rust — the constant `{}` becomes `{}`. \
                  (Functions and variables lowercase, constants uppercase; shown once.)",
                 c.name, name
             ),
@@ -854,7 +854,7 @@ fn enum_derives(e: &EnumDef) -> String {
 
 pub(crate) fn emit_struct(s: &StructDef, diags: &mut Diagnostics, out: &mut String) {
     let kw = if s.public { "pub struct" } else { "struct" };
-    // Debug + Clone are safe for every Bust field type (primitives, String,
+    // Debug + Clone are safe for every Vinyl field type (primitives, String,
     // collections, other structs) and let structs be printed and copied — e.g.
     // a `Vec<Struct>` state field snapshotted into a canvas.
     out.push_str("#[derive(Debug, Clone)]\n");
@@ -879,7 +879,7 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
     match ty {
         DeclType::Plain(t) => t.rust().to_string(),
         // `PyObject` is the opaque inline-Python handle type — a GIL-independent
-        // owned reference to a Python value Bust has no type for.
+        // owned reference to a Python value Vinyl has no type for.
         DeclType::Named(n) if n == "PyObject" => "pyo3::Py<pyo3::PyAny>".to_string(),
         DeclType::Named(n) => n.clone(),
         DeclType::Tuple(ts) => {
@@ -919,7 +919,7 @@ pub(crate) fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
 /// The Rust `#[test]` function name for each `Test` block: a slug of its
 /// description, deduped so two identically-described tests still compile. Shared
 /// by the emitter and `Compiled.tests` so the runner can pair a `cargo test`
-/// result line back to its Bust description.
+/// result line back to its Vinyl description.
 pub(crate) fn test_fn_names(tests: &[TestBlock]) -> Vec<String> {
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut names = Vec::new();
@@ -1621,8 +1621,8 @@ fn emit_handle_err(
             // get `let mut` from Dim... this is getting messy.
             //
             // Emit `lhs = match` without let — the Dim path declares. For
-            // undeclared `a = F() Handle` (VB implicit Dim), Bust requires Dim
-            // except inference from assign... Bust allows `a = F()` as assign
+            // undeclared `a = F() Handle` (VB implicit Dim), Vinyl requires Dim
+            // except inference from assign... Vinyl allows `a = F()` as assign
             // which requires a prior Dim. So always `lhs = match`.
             let _ = assign_op;
             out.push_str(&format!("{}{} = match {} {{\n", pad, lhs, call_rs));
@@ -1671,7 +1671,7 @@ pub(crate) fn emit_stmt(
     match stmt {
         Stmt::LineMark(vbr_line) => {
             // Emits nothing: records that the next generated line came from
-            // this Bust source line (for translating rustc errors back).
+            // this Vinyl source line (for translating rustc errors back).
             diags.map_line(out.matches('\n').count() + 1, *vbr_line);
         }
         Stmt::Comment(text) => {
@@ -2568,7 +2568,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             if method.eq_ignore_ascii_case("insert") {
                 diags.note(
                     "hashmap-insert-tostring",
-                    "HashMap keys are owned Strings — Bust adds `.to_string()` to a string-literal \
+                    "HashMap keys are owned Strings — Vinyl adds `.to_string()` to a string-literal \
                      key for you, so `dict.insert(\"key\", v)` becomes `dict.insert(\"key\".to_string(), v)`.",
                 );
             }
@@ -2598,7 +2598,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
             match name.to_ascii_lowercase().as_str() {
                 "mid" => diags.note(
                     "builtin-mid",
-                    "Mid is 1-indexed in VB; Bust shifts the position for you and counts by \
+                    "Mid is 1-indexed in VB; Vinyl shifts the position for you and counts by \
                      characters (not bytes), so it stays correct on any text — Mid(s, 2, 3) \
                      is s.chars().skip(1).take(3).",
                 ),
@@ -2612,7 +2612,7 @@ fn note_builtins_expr(e: &Expr, diags: &mut Diagnostics) {
                     diags.mark("input_box");
                     diags.note(
                         "builtin-inputbox",
-                        "InputBox has no window in a terminal app — Bust prints the prompt and \
+                        "InputBox has no window in a terminal app — Vinyl prints the prompt and \
                          reads a line from the keyboard. Closed input (end of a pipe, Ctrl+D) \
                          fails; intercept with Handle if you want to keep going. A blank Enter \
                          is an empty String, not a failure.",
@@ -2933,7 +2933,7 @@ fn render_inline_block(raw: &str, indent: usize) -> String {
 /// body through pyo3. Unlike inline Rust (spliced tokens), this executes real
 /// CPython: the body runs in a fresh namespace, the last line's value is captured
 /// in `_vbr_result`, and it is either `.extract()`ed into the annotated Rust type
-/// or `.unbind()`ed into an opaque `PyObject` handle. `inputs` are Bust variables
+/// or `.unbind()`ed into an opaque `PyObject` handle. `inputs` are Vinyl variables
 /// injected into the namespace first (scalars convert; a handle is re-borrowed).
 /// `ty` is the target type (`None` → context inference, non-`Dim` positions only).
 fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, indent: usize) -> String {
@@ -2945,7 +2945,7 @@ fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, inde
     };
     let pad = "    ".repeat(indent + 1);
     let close = "    ".repeat(indent);
-    // Inject each Bust input under the name it was written as; `&var` works for
+    // Inject each Vinyl input under the name it was written as; `&var` works for
     // scalars (converted) and `&Py<PyAny>` handles (re-borrowed) alike.
     let mut sets = String::new();
     for name in inputs {
@@ -2995,7 +2995,7 @@ fn render_python_block(inputs: &[String], raw: &str, ty: Option<&DeclType>, inde
 }
 
 /// Prepare a raw Python body for `exec`: dedent it (Python cares about the leading
-/// whitespace the Bust editor added), trim blank edges, and bind the last non-blank
+/// whitespace the Vinyl editor added), trim blank edges, and bind the last non-blank
 /// line to `_vbr_result` so its value can be read back out. The last line must be
 /// an expression (the `Rust`-block "last line is the value" rule carries over).
 fn prepare_python(raw: &str) -> String {
@@ -3822,7 +3822,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             }
         }
         ExprKind::Binary { op, lhs, rhs } if *op == BinOp::Xor => {
-            // Bust treats Xor as a loose logical op, but Rust's `^` binds *tighter*
+            // Vinyl treats Xor as a loose logical op, but Rust's `^` binds *tighter*
             // than comparison/`&&`/`||`. So parenthesise any binary operand to keep
             // our grouping, and wrap the whole node when it sits under a tighter op.
             let operand = |e: &Expr| {
@@ -3996,7 +3996,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             let parts: Vec<String> = elems.iter().map(|e| render_expr(e, None)).collect();
             format!("({})", parts.join(", "))
         }
-        // `[a, b, …]` → `vec![…]`. A string-literal element is owned (Bust strings
+        // `[a, b, …]` → `vec![…]`. A string-literal element is owned (Vinyl strings
         // are always `String`); numeric literals infer their type from the target
         // (`let v: Vec<i64> = vec![1, 2]`), same as elsewhere.
         ExprKind::List(elems) => {
@@ -4175,7 +4175,7 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         }
         ("replace", 3) => Some(format!("{}.replace({}, {})", r(0), r(1), r(2))),
         // `CStr` was VB's recommended conversion (Str added a leading space);
-        // in Bust both are plain `.to_string()`.
+        // in Vinyl both are plain `.to_string()`.
         ("str", 1) | ("cstr", 1) => Some(method0(&args[0], "to_string")),
         // Chr(n) → the one-character string for code point n (Chr(10) = newline).
         // Parenthesise the argument so `Chr(Asc(c) + 1)` (VB's "next letter") isn't
@@ -4238,7 +4238,7 @@ fn lower_builtin(name: &str, args: &[Expr]) -> Option<String> {
         // `CDbl`/`CLng`/`CInt` — VB's strict conversions (a runtime "type
         // mismatch" on bad input). Here they parse and hand back a
         // `Result<_, String>`, so a failure is handled with `?` or `Match`, like
-        // every other fallible call in Bust. Scope: the string-parse case (not
+        // every other fallible call in Vinyl. Scope: the string-parse case (not
         // VB's number→number rounding — a later refinement).
         ("cdbl", 1) => Some(format!("{}.trim().parse::<f64>().map_err(|e| e.to_string())", r(0))),
         ("clng", 1) => Some(format!("{}.trim().parse::<i64>().map_err(|e| e.to_string())", r(0))),
@@ -4441,10 +4441,10 @@ fn fmt_float(f: f64) -> String {
 }
 
 fn escape(s: &str) -> String {
-    // `\n`/`\t` only ever arrive via a `Text … End Text` block (a quoted Bust
+    // `\n`/`\t` only ever arrive via a `Text … End Text` block (a quoted Vinyl
     // literal is one line and never interprets escapes) — spelled out so the
     // generated literal stays on one line, incidentally showing the Rust
-    // escapes Bust source never makes you write.
+    // escapes Vinyl source never makes you write.
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\r', "\\r")
@@ -4562,7 +4562,7 @@ fn rust_fn_name(name: &str, line: usize, diags: &mut Diagnostics) -> String {
         diags.note(
             "name-case",
             format!(
-                "Bust names are their lowercase self in Rust — e.g. `{name}` becomes \
+                "Vinyl names are their lowercase self in Rust — e.g. `{name}` becomes \
                  `{plain}`. (Functions and variables lowercase, constants uppercase; \
                  shown once.)"
             ),
@@ -4579,7 +4579,7 @@ pub(crate) fn to_screaming(name: &str) -> String {
 }
 
 /// The canonical name of a vbr_stdlib namespace, if `name` is one. Stdlib calls
-/// use `.` in Bust (`FileSystem.Read`) but `::` in Rust (`FileSystem::read`).
+/// use `.` in Vinyl (`FileSystem.Read`) but `::` in Rust (`FileSystem::read`).
 pub(crate) fn stdlib_type(name: &str) -> Option<&'static str> {
     match name.to_ascii_lowercase().as_str() {
         "filesystem" => Some("FileSystem"),
@@ -4715,7 +4715,7 @@ pub(crate) fn stdlib_types_declared(
     used
 }
 
-/// The Rust spelling of a Bust name: simply lowercased. Bust identifiers are
+/// The Rust spelling of a Vinyl name: simply lowercased. Vinyl identifiers are
 /// case-insensitive (VB style), so lowercase is the one canonical form — and
 /// it makes the mapping trivially predictable: inside a `Rust … End Rust`
 /// block or a `Match` pattern, `myTotal` is `mytotal`, never a guess about
@@ -4741,7 +4741,7 @@ fn is_rust_keyword(s: &str) -> bool {
     )
 }
 
-/// Make a lowercased Bust name safe to emit as a Rust identifier. A VB program can
+/// Make a lowercased Vinyl name safe to emit as a Rust identifier. A VB program can
 /// legitimately name a function/variable/field after what happens to be a Rust
 /// keyword (`Move`, `Type`, `Ref`, …); most take the raw-identifier form
 /// `r#name`, but a few (`crate`, `self`, `super`) can't be raw, so those get a
@@ -4751,7 +4751,7 @@ fn escape_rust_keyword(name: String) -> String {
         // `self`/`crate`/`super` are generated internally by codegen (the `self`
         // receiver that `Me` lowers to, `crate::`/`super::` module paths) and
         // can't be raw identifiers anyway — leave them untouched. A user can't
-        // reach these names in Bust (the receiver is `Me`), so there's nothing to
+        // reach these names in Vinyl (the receiver is `Me`), so there's nothing to
         // rescue, and escaping them would break the generated Rust.
         "self" | "crate" | "super" | "_" => name,
         _ if is_rust_keyword(&name) => format!("r#{name}"),

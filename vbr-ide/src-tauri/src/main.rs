@@ -1,4 +1,4 @@
-// The Bust IDE desktop shell.
+// The Vinyl IDE desktop shell.
 //
 // Prevents an extra console window from opening alongside the app on Windows
 // release builds.
@@ -45,7 +45,7 @@ async fn run_source(source: String, target: Option<String>) -> RunOutput {
         })
 }
 
-/// Extensions the open/save dialogs surface first (Bust plus common source /
+/// Extensions the open/save dialogs surface first (Vinyl plus common source /
 /// config files — the IDE edits any text file).
 const TEXT_EXTS: &[&str] = &[
     "vbr", "rs", "toml", "json", "md", "txt", "yaml", "yml", "html", "css", "js", "ts", "py",
@@ -57,7 +57,7 @@ const TEXT_EXTS: &[&str] = &[
 async fn open_file() -> Result<Option<OpenedFile>, String> {
     let Some(handle) = rfd::AsyncFileDialog::new()
         .add_filter("Text & source", TEXT_EXTS)
-        .add_filter("Bust", &["vbr"])
+        .add_filter("Vinyl", &["vbr"])
         .pick_file()
         .await
     else {
@@ -196,7 +196,7 @@ async fn run_project_at(app: AppHandle, root: String) -> RunOutput {
     })
 }
 
-/// Generate a complete Bust `Window`/`Screen` from a form-designer widget tree
+/// Generate a complete Vinyl `Window`/`Screen` from a form-designer widget tree
 /// (live preview — the real file uses its auto-numbered name). `target` is
 /// "gui" or "tui".
 #[tauri::command]
@@ -301,5 +301,5 @@ fn main() {
             open_designer
         ])
         .run(tauri::generate_context!())
-        .expect("error while running the Bust IDE");
+        .expect("error while running the Vinyl IDE");
 }

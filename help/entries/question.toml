@@ -9,7 +9,7 @@ syntax = """
 
 replaces = "On Error error-handling"
 
-summary = "Gone from ordinary Bust — a call already propagates."
+summary = "Gone from ordinary Vinyl — a call already propagates."
 
 remarks = """
 You do not write `?`. A fallible call already forwards failure out of the current function and gives you the success value. Intercept with `Handle err`. Fail from here with `RaiseError`. Take the box with `Raw`.

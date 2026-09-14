@@ -27,7 +27,7 @@ Function Dispatch(ByVal words As Vec<String>)
     Dim cmd As String = LCase(words[0])
     If cmd = "send" Or cmd = "encode" Then
         If words.Len() < 2 Then
-            RaiseError "usage: send cq de bust"
+            RaiseError "usage: send cq de vinyl"
         End If
         Dim text As String = JoinFrom(words, 1, words.Len() - 1)
         Debug.Print Morse.Encode(text)
@@ -42,7 +42,7 @@ Function Dispatch(ByVal words As Vec<String>)
         Debug.Print tape
         Debug.Print "  → " & Morse.Decode(tape)
     ElseIf cmd = "help" Or cmd = "?" Then
-        Debug.Print "send cq de bust   read .... . .-.. .-.. ---   sample   quit"
+        Debug.Print "send cq de vinyl   read .... . .-.. .-.. ---   sample   quit"
     Else
         RaiseError "unknown command '" & cmd & "' — try help"
     End If

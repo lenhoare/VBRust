@@ -1,12 +1,12 @@
-# Error handling in Bust
+# Error handling in Vinyl
 
-There is no `On Error GoTo`. Failure is a value, not an exception. Ordinary Bust
+There is no `On Error GoTo`. Failure is a value, not an exception. Ordinary Vinyl
 never writes `Result`, `?`, `Ok`, `Err`, or `.Unwrap()`.
 
 **Rule:** errors propagate automatically unless intercepted at the producing call.
 
 The type you declare is the success value. The compiler wraps every user
-function as `Result<T, String>` behind the scenes. A Bust variable holds `T`.
+function as `Result<T, String>` behind the scenes. A Vinyl variable holds `T`.
 
 ---
 
@@ -74,7 +74,7 @@ inside that call are also a teaching error — intercept each call separately.
 
 ## `Raw`
 
-Drops through the Bust layer and yields the `Result` as a value. Inspect it
+Drops through the Vinyl layer and yields the `Result` as a value. Inspect it
 with `Match`. `Handle` and `Raw` do not combine.
 
 ```vb
@@ -89,7 +89,7 @@ Ordinary functions still declare `As Long`, not `As Result<Long>`.
 
 ---
 
-## What leaves ordinary Bust
+## What leaves ordinary Vinyl
 
 `?`, `As Result<T>` on a function, `Return Ok(…)`, `Return Err(…)`, `.Unwrap()`.
 
@@ -108,5 +108,5 @@ rejected; the diagnostic points here.
 A failed `Http.Get` in an event hits that continuation sink unless you
 `Handle` it. Host I/O (`terminal.draw()?`) stays fatal and is separate.
 
-The teaching ladder: a Bust call → `Handle err` → inline `?` → inline `match`
+The teaching ladder: a Vinyl call → `Handle err` → inline `?` → inline `match`
 → the real `Result` via `Raw`.

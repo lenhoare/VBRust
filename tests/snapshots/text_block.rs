@@ -11,7 +11,7 @@ fn vbr_main() -> Result<(), String> {
     let sql: String = "SELECT name, score\nFROM ideas\n\nORDER BY score DESC".to_string();
     println!("{}", sql);
     // It's an ordinary string from every other angle — compose with `&`.
-    // (Backslashes stay literal, as in every Bust string: C:\new\table.)
+    // (Backslashes stay literal, as in every Vinyl string: C:\new\table.)
     let who: String = "world".to_string();
     println!("hello from\nC:\\new\\table -> {}", who);
     Ok(())

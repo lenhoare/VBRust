@@ -207,7 +207,7 @@ pub(crate) fn surface_std_imports(events: &[GuiEvent], helpers: &[Function]) -> 
     out
 }
 
-/// True when a `State` field initialiser can fail. Ordinary Bust functions are
+/// True when a `State` field initialiser can fail. Ordinary Vinyl functions are
 /// always `Result` internally, so any user/module call is fallible — not only
 /// those declared `As Result<T>`. Stdlib constructors that return `Result`
 /// (`Database.Open`, `FileSystem.Read`, …) stay on the list too.
@@ -788,7 +788,7 @@ pub(crate) fn await_split(
                  (`Match Await Http.Get(url)`) or a `Dim` (`Dim x = Await …`), not nested inside \
                  an `If`/`For`/`Match`. To guard the call, put the check *before* the `Await` \
                  (`If busy Then Return` / set a flag first), or move it into the awaited helper \
-                 (return early on the guard). Bust keeps async deliberately simple: one `Await` \
+                 (return early on the guard). Vinyl keeps async deliberately simple: one `Await` \
                  per event, at the top.",
             );
             None

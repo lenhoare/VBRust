@@ -1,10 +1,10 @@
-# Bust — Alternative Targets: Python & C
+# Vinyl — Alternative Targets: Python & C
 
-Bust is a **Rust-first** language: the semantics are Rust's, the language was
+Vinyl is a **Rust-first** language: the semantics are Rust's, the language was
 designed around Rust, and `run`/`runproject` (→ `rustc`/Cargo) is the primary,
 fully-featured path. Everything in `language_spec.md` describes that target.
 
-On top of that, Bust can transpile the **same source** to two other languages:
+On top of that, Vinyl can transpile the **same source** to two other languages:
 
 - **Python** — `vbr py <file.vbr>`
 - **C** — `vbr c <file.vbr>`
@@ -39,7 +39,7 @@ duplication between them, not designed up front:
 
 Each backend *parses, types and analyses* through these, then renders its own
 way. Adding a construct (a new pattern shape, a new iterator adapter) is a
-one-place change both targets can then lower. This is Bust's lightweight "IR": the
+one-place change both targets can then lower. This is Vinyl's lightweight "IR": the
 AST plus a shared semantic layer, lowered per target.
 
 ---
@@ -172,7 +172,7 @@ warns rather than lowering.
 
 ### Memory model — `x = Nothing`
 
-C has no ownership and no GC, so Bust takes the deliberately-simple, **teaching**
+C has no ownership and no GC, so Vinyl takes the deliberately-simple, **teaching**
 stance: **leak by default, release explicitly.** This is exactly what makes a C
 target worth having — it puts on the page the manual-memory cost Rust's ownership
 hides.
@@ -190,7 +190,7 @@ anything a C slice doesn't cover yet.
 
 ## 5. `x = Nothing` — explicit release (all targets)
 
-`x = Nothing` releases a heap value early. It is a first-class Bust statement, not
+`x = Nothing` releases a heap value early. It is a first-class Vinyl statement, not
 a C-only construct, and lowers idiomatically everywhere:
 
 | Target  | Lowering                    | Note                                        |
@@ -200,7 +200,7 @@ a C-only construct, and lowers idiomatically everywhere:
 | C       | `free(x); x = NULL;`        | the real work — the reason the hook exists  |
 
 `Nothing` is only valid as an assignment right-hand side on a plain variable
-(`x = Nothing`). Because Bust repurposed `Set` to mean **borrow** (not VB6's object
+(`x = Nothing`). Because Vinyl repurposed `Set` to mean **borrow** (not VB6's object
 assignment), writing **`Set x = Nothing`** is a teaching error that steers you to
 the plain form.
 

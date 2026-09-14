@@ -1,4 +1,4 @@
-"""`FileSystem` — the Bust standard library's file I/O, on Python's own `open`/
+"""`FileSystem` — the Vinyl standard library's file I/O, on Python's own `open`/
 `os`/`shutil`. Every fallible call returns `Ok`/`Err`, mirroring the Rust
 `vbr_stdlib::FileSystem` surface (`Result<_, String>`)."""
 

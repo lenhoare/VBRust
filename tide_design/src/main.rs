@@ -1,4 +1,4 @@
-//! tide_design — structural TUI Screen designer for Bust.
+//! tide_design — structural TUI Screen designer for Vinyl.
 
 mod emit;
 mod files;

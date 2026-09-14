@@ -6,7 +6,7 @@
 ' Pipes and PATH work — the command line goes through sh -c / cmd /C.
 
 Function Main()
-    Dim output As String = Shell.Run("echo hello from Bust") Handle why
+    Dim output As String = Shell.Run("echo hello from Vinyl") Handle why
         Debug.Print "echo failed: " & why
         Return
     End Handle

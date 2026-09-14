@@ -8,7 +8,7 @@ anchor = "ns/Json.Parse"
 summary = "Parses JSON text into a Json value you can read."
 
 arguments = """
-text | String | The JSON text to parse. (In a Bust string, an inner quote is written as two: "").
+text | String | The JSON text to parse. (In a Vinyl string, an inner quote is written as two: "").
 """
 
 returns = "Json — the parsed value. Fails if the text isn't valid JSON."

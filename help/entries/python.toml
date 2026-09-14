@@ -24,7 +24,7 @@ Where a `Rust` block splices *source*, a `Python … End Python` block *runs* re
 
 The last line is the value, extracted into the type you annotate (`As Double`, `As String`, …). To get several values at once, return a Python tuple and destructure it: `Dim (name, total) As (String, Double) = Python`.
 
-Each block is its own scope. Bust variables are **not** automatically in scope — list the ones you need after `Python`: `Python(data, n)`. A `Dim` with **no `As`** holds an opaque handle (a DataFrame, a trained model) you can pass back into a later block the same way.
+Each block is its own scope. Vinyl variables are **not** automatically in scope — list the ones you need after `Python`: `Python(data, n)`. A `Dim` with **no `As`** holds an opaque handle (a DataFrame, a trained model) you can pass back into a later block the same way.
 
 A Python block needs a Python installed on the machine, and it is pulled into the build only when you actually write one. For *tables* specifically, prefer the native `DataFrame` from the standard library — it needs no Python at all.
 """

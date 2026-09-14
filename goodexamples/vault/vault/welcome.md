@@ -1,6 +1,6 @@
 # Welcome
 
-This is a small Bust vault — a folder of markdown notes.
+This is a small Vinyl vault — a folder of markdown notes.
 
 Click a name on the left to open it. **Save** writes the Edit tab back to disk. Preview renders the same text as Markdown.
 

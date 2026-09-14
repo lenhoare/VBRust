@@ -547,7 +547,7 @@ body:not(.light) .icon-when-light {
 
 /* Generated output shares --tool with Output / Problems / the left icon strip.
    Monaco's theme is global, so the current-line must be forced here or it
-   stays the Bust accent tint. Steel, not yellow: yellow means debugger. */
+   stays the Vinyl accent tint. Steel, not yellow: yellow means debugger. */
 #view-rust,
 #rust {
   background-color: var(--tool);

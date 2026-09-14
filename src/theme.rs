@@ -1,7 +1,7 @@
 //! Built-in palettes for `Theme <Name>` on a Window, Screen, or Page.
 //!
 //! Iced supplies most of the names (`Dracula`, `Nord`, …). `NightOwl` and
-//! `JellyFish` are Bust's own — they lower to `iced::Theme::custom` on a Window,
+//! `JellyFish` are Vinyl's own — they lower to `iced::Theme::custom` on a Window,
 //! CSS variables on a Page, and ratatui RGB on a Screen.
 
 pub struct Spec {
@@ -78,7 +78,7 @@ pub static THEMES: &[Spec] = &[
             (255, 88, 116),
         ]),
     },
-    // Bioluminescent ocean — Bust's own, not an Iced built-in.
+    // Bioluminescent ocean — Vinyl's own, not an Iced built-in.
     Spec {
         name: "JellyFish",
         iced: None,

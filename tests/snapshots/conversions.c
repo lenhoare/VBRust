@@ -85,7 +85,7 @@ int main(void) {
     printf("%s\n", vbr_from_double(vbr_val("3.14")));
     printf("%s\n", vbr_from_double(vbr_val("  42  ")));
     printf("%s\n", vbr_from_double(vbr_val("nonsense")));
-    // A Double flows into a Long with Bust's automatic numeric cast.
+    // A Double flows into a Long with Vinyl's automatic numeric cast.
     long long count = vbr_val("100");
     printf("%s\n", vbr_from_ll(count));
     // Strict: intercept failure with Handle.

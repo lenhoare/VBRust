@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
             let found = self.peek().clone();
             let msg = match crate::lexer::keyword_word(&found) {
                 Some(kw) => format!(
-                    "`{kw}` is a Bust keyword, so it can't be used as a name {ctx}. \
+                    "`{kw}` is a Vinyl keyword, so it can't be used as a name {ctx}. \
                      Pick another (for example a more descriptive word, or a `_` suffix \
                      like `{}_`).",
                     kw.to_ascii_lowercase()
@@ -320,7 +320,7 @@ impl<'a> Parser<'a> {
                         self.line(),
                         format!(
                             "Top level may only contain functions, found {:?}. \
-                             Every Bust program starts at `Function Main()`.",
+                             Every Vinyl program starts at `Function Main()`.",
                             other
                         ),
                     );
@@ -607,7 +607,7 @@ impl<'a> Parser<'a> {
             self.diags.warn_once(
                 "sub-is-function",
                 line,
-                "`Sub` works, but in Bust it's just a `Function` with no return value — both \
+                "`Sub` works, but in Vinyl it's just a `Function` with no return value — both \
                  become a Rust `fn`. You can write `Function` everywhere if you prefer.",
             );
         } else {
@@ -3374,7 +3374,7 @@ impl<'a> Parser<'a> {
     fn reject_date(&mut self, line: usize) {
         self.diags.error(
             line,
-            "Date isn't a built-in Bust type — a bare date with no calendar semantics is \
+            "Date isn't a built-in Vinyl type — a bare date with no calendar semantics is \
              just a number in disguise. Use `DateTime` from the standard library: \
              `Dim now As DateTime = DateTime.Now()`, then `.Add_Days(n)`, `.Format(...)`, etc.",
         );
@@ -3825,15 +3825,15 @@ impl<'a> Parser<'a> {
                 names.push(self.expect_ident("for the destructured name")?);
             }
             // `Dim a, b As Integer` is VBA's old habit, where `a` is silently a
-            // Variant. Bust has no Variant, so a shared trailing `As` is a trap
+            // Variant. Vinyl has no Variant, so a shared trailing `As` is a trap
             // rather than a shorthand — steer to a type on each variable.
             if matches!(self.peek(), Tok::As) {
                 self.diags.error_at(
                     self.span(),
                     self.line(),
-                    "In Bust every variable needs its own type: \
+                    "In Vinyl every variable needs its own type: \
                      `Dim a As Long, b As Integer`. VBA's `Dim a, b As Integer` \
-                     would leave `a` an untyped Variant, which Bust doesn't have.",
+                     would leave `a` an untyped Variant, which Vinyl doesn't have.",
                 );
                 return None;
             }
@@ -3843,7 +3843,7 @@ impl<'a> Parser<'a> {
         }
 
         // `Dim name = Rust … End Rust` — an opaque handle. The only `As`-less
-        // single `Dim`: the type is whatever Rust infers, hidden from Bust.
+        // single `Dim`: the type is whatever Rust infers, hidden from Vinyl.
         if self.eat(&Tok::Eq) {
             if let Tok::InlineRust(raw) = self.peek().clone() {
                 self.advance();
@@ -3851,7 +3851,7 @@ impl<'a> Parser<'a> {
             }
             // `Dim h = Python … End Python` (no `As`) — an opaque `PyObject` handle,
             // the Python counterpart of the inline-Rust handle above. Holds a value
-            // Bust has no type for; pass it back into a later `Python(h)` block.
+            // Vinyl has no type for; pass it back into a later `Python(h)` block.
             if let Tok::InlinePython { args, body } = self.peek().clone() {
                 let span = self.span();
                 self.advance();
@@ -3874,7 +3874,7 @@ impl<'a> Parser<'a> {
                 line,
                 "A `Dim` needs a type: `Dim x As Long`. The one exception is \
                  `Dim h = Rust … End Rust`, which makes an opaque Rust handle whose \
-                 type Rust infers — Bust can pass it back into another `Rust` block but \
+                 type Rust infers — Vinyl can pass it back into another `Rust` block but \
                  can't use it as a value.",
             );
             return None;
@@ -4026,12 +4026,12 @@ impl<'a> Parser<'a> {
     /// parameter, return). Handles `Result<T>`, `Option<T>`, `Vec<T>`,
     /// `HashMap<K, V>`, tuples, primitives, and named structs, nested freely.
     fn parse_decl_type(&mut self) -> Option<DeclType> {
-        // `New` is a VB-ism with no meaning in Bust (Rust has no uninitialised
+        // `New` is a VB-ism with no meaning in Vinyl (Rust has no uninitialised
         // objects) — accept it out of habit, but nudge toward dropping it.
         if self.eat(&Tok::New) {
             self.diags.warn(
                 self.line(),
-                "`New` isn't needed in Bust — a value is created by its declaration. \
+                "`New` isn't needed in Vinyl — a value is created by its declaration. \
                  Write `Dim v As Vec<T>` / `As HashMap<K, V>` without `New`.",
             );
         }
@@ -4131,7 +4131,7 @@ impl<'a> Parser<'a> {
         let mutable = self.eat(&Tok::Mut);
         let name = self.expect_ident("after `Set`")?;
         self.expect(&Tok::Eq, "in a `Set` borrow")?;
-        // `Set x = Nothing` is the VB6 object-release habit. In Bust `Set` binds a
+        // `Set x = Nothing` is the VB6 object-release habit. In Vinyl `Set` binds a
         // borrow (a Rust reference), not an assignment — so steer to the plain
         // form `x = Nothing`, which is what actually releases the value.
         if matches!(self.peek(), Tok::Nothing) {
@@ -4139,7 +4139,7 @@ impl<'a> Parser<'a> {
                 set_span,
                 self.line(),
                 format!(
-                    "`Set` in Bust binds a borrow, not a VB6 object assignment. To release \
+                    "`Set` in Vinyl binds a borrow, not a VB6 object assignment. To release \
                      a value, drop the `Set` — write `{} = Nothing`.",
                     name
                 ),
@@ -4214,7 +4214,7 @@ impl<'a> Parser<'a> {
             self.advance(); // MsgBox
             self.diags.note(
                 "msgbox-cli",
-                "MsgBox has no window in a terminal app, so Bust prints it to the terminal \
+                "MsgBox has no window in a terminal app, so Vinyl prints it to the terminal \
                  (like Debug.Print). InputBox reads a line of input back — closed input fails.",
             );
             let value = self.parse_expr()?;

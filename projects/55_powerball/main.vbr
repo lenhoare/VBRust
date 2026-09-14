@@ -2,7 +2,7 @@
 ' Reads a generated ticket pool with a DataFrame and:
 '   1. Uses Group_By/Agg to analyse the ticket numbers (powerball
 '      frequency, most common first ball) — first use of these verbs.
-'   2. Runs the win-checking simulation in pure Bust (lotto.vbr) against a
+'   2. Runs the win-checking simulation in pure Vinyl (lotto.vbr) against a
 '      fixed draw and prints the prize tally.
 '
 ' DataFrame features exercised: Read_Csv, Group_By().Agg(Count(...)),
@@ -50,7 +50,7 @@ Function Main()
     Debug.Print ""
     Debug.Print "Most common first ball: " & Lotto.TopByCount(w1Vals, w1Counts, 1)[0]
 
-    ' --- The win simulation (pure Bust) ---
+    ' --- The win simulation (pure Vinyl) ---
     Dim drawW As Vec<Long> = [7, 13, 22, 31, 45]
     Dim drawPb As Long = 17
     Dim spend As Long = white1.Len() * 2

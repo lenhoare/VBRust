@@ -97,7 +97,7 @@ pub struct Diagnostics {
     items: Vec<Diagnostic>,
     seen_notes: HashSet<String>,
     marks: HashSet<String>,
-    /// (generated-Rust line, Bust source line) checkpoints, in emission order —
+    /// (generated-Rust line, Vinyl source line) checkpoints, in emission order —
     /// the map `vbr run`/`runproject` use to point rustc errors back at the
     /// `.vbr` source. Lives here because the whole emission pipeline already
     /// threads `Diagnostics` through.
@@ -232,7 +232,7 @@ impl Diagnostics {
         &self.items
     }
 
-    /// Record that generated-Rust line `rust_line` came from Bust line `vbr_line`.
+    /// Record that generated-Rust line `rust_line` came from Vinyl line `vbr_line`.
     pub fn map_line(&mut self, rust_line: usize, vbr_line: usize) {
         self.line_map.push((rust_line, vbr_line));
     }

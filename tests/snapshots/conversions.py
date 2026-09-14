@@ -55,7 +55,7 @@ def main():
     print(_vb(_vb_val('3.14')))
     print(_vb(_vb_val('  42  ')))
     print(_vb(_vb_val('nonsense')))
-    # A Double flows into a Long with Bust's automatic numeric cast.
+    # A Double flows into a Long with Vinyl's automatic numeric cast.
     count: int = _vb_val('100')
     print(_vb(count))
     # Strict: intercept failure with Handle.

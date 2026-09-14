@@ -1,4 +1,4 @@
-// Passing strings to functions — Bust borrows an owned String automatically
+// Passing strings to functions — Vinyl borrows an owned String automatically
 
 fn shout(text: &str) -> Result<String, String> {
     Ok(text.to_uppercase())

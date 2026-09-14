@@ -13,7 +13,7 @@ End Function
 summary = "A helper compiled into a Gpu Draw shader, not into Rust."
 
 remarks = """
-A `Gpu Function` is ordinary Bust that the kernel can call — `Sin`, `Cos`, `Noise`, arithmetic, `If` / `Return`. It is compiled to WGSL and is **not** emitted as Rust, so you can't call it from `Main` or a CPU `Draw`.
+A `Gpu Function` is ordinary Vinyl that the kernel can call — `Sin`, `Cos`, `Noise`, arithmetic, `If` / `Return`. It is compiled to WGSL and is **not** emitted as Rust, so you can't call it from `Main` or a CPU `Draw`.
 
 Same-file helpers sit next to the Sketch. A helper in another file is `Public Gpu Function` (and `Public Const` numbers it uses); a sibling module that is only GPU helpers is skipped on the Rust side.
 

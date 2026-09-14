@@ -1,6 +1,6 @@
 # Building Interfaces: Windows and Screens
 
-Bust builds three kinds of interactive program from the *same* set of ideas:
+Vinyl builds three kinds of interactive program from the *same* set of ideas:
 
 - a **`Window`** — a desktop application with buttons, sliders, and text boxes,
   drawn with [Iced];
@@ -25,7 +25,7 @@ and each control's event handler reaches out and *pokes* other controls —
 `Label1.Caption = CStr(n)`. The screen is the truth, and your code scrambles to
 keep it consistent.
 
-Bust turns that inside out. There is a single blob of **state** that is the truth,
+Vinyl turns that inside out. There is a single blob of **state** that is the truth,
 a **view** that is *computed* from that state, and **events** that are the only
 things allowed to change the state. When the state changes, the whole view is
 redrawn from scratch. You never poke a widget; you change a number and describe
@@ -100,7 +100,7 @@ vertically) and `Row` (side by side).
 **Events** are handlers, written `Event Name … End Event`, and they are the only
 place state may change. A button's `On Click Increment` says "when this is
 clicked, run the `Increment` event." Inside, you just assign to state fields as if
-they were ordinary variables — `count += 1` — and Bust arranges the redraw. An
+they were ordinary variables — `count += 1` — and Vinyl arranges the redraw. An
 event can take a parameter when the widget carries data (you'll see `On Change`
 below hand a slider's new value to its handler).
 

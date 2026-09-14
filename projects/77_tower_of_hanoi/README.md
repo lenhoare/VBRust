@@ -4,9 +4,9 @@ Solves the classic disk puzzle with the textbook **recursive** algorithm:
 move n−1 disks to the spare peg, move the largest disk, move n−1 back.
 Returns the move list as `Vec<String>` in "src->dst" form. Deterministic.
 
-## Bust language features tested
+## Vinyl language features tested
 
-- **Recursion** — `Public Sub MoveDisk` calls itself (Bust supports it
+- **Recursion** — `Public Sub MoveDisk` calls itself (Vinyl supports it
   directly; functions lower to ordinary Rust fns)
 - `Public Sub` with multiple `ByVal Long` params and a `ByRef Vec<String>`
   accumulator — recursion appends to the caller's Vec

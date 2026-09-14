@@ -1,4 +1,4 @@
-# Bust Standard Library — Revised Spec (decisions)
+# Vinyl Standard Library — Revised Spec (decisions)
 
 A short companion to `VBR_spec_03_stdlib.md` recording the decisions we made
 before implementing. Explanations only — the original file still holds the
@@ -9,9 +9,9 @@ module-by-module code.
 ## 1. Purpose
 
 `vbr_stdlib` is a **separate Rust crate** (its own `Cargo.toml`, not part of the
-transpiler's build) that gives Bust programs friendly, native replacements for
+transpiler's build) that gives Vinyl programs friendly, native replacements for
 the things VB leaned on COM for — file access, JSON, dates, regex. Every
-fallible function returns `Result<T, String>`. Bust hides that box: a normal
+fallible function returns `Result<T, String>`. Vinyl hides that box: a normal
 call propagates the error; `Handle err` intercepts it; `Raw F()` yields the
 `Result` as a value.
 
@@ -222,7 +222,7 @@ stdlib wrapper (`DeclType::Named(n)` with `stdlib_type(n)`), fixing
   typed/`Json` params, named parameters, a custom failure policy for a failed
   `State` init (today's policy is fixed: message + exit — the rare "show a
   picker window instead" case would need `Run`-args, designed but not built).
-- **Params ergonomics — the inline list literal (BUILT first).** Bust now has an
+- **Params ergonomics — the inline list literal (BUILT first).** Vinyl now has an
   **inline list literal** `["a", "b"]` → `Vec<T>` (string elements owned,
   numbers typed from the target; empty `[]` allowed), so params read cleanly:
   `db.Execute("INSERT … VALUES (?, ?)", [CStr(gen), ideaText])`. A no-parameter

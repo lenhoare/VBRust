@@ -1,4 +1,4 @@
-# Bust Parallel Specification
+# Vinyl Parallel Specification
 
 Independent loops and NVIDIA GPU buffers. **Niche, Rust-only.** Ordinary
 `For` / `Vec` programs do not need this. Python, C, and the Android interpreter

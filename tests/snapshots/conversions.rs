@@ -18,7 +18,7 @@ fn vbr_main() -> Result<(), String> {
     println!("{}", "3.14".trim().parse::<f64>().unwrap_or(0.0));
     println!("{}", "  42  ".trim().parse::<f64>().unwrap_or(0.0));
     println!("{}", "nonsense".trim().parse::<f64>().unwrap_or(0.0));
-    // A Double flows into a Long with Bust's automatic numeric cast.
+    // A Double flows into a Long with Vinyl's automatic numeric cast.
     let count: i64 = "100".trim().parse::<f64>().unwrap_or(0.0) as i64;
     println!("{}", count);
     // Strict: intercept failure with Handle.

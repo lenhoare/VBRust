@@ -1,6 +1,6 @@
 # Notes from the sketch five
 
-Written as ordinary Bust, then compiled. Sketch Draw *does* run helpers (unlike View).
+Written as ordinary Vinyl, then compiled. Sketch Draw *does* run helpers (unlike View).
 
 ## Worked as hoped
 

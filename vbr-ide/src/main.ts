@@ -6,9 +6,9 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { registerVbrLanguage, VBR_LANGUAGE_ID } from "./vbrLanguage";
 import { EXAMPLES } from "./examples";
 
-// Monaco needs a worker for the editor itself; Bust and Rust are both
+// Monaco needs a worker for the editor itself; Vinyl and Rust are both
 // Monarch-tokenised on the main thread here, so the base editor worker is all
-// we wire up. (Real Bust tokenisation lands in slice 6.)
+// we wire up. (Real Vinyl tokenisation lands in slice 6.)
 self.MonacoEnvironment = {
   getWorker: () => new editorWorker(),
 };
@@ -70,7 +70,7 @@ interface Project {
   files: FileEntry[];
 }
 
-const SAMPLE = `' Welcome to Bust — type on the left, read the Rust on the right.
+const SAMPLE = `' Welcome to Vinyl — type on the left, read the Rust on the right.
 Function Main()
     Dim name As String = "world"
     Debug.Print "Hello, " & name & "!"
@@ -476,14 +476,14 @@ function syncVbrFromRust(): void {
 }
 
 async function refresh(): Promise<void> {
-  // Non-Bust files keep the split but blank the output view.
+  // Non-Vinyl files keep the split but blank the output view.
   if (!isVbrTab(activeTab())) {
     lineMap = [];
     rustView.setValue("");
     const m = editor.getModel();
     if (m) monaco.editor.setModelMarkers(m, "vbr", []);
     const path = activeTab()?.path;
-    diagnosticsEl.innerHTML = `<span class="ok">— ${path ? escapeHtml(basename(path)) : "file"} is not a Bust file —</span>`;
+    diagnosticsEl.innerHTML = `<span class="ok">— ${path ? escapeHtml(basename(path)) : "file"} is not a Vinyl file —</span>`;
     statusProblems.textContent = "";
     statusTiming.textContent = "";
     return;
@@ -543,7 +543,7 @@ function severityOf(level: Diagnostic["level"]): monaco.MarkerSeverity {
   }
 }
 
-// Paint the diagnostics as inline squiggles on the Bust pane. A diagnostic with
+// Paint the diagnostics as inline squiggles on the Vinyl pane. A diagnostic with
 // a pinned span underlines exactly that span; a line-only one underlines its
 // whole line; a diagnostic with neither (a top-level teaching note) shows only
 // in the strip below.
@@ -705,11 +705,11 @@ async function invokeWithRunLog(
 
 async function runNow(fileOnly: boolean): Promise<void> {
   const runPath = fileOnly ? null : projectRunPath();
-  // Nothing to run for a lone non-Bust file (a config file, say).
+  // Nothing to run for a lone non-Vinyl file (a config file, say).
   if (!runPath && !isVbrTab(activeTab())) {
     revealOutput();
     consoleEl.className = "err";
-    consoleEl.textContent = "This isn't a Bust file — nothing to run.";
+    consoleEl.textContent = "This isn't a Vinyl file — nothing to run.";
     return;
   }
   // runproject reads the files on disk, so offer to save unsaved tabs first.
@@ -816,7 +816,7 @@ function updateFilename(): void {
   const name = tab?.path ? basename(tab.path) : "untitled";
   const mark = tab?.dirty ? "● " : "";
   statusFile.textContent = mark + name;
-  document.title = `${mark}${name} — Bust IDE`;
+  document.title = `${mark}${name} — Vinyl IDE`;
 }
 
 async function saveTab(tab: Tab, forceDialog: boolean): Promise<boolean> {
@@ -833,7 +833,7 @@ async function saveTab(tab: Tab, forceDialog: boolean): Promise<boolean> {
   tab.dirty = false;
   if (tab.id === activeId) {
     currentPath = path;
-    void refresh(); // the extension may have changed Bust-ness
+    void refresh(); // the extension may have changed Vinyl-ness
   }
   renderTabs();
   updateFilename();
@@ -886,7 +886,7 @@ const openFolderBtn = document.getElementById("open-folder") as HTMLButtonElemen
 
 async function openTreeFile(path: string, el: HTMLElement): Promise<void> {
   const content = await invoke<string>("read_file_at", { path });
-  // A file inside a Bust project counts as a project file (Run builds the project).
+  // A file inside a Vinyl project counts as a project file (Run builds the project).
   openTab(path, content, projectIsVbr && path.toLowerCase().endsWith(".vbr"));
   filetree.querySelectorAll(".tree-item.active").forEach((n) => n.classList.remove("active"));
   el.classList.add("active");

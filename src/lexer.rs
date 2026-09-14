@@ -1,4 +1,4 @@
-//! Tokeniser for Bust source.
+//! Tokeniser for Vinyl source.
 //!
 //! VBA keywords are case-insensitive (you can write `Dim`, `dim`, or `DIM`),
 //! so keywords are matched on a lowercased copy while identifier spelling is
@@ -129,7 +129,7 @@ pub enum Tok {
     /// A `Python … End Python` block, captured verbatim (the inner Python is not
     /// tokenised — it is run at runtime via pyo3, not spliced like inline Rust).
     /// `args` is the raw text inside optional leading parens (`Python(df, n)` →
-    /// `"df, n"`), the Bust variables passed into the block; `body` is the source.
+    /// `"df, n"`), the Vinyl variables passed into the block; `body` is the source.
     InlinePython { args: String, body: String },
 
     /// A `Text … End Text` block — a multi-line string literal, captured
@@ -347,7 +347,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     i = resume;
                 } else if word.eq_ignore_ascii_case("Css") {
                     // A Page's stylesheet: capture verbatim until `End Css` —
-                    // it's real CSS, not Bust.
+                    // it's real CSS, not Vinyl.
                     let (raw, resume, newlines, _) = capture_inline_block(&chars, j, "css");
                     tokens.push(Token {
                         tok: Tok::InlineCss(raw),
@@ -375,7 +375,7 @@ pub fn lex(src: &str) -> Vec<Token> {
                     line += newlines;
                     i = resume;
                 } else if word.eq_ignore_ascii_case("Python") {
-                    // Inline Python: optional `(args)` (Bust vars passed in), then the
+                    // Inline Python: optional `(args)` (Vinyl vars passed in), then the
                     // verbatim body terminated by `End Python`.
                     let (args, after_args) = capture_call_args(&chars, j);
                     let (body, resume, newlines, _) =
@@ -609,7 +609,7 @@ fn two(tokens: &mut Vec<Token>, tok: Tok, line: usize, span: Span, i: &mut usize
     *i += 2;
 }
 
-/// The Bust spelling of a keyword token, for diagnostics — so the parser can say
+/// The Vinyl spelling of a keyword token, for diagnostics — so the parser can say
 /// "`To` is a keyword" when a reserved word turns up where a name was expected.
 /// Covers the words a VB programmer is likely to reach for as an identifier;
 /// anything else falls back to the generic "expected a name" message.

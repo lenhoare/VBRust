@@ -2,7 +2,7 @@
 
 A command-line tool that computes a classic **Elo rating** for every
 Premier League team from three seasons of results (2023–24 to 2025–26),
-using Bust **DataFrames** to read and process the CSV.
+using Vinyl **DataFrames** to read and process the CSV.
 
 ## What it does
 
@@ -20,7 +20,7 @@ relegated across these seasons (Luton, Burnley, Sheffield United,
 Southampton, Ipswich) sit at the bottom — exactly what the underlying
 results imply.
 
-## Bust language features tested
+## Vinyl language features tested
 
 **DataFrame (the point of this project):**
 - `DataFrame.Read_Csv(path)`

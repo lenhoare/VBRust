@@ -857,7 +857,7 @@ const APP_JS: &str = include_str!("help_assets/app.js");
 // ---------------------------------------------------------------------------
 // Syntax highlighting — done at build time, so the site stays static.
 //
-// Bust is highlighted by the *compiler's own lexer*, so the colours can never
+// Vinyl is highlighted by the *compiler's own lexer*, so the colours can never
 // drift from the language. The generated Rust gets a small dedicated scanner.
 // ---------------------------------------------------------------------------
 
@@ -865,7 +865,7 @@ fn esc_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// CSS class for a Bust token, or `None` to emit it uncoloured.
+/// CSS class for a Vinyl token, or `None` to emit it uncoloured.
 fn vbr_class(t: &crate::lexer::Tok) -> Option<&'static str> {
     use crate::lexer::Tok::*;
     Some(match t {
@@ -882,7 +882,7 @@ fn vbr_class(t: &crate::lexer::Tok) -> Option<&'static str> {
     })
 }
 
-/// Highlight Bust by walking the real token stream and wrapping each token in a
+/// Highlight Vinyl by walking the real token stream and wrapping each token in a
 /// span, preserving the exact source text (whitespace, comments, layout).
 fn highlight_vbr(src: &str) -> String {
     let toks = crate::lexer::lex(src);

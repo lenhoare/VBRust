@@ -1,4 +1,4 @@
-//! Bust → Python backend (slice 1: pure computation).
+//! Vinyl → Python backend (slice 1: pure computation).
 //!
 //! A second target beside the Rust transpiler. Where the Rust emitter lowers to
 //! ownership-and-types Rust, this lowers the *same* parsed AST to idiomatic
@@ -23,7 +23,7 @@ use crate::pattern::{self, Pat};
 use crate::transpiler::{body_never_returns, convert_returns, rust_name};
 use crate::types::{type_program, TypeTable};
 
-/// The result of emitting Python for one Bust source.
+/// The result of emitting Python for one Vinyl source.
 pub struct PyProgram {
     /// The generated Python source.
     pub code: String,
@@ -496,7 +496,7 @@ impl Emitter {
             }
             other => {
                 self.warn(format!("`{}` doesn't lower to Python yet.", stmt_name(other)));
-                self.line(indent, &format!("pass  # [Bust→Python] unsupported: {}", stmt_name(other)));
+                self.line(indent, &format!("pass  # [Vinyl→Python] unsupported: {}", stmt_name(other)));
             }
         }
     }
@@ -509,7 +509,7 @@ impl Emitter {
     /// last non-blank line is the value: bound to `bind` when given (a name, or a
     /// `a, b, c` tuple target), otherwise evaluated for its side effects.
     fn inline_python(&mut self, inputs: &[String], body: &str, indent: usize, bind: Option<&str>) {
-        // Re-expose each input under the exact name the block wrote, in case Bust
+        // Re-expose each input under the exact name the block wrote, in case Vinyl
         // lowercased it (`Python(Data)` → the block still says `Data`).
         for name in inputs {
             let local = rust_name(name);
@@ -658,7 +658,7 @@ impl Emitter {
         self.block(stmts, indent);
     }
 
-    /// A method call → its Python form. The curated table turns Rust/Bust method
+    /// A method call → its Python form. The curated table turns Rust/Vinyl method
     /// names into Python idioms (`.push`→`.append`, `.len()`→`len()`, iterator
     /// chains → comprehensions); anything unrecognised passes straight through.
     fn method_call(&mut self, recv: &Expr, method: &str, args: &[Expr]) -> String {
@@ -1031,7 +1031,7 @@ impl Emitter {
         }
     }
 
-    /// Rewrite a Bust column formula (`price * qty`, `age >= 18`, `IIf(...)`) into a
+    /// Rewrite a Vinyl column formula (`price * qty`, `age >= 18`, `IIf(...)`) into a
     /// polars expression — the Python-side twin of the resolver's `lower_formula`.
     /// A bare name is a column (`col("x")`) unless it's a `Dim`'d value; polars
     /// overloads the operators (`>`, `&`, `~`), so no `.gt()`/`.and()` methods.
@@ -1318,7 +1318,7 @@ impl Emitter {
             }
             ExprKind::ParallelSum(..) => {
                 self.warn("`Parallel Sum` is Rust-only.");
-                "0  # [Bust→Python] Parallel Sum".into()
+                "0  # [Vinyl→Python] Parallel Sum".into()
             }
             ExprKind::Try(inner) => self.hoist_try(inner),
             ExprKind::Raw(inner) => {
@@ -1366,7 +1366,7 @@ impl Emitter {
             }
             other => {
                 self.warn(format!("`{}` doesn't lower to Python yet.", expr_name(other)));
-                format!("None  # [Bust→Python] unsupported: {}", expr_name(other))
+                format!("None  # [Vinyl→Python] unsupported: {}", expr_name(other))
             }
         }
     }

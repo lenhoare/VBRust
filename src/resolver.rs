@@ -1418,7 +1418,7 @@ fn maybe_cast(value: &mut Expr, target: Type, ctx: &mut Ctx) {
     if src != target_n {
         ctx.diags.note(
             "numeric-cast",
-            "VB converts between number types silently; Rust wants it spelled out, so Bust \
+            "VB converts between number types silently; Rust wants it spelled out, so Vinyl \
              inserts `as` for you. A narrowing conversion (e.g. Long → Integer, or a float \
              to an integer) can lose data.",
         );
@@ -1817,7 +1817,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 &format!("handle-value-{}", snake(name)),
                 format!(
                     "'{}' is an opaque Rust handle — its type lives only inside Rust. \
-                     You can pass it back into another `Rust … End Rust` block, but Bust \
+                     You can pass it back into another `Rust … End Rust` block, but Vinyl \
                      can't print it, compare it, assign it, or pass it to a function.",
                     name
                 ),
@@ -2193,7 +2193,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
             // `Shape.Circle(r)` on an enum → the variant constructor
             // `Shape::Circle(r)` (variant kept PascalCase). A string payload is
-            // owned — Bust enum text payloads are `String`, never `&str`.
+            // owned — Vinyl enum text payloads are `String`, never `&str`.
             if let ExprKind::Ident(m) = &(&**recv).kind {
                 if ctx.enums.contains(m) {
                     let path = format!("{}::{}", m, method);
@@ -2267,9 +2267,9 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         ExprKind::Call { name, args } => {
             // COHERENCE NOTE (embedding): a *bare* call to a name we don't know
             // is left alone on purpose — rustc is the backstop (see the `VType`
-            // doc). Embedding Bust in Rust (`vbr::compile_fragment` / `vbr embed`)
+            // doc). Embedding Vinyl in Rust (`vbr::compile_fragment` / `vbr embed`)
             // *relies* on this: `square(i)` inside a fragment is a Rust function,
-            // not a Bust one. So if you add an "unknown function — did you mean…?"
+            // not a Vinyl one. So if you add an "unknown function — did you mean…?"
             // diagnostic here (task #24), it MUST be gated off for fragments
             // (thread a `permissive` flag into `Ctx`), or you'll break embedding.
             // `tests/fragment.rs::an_unknown_name_passes_through_for_rustc_to_check`
@@ -2410,13 +2410,13 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         // A closure anywhere except a method argument: its type has no name,
-        // so it can't be stored in a variable, returned, or passed to a Bust
+        // so it can't be stored in a variable, returned, or passed to a Vinyl
         // function. (Method arguments are consumed before reaching here.)
         ExprKind::Closure { body, .. } => {
             ctx.diags.error_once(
                 "closure-value",
                 "A closure (`|x| …`) can't be stored in a variable or passed to a \
-                 function — its type has no name you (or Bust) could write. Use it \
+                 function — its type has no name you (or Vinyl) could write. Use it \
                  directly as a method argument (`v.filter(|x| x > 2)`), or give the \
                  logic a name with a `Function`.",
             );
@@ -2658,7 +2658,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
 
 // ---- Iterator chains -------------------------------------------------------
 //
-// `nums.filter(|x| x > 2).map(|x| x * x).collect()` — the links Bust
+// `nums.filter(|x| x > 2).map(|x| x * x).collect()` — the links Vinyl
 // understands on a `Vec`/fixed array. The chain root iterates by reference
 // and then makes items owned: `.iter().copied()` when the element is a Copy
 // primitive (free), `.iter().cloned()` when it owns data (a real copy — the
@@ -2666,7 +2666,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
 // the element type while their body is resolved, so the usual coercions
 // apply inside; unknown methods still pass through verbatim to rustc.
 
-/// Is this method (with these arguments) an iterator link Bust understands?
+/// Is this method (with these arguments) an iterator link Vinyl understands?
 /// `min`/`max` with an argument are the numeric receiver-typed methods
 /// (`n.min(other)`), not the iterator consumers, so argument shape decides.
 fn is_iter_adapter(m: &str, args: &[Expr]) -> bool {
@@ -3463,7 +3463,7 @@ fn mark_cuda_loop(
 //
 // The argument of a DataFrame transform (`Filter`, `With_Column`) is a *column
 // formula*: it reads like an Excel array formula and applies down the whole
-// column. `lower_formula` rewrites an ordinary Bust expression into the polars
+// column. `lower_formula` rewrites an ordinary Vinyl expression into the polars
 // expression tree it means — `col(...)` / `lit(...)` / `when/then/otherwise` and
 // comparison/logical methods — which the emitter then renders verbatim.
 
@@ -3488,7 +3488,7 @@ fn is_value_var(name: &str, ctx: &Ctx) -> bool {
     }
 }
 
-/// Rewrite a Bust expression in column-formula context into polars expressions.
+/// Rewrite a Vinyl expression in column-formula context into polars expressions.
 fn lower_formula(e: &mut Expr, ctx: &Ctx) {
     match &mut e.kind {
         // A bare name: a `Dim`'d value → `lit(v)`; otherwise a column → `col("name")`.

@@ -55,7 +55,7 @@ Function Main()
         list.Push(WordCount { word: w, count: c })
     Next
 
-    ' Selection sort, descending by count (pure VBR — no sort builtin tried yet).
+    ' Selection sort, descending by count (pure Vinyl — no sort builtin tried yet).
     Dim i As Long
     For i = 0 To list.Len() - 2
         Dim best As Long = i

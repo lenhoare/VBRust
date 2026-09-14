@@ -1,4 +1,4 @@
-//! TIDE — Turbo Pascal–inspired TUI IDE for Bust.
+//! TIDE — Turbo Pascal–inspired TUI IDE for Vinyl.
 
 mod compile;
 mod files;

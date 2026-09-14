@@ -5,17 +5,17 @@ Design notes that led to the Parallel/CUDA surface. The user-facing spec is
 
 Worked for 26s
 
-Yes. And I think there is a very natural VBR version of this.
+Yes. And I think there is a very natural Vinyl version of this.
 
 The key design choice I’d make is:
 
-> Parallel VBR describes the computation; CUDA describes where it runs.
+> Parallel Vinyl describes the computation; CUDA describes where it runs.
 
 
 
-So I would resist exposing blocks, grids, threadIdx.x, shared-memory barriers etc. in ordinary VBR. Inline CUDA/Rust can be the escape hatch later.
+So I would resist exposing blocks, grids, threadIdx.x, shared-memory barriers etc. in ordinary Vinyl. Inline CUDA/Rust can be the escape hatch later.
 
-The DataFrame work actually gives us a precedent: inside a column formula, ordinary VBR expressions acquire a parallel, elementwise meaning. For general GPU computation I think we want the equivalent concept, but explicit enough that dependencies are obvious.
+The DataFrame work actually gives us a precedent: inside a column formula, ordinary Vinyl expressions acquire a parallel, elementwise meaning. For general GPU computation I think we want the equivalent concept, but explicit enough that dependencies are obvious.
 
 My starting point would be something like:
 
@@ -36,7 +36,7 @@ i = CUDA global thread index
 if i < n:
     b[i] = a[i] * a[i] + 1
 
-There are then several very interesting things we can build on top of that without turning VBR into CUDA C.
+There are then several very interesting things we can build on top of that without turning Vinyl into CUDA C.
 
 1. Make memory movement visible
 
@@ -51,7 +51,7 @@ Dim gpuData = CUDA.Upload(cpuData)
 
 cpuData = CUDA.Download(gpuData)
 
-fits VBR's existing philosophy extremely well: convenient, but honest about what's underneath.
+fits Vinyl's existing philosophy extremely well: convenient, but honest about what's underneath.
 
 Perhaps eventually unified memory could exist:
 
@@ -83,7 +83,7 @@ Next
 
 should be a compile error.
 
-And instead VBR gives you:
+And instead Vinyl gives you:
 
 Dim total = Parallel Sum input
 
@@ -139,7 +139,7 @@ The compiler sees that Mandelbrot is reachable from GPU code and compiles a devi
 
 That feels far more like a language with a CUDA backend than a CUDA wrapper.
 
-And there's an interesting consequence: VBR could diagnose things that CUDA C++ leaves comparatively obscure:
+And there's an interesting consequence: Vinyl could diagnose things that CUDA C++ leaves comparatively obscure:
 
 Mandelbrot cannot run on CUDA:
   → calls FileSystem.ReadText()
@@ -149,7 +149,7 @@ That would be excellent.
 
 5. I would deliberately postpone warps/shared memory
 
-Unlike WarpC, where the warp is the programming model, I don't think ordinary Parallel VBR should initially know that warps exist.
+Unlike WarpC, where the warp is the programming model, I don't think ordinary Parallel Vinyl should initially know that warps exist.
 
 Start with:
 
@@ -178,14 +178,14 @@ with shared memory, synchronization, warp operations and so forth.
 
 The separation would be very clean:
 
-VBR → ordinary sequential programming
+Vinyl → ordinary sequential programming
 
-Parallel VBR → machine-independent data parallelism
+Parallel Vinyl → machine-independent data parallelism
 
-CUDA → one implementation target for Parallel VBR
+CUDA → one implementation target for Parallel Vinyl
 
-CUDA-specific VBR / inline CUDA → hardware-aware optimisation
+CUDA-specific Vinyl / inline CUDA → hardware-aware optimisation
 
 The part I particularly like is that Parallel For isn't really a CUDA feature. We could eventually target CPU threads, SIMD, WebGPU, Metal, Vulkan compute, etc. The program says these iterations are independent. CUDA is merely very good at exploiting that statement.
 
-I think that's the conceptual foundation I'd build from. And there are some genuinely interesting language-design questions immediately after this — particularly what variables are allowed to cross into a Parallel For, and how VBR's Rust ownership semantics can actually help us prove race freedom at compile time.
+I think that's the conceptual foundation I'd build from. And there are some genuinely interesting language-design questions immediately after this — particularly what variables are allowed to cross into a Parallel For, and how Vinyl's Rust ownership semantics can actually help us prove race freedom at compile time.

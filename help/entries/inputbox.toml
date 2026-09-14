@@ -10,7 +10,7 @@ InputBox(<prompt>)
 summary = "Prints a prompt and reads a line from the keyboard."
 
 remarks = """
-There is no dialog window — Bust prints the prompt and reads one line from stdin. The line comes back as a `String`, without the trailing newline.
+There is no dialog window — Vinyl prints the prompt and reads one line from stdin. The line comes back as a `String`, without the trailing newline.
 
 Closed input fails, the same way `FileSystem.Read` fails on a missing file: end of a pipe, or Ctrl+D on an empty line. The error leaves the current function unless you intercept that one call with `Handle err`. A blank Enter is success with an empty string, not a failure.
 

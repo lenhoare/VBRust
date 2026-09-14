@@ -16,7 +16,7 @@ fn vbr_main() -> Result<(), String> {
     // Left join: everyone; item/amount are null where nobody bought.
     let everyone: DataFrame = people.left_join(&orders, &["name"]);
     everyone.print();
-    // Nulls have no Bust type — filter unmatched rows out, then extract.
+    // Nulls have no Vinyl type — filter unmatched rows out, then extract.
     let matched: DataFrame = everyone.filter(col("item").is_null().not());
     let amounts: Vec<f64> = matched.column("amount");
     let mut total: f64 = 0.0;

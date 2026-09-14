@@ -1,6 +1,6 @@
 # A3 — Bank Account (Type + Handle)
 
-A small bank-account demo that exercises Bust's **`Type` (struct)** and
+A small bank-account demo that exercises Vinyl's **`Type` (struct)** and
 error handling — the two features VB6 has no direct equivalent for (a struct
 is like a VB6 `Type` that can also carry *methods*; errors propagate
 automatically, and `Handle err` intercepts a call).
@@ -11,7 +11,7 @@ Opens an account with a starting balance, deposits, withdraws, and tries an
 overdraft — which is refused — printing the running balance after each step.
 The logic lives in `bank.vbr` and is driven by a thin `main.vbr`.
 
-## Bust language features tested
+## Vinyl language features tested
 
 - `Public Type` / `End Type` — a struct with fields, built with the
   `Account { owner: ..., balance: ... }` literal constructor

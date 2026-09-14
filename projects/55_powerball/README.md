@@ -1,12 +1,12 @@
 # 55 — Powerball
 
-A lottery analysis tool: reads a generated 1000-ticket pool with a Bust
+A lottery analysis tool: reads a generated 1000-ticket pool with a Vinyl
 **DataFrame**, uses **Group_By/Agg** to analyse the numbers (powerball
 frequency, most common first ball), then runs a win-checking simulation
-in pure Bust against a fixed draw and prints the prize tally. Losing money
+in pure Vinyl against a fixed draw and prints the prize tally. Losing money
 is the point — the odds are the joke.
 
-## Bust language features tested
+## Vinyl language features tested
 
 **DataFrame (first use of Group_By/Agg):**
 - `DataFrame.Read_Csv`, `df.Group_By(key).Agg(Count(col))`

@@ -1,6 +1,6 @@
 # Notes — building the A-series example projects
 
-Experience log for the Bust example-project exercise. Each entry: what was
+Experience log for the Vinyl example-project exercise. Each entry: what was
 attempted, what the transpiler accepted/rejected, quirks found, and workarounds
 used. Bugs worth fixing in the transpiler are flagged **[BUG]**; features that
 feel missing are flagged **[MISSING]**. (The older gap log from the
@@ -108,7 +108,7 @@ End Enum
 Debug.Print light  ' � ✘ TrafficLight doesn't implement std::fmt::Display
 ```
 
-Bust currently does not derive the `Display` trait for `Enum`, so `Debug.Print`
+Vinyl currently does not derive the `Display` trait for `Enum`, so `Debug.Print`
 (or any formatted output) of an enum value fails to compile. The workaround is
 to provide a `Public Function Name(light As TrafficLight) As String` that
 uses a `Match` to return the string literal for each variant. This is exactly
@@ -197,7 +197,7 @@ from the 81-list. Deterministic version: fixed secret `"123"`, fixed guesses.
 7/7 tests pass; `runproject` output matches `expected_output.txt`
 byte-for-byte.
 
-### Quirk 5 — [BUG] Bust arrays/Vec index with brackets, not parens
+### Quirk 5 — [BUG] Vinyl arrays/Vec index with brackets, not parens
 
 ```vb
 Dim used As Vec<Boolean> = [False, False, False]
@@ -205,7 +205,7 @@ used(0) = True    ' � ✘ 'used' is an array — index it Rust-style with used
 ```
 
 The transpiler rejects `used(i)` with a helpful hint to use `used[i]` (or
-`used.get(i)` for a safe Option). VB6 muscle memory writes parens; Bust wants
+`used.get(i)` for a safe Option). VB6 muscle memory writes parens; Vinyl wants
 Rust brackets everywhere, including for `Vec`. The vb6_to_vbr_guide says this
 ("index with brackets, not scores(i)") — it's the single most common
 transpiler error so far. Fix: write `used[i]`.
@@ -245,7 +245,7 @@ carry a `Dim solved As Boolean` flag out of the loop, as `main.vbr` does.
 ### Quirk 9 — `.Length` on a `Vec` → use `.Len()`
 
 `guesses.Length` fails (`no field length on type Vec<String>`); `.Len()` (or
-`.Count()`) is the Bust spelling.
+`.Count()`) is the Vinyl spelling.
 
 ### Test-authoring mistake worth recording
 
@@ -415,7 +415,7 @@ Matching a `String` scrutinee against `"..."` literal patterns doesn't
 compile — the literals are `&str` and no coercion happens in the pattern
 position. Workaround: use an `If / ElseIf` chain with `=` — `String = "a"`
 comparisons are fine (Rust's `PartialEq<&str> for String`). Worth checking
-whether Bust should lower String match scrutinees via `.as_str()`.
+whether Vinyl should lower String match scrutinees via `.as_str()`.
 
 ### Mapping note
 
@@ -505,7 +505,7 @@ Dim k As Long = FindIn(upper, Mid(keyword, pos, 1))
 '                             ^ � ✘ mismatched types: expected `&str`, found `String`
 ```
 
-A `ByVal String` parameter renders as `&str`, and Bust auto-borrows a String
+A `ByVal String` parameter renders as `&str`, and Vinyl auto-borrows a String
 *variable* at the call site — but a call expression returning String isn't
 borrowed, so it fails. Workaround: assign the expression to a local first
 (`Dim keyChar As String = Mid(...)`), then pass the variable. Same shape as
@@ -1049,7 +1049,7 @@ First project to use the **DateTime** stdlib.
 - `DateTime.Parse(text, pattern).Unwrap()` + `Format("%u")` gives the ISO
   weekday deterministically — no `Now()`, so the output is reproducible
   (same discipline as the other examples).
-- Leap-year logic (`Mod 400 / 100 / 4`) and the month table are plain Bust.
+- Leap-year logic (`Mod 400 / 100 / 4`) and the month table are plain Vinyl.
 
 ### Quirk 41 — [CONFIRMED] `Dim` is a reserved word as a variable name
 
@@ -1125,7 +1125,7 @@ self-check on startup is a genuinely useful Godot-verification pattern.
   `GetNode`, signals (`Signal`/`Emit`/`Connect … To`/`Sub OnFinished`) all
   compile and run first-try once the borrow workarounds were in.
 - Cross-module calls from node bodies (`Maze.TryMove`, `Maze.IsWall`) are
-  plain Bust — the resolver runs on node bodies like any other surface.
+  plain Vinyl — the resolver runs on node bodies like any other surface.
 - `rungodot` project folder flow (main.vbr + sibling modules + generated
   `*_godot/`) works; the cdylib compiled without Godot present, and Godot
   loaded it at runtime.
@@ -1321,6 +1321,6 @@ first try; output matches.
 
 The spec's examples (`sum_types.vbr`, `enum_payloads.vbr`) are accurate —
 no transpiler quirks surfaced here. A satisfyingly clean first test of
-Bust's signature feature.
+Vinyl's signature feature.
 
 ---

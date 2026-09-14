@@ -1,11 +1,11 @@
 # 57 — Progress Bar
 
 A terminal TUI (ratatui `Screen`) that simulates a file download with a
-live progress **Gauge**. This is the natural Bust home for the book's
+live progress **Gauge**. This is the natural Vinyl home for the book's
 "download task simulation" — a single-line animated progress bar becomes a
 real gauge widget with a status line, refreshed by an `Every` timer.
 
-## Bust language features tested
+## Vinyl language features tested
 
 **TUI (`Screen`)** — this project is the first in the series to use the
 terminal interface:

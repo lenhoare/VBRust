@@ -3,7 +3,7 @@
 ' prints and exits from Main. Backed by stdio + POSIX; the same program
 ' transpiles to Rust, Python and C.
 Function Main()
-    FileSystem.Write("vbr_fs_demo.txt", "Hello from Bust")
+    FileSystem.Write("vbr_fs_demo.txt", "Hello from Vinyl")
 
     Dim text As String = FileSystem.Read("vbr_fs_demo.txt")
     Debug.Print "file says:    " & text

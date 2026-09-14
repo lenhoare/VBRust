@@ -108,7 +108,7 @@ static Result_str_str vbr_regex_replaceall(char* pattern, char* text, char* repl
 }
 
 int main(void) {
-    Result_unit_str _t0 = vbr_fs_write("greeting.txt", "Hello   from   Bust");
+    Result_unit_str _t0 = vbr_fs_write("greeting.txt", "Hello   from   Vinyl");
     if (!_t0.is_ok) { fprintf(stderr, "Error: %s\n", _t0.err); return 1; }
     (void)0;
     Result_str_str _t1 = vbr_fs_read("greeting.txt");

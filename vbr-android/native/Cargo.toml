@@ -2,7 +2,7 @@
 name = "vbr-android"
 version = "0.1.0"
 edition = "2021"
-description = "VBR compiler + TinyCC runner for the Android editor (also host-testable)."
+description = "Vinyl compiler + TinyCC runner for the Android editor (also host-testable)."
 
 [lib]
 name = "vbr_android"

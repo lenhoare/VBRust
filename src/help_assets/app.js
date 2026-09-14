@@ -115,8 +115,8 @@
 
   var WELCOME =
     '<div class="welcome">'
-    + '<h1>Bust Help</h1>'
-    + '<p class="summary">Bust is a modern dialect of Visual Basic that compiles to clean, '
+    + '<h1>Vinyl Help</h1>'
+    + '<p class="summary">Vinyl is a modern dialect of Visual Basic that compiles to clean, '
     +   'idiomatic Rust. You write in the familiar <code>Sub</code>/<code>Function</code>, '
     +   '<code>Dim … As</code>, <code>If … Then</code> shape of VB6 and VBA — and out comes '
     +   'real Rust you can read, run, and learn from.</p>'
@@ -125,9 +125,9 @@
     +   'example is compiled, and the generated Rust is printed beneath it.</p>'
     + '<p>Pick a topic on the left (tap <b>☰</b> on a phone), or press <kbd>/</kbd> to search.</p>'
 
-    + '<h2>How Bust differs from VB</h2>'
+    + '<h2>How Vinyl differs from VB</h2>'
     + '<p>If you know VB6 or VBA most of this will feel like home. A handful of things are '
-    +   'deliberately different — usually because Bust leans on Rust’s type system instead of '
+    +   'deliberately different — usually because Vinyl leans on Rust’s type system instead of '
     +   'the old runtime.</p>'
     + '<table class="members"><tbody>'
     + row('Static types, no <code>Variant</code>',

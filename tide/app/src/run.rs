@@ -84,7 +84,7 @@ fn find_vbr_bin() -> Option<PathBuf> {
             }
         }
     }
-    // tide/app → Bust repo root (this source tree).
+    // tide/app → Vinyl repo root (this source tree).
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     roots.push(manifest.join("../.."));
     roots.push(manifest.join("../../.."));
@@ -163,7 +163,7 @@ pub fn run_vbr(terminal: &mut TideTerminal, path: &Path) -> io::Result<String> {
     if let Err(e) = &status {
         eprintln!("✘ Failed to launch `{bin}`: {e}");
         eprintln!(
-            "  Tide needs the vbr CLI. From the Bust repo root:  cargo build\n  \
+            "  Tide needs the vbr CLI. From the Vinyl repo root:  cargo build\n  \
              or set VBR_BIN to the vbr executable (it is not on PATH)."
         );
     }
@@ -189,7 +189,7 @@ pub fn run_vbr(terminal: &mut TideTerminal, path: &Path) -> io::Result<String> {
             args.join(" ")
         )),
         Err(e) => Ok(format!(
-            "Failed to run `{shown}`: {e}. Build vbr (`cargo build` in the Bust repo) or set VBR_BIN."
+            "Failed to run `{shown}`: {e}. Build vbr (`cargo build` in the Vinyl repo) or set VBR_BIN."
         )),
     }
 }

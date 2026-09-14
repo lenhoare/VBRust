@@ -1,4 +1,4 @@
-"""`Json` — the Bust standard library's JSON value, on Python's `json`. A `Json`
+"""`Json` — the Vinyl standard library's JSON value, on Python's `json`. A `Json`
 wraps a parsed Python object (dict/list/scalar); the typed accessors return
 `Ok`/`Err`, mirroring `vbr_stdlib::Json` (`get_string` → `Result<String>` etc.).
 Named `jsonval` internally so `import json` reaches the real stdlib module."""

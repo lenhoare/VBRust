@@ -14,7 +14,7 @@ fn knows(scores: &HashMap<String, i64>, who: &str) -> Result<bool, String> {
 }
 
 fn firstname(names: &Vec<String>) -> Result<String, String> {
-    // Indexing a Vec can't *move* the String out — Bust clones it for you.
+    // Indexing a Vec can't *move* the String out — Vinyl clones it for you.
     Ok(names[0].clone())
 }
 

@@ -1,7 +1,7 @@
-//! The **C backend** — Bust's third target, after Rust and Python. Where the
+//! The **C backend** — Vinyl's third target, after Rust and Python. Where the
 //! Python target could lean on dynamic typing and a garbage collector, C gives
 //! us neither: every declaration needs a type (supplied by the neutral typing
-//! pass, [`crate::types`]) and every heap value must be freed by hand. Bust's
+//! pass, [`crate::types`]) and every heap value must be freed by hand. Vinyl's
 //! answer to the latter is *leak-by-default* with an explicit `x = Nothing`
 //! release hook (`Stmt::Destroy`) — which is exactly what makes a C target
 //! worth having: it puts on the page the manual-memory cost that Rust's
@@ -742,7 +742,7 @@ impl Emitter {
             Stmt::Continue => self.line("continue;"),
             other => {
                 self.warn(format!("`{}` doesn't lower to C yet.", stmt_name(other)));
-                self.line(&format!("/* [Bust→C] unsupported: {} */", stmt_name(other)));
+                self.line(&format!("/* [Vinyl→C] unsupported: {} */", stmt_name(other)));
             }
         }
     }
@@ -981,7 +981,7 @@ impl Emitter {
             }
             _ => {
                 self.warn("`For Each` needs a Vec or HashMap.");
-                self.line("/* [Bust→C] For Each over a non-collection */");
+                self.line("/* [Vinyl→C] For Each over a non-collection */");
             }
         }
     }
@@ -1095,7 +1095,7 @@ impl Emitter {
             }
             ExprKind::ParallelSum(..) => {
                 self.warn("`Parallel Sum` is Rust-only.");
-                "0 /* [Bust→C] Parallel Sum */".to_string()
+                "0 /* [Vinyl→C] Parallel Sum */".to_string()
             }
             ExprKind::Binary { op: BinOp::Concat, lhs, rhs } => {
                 self.need_concat = true;
@@ -1180,7 +1180,7 @@ impl Emitter {
             }
             other => {
                 self.warn(format!("`{}` doesn't lower to C yet.", expr_name(other)));
-                "0 /* [Bust→C] unsupported */".to_string()
+                "0 /* [Vinyl→C] unsupported */".to_string()
             }
         }
     }
@@ -3308,7 +3308,7 @@ fn is_float(ty: &DeclType) -> bool {
     matches!(ty, DeclType::Plain(Type::Single | Type::Double))
 }
 
-/// A Bust identifier as a C one. VB is case-insensitive, so everything lowercases
+/// A Vinyl identifier as a C one. VB is case-insensitive, so everything lowercases
 /// (which also turns `Function Main` into C's `main`).
 fn c_name(name: &str) -> String {
     name.to_ascii_lowercase()

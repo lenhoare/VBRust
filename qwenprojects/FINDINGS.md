@@ -1,4 +1,4 @@
-# VBR Field Findings
+# Vinyl Field Findings
 
 Bug/quirk log from building test projects in this folder. Written 2026-08-16 onward.
 No Rust/transpiler changes made — observations only.
@@ -70,9 +70,9 @@ correct on any text" — `Len` undercuts that. Suggested fix: `Len` → `s.chars
 Repro: `qwenprojects/.scratch` (temporary) — printed values above.
 
 ## F-007 | 2026-08-16 | quirk | caesar
-`Chr` is 8-bit only: `Chr(8364)` fails at transpile time with a clean VBR-level
+`Chr` is 8-bit only: `Chr(8364)` fails at transpile time with a clean Vinyl-level
 message ("literal out of range for `u8`"). Faithful to VB6's `Chr` (the wide version
-was `ChrW`, which VBR doesn't have), but sits oddly next to Unicode-aware `Mid`.
+was `ChrW`, which Vinyl doesn't have), but sits oddly next to Unicode-aware `Mid`.
 Either add a wide variant or document the limit where the Mid teach line appears.
 `Asc` returns the full code point, so `Asc`/`Chr` don't round-trip past 255.
 
@@ -256,7 +256,7 @@ Inside a `Gpu Draw` kernel, the ordinary pattern `Dim dx As Long` followed by
 `For dx = -1 To 1` generates WGSL with the variable declared TWICE
 (`var dx = 0.0;` from the Dim, `var dx = -1.0;` from the loop), which naga rejects
 at runtime: "redefinition of `dx`" → wgpu panic, window dies. The identical pattern
-is legal (and silently deduplicated) in normal Bust → Rust — see F-002 and cellab's
+is legal (and silently deduplicated) in normal Vinyl → Rust — see F-002 and cellab's
 main loops. So the rule differs per surface, invisibly. Workaround: drop the Dim in
 kernels. The failure is also late (runtime shader compile) — this one could be caught
 at transpile time alongside the reserved-name check.
@@ -267,7 +267,7 @@ kernel — `Sample(frame, x, y).r / .g` channel read-back (channel access on Sam
 NOT documented anywhere I could find; discovered by trying it — worth documenting),
 a 3×3 neighbourhood of frame samples per pixel, clamping, and mouse seeding — runs
 live on the GPU with the frame-feedback loop closed. State-carrying simulations in
-pure VBR kernels are feasible.
+pure Vinyl kernels are feasible.
 
 ---
 
@@ -320,12 +320,12 @@ current pattern, ideally with a "saving your own Type" recipe in stdlib_spec.
 
 ## F-036 | 2026-08-16 | quirk | recipes
 Ownership seams surface inside Event handlers as raw rustc errors (E0382/E0507),
-not translated VBR-level ones: (1) a String event parameter is moved by the first
+not translated Vinyl-level ones: (1) a String event parameter is moved by the first
 `field = value` assignment — later reads of the parameter fail; (2) building a
 Type literal from String state fields moves them — needs `.Clone()`; (3) assigning
 a Type into a Vec in a loop AND pushing it afterwards needs `.Clone()` on the loop
 assignment. All fixable with `.Clone()` and the compiler even suggests it, but a
-teach line ("Bust strings move on assignment — add .Clone() to keep a copy") would
+teach line ("Vinyl strings move on assignment — add .Clone() to keep a copy") would
 turn three confusing rustc walls into one lesson. Note Reads from Vec/book structs
 are auto-cloned — it's only the write paths above that bite.
 

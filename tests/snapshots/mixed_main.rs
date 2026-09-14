@@ -1,4 +1,4 @@
-// A mixed project: Bust calls into a hand-written Rust module (text.rs).
+// A mixed project: Vinyl calls into a hand-written Rust module (text.rs).
 
 mod text;
 

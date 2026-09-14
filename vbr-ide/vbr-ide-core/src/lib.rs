@@ -1,7 +1,7 @@
-//! The compiler-facing core of the Bust IDE.
+//! The compiler-facing core of the Vinyl IDE.
 //!
 //! This crate deliberately knows nothing about Tauri, webviews, or the
-//! frontend — it just turns Bust source into the two things the editor needs to
+//! frontend — it just turns Vinyl source into the two things the editor needs to
 //! show: the generated Rust, and the diagnostics to draw over the source.
 //!
 //! Keeping it separate from the desktop shell means it builds and unit-tests on
@@ -63,7 +63,7 @@ fn to_position(source: &str, byte_offset: usize) -> (u32, u32) {
 }
 
 /// One diagnostic, flattened for the frontend: a level string the UI can style
-/// on, the message, the 1-based Bust line, and a Monaco-ready range when the
+/// on, the message, the 1-based Vinyl line, and a Monaco-ready range when the
 /// compiler pinned a span (line-only diagnostics leave `range` as `None`).
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnostic {
@@ -83,13 +83,13 @@ pub struct TranspileResult {
     /// (C is highlighted with Monaco's C/C++ grammar).
     pub language: String,
     pub diagnostics: Vec<Diagnostic>,
-    /// `(generated line, Bust line)` 1-based checkpoints, same map Tide uses
+    /// `(generated line, Vinyl line)` 1-based checkpoints, same map Tide uses
     /// to keep the two panes on the same statement. Empty for Python (no
     /// emitter map yet) and some GUI programs.
     pub line_map: Vec<(usize, usize)>,
 }
 
-/// Transpile a single Bust source string to Rust, collecting diagnostics.
+/// Transpile a single Vinyl source string to Rust, collecting diagnostics.
 ///
 /// A pure function of the source — the same call the playground makes in the
 /// browser, minus the browser.
@@ -116,7 +116,7 @@ pub fn transpile(source: &str) -> TranspileResult {
 }
 
 /// Transpile `source` to a chosen output target: `"rust"` (default), `"python"`,
-/// or `"c"`. The **structured** Bust diagnostics (with spans, for the editor's
+/// or `"c"`. The **structured** Vinyl diagnostics (with spans, for the editor's
 /// squiggles) are target-neutral, so they always come from the Rust front-end;
 /// the code + Monaco language switch per target, and each non-Rust target's own
 /// warnings (unsupported constructs) are appended as span-less notes.
@@ -159,7 +159,7 @@ fn append_warnings(diagnostics: &mut Vec<Diagnostic>, warnings: &[String]) {
 
 /// The outcome of a Run: which stage it reached, and the output there.
 ///
-/// `stage` is one of `"diagnostics"` (Bust errors blocked it), `"compile"`
+/// `stage` is one of `"diagnostics"` (Vinyl errors blocked it), `"compile"`
 /// (rustc rejected the generated Rust), or `"run"` (it built and executed).
 #[derive(Debug, Clone, Serialize)]
 pub struct RunOutput {
@@ -184,7 +184,7 @@ impl RunOutput {
     }
 }
 
-/// Transpile, compile, and run a single self-contained Bust program, capturing
+/// Transpile, compile, and run a single self-contained Vinyl program, capturing
 /// its output. This mirrors what `vbr run` does for a one-file program: it does
 /// **not** wire up the standard library or external crates — a program that
 /// needs those is a project, and rustc will say so. Kept in the core (not the
@@ -193,7 +193,7 @@ pub fn run(source: &str) -> RunOutput {
     let compiled = vbr::compile(source);
     let diagnostics = map_diagnostics(source, &compiled.diagnostic_items);
 
-    // Bust errors block the run before we ever reach rustc.
+    // Vinyl errors block the run before we ever reach rustc.
     if compiled.has_errors {
         return RunOutput::blocked("diagnostics", compiled.rust, diagnostics, String::new());
     }
@@ -234,7 +234,7 @@ pub fn run(source: &str) -> RunOutput {
         std::fs::write(&src_path, &compiled.rust)
             .map_err(|e| format!("Could not write the generated Rust: {e}"))?;
 
-        // Compile the single file with rustc (edition 2021, as Bust emits).
+        // Compile the single file with rustc (edition 2021, as Vinyl emits).
         let compile = Command::new("rustc")
             .arg(&src_path)
             .arg("--edition")
@@ -492,7 +492,7 @@ fn read_dir_entries(dir: &Path) -> Vec<FileEntry> {
     entries
 }
 
-/// Read a folder into a `Project`: its file tree, and whether it's a Bust project
+/// Read a folder into a `Project`: its file tree, and whether it's a Vinyl project
 /// (has a `main.vbr` entry point).
 pub fn read_project(root: &Path) -> Project {
     let main = root.join("main.vbr");
@@ -787,7 +787,7 @@ pub fn definition(source: &str, line: u32, col: u32) -> Option<Range> {
 mod tests {
     use super::*;
 
-    // A Bust program's statements live inside `Function Main()`; bare top-level
+    // A Vinyl program's statements live inside `Function Main()`; bare top-level
     // statements are themselves an error (correctly).
     fn in_main(body: &str) -> String {
         format!("Function Main()\n{body}\nEnd Function\n")

@@ -1,4 +1,4 @@
-//! Bust language server.
+//! Vinyl language server.
 //!
 //! Speaks the Language Server Protocol over stdio and reuses the `vbr` compiler
 //! front-end. Tier 1: live diagnostics — on every edit it runs `vbr::compile`
@@ -173,7 +173,7 @@ impl Backend {
     }
 }
 
-/// Run the Bust compiler over `text` and translate its structured diagnostics into
+/// Run the Vinyl compiler over `text` and translate its structured diagnostics into
 /// LSP diagnostics. A diagnostic that carries a byte span underlines exactly that
 /// range; one with only a 1-based line spans that whole line.
 fn compile_to_diagnostics(text: &str) -> Vec<Diagnostic> {
@@ -191,7 +191,7 @@ fn compile_to_diagnostics(text: &str) -> Vec<Diagnostic> {
                     lsp_pos(text, &index, span.end),
                 ),
                 _ => {
-                    // Bust lines are 1-based; a line-less diagnostic is pinned to the top.
+                    // Vinyl lines are 1-based; a line-less diagnostic is pinned to the top.
                     let line = d.line.map(|l| l.saturating_sub(1) as u32).unwrap_or(0);
                     let end = line_len.get(line as usize).copied().unwrap_or(0).max(1);
                     Range::new(Position::new(line, 0), Position::new(line, end))
@@ -213,7 +213,7 @@ fn compile_to_diagnostics(text: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
-/// The LSP kind for a Bust completion — drives the icon in the list.
+/// The LSP kind for a Vinyl completion — drives the icon in the list.
 fn completion_kind(kind: vbr::complete::CompletionKind) -> CompletionItemKind {
     use vbr::complete::CompletionKind as K;
     match kind {

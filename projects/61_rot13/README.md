@@ -5,7 +5,7 @@ alphabet has 26 letters, applying ROT13 twice returns the original — the
 same function both encrypts and decrypts. Case is preserved; numbers and
 punctuation pass through.
 
-## Bust language features tested
+## Vinyl language features tested
 
 - `Mid` / `Len()` / string building with `&`
 - `Mod` for wrap-around

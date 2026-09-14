@@ -13,7 +13,7 @@ Function Main()
     Dim everyone As DataFrame = people.Left_Join(orders, "name")
     everyone.Print()
 
-    ' Nulls have no Bust type — filter unmatched rows out, then extract.
+    ' Nulls have no Vinyl type — filter unmatched rows out, then extract.
     Dim matched As DataFrame = everyone.Filter(Not Is_Null(item))
     Dim amounts As Vec<Double> = matched.Column("amount")
     Dim total As Double = 0

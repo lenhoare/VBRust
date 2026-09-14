@@ -33,7 +33,7 @@ Public Function Decode(ByVal tape As String) As String
 End Function
 
 Public Function SampleTape() As String
-    Return Encode("cq de bust")
+    Return Encode("cq de vinyl")
 End Function
 
 Function CodeOf(ByVal ch As String) As String

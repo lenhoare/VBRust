@@ -1,6 +1,6 @@
-# Bust Language Support (VS Code)
+# Vinyl Language Support (VS Code)
 
-Editor assistance for `.vbr` files, powered by the Bust compiler itself:
+Editor assistance for `.vbr` files, powered by the Vinyl compiler itself:
 
 - **Live diagnostics** — as you type, the compiler runs and its errors,
   warnings, and teaching notes appear as squiggles, underlining the exact
@@ -34,7 +34,7 @@ Not yet: go-to-definition for functions and parameters.
   completions_at(source, offset)` answers completion from that plus curated
   member catalogues mirroring `vbr_stdlib`'s API.
 - **this extension** — a thin VS Code client that launches the server and tells
-  it which files are Bust. All the real work is in the server.
+  it which files are Vinyl. All the real work is in the server.
 
 ## Try it
 

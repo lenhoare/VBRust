@@ -1,2 +1,2 @@
 ✘ [line 7] `?` is gone. Errors propagate automatically — just write the call. To intercept it, use `Handle err` … `End Handle`. To take the `Result` as a value, use `Raw F()`.
-ℹ Bust names are their lowercase self in Rust — e.g. `Report` becomes `report`. (Functions and variables lowercase, constants uppercase; shown once.)
+ℹ Vinyl names are their lowercase self in Rust — e.g. `Report` becomes `report`. (Functions and variables lowercase, constants uppercase; shown once.)

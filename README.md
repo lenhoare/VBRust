@@ -1,4 +1,4 @@
-# Bust
+# Vinyl
 
 A transpiler that turns VB-flavoured source into idiomatic Rust, compiles it, and
 runs it. It's a teaching tool: the syntax is familiar VB, the semantics are Rust's,
@@ -16,11 +16,11 @@ and the generated Rust is always there to read.
 - **`parallel_spec.md`** — independent loops and CUDA (niche, Rust-only).
 - **`targets_spec.md`** — the alternative transpile targets: `vbr py` (Python) and `vbr c` (C).
 - **`godot_spec.md`** — an optional extra: a `Node2D`/`Node3D` (…) → a Godot game, via godot-rust.
-- **`android_spec.md`** — a phone editor that **runs** VBR (`vbr-android/`).
+- **`android_spec.md`** — a phone editor that **runs** Vinyl (`vbr-android/`).
 
 ## Building
 
-Bust is a Rust project. Build the `vbr` binary with Cargo:
+Vinyl is a Rust project. Build the `vbr` binary with Cargo:
 
 ```sh
 cargo build              # debug build → target/debug/vbr
@@ -116,11 +116,11 @@ wasm32-unknown-unknown` and `cargo install trunk --locked`. See `web_spec.md`.
 
 ## Games (Godot) — an optional extra
 
-An **optional** bolt-on, not a core Bust target: a `Node2D`/`Node3D` (…) block is a
+An **optional** bolt-on, not a core Vinyl target: a `Node2D`/`Node3D` (…) block is a
 **Godot** game object that compiles to a GDExtension (a cdylib, via
 [godot-rust](https://godot-rust.github.io/)) the Godot editor loads. It's for
 making 2D (and 3D) games, built on the same machinery as the other surfaces — so
-it reads like the rest of Bust, but you can ignore it entirely.
+it reads like the rest of Vinyl, but you can ignore it entirely.
 
 ```sh
 cargo run -- rungodot examples/godot_player.vbr    # a single node
@@ -136,7 +136,7 @@ signals, scene tree, spawning, input) and asset-aware project folders. Needs
 ## Playground
 
 The transpiler itself compiles to WebAssembly: `playground/` is a two-pane
-browser app — type Bust on the left, read the generated Rust (and the teaching
+browser app — type Vinyl on the left, read the generated Rust (and the teaching
 diagnostics) on the right, with an example picker covering the language. No
 server; the compiler runs in the page.
 
@@ -179,7 +179,7 @@ the same checkout works on Linux and Windows with no per-machine path. (To point
 elsewhere, set `vbr.serverPath`.)
 
 **See the Rust it becomes, side by side.** With a `.vbr` open, run
-*"Bust: Open Rust Output to the Side"* (the split icon in the editor title bar, or
+*"Vinyl: Open Rust Output to the Side"* (the split icon in the editor title bar, or
 the Command Palette). A read-only pane opens in the second column showing the
 generated Rust; it refreshes every time you save. If the program doesn't compile,
 the pane shows the transpiler's teaching diagnostics instead. (For a snappy
@@ -187,9 +187,9 @@ refresh, `cargo build --release` once so the extension can use the prebuilt `vbr
 binary rather than `cargo run`.)
 
 **Run it.** With a `.vbr` open, click the ▶ button in the editor title bar (or
-press **Ctrl+Alt+R**, or *"Bust: Run File"* in the Command Palette) — it runs the
+press **Ctrl+Alt+R**, or *"Vinyl: Run File"* in the Command Palette) — it runs the
 file in a terminal, no `launch.json` needed. The ▶ also works on a `.rs` file
-that embeds Bust (a `/* vbr … */` block): it expands the block with `vbr embed`,
+that embeds Vinyl (a `/* vbr … */` block): it expands the block with `vbr embed`,
 reloads the file, and — if it's a standalone file with a `fn main` — compiles it
 with `rustc` and runs it. Inside a Cargo project it stops after expanding and
 leaves running to cargo's own build/run (Ctrl+Shift+B / the ▶ over `fn main`).
@@ -197,10 +197,10 @@ leaves running to cargo's own build/run (Ctrl+Shift+B / the ▶ over `fn main`).
 A `.vscode/tasks.json` also adds build tasks (in a VBRust checkout):
 **Ctrl+Shift+B** runs the current `.vbr` file; Terminal → Run Task offers
 *Run project*, *Run in Godot*, and *Test*. Note that in an ordinary Rust project
-Ctrl+Shift+B keeps its usual meaning (cargo build the crate) — the Bust run verb
+Ctrl+Shift+B keeps its usual meaning (cargo build the crate) — the Vinyl run verb
 lives on its own **Ctrl+Alt+R** / ▶ so the two never collide.
 
-**Debugging.** Bust is a transpiler, so debugging means debugging the Rust it
+**Debugging.** Vinyl is a transpiler, so debugging means debugging the Rust it
 produces — and the live view above already shows you that Rust. If you ever want
 to step through it, `vbr debugbuild <file.vbr>` compiles a symbol-carrying binary
 (plus the generated `.rs`) into `.vbrdebug/` (git-ignored) and prints its path;
@@ -212,22 +212,22 @@ teaching payoff is.)
 If you change the extension or the grammar, repackage with
 `cd editors/vscode && npx @vscode/vsce package` and reinstall.
 
-## Embedding Bust inside Rust
+## Embedding Vinyl inside Rust
 
-The mirror of inline Rust (`Rust … End Rust` inside Bust): you can drop a snippet
-of Bust into a Rust file. Write it in a `/* vbr … */` block comment, then run
+The mirror of inline Rust (`Rust … End Rust` inside Vinyl): you can drop a snippet
+of Vinyl into a Rust file. Write it in a `/* vbr … */` block comment, then run
 
 ```sh
 cargo run -- embed path/to/file.rs
 ```
 
 and the transpiler fills a managed `// vbr:gen … // vbr:gen-end` region right
-after it with the Rust your Bust became, indented to match. Re-running overwrites
-that region (idempotent), and because the Bust stays a comment the `.rs` compiles
+after it with the Rust your Vinyl became, indented to match. Re-running overwrites
+that region (idempotent), and because the Vinyl stays a comment the `.rs` compiles
 either way.
 
 The expansion is spliced into the *same* Rust function, so there's no runtime
-boundary — the embedded Bust can call Rust functions, read Rust variables in
+boundary — the embedded Vinyl can call Rust functions, read Rust variables in
 scope, and leave its own variables for the surrounding Rust to use:
 
 ```rust
@@ -249,22 +249,22 @@ fn sum_of_squares(limit: i64) -> i64 {
 }
 ```
 
-Bust is permissive at the seam — a name it doesn't recognise (`square`, `limit`)
+Vinyl is permissive at the seam — a name it doesn't recognise (`square`, `limit`)
 is assumed to be Rust in scope and passed straight through, so **Rust's own type
 checker is the source of truth at the boundary** (a mismatch surfaces as a normal
-`rustc` error). The VS Code extension colours the Bust inside the block via a
-grammar injection. Block comments end at the first `*/`, so embedded Bust can't
+`rustc` error). The VS Code extension colours the Vinyl inside the block via a
+grammar injection. Block comments end at the first `*/`, so embedded Vinyl can't
 contain a literal `*/` (only realistic inside a string — split it). See
 `examples/rust_embedding/`.
 
 `vbr embed --check <file.rs>` verifies without writing — it exits non-zero if the
-generated region is out of date (Bust edited but not re-expanded) or the Bust has
+generated region is out of date (Vinyl edited but not re-expanded) or the Vinyl has
 errors, so a pre-commit hook or CI can guarantee the committed Rust matches its
 source.
 
 ## Other targets: Python and C
 
-Bust is Rust-first — the language is defined around Rust, and everything above
+Vinyl is Rust-first — the language is defined around Rust, and everything above
 describes that target. As an **additive bolt-on**, the same source can also be
 transpiled to **Python** or **C**, to show one program in three languages:
 
@@ -303,7 +303,7 @@ hangs on Android). Spec: **`android_spec.md`**. The app lives in `vbr-android/`.
 ```sh
 cd vbr-android
 ./scripts/fetch-tcc.sh          # once: TinyCC + host libtcc
-cd native && cargo test         # proves VBR → C → TinyCC → stdout
+cd native && cargo test         # proves Vinyl → C → TinyCC → stdout
 ```
 
 The APK needs the Android NDK (the compiler .so is cross-compiled Rust + libtcc):

@@ -1,5 +1,5 @@
 ' cellab — animated cellular automata lab: Life, Day&Night, Maze.
-' LCG for seeding (no Rnd in VBR — the classic VB fallback).
+' LCG for seeding (no Rnd in Vinyl — the classic VB fallback).
 
 Const W As Long = 60
 Const H As Long = 28

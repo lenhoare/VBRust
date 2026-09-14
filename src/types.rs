@@ -329,7 +329,7 @@ impl Typer {
                 }
             }
             // `expr?` yields the unwrapped success value. Implicit `?` on a
-            // user function (Bust type is already `T`) is a no-op for inference.
+            // user function (Vinyl type is already `T`) is a no-op for inference.
             ExprKind::Try(inner) => match self.infer(inner) {
                 DeclType::Option(t) | DeclType::Result(t, _) => *t,
                 other => other,

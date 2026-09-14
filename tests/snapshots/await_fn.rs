@@ -1,6 +1,6 @@
 // Await your own function: a (pretend-slow) computation runs off the UI thread
 // via Await, and its Result comes back in the generated continuation. No stdlib
-// needed — Bust knows the function's return type, so it can build the message.
+// needed — Vinyl knows the function's return type, so it can build the message.
 
 fn sumto(n: i32) -> Result<i32, String> {
     if n < 0 {
