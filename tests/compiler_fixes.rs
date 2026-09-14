@@ -2962,3 +2962,54 @@ fn list_fill_python_and_c() {
     );
 }
 
+#[test]
+fn page_await_http_post_emits_fetch_wrapper() {
+    let src = "Page Poster\n\
+        \x20   Title \"Poster\"\n\
+        \x20   State\n\
+        \x20       Dim status As String = \"idle\"\n\
+        \x20   End State\n\
+        \x20   View\n\
+        \x20       Column\n\
+        \x20           Button \"POST\"\n\
+        \x20               On Click Send\n\
+        \x20           End Button\n\
+        \x20           Text status\n\
+        \x20       End Column\n\
+        \x20   End View\n\
+        \x20   Event Send\n\
+        \x20       Dim headers As HashMap<String, String>\n\
+        \x20       headers.Insert(\"Content-Type\", \"application/json\")\n\
+        \x20       Match Await Http.Post(\"https://example.com\", \"{}\", headers)\n\
+        \x20           Ok(text) => status = text\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Event\n\
+        End Page\n\
+        Function Main()\n\
+        \x20   Poster.Run\n\
+        End Function\n";
+    let c = vbr::compile_web(src);
+    assert!(!c.has_errors, "Page Await Http.Post: {:?}", c.diagnostics);
+    assert!(
+        c.rust.contains("http_post(") && c.rust.contains("Request::post"),
+        "should emit the browser POST wrapper: {}",
+        c.rust
+    );
+    assert!(
+        c.rust.contains(".header(") && c.rust.contains(".body("),
+        "wrapper should set headers and body: {}",
+        c.rust
+    );
+    assert!(
+        c.rust.contains("Ok(headers)") && c.rust.contains("http_post("),
+        "Dim locals used by Post must leave the kick-off closure: {}",
+        c.rust
+    );
+    assert!(
+        !c.diagnostics.iter().any(|d| d.contains("isn't supported")),
+        "Post should be awaited on a Page: {:?}",
+        c.diagnostics
+    );
+}
+

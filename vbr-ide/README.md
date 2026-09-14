@@ -17,9 +17,9 @@ is exactly what the CLI would produce.
 - **Inline diagnostics** — squiggles on the exact offending span (teaching
   message on hover), a summary strip you can click to jump to the problem, and
   counts in the status bar.
-- **Run** — the ▶ Run button (or `Ctrl+Enter`) compiles and runs the current
-  buffer, streaming its output to the console. (Single-file, std-only programs;
-  stdlib/GUI programs are projects — that's a later slice.)
+- **Run** — the ▶ Run button (or `Ctrl+Enter`) compiles and runs. An unsaved
+  buffer uses the single-file runner. A saved `.vbr` uses `vbr runproject` (the
+  file, or its folder) — Sketch / Window / stdlib programs included.
 - **Intelligence, in-process** — completion (members after `.`, names in
   scope), hover (VB type · Rust type), and go-to-definition, all served by the
   `vbr` compiler directly through Tauri commands. No LSP server: for a native
@@ -30,9 +30,7 @@ is exactly what the CLI would produce.
 - **Files** — New / Open / Save (`Ctrl+N`/`O`/`S`, native dialogs via `rfd`),
   with the filename in the status bar; work also auto-persists to localStorage.
 - **Projects** — Open a folder to get a file-tree sidebar; a folder with a
-  `main.vbr` is a *project* (opens on its entry point). **Run** on any saved
-  `.vbr` uses `vbr runproject` (the file, or its folder) — Sketch / Window /
-  stdlib programs included. An unsaved buffer still uses the single-file runner.
+  `main.vbr` is a *project* (opens on its entry point).
 - **Graduate & Test** — for an open project, **Test** runs `vbr test`, and
   **Graduate** promotes the selected module's generated Rust to source
   (`vbr graduate`) and refreshes the tree. Both stream output to the console.
@@ -60,8 +58,7 @@ Three pieces, each doing one job:
   Because it has no webview dependency, it builds and unit-tests on any
   platform (`cd vbr-ide-core && cargo test`).
 - **`src-tauri/`** — the Tauri (Rust) shell. It owns the window and exposes
-  `transpile_source` as a command the frontend calls. Later slices add commands
-  that shell out to `cargo`/`vbr` and spawn `vbr-lsp`.
+  compile, run, test, and graduate commands the frontend calls.
 - **`src/` + `index.html`** — the frontend: [Monaco](https://microsoft.github.io/monaco-editor/)
   (VS Code's editor) in two panes, wired to the backend over Tauri's IPC.
 

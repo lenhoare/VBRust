@@ -12,7 +12,7 @@ is the point — the odds are the joke.
 - `DataFrame.Read_Csv`, `df.Group_By(key).Agg(Count(col))`
 - `df.Write_Csv` — the grouped frame is round-tripped through CSV because
   `Count()` outputs a u32 column that `Column()` can't extract as
-  `Vec<Long>` (see notes.md Quirk 38)
+  `Vec<Long>` (see `old/projects/notes.md` Quirk 38)
 - `df.Column(name)` typed extraction into `Vec<Long>`
 
 **Core language (in lotto.vbr, 6 unit tests):**

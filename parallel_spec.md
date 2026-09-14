@@ -9,7 +9,7 @@ refuse it rather than looping sequentially or faking a host array.
 > `CudaBuffer`s is the GPU. There is no silent copy of a `Vec` onto the device.
 
 The compiler help category **Parallel** (`vbr help`) is the same surface as this
-file. Design notes that led here live in `parallel.md`.
+file. Design notes that led here live in `old/parallel.md`.
 
 ---
 

@@ -17,10 +17,10 @@
 //! Slice 3: view logic and the remaining display widgets — `Match`/`If` in the
 //! view (a Rust `match`/`if` choosing an `html!` fragment), `Slider`,
 //! `ProgressBar`, `Image`, and `Length`/`Fill` sizing.
-//! Slice 4: async — `Await Http.Get(url)` splits the event exactly as in the
-//! GUI (kick-off + generated `<Event>Done` continuation), but runs on the
-//! browser's own `fetch` (gloo-net) via `ctx.link().send_future` — no threads
-//! on wasm, and no vbr_stdlib (ureq doesn't compile there).
+//! Slice 4: async — `Await Http.Get` / `Http.Post` split the event exactly as
+//! in the GUI (kick-off + generated `<Event>Done` continuation), but run on
+//! the browser's own `fetch` (gloo-net) via `ctx.link().send_future` — no
+//! threads on wasm, and no vbr_stdlib (ureq doesn't compile there).
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
@@ -79,9 +79,9 @@ pub fn emit_web_program(
     }
 
     // The browser sandbox has no filesystem, and vbr_stdlib doesn't compile on
-    // wasm — so no stdlib in a Page, with one door: `Await Http.Get` in an
-    // event runs on the browser's own fetch (it never marks `stdlib:Http`, so
-    // it doesn't land here).
+    // wasm — so no stdlib in a Page, with one door: `Await Http.Get` /
+    // `Await Http.Post` in an event run on the browser's own fetch (they never
+    // mark `stdlib:Http`, so they don't land here).
     let std = crate::transpiler::stdlib_used(diags);
     if !std.is_empty() {
         diags.error_once(
@@ -89,16 +89,14 @@ pub fn emit_web_program(
             format!(
                 "The standard library ({}) isn't available in a Page — a browser sandbox has \
                  no filesystem, and its networking is async-only. For HTTP, use \
-                 `Await Http.Get(url)` inside an event (it runs on the browser's fetch).",
+                 `Await Http.Get(url)` or `Await Http.Post(url, body, headers)` inside an \
+                 event (they run on the browser's fetch).",
                 std.join(", ")
             ),
         );
     }
 
-    // The fetch wrapper behind an awaited `Http.Get`, emitted once when used.
-    if out.contains("http_get(") {
-        out.push_str(surface::HTTP_GET_HELPER);
-    }
+    surface::emit_browser_http_helpers(&mut out);
 
     let launched_page = launched(program, |name| {
         program.pages.iter().find(|p| p.name.eq_ignore_ascii_case(name))
@@ -265,17 +263,20 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
                 ),
                 // Async kick-off: pre-await body, snapshot state, send the future.
                 Some(s) => {
-                    surface::emit_event_stmts_caught(
+                    surface::emit_async_kickoff(
                         &s.pre, &e.params, "self", &fields, &field_ty, t, 4, diags, &mut out,
+                        &s.carry, "",
+                        |out, _diags| {
+                            for snap in &s.snapshots {
+                                out.push_str(&format!("                {}\n", snap));
+                            }
+                            out.push_str(&format!(
+                                "                ctx.link().send_future(async move {{ \
+                                 Message::{}Done({}.await) }});\n",
+                                e.name, s.call_src
+                            ));
+                        },
                     );
-                    for snap in &s.snapshots {
-                        out.push_str(&format!("                {}\n", snap));
-                    }
-                    out.push_str(&format!(
-                        "                ctx.link().send_future(async move {{ \
-                         Message::{}Done({}.await) }});\n",
-                        e.name, s.call_src
-                    ));
                 }
             }
             out.push_str("            }\n");

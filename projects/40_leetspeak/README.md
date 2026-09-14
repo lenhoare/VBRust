@@ -13,7 +13,7 @@ canonical substitution per letter) so the output is exact and testable.
 - A multi-branch `If / ElseIf` mapping chain
 - Note: `Match` on a `String` scrutinee against `&str` literal patterns
   does not compile (mismatched types) — use `If/ElseIf` with `=` instead.
-  See notes.md Quirk 14.
+  See `old/projects/notes.md` Quirk 14.
 
 ## Standard-library features tested
 

@@ -16,7 +16,7 @@ unit-tested; the Window renders from state.
 - State as `Vec<Long>` grid + precomputed `Vec<CellRect>`; grid maths
   happens in the events so Draw only paints
 - A state field's initialiser can't read a sibling field — `rects` is
-  built from a fresh identical seed instead (see notes.md Quirk 47)
+  built from a fresh identical seed instead (see `old/projects/notes.md` Quirk 47)
 
 **Core language (in life.vbr, 8 unit tests):**
 - Flat `Vec<Long>` grid, row-major; `CellAt` with bounds checks

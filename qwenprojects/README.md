@@ -2,7 +2,7 @@
 
 Built by an assistant to shake out the Vinyl language by writing real
 programs in it. No Rust/transpiler source was changed; every problem met was
-either worked around in-language or skipped, and logged in **FINDINGS.md**
+either worked around in-language or skipped, and logged in **`old/qwenprojects/FINDINGS.md`**
 (F-001 … F-032, dated, kinded bug/quirk/ergonomic/positive, with repros).
 
 ## How to run
@@ -49,7 +49,7 @@ run them in a real terminal. GUI/GPU projects open a window (WSLg).
 Regression sweep first: unary-minus-on-Double fixed (F-013), `Str()` added;
 Len/Mid unit mismatch, InStr zero-base, ByRef-init, variable Step, f64 For
 bounds, `Double ^ Long`, and the py/C string builtins were still open at sweep
-time (see FINDINGS.md, "Round 2" section).
+time (see `old/qwenprojects/FINDINGS.md`, "Round 2" section).
 
 | Project | Surface | What it is |
 |---|---|---|
@@ -72,7 +72,7 @@ other on this WSLg box (F-041).
 - **A lot worked first try:** terminal maths/fractals, the GUI form, and both GPU
   sketches all ran on the first (or second) compile. Error messages and teaching
   lines are generally excellent — the `Rnd()` refusal even hands you the fix.
-- **Recurring themes in FINDINGS.md:**
+- **Recurring themes in `old/qwenprojects/FINDINGS.md`:**
   - String builtins disagree about units (`Len` counts bytes, `Mid` counts chars —
     F-006) and are missing from the py/C targets (F-015).
   - VB-familiar gaps: `Split`, `Join`, `Space`, `Atn`, `Format` (F-008/F-011/F-022).
@@ -83,4 +83,4 @@ other on this WSLg box (F-041).
   - GPU kernels differ invisibly from normal code: reserved names (F-030) and a
     `Dim`+`For` redefinition (F-031).
 
-See FINDINGS.md for the full, dated record.
+See `old/qwenprojects/FINDINGS.md` for the full, dated record.

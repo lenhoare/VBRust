@@ -14,8 +14,8 @@ use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::resolver;
 use crate::transpiler::{
-    body_never_returns, decltype_rust, emit_const, emit_enum, emit_fn, emit_impl, emit_stmt,
-    emit_struct, note_builtins, render_expr, rust_name, stdlib_type,
+    body_never_returns, collect_expr_idents, decltype_rust, emit_const, emit_enum, emit_fn,
+    emit_impl, emit_stmt, emit_struct, note_builtins, render_expr, rust_name, stdlib_type,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -304,8 +304,8 @@ pub(crate) fn state_maps(
 
 /// How a backend runs an awaited call. `Native` (Window/Screen) offloads the
 /// blocking vbr_stdlib to a thread (`tokio::task::spawn_blocking` / a spawned
-/// thread); the browser backends have no threads — `Http.Get` maps to the
-/// generated `http_get` wrapper over the browser's own async `fetch` instead.
+/// thread); the browser backends have no threads — `Http.Get` / `Http.Post`
+/// map to generated wrappers over the browser's own async `fetch` instead.
 /// Also decides the state receiver the async split snapshots against: `state`
 /// in an update fn or a Screen's key/timer closure, `self` in a Yew component.
 #[derive(Clone, Copy, PartialEq)]
@@ -355,6 +355,47 @@ async fn http_get(url: &str) -> Result<String, String> {
 }
 
 ";
+
+/// Sibling of `HTTP_GET_HELPER` for `Await Http.Post` — same error shape, plus
+/// a body and the request-header map the stdlib call takes.
+pub(crate) const HTTP_POST_HELPER: &str = "\
+/// The browser's `fetch`, shaped like the stdlib's `Http.Post`: the response
+/// body on success; any failure (network, CORS, an HTTP error status) as a
+/// `String` error.
+async fn http_post(
+    url: &str,
+    body: &str,
+    headers: std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    let mut builder = gloo_net::http::Request::post(url);
+    for (name, value) in headers {
+        builder = builder.header(&name, &value);
+    }
+    let response = builder
+        .body(body)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.ok() {
+        return Err(format!(\"HTTP {}\", response.status()));
+    }
+    response.text().await.map_err(|e| e.to_string())
+}
+
+";
+
+/// Append the Get/Post fetch wrappers a browser backend used, once each.
+pub(crate) fn emit_browser_http_helpers(out: &mut String) {
+    let get = out.contains("http_get(");
+    let post = out.contains("http_post(");
+    if get {
+        out.push_str(HTTP_GET_HELPER);
+    }
+    if post {
+        out.push_str(HTTP_POST_HELPER);
+    }
+}
 
 /// Analyse every event: split each around an `Await` (None = synchronous), and
 /// check that no blocking stdlib call runs un-`Await`ed (it would freeze the
@@ -457,6 +498,82 @@ pub(crate) fn emit_event_stmts_caught(
         pad, pad, pad
     ));
     out.push_str(&format!("{}}}\n", pad));
+}
+
+/// Emit the pre-await half of an async event, then `emit_spawn`.
+///
+/// `Dim` locals used by the awaited call (a JSON body, a header map) have to
+/// outlive the error-catching closure so the spawn / `send_future` that
+/// follows can move them. When `carry` is empty this is the usual caught
+/// pre-body plus `emit_spawn`. When it isn't, the closure returns those
+/// locals on success. `err_tail` is extra code for the failure arm — a GUI
+/// kick-off passes `Task::none()` so `update` still returns a Task; a Page
+/// or Screen leaves it empty.
+pub(crate) fn emit_async_kickoff(
+    pre: &[Stmt],
+    params: &[Param],
+    recv: &'static str,
+    fields: &HashSet<String>,
+    field_ty: &HashMap<String, DeclType>,
+    t: &Tables,
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+    carry: &[String],
+    err_tail: &str,
+    emit_spawn: impl FnOnce(&mut String, &mut Diagnostics),
+) {
+    if carry.is_empty() {
+        emit_event_stmts_caught(pre, params, recv, fields, field_ty, t, indent, diags, out);
+        emit_spawn(out, diags);
+        return;
+    }
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    let inner2 = "    ".repeat(indent + 2);
+    let tuple = match carry.len() {
+        1 => carry[0].clone(),
+        _ => format!("({})", carry.join(", ")),
+    };
+    out.push_str(&format!("{}{{\n", pad));
+    out.push_str(&format!("{}let __vbr_event: Result<_, String> = (|| {{\n", inner));
+    emit_event_stmts(pre, params, recv, fields, field_ty, t, indent + 2, diags, out);
+    if !body_never_returns(pre) {
+        out.push_str(&format!("{}Ok({})\n", inner2, tuple));
+    }
+    out.push_str(&format!("{}}})();\n", inner));
+    out.push_str(&format!("{}match __vbr_event {{\n", inner));
+    out.push_str(&format!("{}Err(__e) => {{\n", inner2));
+    out.push_str(&format!(
+        "{}    eprintln!(\"Error: {{}}\", __e);\n",
+        inner2
+    ));
+    if !err_tail.is_empty() {
+        out.push_str(&format!("{}    {}\n", inner2, err_tail));
+    }
+    out.push_str(&format!("{}}}\n", inner2));
+    out.push_str(&format!("{}Ok({}) => {{\n", inner2, tuple));
+    emit_spawn(out, diags);
+    out.push_str(&format!("{}}}\n", inner2));
+    out.push_str(&format!("{}}}\n", inner));
+    out.push_str(&format!("{}}}\n", pad));
+}
+
+/// `Dim` names declared in `pre` that the awaited call reads — those bindings
+/// must leave the kick-off closure so the spawn can move them.
+fn carry_dims(call: &Expr, pre: &[Stmt]) -> Vec<String> {
+    let dims: HashSet<String> = pre
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Dim { name, .. } => Some(rust_name(name)),
+            _ => None,
+        })
+        .collect();
+    let mut used = HashSet::new();
+    collect_expr_idents(call, &mut used);
+    let mut carry: Vec<String> = used.into_iter().filter(|n| dims.contains(n)).collect();
+    carry.sort();
+    carry
 }
 
 /// Build a per-screen view of the tables: `screen_subs` filled with this block's
@@ -723,6 +840,7 @@ pub(crate) struct AwaitSplit {
     pub(crate) blocking: bool,         // wrap the call in `spawn_blocking`
     pub(crate) bind: String,           // continuation binding: `result` (Match) or the Dim name
     pub(crate) cont: Vec<Stmt>,        // continuation statements (run when the result arrives)
+    pub(crate) carry: Vec<String>,     // Dim locals the spawn must take (body, headers, …)
 }
 
 /// What we need to know about an awaited stdlib call.
@@ -759,26 +877,32 @@ pub(crate) fn await_split(
                 if_let: *if_let,
             }];
             cont.extend(e.body[idx + 1..].iter().cloned());
+            let pre = e.body[..idx].to_vec();
+            let carry = carry_dims(call, &pre);
             Some(AwaitSplit {
-                pre: e.body[..idx].to_vec(),
+                pre,
                 snapshots: info.snapshots,
                 call_src: info.call_src,
                 ret_type: info.ret_type,
                 blocking: info.blocking,
                 bind: "result".to_string(),
                 cont,
+                carry,
             })
         }
         Stmt::Dim { name, init: Some(Expr { kind: ExprKind::Await(call), .. }), .. } => {
             let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
+            let pre = e.body[..idx].to_vec();
+            let carry = carry_dims(call, &pre);
             Some(AwaitSplit {
-                pre: e.body[..idx].to_vec(),
+                pre,
                 snapshots: info.snapshots,
                 call_src: info.call_src,
                 ret_type: info.ret_type,
                 blocking: info.blocking,
                 bind: rust_name(name),
                 cont: e.body[idx + 1..].to_vec(),
+                carry,
             })
         }
         _ => {
@@ -847,7 +971,7 @@ fn snapshot_args(
 /// Resolve an awaited call to its Rust form, result type, and how to run it: a
 /// known stdlib call (`Http.Get`), or one of the program's own functions (whose
 /// return type the `FnTable` records). Natively both run off the UI thread; on
-/// the web `Http.Get` maps to the generated `http_get` fetch wrapper instead
+/// the web `Http.Get` / `Http.Post` map to generated fetch wrappers instead
 /// (the browser is single-threaded — its HTTP is async by nature).
 fn awaitable_info(
     call: &Expr,
@@ -867,31 +991,36 @@ fn awaitable_info(
             let Some(canon) = canon else {
                 diags.error_once(
                     "await-not-awaitable",
-                    "`Await` works on a stdlib call (`Http.Get(url)`) or one of your own functions.",
+                    "`Await` works on a stdlib call (`Http.Get(url)`, `Http.Post(url, body, headers)`) \
+                     or one of your own functions.",
                 );
                 return None;
             };
             let m = rust_name(method);
             if backend.is_browser() {
-                if (canon, m.as_str()) != ("Http", "get") {
-                    diags.error_once(
-                        "await-unsupported",
-                        format!(
-                            "`Await {}.{}` isn't supported in {} yet — it awaits \
-                             `Http.Get` (the browser's fetch).",
-                            canon,
-                            method,
-                            backend.surface_name()
-                        ),
-                    );
-                    return None;
-                }
-                // No vbr_stdlib on wasm — the call goes to the generated
-                // `http_get` wrapper over the browser's fetch (gloo-net).
+                let helper = match (canon, m.as_str()) {
+                    ("Http", "get") => "http_get",
+                    ("Http", "post") => "http_post",
+                    _ => {
+                        diags.error_once(
+                            "await-unsupported",
+                            format!(
+                                "`Await {}.{}` isn't supported in {} yet — it awaits \
+                                 `Http.Get` or `Http.Post` (the browser's fetch).",
+                                canon,
+                                method,
+                                backend.surface_name()
+                            ),
+                        );
+                        return None;
+                    }
+                };
+                // No vbr_stdlib on wasm — the call goes to a generated wrapper
+                // over the browser's fetch (gloo-net).
                 let (snapshots, arg_src) = snapshot_args(args, field_ty, locals, backend.recv());
                 return Some(AwaitInfo {
                     snapshots,
-                    call_src: format!("http_get({})", arg_src.join(", ")),
+                    call_src: format!("{helper}({})", arg_src.join(", ")),
                     ret_type: "Result<String, String>".to_string(),
                     blocking: false,
                 });
@@ -904,8 +1033,8 @@ fn awaitable_info(
                     diags.error_once(
                         "await-unsupported",
                         format!(
-                            "`Await {}.{}` isn't supported yet — V1 awaits `Http.Get` or your \
-                             own functions.",
+                            "`Await {}.{}` isn't supported yet — V1 awaits `Http.Get`, \
+                             `Http.Post`, `Shell.Run`, or your own functions.",
                             canon, method
                         ),
                     );

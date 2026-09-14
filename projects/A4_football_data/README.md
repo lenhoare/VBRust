@@ -26,7 +26,7 @@ results imply.
 - `DataFrame.Read_Csv(path)`
 - `df.Sort("timestamp")` — ascending sort by one column
 - `df.Column(name)` — typed extraction into `Vec<String>` / `Vec<Long>`
-- See notes.md Quirk 35–36 for two DataFrame-adjacent findings (HashMap
+- See `old/projects/notes.md` Quirk 35–36 for two DataFrame-adjacent findings (HashMap
   key borrows; `N/A` values abort Read_Csv — the CSV was trimmed for this)
 
 **Core language (in elo.vbr, 7 unit tests):**
@@ -51,4 +51,4 @@ vbr test        projects/A4_football_data   # run the 7 engine tests
 
 - `premier_league_23-26.csv` — your original file (untouched)
 - `pl_trim.csv` — the trimmed copy the tool reads (5 clean columns; the
-  raw file's `N/A` values abort `Read_Csv` — see notes.md)
+  raw file's `N/A` values abort `Read_Csv` — see `old/projects/notes.md`)

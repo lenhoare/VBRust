@@ -13,7 +13,7 @@ shifts by `26 - key`.
 - `Do While ... Loop`, `If / ElseIf / Else`
 - String building with `&` in a loop
 - Cross-module qualified calls (`Caesar.Encrypt(...)`) in main and tests
-- Note: Vinyl has **no `Asc()`** and no `IIf()` — see notes.md. The cipher is
+- Note: Vinyl has **no `Asc()`** and no `IIf()` — see `old/projects/notes.md`. The cipher is
   implemented with an alphabet-string lookup (`FindIn`) instead of character
   codes, keeping it pure Vinyl.
 

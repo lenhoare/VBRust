@@ -43,5 +43,5 @@ vbr test        projects/48_monty_hall   # run the 5 logic tests
 A `Window` has no stdout (the generated `fn main` calls `iced::run`), so
 `expected_output.txt` documents this instead of program text. The window
 was verified by launch + screenshot under WSLg/X11 (title "Monty Hall",
-three door buttons, phase-0 state) — see the notes.md GUI entry for the
+three door buttons, phase-0 state) — see the `old/projects/notes.md` GUI entry for the
 verification recipe.

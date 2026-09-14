@@ -428,10 +428,6 @@ fn emit_sketch(
                     }
                 }
                 Some(sp) => {
-                    surface::emit_event_stmts_caught(&sp.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
-                    for snap in &sp.snapshots {
-                        out.push_str(&format!("            {}\n", snap));
-                    }
                     let work = if sp.blocking {
                         format!(
                             "async move {{ tokio::task::spawn_blocking(move || {}).await.unwrap() }}",
@@ -440,10 +436,19 @@ fn emit_sketch(
                     } else {
                         format!("async move {{ {} }}", sp.call_src)
                     };
-                    out.push_str(&format!(
-                        "            Task::perform({}, Message::{}Done)\n",
-                        work, e.name
-                    ));
+                    surface::emit_async_kickoff(
+                        &sp.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out,
+                        &sp.carry, "Task::none()",
+                        |out, _diags| {
+                            for snap in &sp.snapshots {
+                                out.push_str(&format!("            {}\n", snap));
+                            }
+                            out.push_str(&format!(
+                                "            Task::perform({}, Message::{}Done)\n",
+                                work, e.name
+                            ));
+                        },
+                    );
                 }
             }
             out.push_str("        }\n");
@@ -960,10 +965,6 @@ fn emit_window(
             }
             // Async kick-off: pre-await body, snapshot state, then return the Task.
             Some(s) => {
-                surface::emit_event_stmts_caught(&s.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out);
-                for snap in &s.snapshots {
-                    out.push_str(&format!("            {}\n", snap));
-                }
                 let work = if s.blocking {
                     // Our stdlib is blocking — run it off the UI thread.
                     format!(
@@ -973,10 +974,19 @@ fn emit_window(
                 } else {
                     format!("async move {{ {} }}", s.call_src)
                 };
-                out.push_str(&format!(
-                    "            Task::perform({}, Message::{}Done)\n",
-                    work, e.name
-                ));
+                surface::emit_async_kickoff(
+                    &s.pre, &e.params, "state", &fields, &field_ty, t, 3, diags, &mut out,
+                    &s.carry, "Task::none()",
+                    |out, _diags| {
+                        for snap in &s.snapshots {
+                            out.push_str(&format!("            {}\n", snap));
+                        }
+                        out.push_str(&format!(
+                            "            Task::perform({}, Message::{}Done)\n",
+                            work, e.name
+                        ));
+                    },
+                );
             }
         }
         out.push_str("        }\n");

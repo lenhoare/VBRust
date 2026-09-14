@@ -4,19 +4,24 @@ A transpiler that turns VB-flavoured source into idiomatic Rust, compiles it, an
 runs it. It's a teaching tool: the syntax is familiar VB, the semantics are Rust's,
 and the generated Rust is always there to read.
 
-- **`vb6_to_vbr_guide.md`** — coming from VB6? Start here: the short list of what's different.
+- **`docs/vb6_to_vbr_guide.md`** — coming from VB6? Start here: the short list of what's different.
 - **`language_reference.md`** — the readable guide (the full story).
+- **`docs/error_handling.md`** — errors as values (`Handle` / `RaiseError` / `Raw`); the law is `language_spec.md` §8.
 - **`gui_and_tui_guide.md`** — a friendly tour of building `Window` (GUI) and `Screen` (TUI) interfaces.
 - **`language_spec.md`** — the terse, normative reference.
 - **`gui_spec.md`** — graphical apps: a `Window` → an Iced application.
 - **`tui_spec.md`** — terminal apps: a `Screen` → a ratatui application.
 - **`web_spec.md`** — browser apps: a `Page` → a Yew (WebAssembly) application.
-- **`stdlib_spec.md`** — the standard library.
 - **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
 - **`parallel_spec.md`** — independent loops and CUDA (niche, Rust-only).
 - **`targets_spec.md`** — the alternative transpile targets: `vbr py` (Python) and `vbr c` (C).
+- **`inline_rust_spec.md`** — `Rust … End Rust` and opaque handles.
+- **`projects_and_run_spec.md`** — folders, `run` / `runproject`, `Use` crates.
+- **`testing_spec.md`** — `Test` / `Assert` / `vbr test`.
 - **`godot_spec.md`** — an optional extra: a `Node2D`/`Node3D` (…) → a Godot game, via godot-rust.
 - **`android_spec.md`** — a phone editor that **runs** Vinyl (`vbr-android/`).
+
+Working notes and old specs live in **`old/`** (not the law). The standard-library surface is `language_spec.md` §10 plus `vbr help`; DataFrames have their own spec above.
 
 ## Building
 

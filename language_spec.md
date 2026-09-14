@@ -558,6 +558,8 @@ End Enum
 
 ## 8. Error model
 
+The same model in teaching form: **`docs/error_handling.md`**.
+
 **Rule:** errors propagate automatically unless intercepted at the producing call.
 
 Failure is a value, not an exception. Propagation is implicit. Handling is local.
@@ -707,23 +709,29 @@ Provided by the `vbr_stdlib` crate, auto-imported when referenced. Calls are
 **namespaced**: `Namespace.member(...)` → `Namespace::member(...)`.
 
 - **Stateless namespaces:** `FileSystem`, `Regex`, `Http` — module-style
-  functions. `Http.Get(url)` / `Http.Post(url, body)` are blocking, one-shot
-  requests; the visible type is `String` (the body). They can fail — a normal
-  call propagates (§8). For a reused client/session, use inline Rust or a
-  `.rs` module.
-- **Wrapper types:** `DateTime`, `Json` — opaque value types with methods
-  (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`, `j.Get_String(...)`,
-  etc.). Static calls use `.` → `::`; instance calls use `.` → `.`.
+  functions. `Http.Get(url)` / `Http.Post(url, body, headers)` are blocking,
+  one-shot requests; the visible type is `String` (the body). They can fail —
+  a normal call propagates (§8). In a Window / Screen / Page event they run
+  with `Await` (on a Page, Get and Post are the browser's fetch — `web_spec.md`
+  §5). For a reused client/session, use inline Rust or a `.rs` module.
+- **Wrapper types:** `DateTime`, `Json`, `Database` — opaque value types with
+  methods (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`,
+  `j.Get_String(...)`, SQLite via `Database.Open(...)`, etc.). Static calls use
+  `.` → `::`; instance calls use `.` → `.`.
 - **`DataFrame`** — a native table backed by the **polars** crate. Read/inspect/
   transform/write, with **column formulas** (`df.With_Column("total", price * qty)`,
   `df.Filter(age > 30 And active)`) that read like Excel array formulas and lower
   to real polars expressions. Full surface in `dataframe_spec.md`.
+- **`Shell`** — run a command and capture stdout. Compiler-emitted, not a crate
+  feature.
+
+The live surface is `vbr help` (categories for each namespace). CUDA is not
+stdlib — it is `parallel_spec.md`.
 
 Every dependency-bearing namespace is behind a Cargo **feature** (`json`,
-`datetime`, `regex`, `http`, `dataframe`); `FileSystem` is std-only and always
-available. The
-project generator enables exactly the features a program uses, so a project only
-compiles the wrappers it touches.
+`datetime`, `regex`, `http`, `dataframe`, `database`); `FileSystem` is std-only
+and always available. The project generator enables exactly the features a
+program uses, so a project only compiles the wrappers it touches.
 
 Programs that reference the stdlib must be built/run via the project run mode
 (§13), not the single-file `run`.
@@ -875,8 +883,8 @@ Rust (§1–§13). As an additive bolt-on, the *same source* can also transpile 
 
 - **`vbr py <file>`** — idiomatic **Python** (core language **and** the full
   standard library, emitted as a `main.py` + `vbrpy/` project).
-- **`vbr c <file>`** — self-contained **C** (core language; single `.c` compiled
-  with any C compiler).
+- **`vbr c <file>`** — **C** (core language and the standard library; a single
+  `.c`, or a project folder + `Makefile` when a namespace needs a library).
 
 Both consume the same parsed AST as the Rust backend via a shared typed/desugared
 front-end. They cover the **core language** (§1–§9, plus collections and

@@ -9,7 +9,7 @@ compiled to **WebAssembly**, and served by **trunk**.
 > (`Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`,
 > `Match`/`If` in the view, `Column`/`Row` with `Spacing`/`Padding` and
 > `Length`/`Fill` sizing)/`Event` including payload events, async events
-> (`Await Http.Get` on the browser's fetch), styling (`Theme`, `Css` blocks,
+> (`Await Http.Get` / `Http.Post` on the browser's fetch), styling (`Theme`, `Css` blocks,
 > stable `vbr-*` classes) and local `Image` assets, `vbr runweb`.
 
 ---
@@ -111,7 +111,7 @@ cargo install trunk --locked               # the wasm bundler + dev server
 `vbr run`/`vbr runproject` on a `Page` program redirect you to `runweb`;
 `vbr build` generates the project without serving it.
 
-## 5. Async events — `Await Http.Get`
+## 5. Async events — `Await Http.Get` / `Http.Post`
 
 The same `Await` you know from the GUI/TUI, on the browser's own machinery:
 
@@ -125,6 +125,15 @@ Event Fetch
 End Event
 ```
 
+`Http.Post` is the same split, with a body and a header map:
+
+```vb
+Match Await Http.Post(endpoint, body, headers)
+    Ok(text) => reply = text
+    Err(message) => status = message
+End Match
+```
+
 - The event **splits** exactly as in a `Window`: everything before the `Await`
   runs in the kick-off (so `"loading…"` shows immediately), and the code after
   it lands in a generated `<Event>Done(result)` continuation that runs when
@@ -132,16 +141,18 @@ End Event
   event sink unless you `Handle` it). `Match Await` still matches `Ok`/`Err`.
 - The kick-off hands the future to the component with
   `ctx.link().send_future(…)` — Yew's equivalent of Iced's `Task::perform`.
-- **`Http.Get` here is the browser's `fetch`**, not the native stdlib (which
-  can't compile to wasm): the transpiler generates a small `http_get` wrapper
-  over `gloo-net`, shaped like the stdlib's — the body on success, any failure
-  (network, an HTTP error status) as a `String` error. The `gloo-net`
+- **`Http.Get` / `Http.Post` here are the browser's `fetch`**, not the native
+  stdlib (which can't compile to wasm): the transpiler generates small
+  `http_get` / `http_post` wrappers over `gloo-net`, shaped like the stdlib's
+  — the body on success, any failure (network, an HTTP error status) as a
+  `String` error. `http_post` also forwards the header map. The `gloo-net`
   dependency is added automatically.
 - **CORS**: a browser only lets a page read a cross-origin response if the
   server allows it (`Access-Control-Allow-Origin`). A server that doesn't
-  comes back as an `Err` — `api.github.com` allows it, `example.com` doesn't.
-- Calling `Http.Get` *without* `Await` is the same teaching error as in the
-  GUI: it would freeze the page.
+  comes back as an `Err` — `api.github.com` allows GET; a POST needs the
+  server to allow that method too.
+- Calling `Http.Get` / `Http.Post` *without* `Await` is the same teaching
+  error as in the GUI: it would freeze the page.
 
 ## 6. Styling — `Theme`, `Css`, and the `vbr-*` classes
 
@@ -199,8 +210,8 @@ block — shows all of it.
 Each is a teaching error today:
 
 - **The stdlib** — a browser sandbox has no filesystem, and vbr_stdlib doesn't
-  compile to wasm. The one door is `Await Http.Get` in an event (§5);
-  `FileSystem`/`DataFrame` don't apply in a browser.
+  compile to wasm. The door is `Await Http.Get` / `Await Http.Post` in an
+  event (§5); `FileSystem`/`DataFrame` don't apply in a browser.
 - **`Await` on your own functions** — the browser is single-threaded, with no
   background thread to run a synchronous function on (the GUI uses
   `spawn_blocking`; wasm has no equivalent).
@@ -214,8 +225,9 @@ Each is a teaching error today:
 `examples/web_counter.vbr` (slice 1), `examples/web_greeting.vbr` (slice 2:
 inputs, payload events), `examples/web_settings.vbr` (slice 3: Match/If,
 Slider, ProgressBar), `examples/web_fetch.vbr` (slice 4: `Await Http.Get`),
+`examples/web_post.vbr` (`Await Http.Post`),
 and `examples/web_dracula.vbr` (slice 5: Theme + Css) are snapshot-tested
-(TRANSPILE_ONLY); greeting/settings/fetch are also built for real by the
+(TRANSPILE_ONLY); greeting/settings/fetch/post are also built for real by the
 compile guard (`cargo test -- --ignored`) whenever the wasm target is
 installed — skipped with a notice otherwise. (Dracula's Theme/Css land in
 `index.html`, which a cargo build doesn't see.)
@@ -230,10 +242,11 @@ installed — skipped with a notice otherwise. (Dracula's Theme/Css land in
 | `Event E` | `Message::E` + an `update` arm returning `true` |
 | async `Event E` | kick-off arm (`ctx.link().send_future`) + `Message::EDone` continuation arm |
 | `Await Http.Get(url)` | generated `http_get` wrapper over gloo-net's fetch |
+| `Await Http.Post(url, body, headers)` | generated `http_post` wrapper (same fetch, plus headers) |
 | `View` | `fn view` → `html!` |
 | `X.Run` in `Main` | `yew::Renderer::<X>::new().render()` |
 
 ## 10. Deferred (later slices)
 
-1. **More of `Http`** — `Await Http.Post` (the fetch wrapper generalises
-   easily) once the native side awaits it too.
+1. **More of `Http`** — other verbs (PUT/DELETE), custom timeouts, a reusable
+   client/session. `Await Http.Post` is built (see §5).

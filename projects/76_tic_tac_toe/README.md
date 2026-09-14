@@ -23,7 +23,7 @@ and illegal moves are handled; `r` restarts, `q` quits. All rules live in
   place — the life_screen pattern
 - `Public Function` returning `Vec<String>` (fresh board on `Place`)
 - Win detection via an explicit `LineWins` helper — a `Vec<Vec<Long>>` of
-  winning lines mis-compiles (see notes.md Quirk 28)
+  winning lines mis-compiles (see `old/projects/notes.md` Quirk 28)
 
 ## Standard-library features tested
 

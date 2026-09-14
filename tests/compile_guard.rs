@@ -118,11 +118,11 @@ fn transpile_only_examples_compile() {
     // The web examples cover the whole Page surface between them:
     // web_greeting the input round-trip (TextInput/Checkbox, payload messages,
     // the web-sys dep); web_settings the view logic (Match/If, Slider,
-    // ProgressBar); web_fetch async (`Await Http.Get` → send_future + the
-    // gloo-net fetch wrapper).
+    // ProgressBar); web_fetch / web_post async (`Await Http.Get` / `Post` →
+    // send_future + the gloo-net fetch wrapper).
     // (web_dracula adds nothing at the Rust level beyond classes — its Theme/Css
-    // land in index.html — so the wasm builds stop at web_fetch.)
-    for name in ["web_greeting", "web_settings", "web_fetch"] {
+    // land in index.html — so the wasm builds stop at web_post.)
+    for name in ["web_greeting", "web_settings", "web_fetch", "web_post"] {
         let vbr = Command::new(env!("CARGO_BIN_EXE_vbr"))
             .arg("build")
             .arg(examples.join(format!("{name}.vbr")))

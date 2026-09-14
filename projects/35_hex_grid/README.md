@@ -13,12 +13,12 @@ discipline from `targets_spec.md`).
   multi-module version, run and tested on the **Rust** target (6/6 tests).
 - **`c/main.vbr`** (subfolder) — the single-file variant that `vbr c`
   transpiles (the C target has no multi-module project mode — same gap as
-  `vbr py`, notes.md Quirk 48).
+  `vbr py`, `old/projects/notes.md` Quirk 48).
 
 The program is deliberately **string-builtin-free** (loops, `&`
 concatenation, Vec only) because both the Python and C backends pass the VB
 string builtins (`Mid`/`Left`/`Val`/`UCase`) through as undefined names —
-notes.md Quirk 49.
+`old/projects/notes.md` Quirk 49.
 
 ## What the C target test shows
 

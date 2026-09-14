@@ -13,6 +13,10 @@ url | String | The address to fetch (http or https).
 
 returns = "String — the response body as text. Fails if the request fails (bad host, no network, error status)."
 
+remarks = """
+In a Window, Screen, or Page event, wrap the call in `Await`. On a Page the call is the browser's fetch (CORS still applies).
+"""
+
 example = """
 Function Main()
     Dim body As String = Http.Get("https://example.com")

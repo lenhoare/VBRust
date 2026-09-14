@@ -231,6 +231,8 @@ every `Match` handles every variant.
 
 ## Errors are values, not jumps
 
+The full write-up is **`docs/error_handling.md`** (`language_spec.md` §8 is the law).
+
 There is no `On Error GoTo`. Rust has no exceptions; **a failure is an ordinary
 returned value**, but you never write `Result` or `?`. Every function is
 internally fallible. The type you declare is the success value. A normal call

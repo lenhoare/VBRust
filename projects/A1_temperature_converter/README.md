@@ -71,7 +71,7 @@ Expected:
 ## Notes for the transpiler
 
 Two quirks surfaced (both worked around here, both logged in
-`projects/notes.md`):
+`old/projects/notes.md`):
 
 1. **Qualified calls don't adapt integer literals to `Double` parameters.**
    `Temps.CtoF(100)` fails to compile ("expected `f64`, found integer") while

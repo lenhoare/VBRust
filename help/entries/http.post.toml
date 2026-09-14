@@ -15,6 +15,10 @@ headers | HashMap<String, String> | Request headers. Pass an empty HashMap for n
 
 returns = "String — the response body. Fails if the request fails."
 
+remarks = """
+In a Window, Screen, or Page event, wrap the call in `Await` so the interface stays live. On a Page the call is the browser's fetch (CORS still applies).
+"""
+
 example = """
 Function Main()
     Dim headers As HashMap<String, String>
@@ -25,4 +29,4 @@ Function Main()
 End Function
 """
 
-see_also = ["http", "http.get", "json", "hashmap"]
+see_also = ["http", "http.get", "json", "hashmap", "await"]

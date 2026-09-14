@@ -90,23 +90,27 @@ fn main() -> std::io::Result<()> {
                 match key.code {
                     KeyCode::Enter => {
                         {
-                            let __vbr_event: Result<(), String> = (|| {
+                            let __vbr_event: Result<_, String> = (|| {
                                 state.status = "sending…".to_string();
                                 let mut headers: HashMap<String, String> = HashMap::new();
                                 headers.insert("Authorization".to_string(), format!("Bearer {}", state.key));
                                 headers.insert("Content-Type".to_string(), "application/json".to_string());
                                 let body: String = "{\"prompt\": \"hello\"}".to_string();
-                                Ok(())
+                                Ok((body, headers))
                             })();
-                            if let Err(__e) = __vbr_event {
-                                eprintln!("Error: {}", __e);
-                            }
-                        }
+                            match __vbr_event {
+                                Err(__e) => {
+                                    eprintln!("Error: {}", __e);
+                                }
+                                Ok((body, headers)) => {
                         let endpoint = state.endpoint.clone();
                         let tx = tx.clone();
                         std::thread::spawn(move || {
                             let _ = tx.send(Message::SendDone(Http::post(&endpoint, &body, headers)));
                         });
+                                }
+                            }
+                        }
                     }
                     KeyCode::Char('q') => {
                         break;

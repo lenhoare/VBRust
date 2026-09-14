@@ -1,0 +1,53 @@
+' Await Http.Post in the browser — the same fetch wrapper as Http.Get, with a
+' JSON body and request headers. CORS still applies: the server must allow the
+' origin, or the call comes back as Err.
+' Run: vbr runweb examples/web_post.vbr
+Page Poster
+    Title "Poster"
+
+    State
+        Dim endpoint As String = "https://httpbin.org/post"
+        Dim status As String = "idle"
+        Dim reply As String = ""
+        Dim key As String = "sk-demo-key"
+    End State
+
+    View
+        Column
+            TextInput "endpoint", endpoint
+                On Input SetEndpoint
+            End TextInput
+            Button "POST"
+                On Click Send
+            End Button
+            Text status
+            Text reply
+        End Column
+    End View
+
+    Event SetEndpoint(value As String)
+        endpoint = value
+    End Event
+
+    Event Send
+        status = "sending…"
+
+        Dim headers As HashMap<String, String>
+        headers.Insert("Authorization", "Bearer " & key)
+        headers.Insert("Content-Type", "application/json")
+        Dim body As String = "{""prompt"": ""hello""}"
+
+        Match Await Http.Post(endpoint, body, headers)
+            Ok(text) =>
+                status = "ok"
+                reply = text
+            Err(message) =>
+                status = "failed"
+                reply = message
+        End Match
+    End Event
+End Page
+
+Function Main()
+    Poster.Run
+End Function

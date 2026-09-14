@@ -1,7 +1,7 @@
 # Vinyl Projects & Run Modes — Spec
 
 How Vinyl programs are organised into projects, and how they're built and run.
-(Companion to `inline_rust_spec.md` and `stdlib_spec.md`.)
+(Companion to `inline_rust_spec.md` and `language_spec.md` §10 / §13.)
 
 ---
 

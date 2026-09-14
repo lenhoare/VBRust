@@ -252,14 +252,15 @@ pub fn emit_tui_program(
         ),
     }
     if web {
-        // The fetch wrapper behind an awaited `Http.Get`, emitted once when used.
-        if out.contains("http_get(") {
+        let get = out.contains("http_get(");
+        let post = out.contains("http_post(");
+        if get || post {
             out.push('\n');
-            out.push_str(surface::HTTP_GET_HELPER);
+            surface::emit_browser_http_helpers(&mut out);
         }
         // vbr_stdlib doesn't compile to WebAssembly, so the rest of the stdlib
-        // is fenced in a browser Screen — `Await Http.Get` (above) is the one
-        // door, and a *sync* `Http.Get` gets the blocking-without-Await error.
+        // is fenced in a browser Screen — `Await Http.Get` / `Post` (above) is
+        // the door, and a *sync* `Http.Get` gets the blocking-without-Await error.
         let mut std_used: Vec<String> = Vec::new();
         for sc in &program.screens {
             for e in &sc.events {
@@ -276,8 +277,9 @@ pub fn emit_tui_program(
                 format!(
                     "The standard library ({}) isn't available in a browser Screen — it \
                      doesn't compile to WebAssembly. For HTTP, use `Await Http.Get(url)` \
-                     inside an event (it runs on the browser's fetch). The terminal version \
-                     (`vbr runproject`) has the full stdlib.",
+                     or `Await Http.Post(url, body, headers)` inside an event (they run \
+                     on the browser's fetch). The terminal version (`vbr runproject`) \
+                     has the full stdlib.",
                     std_used.join(", ")
                 ),
             );
@@ -2318,23 +2320,26 @@ fn emit_web_event_run(
     let pad = "    ".repeat(indent);
     match split {
         Some(s) => {
-            surface::emit_event_stmts_caught(
+            surface::emit_async_kickoff(
                 &s.pre, &ev.params, "state", fields, field_ty, t, indent, dummy, out,
+                &s.carry, "",
+                |out, dummy| {
+                    for snap in &s.snapshots {
+                        out.push_str(&format!("{}{}\n", pad, snap));
+                    }
+                    out.push_str(&format!("{}wasm_bindgen_futures::spawn_local({{\n", pad));
+                    out.push_str(&format!("{}    let state = rc.clone();\n", pad));
+                    out.push_str(&format!("{}    async move {{\n", pad));
+                    out.push_str(&format!("{}        let {} = {}.await;\n", pad, s.bind, s.call_src));
+                    out.push_str(&format!("{}        let mut guard = state.borrow_mut();\n", pad));
+                    out.push_str(&format!("{}        let state = &mut *guard;\n", pad));
+                    surface::emit_event_stmts_caught(
+                        &s.cont, &ev.params, "state", fields, field_ty, t, indent + 2, dummy, out,
+                    );
+                    out.push_str(&format!("{}    }}\n", pad));
+                    out.push_str(&format!("{}}});\n", pad));
+                },
             );
-            for snap in &s.snapshots {
-                out.push_str(&format!("{}{}\n", pad, snap));
-            }
-            out.push_str(&format!("{}wasm_bindgen_futures::spawn_local({{\n", pad));
-            out.push_str(&format!("{}    let state = rc.clone();\n", pad));
-            out.push_str(&format!("{}    async move {{\n", pad));
-            out.push_str(&format!("{}        let {} = {}.await;\n", pad, s.bind, s.call_src));
-            out.push_str(&format!("{}        let mut guard = state.borrow_mut();\n", pad));
-            out.push_str(&format!("{}        let state = &mut *guard;\n", pad));
-            surface::emit_event_stmts_caught(
-                &s.cont, &ev.params, "state", fields, field_ty, t, indent + 2, dummy, out,
-            );
-            out.push_str(&format!("{}    }}\n", pad));
-            out.push_str(&format!("{}}});\n", pad));
         }
         None => surface::emit_event_stmts_caught(
             &ev.body, &ev.params, "state", fields, field_ty, t, indent, dummy, out,
@@ -2364,17 +2369,22 @@ fn emit_event_run(
         // Kick-off: pre-await body (main thread), snapshot state, spawn the
         // blocking work, and post the result back over the channel.
         Some(s) => {
-            emit_body(&s.pre, out, dummy);
-            for snap in &s.snapshots {
-                out.push_str(&format!("{}{}\n", pad, snap));
-            }
-            out.push_str(&format!("{}let tx = tx.clone();\n", pad));
-            out.push_str(&format!("{}std::thread::spawn(move || {{\n", pad));
-            out.push_str(&format!(
-                "{}    let _ = tx.send(Message::{}Done({}));\n",
-                pad, ev.name, s.call_src
-            ));
-            out.push_str(&format!("{}}});\n", pad));
+            surface::emit_async_kickoff(
+                &s.pre, &ev.params, "state", fields, field_ty, t, indent, dummy, out,
+                &s.carry, "",
+                |out, _dummy| {
+                    for snap in &s.snapshots {
+                        out.push_str(&format!("{}{}\n", pad, snap));
+                    }
+                    out.push_str(&format!("{}let tx = tx.clone();\n", pad));
+                    out.push_str(&format!("{}std::thread::spawn(move || {{\n", pad));
+                    out.push_str(&format!(
+                        "{}    let _ = tx.send(Message::{}Done({}));\n",
+                        pad, ev.name, s.call_src
+                    ));
+                    out.push_str(&format!("{}}});\n", pad));
+                },
+            );
         }
         None => emit_body(&ev.body, out, dummy),
     }

@@ -11,8 +11,9 @@ already understand.
 
 This is the discursive guide. Its terse companion, `language_spec.md`, is the
 normative reference; when in doubt, that document is the law. In a hurry, or coming
-straight from VB6? `vb6_to_vbr_guide.md` is the short on-ramp — just the
-differences, readable in an afternoon. Independent loops and CUDA are a niche of
+straight from VB6? `docs/vb6_to_vbr_guide.md` is the short on-ramp — just the
+differences, readable in an afternoon. Errors as values are `docs/error_handling.md`
+(the law is `language_spec.md` §8). Independent loops and CUDA are a niche of
 their own (`parallel_spec.md`) — they are not part of this tour. Throughout, examples
 are shown as a pair — the Vinyl on the left of the arrow, the Rust it becomes on the
 right — because the second half is the whole point.
@@ -700,6 +701,9 @@ compiler makes sure every `Match` handles all of them.
 ---
 
 ## 8. Errors as Values
+
+The full teaching write-up is **`docs/error_handling.md`**; the law is
+`language_spec.md` §8.
 
 VB signalled failure by jumping: `On Error GoTo`. Rust has no jumps and no
 exceptions. **A failure is an ordinary value**, but ordinary Vinyl never writes

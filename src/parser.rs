@@ -658,7 +658,7 @@ impl<'a> Parser<'a> {
             None
         } else if self.eat(&Tok::As) {
             // `Function Foo() As Long` / `As Option<String>`. `As Result<T>` is
-            // rejected — fallibility is implicit (see VBR_Errors_2_Final.md).
+            // rejected — fallibility is implicit (see language_spec.md §8).
             let t = self.parse_decl_type()?;
             if let DeclType::Result(inner, _) = t {
                 self.diags.error(

@@ -9,7 +9,7 @@ Vinyl source transpiles to idiomatic Python and its output is checked
 ## Structure
 
 The project is split to work around two Python-target limitations
-(documented in notes.md, Quirks 48–49):
+(documented in `old/projects/notes.md`, Quirks 48–49):
 
 - **`main.vbr` + `periodic.vbr` + `periodic.test.vbr`** (project root) —
   the full CSV-parsing version: `FileSystem.Read_Lines` → `Periodic.ParseRow`

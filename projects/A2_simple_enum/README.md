@@ -81,4 +81,4 @@ Expected:
   2. `For`-loop counters are never adapted to `Double`/`Long` parameters —
      widen through a local `Dim` before passing.
 
-Both workarounds are documented in `projects/notes.md` (A1 entry).
+Both workarounds are documented in `old/projects/notes.md` (A1 entry).

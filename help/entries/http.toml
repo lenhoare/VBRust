@@ -9,7 +9,7 @@ summary = "Fetch and send data over the web."
 remarks = """
 `Http.Get(url)` fetches a page or API response as text; `Http.Post(url, body, headers)` sends data. The network can fail: a normal call propagates; intercept with `Handle err`.
 
-HTTPS works out of the box, no setup. In a **Window** or **Screen** event, a web request must be run with **`Await`** so the interface doesn't freeze (see the surface guide); in an ordinary `Function` it simply blocks until the reply arrives. Needs the `http` feature — build as a project.
+HTTPS works out of the box, no setup. In a **Window**, **Screen**, or **Page** event, a web request must be run with **`Await`** so the interface doesn't freeze (see the surface guide); in an ordinary `Function` it simply blocks until the reply arrives. On a `Page` (and a browser `Screen`) Get and Post run on the browser's fetch. Needs the `http` feature — build as a project.
 """
 
 members = """

@@ -1,5 +1,7 @@
 # Error handling in Vinyl
 
+The law is **`language_spec.md` §8**. This is the same model in teaching form.
+
 There is no `On Error GoTo`. Failure is a value, not an exception. Ordinary Vinyl
 never writes `Result`, `?`, `Ok`, `Err`, or `.Unwrap()`.
 

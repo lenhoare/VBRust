@@ -12,14 +12,14 @@ End Match
 
 replaces = "DoEvents (and blocking calls)"
 
-summary = "Runs slow work without freezing a Window or Screen."
+summary = "Runs slow work without freezing a Window, Screen, or Page."
 
 remarks = """
-`Await` belongs inside a surface **event** (a `Window` or `Screen` handler). It lets a slow call — a web request, a heavy computation — run off to one side so the interface stays live, then continues when the result lands.
+`Await` belongs inside a surface **event** (a `Window`, `Screen`, or `Page` handler). It lets a slow call — a web request, a heavy computation — run off to one side so the interface stays live, then continues when the result lands. A Page awaits `Http.Get` and `Http.Post` on the browser's fetch.
 
 The usual shape: set a "working…" state first (the view redraws at once), then `Match Await` on the call to fold Ok/Err into state. A failed call hits the event sink unless you `Handle` it. It reads like ordinary sequential code, but nothing blocks.
 
 `Await` only makes sense in that event context, so there is no standalone example here — see the GUI / TUI guide for a full one.
 """
 
-see_also = ["match", "handle"]
+see_also = ["match", "handle", "http", "page"]

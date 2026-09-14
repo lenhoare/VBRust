@@ -49,7 +49,7 @@ compiles `main.vbr` with the plain backend, which can't emit Godot imports
 (spec §10 defers `.test.vbr` inside Godot projects). The logic is verified
 two ways: a live self-check in `On Ready` (prints `MAZE LOGIC SELF-CHECK:
 PASS` in Godot's output), and the 9 standalone tests, which run via a
-plain stub main in a temp dir (see notes.md).
+plain stub main in a temp dir (see `old/projects/notes.md`).
 
 ## Expected output
 

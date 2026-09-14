@@ -533,8 +533,8 @@ picks the change up automatically. `examples/tui_pulse.vbr` — a timer-driven
 Gauge + Sparkline animation — runs identically in both shells.
 
 `Await` (§7) works too, on the browser's own machinery: the event splits
-exactly as in the terminal, but the awaited `Http.Get` runs on the browser's
-`fetch` (the same generated `http_get` wrapper a `Page` uses — see
+exactly as in the terminal, but the awaited `Http.Get` / `Http.Post` runs on
+the browser's `fetch` (the same generated wrappers a `Page` uses — see
 `web_spec.md` §5, including the CORS note), and the continuation runs in a
 spawned future (`spawn_local`) that re-borrows the state when the result
 lands — no channel, no thread. `tui_monitor.vbr` — timers + async refresh —
@@ -544,14 +544,14 @@ Web differences, each said out loud rather than silently diverged:
 
 - A `Quit` binding (key or timer) is dropped (a page can't quit itself —
   close the tab); a note says so.
-- The stdlib beyond `Await Http.Get` is a teaching error (it doesn't compile
-  to WebAssembly), as is `Await` on your own functions (no browser threads).
-  The terminal version of the same file runs both today.
+- The stdlib beyond `Await Http.Get` / `Http.Post` is a teaching error (it
+  doesn't compile to WebAssembly), as is `Await` on your own functions (no
+  browser threads). The terminal version of the same file runs both today.
 
 *(BUILT — 2026-07-06, complete: the shell, keymap + sync events, the full
 widget set including focus/Input/List/Table, `Every` timers, and async
-`Await Http.Get` — the widget lowering compiles unchanged against ratatui
-0.30 on wasm.)*
+`Await Http.Get` / `Http.Post` — the widget lowering compiles unchanged
+against ratatui 0.30 on wasm.)*
 
 ---
 
