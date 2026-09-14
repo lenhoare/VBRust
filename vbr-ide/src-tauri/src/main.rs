@@ -272,8 +272,8 @@ async fn open_designer(app: AppHandle, target: String, root: String) -> Result<(
     );
     WebviewWindowBuilder::new(&app, "designer", WebviewUrl::App(url.into()))
         .title(title)
-        .inner_size(1100.0, 740.0)
-        .min_inner_size(720.0, 480.0)
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 520.0)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())

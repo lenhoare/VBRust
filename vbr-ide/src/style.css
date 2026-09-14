@@ -775,9 +775,12 @@ body.designer-page #designer {
   min-height: 0;
 }
 
+body.designer-page {
+  --sidebar-width: 189px;
+}
 #palette {
-  flex: 0 0 var(--sidebar-width, 126px);
-  width: var(--sidebar-width, 126px);
+  flex: 0 0 var(--sidebar-width);
+  width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -801,6 +804,9 @@ body.designer-page #designer {
   font: inherit;
   font-size: 13px;
   text-align: left;
+}
+#palette-items .tree-item:hover {
+  background: rgba(127, 127, 127, 0.12);
 }
 
 #props {

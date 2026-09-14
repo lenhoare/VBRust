@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   isDesignerDirty,
   markDesignerSaved,
@@ -83,14 +82,3 @@ void listen<{ target: string; root: string }>("designer-open", (e) => {
   projectRoot = e.payload.root;
   resetDesigner(e.payload.target === "tui" ? "tui" : "gui");
 });
-
-try {
-  const win = getCurrentWebviewWindow();
-  void win.onCloseRequested((e) => {
-    if (isDesignerDirty() && !window.confirm("Discard this design? It hasn't been saved yet.")) {
-      e.preventDefault();
-    }
-  });
-} catch {
-  // Browser preview has no Tauri window handle.
-}
