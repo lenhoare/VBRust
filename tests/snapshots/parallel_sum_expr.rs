@@ -1,5 +1,6 @@
 // Parallel Sum — first-class reduction. CPU threads, no atomics.
 
+#[allow(dead_code)]
 fn __vbr_parallel_sum<T>(xs: &[T]) -> T
 where
     T: Copy + Default + std::ops::Add<Output = T> + Send + Sync,

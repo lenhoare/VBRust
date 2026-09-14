@@ -12,7 +12,6 @@ Function Main()
         prod[i] = a[i] * b[i]
     Next
 
-    Dim parts As Vec<Single> = CUDA.Download(prod)
-    Dim total As Single = Parallel Sum parts
+    Dim total As Single = Parallel Sum prod
     Debug.Print total
 End Function

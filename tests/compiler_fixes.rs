@@ -2640,6 +2640,155 @@ fn cuda_is_rust_only() {
 }
 
 #[test]
+fn cuda_grid_emits_2d_launch() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim src As Vec<Vec<Long>> = [[1, 2, 3], [4, 5, 6]]\n\
+        \x20   Dim a As CudaBuffer<CudaBuffer<Long>> = CUDA.Upload(src)\n\
+        \x20   Dim b As CudaBuffer<CudaBuffer<Long>> = CUDA.Alloc(2, 3)\n\
+        \x20   Parallel For y = 0 To 1\n\
+        \x20       Parallel For x = 0 To 2\n\
+        \x20           b[y][x] = a[y][x] * 2\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        \x20   Dim result As Vec<Vec<Long>> = CUDA.Download(b)\n\
+        \x20   Debug.Print result[0][0]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_cuda_upload_2d")
+            && rust.contains("__vbr_cuda_alloc_2d")
+            && rust.contains("__vbr_cuda_download_2d")
+            && rust.contains("__vbr_cuda_for_2d"),
+        "2-D CUDA program should emit 2-D helpers: {rust}"
+    );
+    assert!(
+        rust.contains("threadIdx.y") && rust.contains("_cols") && rust.contains("__VbrCudaBuffer<i64>"),
+        "2-D kernel should use a y grid and flat pitch, not nested CudaBuffer: {rust}"
+    );
+    assert!(
+        !rust.contains("__VbrCudaBuffer<__VbrCudaBuffer")
+            && !rust.contains("__vbr_parallel_for(")
+            && !rust.contains("__vbr_cuda_for(__n,"),
+        "2-D nest is one CUDA launch, not CPU threads or a 1-D kernel: {rust}"
+    );
+    assert_rustc_clean("cuda_grid", &rust);
+}
+
+#[test]
+fn cuda_1d_buffer_in_2d_loop_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3]\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Upload(xs)\n\
+        \x20   Dim b As CudaBuffer<Long> = CUDA.Alloc(3)\n\
+        \x20   Parallel For y = 0 To 0\n\
+        \x20       Parallel For x = 0 To 2\n\
+        \x20           b[y][x] = a[y][x]\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "1-D buffer in 2-D loop should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("1-D") || joined.contains("CudaBuffer<CudaBuffer"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_2d_buffer_in_1d_loop_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim src As Vec<Vec<Long>> = [[1, 2], [3, 4]]\n\
+        \x20   Dim a As CudaBuffer<CudaBuffer<Long>> = CUDA.Upload(src)\n\
+        \x20   Dim b As CudaBuffer<CudaBuffer<Long>> = CUDA.Alloc(2, 2)\n\
+        \x20   Parallel For i = 0 To 1\n\
+        \x20       b[i] = a[i]\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "2-D buffer in 1-D loop should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("2-D") || joined.contains("buf[y][x]"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_alloc_2d_needs_2d_as() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim b As CudaBuffer<Long> = CUDA.Alloc(2, 3)\n\
+        \x20   Debug.Print b.Len()\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Alloc(rows, cols) on 1-D As should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Alloc(rows, cols)") && joined.contains("CudaBuffer<CudaBuffer"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_alloc_2d_needs_two_sizes() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim b As CudaBuffer<CudaBuffer<Long>> = CUDA.Alloc(2)\n\
+        \x20   Debug.Print b.Len()\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "1-arg Alloc on 2-D As should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Alloc(rows, cols)") || joined.contains("two sizes"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_sum_emits_device_reduction() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3, 4, 5, 6, 7, 8]\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Upload(xs)\n\
+        \x20   Dim total As Long = Parallel Sum a\n\
+        \x20   Debug.Print total\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_cuda_sum") && rust.contains("__shared__") && rust.contains("long long"),
+        "device Parallel Sum should emit a GPU reduction: {rust}"
+    );
+    assert!(
+        !rust.contains("__vbr_parallel_sum(("),
+        "a device sum should not call the CPU reduction: {rust}"
+    );
+    assert_rustc_clean("cuda_sum", &rust);
+}
+
+#[test]
+fn cuda_sum_2d_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim src As Vec<Vec<Long>> = [[1, 2], [3, 4]]\n\
+        \x20   Dim a As CudaBuffer<CudaBuffer<Long>> = CUDA.Upload(src)\n\
+        \x20   Dim total As Long = Parallel Sum a\n\
+        \x20   Debug.Print total\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "2-D Parallel Sum should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Parallel Sum") && (joined.contains("2-D") || joined.contains("1-D")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
 fn list_fill_emits_vec_repeat() {
     let rust = rust_of(
         "Function Main()\n\

@@ -1,42 +1,4 @@
-// Dot product on the GPU: each product is independent; adding them is Parallel Sum.
-
-#[allow(dead_code)]
-fn __vbr_parallel_sum<T>(xs: &[T]) -> T
-where
-    T: Copy + Default + std::ops::Add<Output = T> + Send + Sync,
-{
-    let n = xs.len();
-    if n == 0 {
-        return T::default();
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        return xs.iter().copied().fold(T::default(), |a, b| a + b);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let threads = std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1)
-            .clamp(1, n);
-        let chunk = (n + threads - 1) / threads;
-        let mut parts = vec![T::default(); threads];
-        std::thread::scope(|scope| {
-            for (t, slot) in parts.iter_mut().enumerate() {
-                let start = t * chunk;
-                if start >= n {
-                    break;
-                }
-                let end = (start + chunk).min(n);
-                let slice = &xs[start..end];
-                scope.spawn(move || {
-                    *slot = slice.iter().copied().fold(T::default(), |a, b| a + b);
-                });
-            }
-        });
-        parts.into_iter().fold(T::default(), |a, b| a + b)
-    }
-}
+// Nested Parallel For over device buffers — one 2-D CUDA grid.
 
 
 #[allow(dead_code, unused_mut, unused_variables, unused_assignments, unused_unsafe)]
@@ -763,20 +725,21 @@ fn __vbr_cuda_launch(
 }
 
 fn vbr_main() -> Result<(), String> {
-    let xs: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-    let ys: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
-    let n: i64 = xs.len() as i64;
-    let a: __VbrCudaBuffer<f32> = __vbr_cuda_upload((xs).as_slice())?;
-    let b: __VbrCudaBuffer<f32> = __vbr_cuda_upload((ys).as_slice())?;
-    let prod: __VbrCudaBuffer<f32> = __vbr_cuda_alloc(n)?;
+    let src: Vec<Vec<i64>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
+    let a: __VbrCudaBuffer<i64> = __vbr_cuda_upload_2d((src).as_slice())?;
+    let b: __VbrCudaBuffer<i64> = __vbr_cuda_alloc_2d(2, 3)?;
     {
-        let __from = 0;
-        let __to = n - 1;
-        let __n: usize = if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 };
-        __vbr_cuda_for(__n, "extern \"C\" __global__ void k(float* a, float* b, float* prod, long long __from, long long __step, long long __n) {\n    long long __k = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__k >= __n) return;\n    long long i = __from + __k * __step;\n    prod[i] = (a[i] * b[i]);\n}\n", &[a.ptr, b.ptr, prod.ptr], __from as i64, 1)?;
+        let __from_y = 0;
+        let __to_y = 1;
+        let __n_y: usize = if __to_y >= __from_y { ((__to_y - __from_y) as usize).saturating_add(1) } else { 0 };
+        let __from_x = 0;
+        let __to_x = 2;
+        let __n_x: usize = if __to_x >= __from_x { ((__to_x - __from_x) as usize).saturating_add(1) } else { 0 };
+        __vbr_cuda_for_2d(__n_y, __n_x, "extern \"C\" __global__ void k(long long* a, long long a_cols, long long* b, long long b_cols, long long __yfrom, long long __ystep, long long __ny, long long __xfrom, long long __xstep, long long __nx) {\n    long long __ky = (long long)blockIdx.y * (long long)blockDim.y + (long long)threadIdx.y;\n    long long __kx = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__ky >= __ny || __kx >= __nx) return;\n    long long y = __yfrom + __ky * __ystep;\n    long long x = __xfrom + __kx * __xstep;\n    b[(y) * (b_cols) + (x)] = (a[(y) * (a_cols) + (x)] * 2);\n}\n", &[a.ptr, b.ptr], &[a.cols as u64, b.cols as u64], __from_y as i64, 1, __from_x as i64, 1)?;
     }
-    let total: f32 = __vbr_cuda_sum(&prod, "float")?;
-    println!("{}", total);
+    let result: Vec<Vec<i64>> = __vbr_cuda_download_2d(&b)?;
+    println!("{}", result[0].clone()[0]);
+    println!("{}", result[1].clone()[2]);
     Ok(())
 }
 

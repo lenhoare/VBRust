@@ -15,14 +15,14 @@ Parallel For y = <y0> To <y1>
 Next
 """
 
-summary = "A numeric For whose iterations are independent — Rust runs them on CPU threads (and later, a GPU)."
+summary = "A numeric For whose iterations are independent — Rust runs them on CPU threads, or on the GPU over CudaBuffer."
 
 remarks = """
 `Parallel For` is the explicit index-space form of the same idea as a DataFrame formula: you describe work per element, and the compiler is allowed to do the elements at the same time.
 
 Each iteration may *read* anything. Two iterations may not *write* the same location. `out[i] = in[i] * 2` is fine; `total = total + in[i]` is a compile error (that's a reduction — `Parallel Sum xs`). A stencil that *reads* a neighbour of a different array (`in[i + 1]`) is fine so long as writes stay `out[i]`.
 
-Writes must be `arr[i]` where `i` is exactly the loop variable. Nested `Parallel For y` wrapping `Parallel For x` is a 2-D index space: writes are `arr[y][x]` (or `arr[x][y]`), and Rust runs one launch over `ny * nx` — not a thread pool per row. A sequential `For x` inside `Parallel For y` can also write `arr[y][x]` (the inner loop stays sequential). `Exit For`, `Continue`, `Return`, a third `Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating `Step` are rejected. `Dim` inside the body is a per-iteration local.
+Writes must be `arr[i]` where `i` is exactly the loop variable. Nested `Parallel For y` wrapping `Parallel For x` is a 2-D index space: writes are `arr[y][x]` (or `arr[x][y]`). On `Vec`s, Rust runs one CPU launch over `ny * nx` — not a thread pool per row. On `CudaBuffer<CudaBuffer<T>>`, the same nest is one 2-D CUDA grid. A sequential `For x` inside `Parallel For y` can also write `arr[y][x]` (the inner loop stays sequential). `Exit For`, `Continue`, `Return`, a third `Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating `Step` are rejected. `Dim` inside the body is a per-iteration local.
 
 Rust-only: `vbr run` uses CPU threads (`std::thread`) for ordinary `Vec`s. A `Parallel For` over `CudaBuffer`s (from `CUDA.Upload` / `CUDA.Alloc`) is the GPU path — mixing a `Vec` and a `CudaBuffer` in one loop is an error, not a silent copy. Python and C do not get a sequential stand-in.
 

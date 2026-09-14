@@ -890,9 +890,11 @@ that still uses `Parallel For` is `examples/parallel_sum.vbr`. A 2-D nest is
 `examples/parallel_for_2d.vbr`.
 
 `Parallel Sum xs` adds every element of a numeric `Vec` or array. The result
-is the element type; empty input is `0`. It is an expression
+is the element type; empty input is `0`. Over a 1-D `CudaBuffer` the same
+spelling reduces on the GPU. It is an expression
 (`Dim total As Long = Parallel Sum xs`). Inside `Parallel For` it is an
-error. `examples/parallel_sum_expr.vbr` prints `36` for `[1..8]`.
+error. `examples/parallel_sum_expr.vbr` prints `36` for `[1..8]`;
+`examples/cuda_sum.vbr` is the device form.
 
 `Parallel` is a reserved word. `Sum` is not — `.Sum()` and `Dim Sum` still
 work.

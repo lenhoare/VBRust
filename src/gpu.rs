@@ -352,7 +352,7 @@ fn walk_expr(e: &Expr, add: &mut impl FnMut(&Expr)) {
     add(e);
     match &e.kind {
         ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Cast(inner, _)
         | ExprKind::Deref(inner)
         | ExprKind::Ref(inner)
@@ -996,7 +996,7 @@ fn wgsl_expr(e: &Expr, uniforms: &HashSet<String>, diags: &mut Diagnostics) -> O
             Some(rust_name(leaf))
         }
         ExprKind::Not(inner) => Some(format!("!({})", wgsl_expr(inner, uniforms, diags)?)),
-        ExprKind::ParallelSum(_) => {
+        ExprKind::ParallelSum(..) => {
             diags.error_once(
                 "gpu-parallel-sum",
                 "`Parallel Sum` isn't used inside `Gpu Draw` — the kernel already runs per pixel.",

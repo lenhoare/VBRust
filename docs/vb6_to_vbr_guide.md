@@ -425,10 +425,14 @@ Writes must be `arr[i]`. Nested `Parallel For y` / `Parallel For x` writes
 error — that's `Parallel Sum xs` (`Dim total As Long = Parallel Sum xs`).
 A `Parallel For` over `CudaBuffer`s (`CUDA.Upload` / `Alloc` / `Download`)
 runs on the GPU; mixing a host `Vec` with a device buffer in one loop is
-an error, not a silent copy. Python and C do not get a sequential stand-in.
-`examples/parallel_for_2d.vbr` is the nest; `examples/parallel_sum_expr.vbr`
-is the reduction; `examples/parallel_sum.vbr` is the hand-rolled tree;
-`examples/cuda_upload.vbr` is the GPU path; `examples/cuda_call.vbr` is a
+an error, not a silent copy. Nested `Parallel For y` / `x` over
+`CudaBuffer<CudaBuffer<T>>` is one 2-D CUDA grid.
+Python and C do not get a sequential stand-in.
+`examples/parallel_for_2d.vbr` is the CPU nest; `examples/cuda_grid.vbr`
+is the same nest on the GPU; `examples/parallel_sum_expr.vbr`
+is the host reduction; `examples/cuda_sum.vbr` is `Parallel Sum` on a
+`CudaBuffer`; `examples/parallel_sum.vbr` is the hand-rolled tree;
+`examples/cuda_upload.vbr` is the 1-D GPU path; `examples/cuda_call.vbr` is a
 numeric helper called from the kernel; `examples/cuda_dot.vbr` and
 `examples/cuda_cross.vbr` are a dot product and a 3-vector cross product.
 

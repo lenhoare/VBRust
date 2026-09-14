@@ -13,6 +13,7 @@ use crate::transpiler::rust_name;
 
 thread_local! {
     static SRC_FNS: RefCell<Vec<Function>> = const { RefCell::new(Vec::new()) };
+    static TWO_D: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
 /// Makes same-file `Function`s visible while resolving/emitting a CUDA kernel.
@@ -45,6 +46,7 @@ pub const CUDA_HELPER: &str = r#"
 struct __VbrCudaBuffer<T> {
     ptr: u64,
     len: usize,
+    cols: usize,
     _t: std::marker::PhantomData<T>,
 }
 
@@ -55,6 +57,9 @@ impl<T> __VbrCudaBuffer<T> {
     }
     fn count(&self) -> usize {
         self.len
+    }
+    fn cols(&self) -> usize {
+        self.cols
     }
 }
 
@@ -73,6 +78,7 @@ CPU copy — ordinary Vec Parallel For stays on the CPU. Install a driver, or ke
 const __VBR_NVRTC_NEEDED: &str = "The GPU is there, but compiling a Parallel For kernel needs the \
 CUDA toolkit (libnvrtc / nvrtc64_*.dll). Install the toolkit, or keep this loop on a Vec.";
 
+#[allow(dead_code)]
 fn __vbr_cuda_upload<T: Copy>(xs: &[T]) -> Result<__VbrCudaBuffer<T>, String> {
     let bytes = std::mem::size_of_val(xs);
     let ptr = __vbr_cuda_alloc_bytes(bytes)?;
@@ -82,10 +88,40 @@ fn __vbr_cuda_upload<T: Copy>(xs: &[T]) -> Result<__VbrCudaBuffer<T>, String> {
     Ok(__VbrCudaBuffer {
         ptr,
         len: xs.len(),
+        cols: 0,
         _t: std::marker::PhantomData,
     })
 }
 
+#[allow(dead_code)]
+fn __vbr_cuda_upload_2d<T: Copy>(rows: &[Vec<T>]) -> Result<__VbrCudaBuffer<T>, String> {
+    let ny = rows.len();
+    let nx = rows.first().map(|r| r.len()).unwrap_or(0);
+    for r in rows {
+        if r.len() != nx {
+            return Err(
+                "CUDA.Upload of a 2-D list needs a rectangle — every row the same length.".into(),
+            );
+        }
+    }
+    let mut flat = Vec::with_capacity(ny.saturating_mul(nx));
+    for r in rows {
+        flat.extend_from_slice(r);
+    }
+    let bytes = std::mem::size_of_val(flat.as_slice());
+    let ptr = __vbr_cuda_alloc_bytes(bytes)?;
+    if bytes > 0 {
+        __vbr_cuda_copy_hto_d(ptr, flat.as_ptr() as *const u8, bytes)?;
+    }
+    Ok(__VbrCudaBuffer {
+        ptr,
+        len: ny,
+        cols: nx,
+        _t: std::marker::PhantomData,
+    })
+}
+
+#[allow(dead_code)]
 fn __vbr_cuda_alloc<T>(n: i64) -> Result<__VbrCudaBuffer<T>, String> {
     if n < 0 {
         return Err("CUDA.Alloc(n) needs a non-negative length.".into());
@@ -99,12 +135,40 @@ fn __vbr_cuda_alloc<T>(n: i64) -> Result<__VbrCudaBuffer<T>, String> {
     Ok(__VbrCudaBuffer {
         ptr,
         len: n,
+        cols: 0,
         _t: std::marker::PhantomData,
     })
 }
 
+#[allow(dead_code)]
+fn __vbr_cuda_alloc_2d<T>(rows: i64, cols: i64) -> Result<__VbrCudaBuffer<T>, String> {
+    if rows < 0 || cols < 0 {
+        return Err("CUDA.Alloc(rows, cols) needs non-negative sizes.".into());
+    }
+    let ny = rows as usize;
+    let nx = cols as usize;
+    let n = ny.saturating_mul(nx);
+    let bytes = n.saturating_mul(std::mem::size_of::<T>());
+    let ptr = __vbr_cuda_alloc_bytes(bytes)?;
+    if bytes > 0 {
+        __vbr_cuda_memset(ptr, bytes)?;
+    }
+    Ok(__VbrCudaBuffer {
+        ptr,
+        len: ny,
+        cols: nx,
+        _t: std::marker::PhantomData,
+    })
+}
+
+#[allow(dead_code)]
 fn __vbr_cuda_download<T: Copy + Default>(buf: &__VbrCudaBuffer<T>) -> Result<Vec<T>, String> {
-    let mut out = vec![T::default(); buf.len];
+    let n = if buf.cols == 0 {
+        buf.len
+    } else {
+        buf.len.saturating_mul(buf.cols)
+    };
+    let mut out = vec![T::default(); n];
     let bytes = std::mem::size_of_val(out.as_slice());
     if bytes > 0 {
         __vbr_cuda_copy_d_to_h(out.as_mut_ptr() as *mut u8, buf.ptr, bytes)?;
@@ -112,6 +176,25 @@ fn __vbr_cuda_download<T: Copy + Default>(buf: &__VbrCudaBuffer<T>) -> Result<Ve
     Ok(out)
 }
 
+#[allow(dead_code)]
+fn __vbr_cuda_download_2d<T: Copy + Default>(
+    buf: &__VbrCudaBuffer<T>,
+) -> Result<Vec<Vec<T>>, String> {
+    let nx = buf.cols;
+    let ny = buf.len;
+    let n = ny.saturating_mul(nx);
+    let mut flat = vec![T::default(); n];
+    let bytes = std::mem::size_of_val(flat.as_slice());
+    if bytes > 0 {
+        __vbr_cuda_copy_d_to_h(flat.as_mut_ptr() as *mut u8, buf.ptr, bytes)?;
+    }
+    if nx == 0 {
+        return Ok(vec![Vec::new(); ny]);
+    }
+    Ok(flat.chunks(nx).map(|r| r.to_vec()).collect())
+}
+
+#[allow(dead_code)]
 fn __vbr_cuda_for(
     n: usize,
     src: &str,
@@ -139,7 +222,119 @@ fn __vbr_cuda_for(
     args.push(&mut n_i as *mut i64 as *mut std::ffi::c_void);
     let block: u32 = 256;
     let grid: u32 = ((n as u32) + block - 1) / block;
-    __vbr_cuda_launch(fun, grid, block, &mut args)
+    __vbr_cuda_launch(fun, grid, 1, block, 1, &mut args)
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_for_2d(
+    ny: usize,
+    nx: usize,
+    src: &str,
+    ptrs: &[u64],
+    cols: &[u64],
+    yfrom: i64,
+    ystep: i64,
+    xfrom: i64,
+    xstep: i64,
+) -> Result<(), String> {
+    if ny == 0 || nx == 0 {
+        return Ok(());
+    }
+    if ny > u32::MAX as usize || nx > u32::MAX as usize {
+        return Err("CUDA Parallel For is too large for one launch.".into());
+    }
+    let fun = __vbr_cuda_compile(src)?;
+    let mut slots: Vec<u64> = ptrs.to_vec();
+    let mut col_slots: Vec<i64> = cols.iter().map(|c| *c as i64).collect();
+    let mut yfrom = yfrom;
+    let mut ystep = ystep;
+    let mut ny_i = ny as i64;
+    let mut xfrom = xfrom;
+    let mut xstep = xstep;
+    let mut nx_i = nx as i64;
+    let mut args: Vec<*mut std::ffi::c_void> = Vec::new();
+    for (p, c) in slots.iter_mut().zip(col_slots.iter_mut()) {
+        args.push(p as *mut u64 as *mut std::ffi::c_void);
+        args.push(c as *mut i64 as *mut std::ffi::c_void);
+    }
+    args.push(&mut yfrom as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut ystep as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut ny_i as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut xfrom as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut xstep as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut nx_i as *mut i64 as *mut std::ffi::c_void);
+    let bx: u32 = 16;
+    let by: u32 = 16;
+    let gx: u32 = ((nx as u32) + bx - 1) / bx;
+    let gy: u32 = ((ny as u32) + by - 1) / by;
+    __vbr_cuda_launch(fun, gx, gy, bx, by, &mut args)
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_sum_src(cty: &str) -> String {
+    let zero = match cty {
+        "float" => "0.0f",
+        "double" => "0.0",
+        _ => "0",
+    };
+    format!(
+        "extern \"C\" __global__ void k({cty}* __in, {cty}* __out, long long __n) {{\n    __shared__ {cty} __s[256];\n    long long __i = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    {cty} __v = (__i < __n) ? __in[__i] : ({cty}){zero};\n    __s[threadIdx.x] = __v;\n    __syncthreads();\n    for (int __stride = 128; __stride > 0; __stride >>= 1) {{\n        if ((int)threadIdx.x < __stride) {{\n            __s[threadIdx.x] = __s[threadIdx.x] + __s[threadIdx.x + __stride];\n        }}\n        __syncthreads();\n    }}\n    if (threadIdx.x == 0) __out[blockIdx.x] = __s[0];\n}}\n"
+    )
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_sum<T: Copy + Default>(buf: &__VbrCudaBuffer<T>, cty: &str) -> Result<T, String> {
+    if buf.cols != 0 {
+        return Err("Parallel Sum needs a 1-D CudaBuffer.".into());
+    }
+    let n = buf.len;
+    if n == 0 {
+        return Ok(T::default());
+    }
+    if n > u32::MAX as usize {
+        return Err("CUDA Parallel Sum is too large for one launch.".into());
+    }
+    let sz = std::mem::size_of::<T>();
+    if n == 1 {
+        let mut out = T::default();
+        __vbr_cuda_copy_d_to_h(&mut out as *mut T as *mut u8, buf.ptr, sz)?;
+        return Ok(out);
+    }
+    let fun = __vbr_cuda_compile(&__vbr_cuda_sum_src(cty))?;
+    let scratch_n = (n + 255) / 256;
+    let s1 = __vbr_cuda_alloc_bytes(scratch_n.saturating_mul(sz))?;
+    let s2 = __vbr_cuda_alloc_bytes(scratch_n.saturating_mul(sz))?;
+    let result = (|| {
+        let mut in_ptr = buf.ptr;
+        let mut n = n;
+        let mut dest = s1;
+        let mut alt = s2;
+        loop {
+            let block: u32 = 256;
+            let grid: u32 = ((n as u32) + block - 1) / block;
+            let mut in_slot = in_ptr;
+            let mut out_slot = dest;
+            let mut n_i = n as i64;
+            let mut args: Vec<*mut std::ffi::c_void> = vec![
+                &mut in_slot as *mut u64 as *mut std::ffi::c_void,
+                &mut out_slot as *mut u64 as *mut std::ffi::c_void,
+                &mut n_i as *mut i64 as *mut std::ffi::c_void,
+            ];
+            __vbr_cuda_launch(fun, grid, 1, block, 1, &mut args)?;
+            if grid == 1 {
+                let mut out = T::default();
+                __vbr_cuda_copy_d_to_h(&mut out as *mut T as *mut u8, dest, sz)?;
+                return Ok(out);
+            }
+            n = grid as usize;
+            in_ptr = dest;
+            dest = alt;
+            alt = in_ptr;
+        }
+    })();
+    let _ = __vbr_cuda_free(s1);
+    let _ = __vbr_cuda_free(s2);
+    result
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -167,7 +362,14 @@ fn __vbr_cuda_compile(_: &str) -> Result<u64, String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
 #[cfg(not(any(unix, windows)))]
-fn __vbr_cuda_launch(_: u64, _: u32, _: u32, _: &mut [*mut std::ffi::c_void]) -> Result<(), String> {
+fn __vbr_cuda_launch(
+    _: u64,
+    _: u32,
+    _: u32,
+    _: u32,
+    _: u32,
+    _: &mut [*mut std::ffi::c_void],
+) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
 
@@ -498,8 +700,10 @@ mod __vbr_cuda_drv {
 
     pub fn launch(
         fun: usize,
-        grid: u32,
-        block: u32,
+        grid_x: u32,
+        grid_y: u32,
+        block_x: u32,
+        block_y: u32,
         args: &mut [*mut c_void],
     ) -> Result<(), String> {
         let api = api()?;
@@ -507,11 +711,11 @@ mod __vbr_cuda_drv {
             unsafe {
                 (api.cu_launch)(
                     fun,
-                    grid,
+                    grid_x,
+                    grid_y,
                     1,
-                    1,
-                    block,
-                    1,
+                    block_x,
+                    block_y,
                     1,
                     0,
                     0,
@@ -552,11 +756,13 @@ fn __vbr_cuda_compile(src: &str) -> Result<u64, String> {
 #[cfg(any(unix, windows))]
 fn __vbr_cuda_launch(
     fun: u64,
-    grid: u32,
-    block: u32,
+    grid_x: u32,
+    grid_y: u32,
+    block_x: u32,
+    block_y: u32,
     args: &mut [*mut std::ffi::c_void],
 ) -> Result<(), String> {
-    __vbr_cuda_drv::launch(fun as usize, grid, block, args)
+    __vbr_cuda_drv::launch(fun as usize, grid_x, grid_y, block_x, block_y, args)
 }
 "#;
 
@@ -567,8 +773,23 @@ pub fn is_cuda_ns(name: &str) -> bool {
 pub fn is_cuda_method(method: &str) -> bool {
     matches!(
         method.to_ascii_lowercase().replace('_', "").as_str(),
-        "upload" | "alloc" | "download"
+        "upload" | "upload2d" | "alloc" | "alloc2d" | "download" | "download2d"
     )
+}
+
+/// Element type and whether this `CudaBuffer` is a 2-D grid (`CudaBuffer<CudaBuffer<T>>`).
+pub fn cuda_leaf(ty: &DeclType) -> Option<(Type, bool)> {
+    match ty {
+        DeclType::CudaBuffer(inner) => match inner.as_ref() {
+            DeclType::Plain(t) if t.is_number() => Some((*t, false)),
+            DeclType::CudaBuffer(elem) => match elem.as_ref() {
+                DeclType::Plain(t) if t.is_number() => Some((*t, true)),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 pub fn cuda_c_type(t: Type) -> &'static str {
@@ -705,7 +926,7 @@ fn expr_uses_cuda(e: &Expr) -> bool {
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => expr_uses_cuda(inner),
         _ => false,
@@ -847,7 +1068,7 @@ fn walk_expr_index(e: &Expr, out: &mut HashSet<String>) {
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => walk_expr_index(inner, out),
         _ => {}
@@ -939,7 +1160,7 @@ fn walk_expr_idents(e: &Expr, allow: &HashSet<String>, out: &mut HashSet<String>
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => walk_expr_idents(inner, allow, out),
         _ => {}
@@ -961,14 +1182,10 @@ pub fn check_device_body(stmts: &[Stmt], line: usize, diags: &mut Diagnostics) -
                 );
                 return false;
             }
-            Stmt::For { parallel: true, .. } => {
-                diags.error(
-                    line,
-                    "CUDA buffers are a 1-D index space (`buf[i]`). Nested \
-                     `Parallel For y` / `Parallel For x` stays on CPU `Vec`s — \
-                     a 2-D CUDA grid is later.",
-                );
-                return false;
+            Stmt::For { parallel: true, body, .. } => {
+                if !check_device_body(body, line, diags) {
+                    return false;
+                }
             }
             Stmt::For { .. } => {
                 diags.error(
@@ -1258,7 +1475,7 @@ fn stmt_has_host_expr(s: &Stmt) -> bool {
 
 fn expr_has_host(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::MethodCall { .. } | ExprKind::ParallelSum(_) | ExprKind::Str(_) => true,
+        ExprKind::MethodCall { .. } | ExprKind::ParallelSum(..) | ExprKind::Str(_) => true,
         ExprKind::Call { args, .. } => args.iter().any(expr_has_host),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
             expr_has_host(lhs) || expr_has_host(rhs)
@@ -1417,6 +1634,86 @@ pub fn kernel_c(var: &str, bufs: &[(String, Type)], body: &[Stmt]) -> String {
     src
 }
 
+/// CUDA C kernel for nested `Parallel For y` / `x` — a 2-D grid.
+pub fn kernel_c_2d(y: &str, x: &str, bufs: &[(String, Type)], body: &[Stmt]) -> String {
+    let use_f = bufs.iter().any(|(_, t)| *t == Type::Single);
+    TWO_D.with(|s| {
+        *s.borrow_mut() = bufs.iter().map(|(n, _)| n.to_ascii_lowercase()).collect();
+    });
+    let helpers = collect_helpers(body);
+    let mut src = String::new();
+    for f in &helpers {
+        let ret = match &f.ret {
+            Some(DeclType::Plain(t)) => cuda_c_type(*t),
+            _ => "void",
+        };
+        let params: Vec<String> = f
+            .params
+            .iter()
+            .map(|p| {
+                let ty = match &p.ty {
+                    DeclType::Plain(t) => cuda_c_type(*t),
+                    _ => "long long",
+                };
+                format!("{ty} {}", rust_name(&p.name))
+            })
+            .collect();
+        src.push_str(&format!(
+            "__device__ {ret} {}({});\n",
+            cuda_fn_ident(&f.name),
+            params.join(", ")
+        ));
+    }
+    if !helpers.is_empty() {
+        src.push('\n');
+    }
+    for f in &helpers {
+        src.push_str(&emit_device_fn(f));
+    }
+    let mut params: Vec<String> = Vec::new();
+    for (n, t) in bufs {
+        let rn = rust_name(n);
+        params.push(format!("{}* {rn}", cuda_c_type(*t)));
+        params.push(format!("long long {rn}_cols"));
+    }
+    params.push("long long __yfrom".into());
+    params.push("long long __ystep".into());
+    params.push("long long __ny".into());
+    params.push("long long __xfrom".into());
+    params.push("long long __xstep".into());
+    params.push("long long __nx".into());
+    src.push_str("extern \"C\" __global__ void k(");
+    src.push_str(&params.join(", "));
+    src.push_str(") {\n");
+    src.push_str(
+        "    long long __ky = (long long)blockIdx.y * (long long)blockDim.y + (long long)threadIdx.y;\n",
+    );
+    src.push_str(
+        "    long long __kx = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n",
+    );
+    src.push_str("    if (__ky >= __ny || __kx >= __nx) return;\n");
+    src.push_str(&format!(
+        "    long long {} = __yfrom + __ky * __ystep;\n",
+        rust_name(y)
+    ));
+    src.push_str(&format!(
+        "    long long {} = __xfrom + __kx * __xstep;\n",
+        rust_name(x)
+    ));
+    for s in body {
+        if let Some(text) = cuda_stmt(s, use_f, 1) {
+            src.push_str(&text);
+        }
+    }
+    src.push_str("}\n");
+    TWO_D.with(|s| s.borrow_mut().clear());
+    src
+}
+
+fn is_two_d_buf(name: &str) -> bool {
+    TWO_D.with(|s| s.borrow().contains(&name.to_ascii_lowercase()))
+}
+
 fn cuda_stmt(s: &Stmt, use_f: bool, indent: usize) -> Option<String> {
     let pad = "    ".repeat(indent);
     match s {
@@ -1502,6 +1799,20 @@ fn cuda_expr(e: &Expr, use_f: bool) -> String {
         ExprKind::Bool(false) => "0".into(),
         ExprKind::Ident(n) => rust_name(n),
         ExprKind::Index(inner, idx) => {
+            if let ExprKind::Index(base, row) = &inner.kind {
+                if let ExprKind::Ident(n) = &base.kind {
+                    if is_two_d_buf(n) {
+                        let rn = rust_name(n);
+                        return format!(
+                            "{}[({}) * ({}_cols) + ({})]",
+                            rn,
+                            cuda_expr(row, use_f),
+                            rn,
+                            cuda_expr(idx, use_f)
+                        );
+                    }
+                }
+            }
             format!("{}[{}]", cuda_expr(inner, use_f), cuda_expr(idx, use_f))
         }
         ExprKind::Binary { op, lhs, rhs } => {

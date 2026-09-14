@@ -4956,7 +4956,7 @@ impl<'a> Parser<'a> {
             self.advance();
             let inner = self.parse_primary()?;
             let span = start.to(inner.span);
-            return Some(ExprKind::ParallelSum(Box::new(inner)).at(span));
+            return Some(ExprKind::ParallelSum(Box::new(inner), None).at(span));
         }
         // An inline Rust block.
         if let Tok::InlineRust(raw) = self.peek().clone() {

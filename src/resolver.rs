@@ -944,22 +944,21 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                         }
                     }
                 } else if let DeclType::CudaBuffer(elem) = ty {
-                    match elem.as_ref() {
-                        DeclType::Plain(t) if t.is_number() => {}
-                        other => ctx.diags.error_once(
+                    if crate::cuda::cuda_leaf(&DeclType::CudaBuffer(elem.clone())).is_none() {
+                        ctx.diags.error_once(
                             "cuda-elem",
                             format!(
-                                "`CudaBuffer<{}>` holds numbers (`Single`, `Long`, …) — \
-                                 not nested lists or strings. Upload a numeric `Vec`.",
-                                other.vb()
+                                "`CudaBuffer<{}>` holds numbers (`Single`, `Long`, …) or a \
+                                 2-D `CudaBuffer<CudaBuffer<T>>` — not strings. Upload a numeric `Vec`.",
+                                elem.vb()
                             ),
-                        ),
+                        );
                     }
                     if init.is_none() {
                         ctx.diags.error_once(
                             "cuda-empty",
-                            "`CudaBuffer` needs `CUDA.Alloc(n)` or `CUDA.Upload(xs)` — \
-                             there is no empty device buffer.",
+                            "`CudaBuffer` needs `CUDA.Alloc(n)`, `Alloc(rows, cols)`, or \
+                             `CUDA.Upload(xs)` — there is no empty device buffer.",
                         );
                     }
                     let saved = ctx.cuda_alloc_elem.clone();
@@ -1621,6 +1620,7 @@ fn is_auto_try_expr(e: &Expr, ctx: &Ctx) -> bool {
             }
             false
         }
+        ExprKind::ParallelSum(_, Some(_)) => true,
         _ => false,
     }
 }
@@ -1651,7 +1651,7 @@ fn first_nested_fallible(call: &Expr, ctx: &Ctx) -> Option<String> {
             | ExprKind::Try(inner)
             | ExprKind::Field(inner, _)
             | ExprKind::Not(inner)
-            | ExprKind::ParallelSum(inner)
+            | ExprKind::ParallelSum(inner, _)
             | ExprKind::Deref(inner)
             | ExprKind::Ref(inner)
             | ExprKind::MutRef(inner)
@@ -1754,6 +1754,7 @@ fn try_operand_shape(e: &Expr, ctx: &Ctx) -> Option<FailShape> {
             }
             None
         }
+        ExprKind::ParallelSum(_, Some(_)) => Some(FailShape::Result),
         _ => None,
     }
 }
@@ -1964,13 +1965,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     Some(DeclType::CudaBuffer(_))
                 ) {
                     let m = snake(method);
-                    if crate::transpiler::is_mutating_method(&m) || !matches!(m.as_str(), "len" | "count") {
+                    if crate::transpiler::is_mutating_method(&m)
+                        || !matches!(m.as_str(), "len" | "count" | "cols")
+                    {
                         ctx.diags.error_once(
                             &format!("cuda-method-{m}"),
                             format!(
                                 "`CudaBuffer` isn't a `Vec` — on the host it's `{v}.Len()` / \
-                                 `.Count()`, then `CUDA.Download({v})`. Writes are `buf[i]` \
-                                 inside `Parallel For`."
+                                 `.Count()` / `.Cols()`, then `CUDA.Download({v})`. Writes are \
+                                 `buf[i]` or `buf[y][x]` inside `Parallel For`."
                             ),
                         );
                     }
@@ -2496,7 +2499,7 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         // Inline Rust/Python are opaque — no resolution.
         ExprKind::InlineRust(_) | ExprKind::InlinePython { .. } => {}
         ExprKind::Not(inner) => resolve_expr(inner, ctx),
-        ExprKind::ParallelSum(inner) => {
+        ExprKind::ParallelSum(inner, cuda_elem) => {
             resolve_expr(inner, ctx);
             match infer(inner, ctx) {
                 VType::Decl(DeclType::Vec(t)) => match t.as_ref() {
@@ -2519,10 +2522,32 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                         ty.vb_name()
                     ),
                 ),
+                VType::Decl(ty @ DeclType::CudaBuffer(_)) => match crate::cuda::cuda_leaf(&ty) {
+                    Some((t, false)) => {
+                        *cuda_elem = Some(t);
+                        if !ctx.diags.has_errors() {
+                            ctx.diags.note(
+                                "parallel-sum-cuda",
+                                "`Parallel Sum` over `CudaBuffer` reduces on the GPU. A host \
+                                 `Vec` stays on CPU threads — there is no silent download.",
+                            );
+                        }
+                    }
+                    Some((_, true)) => ctx.diags.error_once(
+                        "parallel-sum-cuda-2d",
+                        "`Parallel Sum` adds a 1-D `CudaBuffer<T>` (or a host `Vec`). \
+                         A 2-D grid is nested `Parallel For y` / `x`, not a reduction.",
+                    ),
+                    None => ctx.diags.error_once(
+                        "parallel-sum-elem",
+                        "`Parallel Sum` adds numbers (`Long`, `Double`, …). \
+                         This device buffer isn't numeric.",
+                    ),
+                },
                 _ => ctx.diags.error_once(
                     "parallel-sum-vec",
-                    "`Parallel Sum xs` adds every element of a `Vec` (or array) \
-                     of numbers. This isn't one.",
+                    "`Parallel Sum xs` adds every element of a numeric `Vec` \
+                     (or array), or a 1-D `CudaBuffer`. This isn't one.",
                 ),
             }
         }
@@ -2725,7 +2750,7 @@ fn mutated_capture(e: &Expr, params: &[String], ctx: &Ctx) -> Option<String> {
             args.iter().find_map(|a| mutated_capture(a, params, ctx))
         }
         ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Deref(inner)
         | ExprKind::Ref(inner)
         | ExprKind::MutRef(inner)
@@ -2823,12 +2848,16 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         | ExprKind::InlineRust(_)
         | ExprKind::InlinePython { .. } => VType::Unknown,
         ExprKind::Not(_) => vt(Type::Boolean),
-        ExprKind::ParallelSum(inner) => match infer(inner, ctx) {
+        ExprKind::ParallelSum(inner, _) => match infer(inner, ctx) {
             VType::Decl(DeclType::Vec(t)) => match *t {
                 DeclType::Plain(ty) if ty.is_number() => vt(ty),
                 _ => VType::Unknown,
             },
             VType::Decl(DeclType::Array(ty, _)) if ty.is_number() => vt(ty),
+            VType::Decl(ref ty @ DeclType::CudaBuffer(_)) => match crate::cuda::cuda_leaf(ty) {
+                Some((t, false)) => vt(t),
+                _ => VType::Unknown,
+            },
             _ => VType::Unknown,
         },
         ExprKind::Binary { op, lhs, rhs } => match op {
@@ -2966,17 +2995,45 @@ fn infer_cuda_call(method: &str, args: &[Expr], ctx: &Ctx) -> VType {
     let m = method.to_ascii_lowercase().replace('_', "");
     match m.as_str() {
         "upload" => match args.first().map(|a| infer(a, ctx)) {
-            Some(VType::Decl(DeclType::Vec(t))) => err_ty(DeclType::CudaBuffer(t)),
+            Some(VType::Decl(DeclType::Vec(t))) => match t.as_ref() {
+                DeclType::Plain(ty) if ty.is_number() => {
+                    err_ty(DeclType::CudaBuffer(Box::new(DeclType::Plain(*ty))))
+                }
+                DeclType::Vec(inner) => match inner.as_ref() {
+                    DeclType::Plain(ty) if ty.is_number() => err_ty(DeclType::CudaBuffer(Box::new(
+                        DeclType::CudaBuffer(Box::new(DeclType::Plain(*ty))),
+                    ))),
+                    _ => VType::Unknown,
+                },
+                _ => VType::Unknown,
+            },
             Some(VType::Decl(DeclType::Array(t, _))) if t.is_number() => {
                 err_ty(DeclType::CudaBuffer(Box::new(DeclType::Plain(t))))
             }
             _ => VType::Unknown,
         },
-        "download" => match args.first().map(|a| infer(a, ctx)) {
-            Some(VType::Decl(DeclType::CudaBuffer(t))) => err_ty(DeclType::Vec(t)),
+        "upload2d" => match args.first().map(|a| infer(a, ctx)) {
+            Some(VType::Decl(DeclType::Vec(t))) => match t.as_ref() {
+                DeclType::Vec(inner) => match inner.as_ref() {
+                    DeclType::Plain(ty) if ty.is_number() => err_ty(DeclType::CudaBuffer(Box::new(
+                        DeclType::CudaBuffer(Box::new(DeclType::Plain(*ty))),
+                    ))),
+                    _ => VType::Unknown,
+                },
+                _ => VType::Unknown,
+            },
             _ => VType::Unknown,
         },
-        "alloc" => match &ctx.cuda_alloc_elem {
+        "download" | "download2d" => match args.first().map(|a| infer(a, ctx)) {
+            Some(VType::Decl(DeclType::CudaBuffer(t))) => match t.as_ref() {
+                DeclType::CudaBuffer(elem) => {
+                    err_ty(DeclType::Vec(Box::new(DeclType::Vec(elem.clone()))))
+                }
+                _ => err_ty(DeclType::Vec(t)),
+            },
+            _ => VType::Unknown,
+        },
+        "alloc" | "alloc2d" => match &ctx.cuda_alloc_elem {
             Some(elem) => err_ty(DeclType::CudaBuffer(Box::new(elem.clone()))),
             None => VType::Unknown,
         },
@@ -2984,9 +3041,18 @@ fn infer_cuda_call(method: &str, args: &[Expr], ctx: &Ctx) -> VType {
     }
 }
 
-fn resolve_cuda_call(method: &str, args: &mut [Expr], ctx: &mut Ctx) {
+fn resolve_cuda_call(method: &mut String, args: &mut [Expr], ctx: &mut Ctx) {
     let m = method.to_ascii_lowercase().replace('_', "");
-    if args.len() != 1 {
+    let alloc_2d = m == "alloc" && args.len() == 2;
+    if m == "alloc" {
+        if args.len() != 1 && args.len() != 2 {
+            ctx.diags.error_once(
+                "cuda-arity-alloc",
+                "`CUDA.Alloc` is `Alloc(n)` for a 1-D buffer or `Alloc(rows, cols)` for 2-D.",
+            );
+            return;
+        }
+    } else if args.len() != 1 {
         ctx.diags.error_once(
             &format!("cuda-arity-{m}"),
             format!(
@@ -2996,12 +3062,26 @@ fn resolve_cuda_call(method: &str, args: &mut [Expr], ctx: &mut Ctx) {
         );
         return;
     }
-    resolve_expr(&mut args[0], ctx);
-    clone_rvalue_indexes(&mut args[0], ctx);
+    for a in args.iter_mut() {
+        resolve_expr(a, ctx);
+        clone_rvalue_indexes(a, ctx);
+    }
     match m.as_str() {
         "upload" => match infer(&args[0], ctx) {
             VType::Decl(DeclType::Vec(t)) => match t.as_ref() {
                 DeclType::Plain(ty) if ty.is_number() => {}
+                DeclType::Vec(inner) => match inner.as_ref() {
+                    DeclType::Plain(ty) if ty.is_number() => {
+                        *method = "upload2d".into();
+                    }
+                    other => ctx.diags.error_once(
+                        "cuda-upload-elem",
+                        format!(
+                            "`CUDA.Upload` copies a numeric `Vec` onto the GPU. This list holds `{}`.",
+                            other.vb()
+                        ),
+                    ),
+                },
                 other => ctx.diags.error_once(
                     "cuda-upload-elem",
                     format!(
@@ -3021,7 +3101,11 @@ fn resolve_cuda_call(method: &str, args: &mut [Expr], ctx: &mut Ctx) {
             ),
         },
         "download" => match infer(&args[0], ctx) {
-            VType::Decl(DeclType::CudaBuffer(_)) => {}
+            VType::Decl(DeclType::CudaBuffer(inner)) => {
+                if matches!(inner.as_ref(), DeclType::CudaBuffer(_)) {
+                    *method = "download2d".into();
+                }
+            }
             _ => ctx.diags.error_once(
                 "cuda-download-buf",
                 "`CUDA.Download(buf)` copies a `CudaBuffer` back to a host `Vec`.",
@@ -3036,6 +3120,25 @@ fn resolve_cuda_call(method: &str, args: &mut [Expr], ctx: &mut Ctx) {
                 );
             }
             maybe_cast(&mut args[0], Type::Long, ctx);
+            if alloc_2d {
+                maybe_cast(&mut args[1], Type::Long, ctx);
+                match &ctx.cuda_alloc_elem {
+                    Some(DeclType::CudaBuffer(_)) => {
+                        *method = "alloc2d".into();
+                    }
+                    Some(_) => ctx.diags.error_once(
+                        "cuda-alloc-2d-as",
+                        "`CUDA.Alloc(rows, cols)` needs `Dim b As CudaBuffer<CudaBuffer<T>>` — \
+                         a 2-D device grid. One-arg `Alloc(n)` is the 1-D buffer.",
+                    ),
+                    None => {}
+                }
+            } else if matches!(&ctx.cuda_alloc_elem, Some(DeclType::CudaBuffer(_))) {
+                ctx.diags.error_once(
+                    "cuda-alloc-2d-arity",
+                    "A 2-D `CudaBuffer<CudaBuffer<T>>` is `CUDA.Alloc(rows, cols)` — two sizes.",
+                );
+            }
         }
         _ => {}
     }
@@ -3047,18 +3150,33 @@ fn mark_cuda_loop(
     line: usize,
     ctx: &mut Ctx,
 ) -> (bool, Vec<(String, Type)>) {
+    // The inner `Parallel For x` of a 2-D nest is not its own launch — the outer
+    // `Parallel For y` owns the CUDA grid.
+    if vars.len() > 1 && crate::parallel::nested_grid2(body).is_none() {
+        return (false, Vec::new());
+    }
     let names = crate::cuda::indexed_names(body);
     let mut device = Vec::new();
     let mut host: Vec<String> = Vec::new();
+    let mut two_d = Vec::new();
+    let mut one_d = Vec::new();
     for n in &names {
         match ctx.binding(n).and_then(|b| b.ty.as_ref()) {
-            Some(DeclType::CudaBuffer(inner)) => match inner.as_ref() {
-                DeclType::Plain(t) if t.is_number() => device.push((n.clone(), *t)),
-                other => ctx.diags.error(
+            Some(ty @ DeclType::CudaBuffer(_)) => match crate::cuda::cuda_leaf(ty) {
+                Some((t, is_2d)) => {
+                    device.push((n.clone(), t));
+                    if is_2d {
+                        two_d.push(n.clone());
+                    } else {
+                        one_d.push(n.clone());
+                    }
+                }
+                None => ctx.diags.error(
                     line,
                     format!(
-                        "`CudaBuffer<{}>` isn't a numeric device buffer. Upload `Single` / `Long` / ….",
-                        other.vb()
+                        "`{}` isn't a numeric device buffer. Upload `Single` / `Long` / … \
+                         (or `CudaBuffer<CudaBuffer<T>>` for a 2-D grid).",
+                        ty.vb()
                     ),
                 ),
             },
@@ -3088,15 +3206,40 @@ fn mark_cuda_loop(
         );
         return (false, Vec::new());
     }
-    if vars.len() > 1 || crate::parallel::nested_grid2(body).is_some() {
+    let grid2 = crate::parallel::nested_grid2(body).is_some();
+    if grid2 {
+        if !one_d.is_empty() {
+            ctx.diags.error(
+                line,
+                format!(
+                    "A 2-D CUDA grid (`Parallel For y` / `x`) indexes `buf[y][x]` — \
+                     upload a `Vec<Vec<T>>` as `CudaBuffer<CudaBuffer<T>>`. `{}` is 1-D \
+                     (`buf[i]`).",
+                    one_d.join(", ")
+                ),
+            );
+            return (false, Vec::new());
+        }
+    } else if vars.len() > 1 {
+        return (false, Vec::new());
+    } else if !two_d.is_empty() {
         ctx.diags.error(
             line,
-            "CUDA buffers are a 1-D index space (`buf[i]`). Nested \
-             `Parallel For y` / `Parallel For x` stays on CPU `Vec`s — a 2-D CUDA grid is later.",
+            format!(
+                "A 2-D `CudaBuffer` (`{}`) is `buf[y][x]` in nested `Parallel For y` / \
+                 `Parallel For x`. A 1-D loop stays on `buf[i]`.",
+                two_d.join(", ")
+            ),
         );
         return (false, Vec::new());
     }
-    if !crate::cuda::check_device_body(body, line, ctx.diags) {
+    let check_body = if let Some(Stmt::For { body: inner, .. }) = crate::parallel::nested_grid2(body)
+    {
+        inner.as_slice()
+    } else {
+        body
+    };
+    if !crate::cuda::check_device_body(check_body, line, ctx.diags) {
         return (false, Vec::new());
     }
     let mut locals = std::collections::HashSet::new();
@@ -3111,7 +3254,7 @@ fn mark_cuda_loop(
     for (n, _) in &device {
         allow.insert(n.to_ascii_lowercase());
     }
-    let stray = crate::cuda::stray_idents(body, &allow);
+    let stray = crate::cuda::stray_idents(check_body, &allow);
     if let Some(name) = stray.iter().next() {
         ctx.diags.error(
             line,
@@ -3323,7 +3466,7 @@ fn clone_moved_rvalues(e: &mut Expr, ctx: &Ctx, owned: bool) {
         | ExprKind::Raw(inner)
         | ExprKind::Closure { body: inner, .. } => clone_moved_rvalues(inner, ctx, owned),
         // `({xs}).as_slice()` borrows — the Vec stays usable after the sum.
-        ExprKind::ParallelSum(inner) => clone_moved_rvalues(inner, ctx, false),
+        ExprKind::ParallelSum(inner, _) => clone_moved_rvalues(inner, ctx, false),
         ExprKind::Deref(inner) => clone_moved_rvalues(inner, ctx, false),
         ExprKind::Index(inner, idx) => {
             clone_moved_rvalues(inner, ctx, false);

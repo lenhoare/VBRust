@@ -86,6 +86,8 @@ const HAPPY: &[&str] = &[
     "cuda_call",
     "cuda_dot",
     "cuda_cross",
+    "cuda_grid",
+    "cuda_sum",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

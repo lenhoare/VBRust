@@ -604,8 +604,8 @@ impl Rw<'_> {
                 span: e.span,
             },
             ExprKind::Not(inner) => Expr { kind: ExprKind::Not(Box::new(self.expr(*inner))), span: e.span },
-            ExprKind::ParallelSum(inner) => Expr {
-                kind: ExprKind::ParallelSum(Box::new(self.expr(*inner))),
+            ExprKind::ParallelSum(inner, ty) => Expr {
+                kind: ExprKind::ParallelSum(Box::new(self.expr(*inner)), ty),
                 span: e.span,
             },
             ExprKind::Field(recv, name) => Expr {
@@ -800,7 +800,7 @@ fn expr_uses_input(e: &Expr) -> bool {
         | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             expr_uses_input(lhs) || expr_uses_input(rhs)
         },
-        ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Field(i, _) => expr_uses_input(i),
+        ExprKind::Not(i) | ExprKind::ParallelSum(i, _) | ExprKind::Field(i, _) => expr_uses_input(i),
         ExprKind::Index(a, b) => expr_uses_input(a) || expr_uses_input(b),
         ExprKind::Call { args, .. } => args.iter().any(expr_uses_input),
         _ => false,

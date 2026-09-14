@@ -1116,7 +1116,9 @@ is a compile error — that's `Parallel Sum xs`. Reading a *different* array
 at a neighbour (`xs[i + 1]` while writing `out[i]`) is fine.
 
 `Parallel Sum xs` adds every element of a numeric `Vec` or array (empty is
-`0`). `examples/parallel_sum_expr.vbr` prints `36` for `[1..8]`. Inside
+`0`). Over a 1-D `CudaBuffer` the same spelling reduces on the GPU
+(`examples/cuda_sum.vbr`). `examples/parallel_sum_expr.vbr` prints `36` for
+`[1..8]`. Inside `Parallel For` it is an error.
 `Parallel For` it is an error.
 
 A log-depth parallel sum still fits as teaching: each round is its own
@@ -1128,11 +1130,13 @@ that reads the array being written. `out` is a `Vec`: grow it with `.Push`
 
 Rust-only (`vbr run` uses CPU threads for `Vec`s). A `Parallel For` over
 `CudaBuffer`s (`CUDA.Upload` / `Alloc` / `Download`) runs on the GPU; mixing
-a host `Vec` with a device buffer in one loop is an error. A numeric
-`Function` called from that loop runs on the device (`examples/cuda_call.vbr`).
+a host `Vec` with a device buffer in one loop is an error. Nested
+`Parallel For y` / `x` over `CudaBuffer<CudaBuffer<T>>` is one 2-D CUDA
+grid (`examples/cuda_grid.vbr`). A numeric `Function` called from that
+loop runs on the device (`examples/cuda_call.vbr`).
 Python and C refuse Parallel rather than loop sequentially. `Sum` is not a
-keyword. `examples/cuda_dot.vbr` is a GPU multiply plus host `Parallel Sum`;
-`examples/cuda_cross.vbr` is a 3-vector cross product.
+keyword. `examples/cuda_dot.vbr` is a GPU multiply plus `Parallel Sum` of
+the product buffer; `examples/cuda_cross.vbr` is a 3-vector cross product.
 
 ## 12. A bonus: the same program in three languages
 

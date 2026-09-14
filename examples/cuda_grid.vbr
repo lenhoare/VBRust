@@ -1,0 +1,16 @@
+' Nested Parallel For over device buffers — one 2-D CUDA grid.
+Function Main()
+    Dim src As Vec<Vec<Long>> = [[1, 2, 3], [4, 5, 6]]
+    Dim a As CudaBuffer<CudaBuffer<Long>> = CUDA.Upload(src)
+    Dim b As CudaBuffer<CudaBuffer<Long>> = CUDA.Alloc(2, 3)
+
+    Parallel For y = 0 To 1
+        Parallel For x = 0 To 2
+            b[y][x] = a[y][x] * 2
+        Next
+    Next
+
+    Dim result As Vec<Vec<Long>> = CUDA.Download(b)
+    Debug.Print result[0][0]
+    Debug.Print result[1][2]
+End Function

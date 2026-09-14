@@ -193,12 +193,17 @@ fn type_members(ty: &DeclType, program: &Program) -> Vec<Completion> {
         DeclType::CudaBuffer(_) => vec![
             Completion {
                 label: "Len".to_string(),
-                detail: "Len() As Long — element count (host)".to_string(),
+                detail: "Len() As Long — length (1-D) or rows (2-D), host".to_string(),
                 kind: CompletionKind::Method,
             },
             Completion {
                 label: "Count".to_string(),
                 detail: "Count() As Long — same as Len".to_string(),
+                kind: CompletionKind::Method,
+            },
+            Completion {
+                label: "Cols".to_string(),
+                detail: "Cols() As Long — columns of a 2-D buffer (host); 0 if 1-D".to_string(),
                 kind: CompletionKind::Method,
             },
         ],
@@ -422,9 +427,9 @@ fn namespace_members(ns: &str) -> &'static [(&'static str, &'static str)] {
             ("Start", "Shell.Start(command) As Process — launch without waiting"),
         ],
         "CUDA" => &[
-            ("Upload", "CUDA.Upload(xs) As CudaBuffer<T> — copy a Vec onto the GPU"),
-            ("Alloc", "CUDA.Alloc(n) As CudaBuffer<T> — empty device buffer; T from Dim As"),
-            ("Download", "CUDA.Download(buf) As Vec<T> — copy back to the host"),
+            ("Upload", "CUDA.Upload(xs) As CudaBuffer<T> — copy a Vec (or Vec<Vec>) onto the GPU"),
+            ("Alloc", "CUDA.Alloc(n) or Alloc(rows, cols) — empty device buffer; T from Dim As"),
+            ("Download", "CUDA.Download(buf) As Vec<T> or Vec<Vec<T>> — copy back to the host"),
         ],
         _ => &[],
     }

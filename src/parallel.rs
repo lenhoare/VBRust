@@ -63,7 +63,8 @@ unsafe fn __vbr_at<T>(p: usize, i: usize) -> *mut T {
 
 /// CPU-thread reduction for `Parallel Sum`. Per-thread partial sums, then a
 /// sequential combine — no atomics. Empty input is `T::default()` (0 / 0.0).
-pub const PARALLEL_SUM_HELPER: &str = "fn __vbr_parallel_sum<T>(xs: &[T]) -> T
+pub const PARALLEL_SUM_HELPER: &str = "#[allow(dead_code)]
+fn __vbr_parallel_sum<T>(xs: &[T]) -> T
 where
     T: Copy + Default + std::ops::Add<Output = T> + Send + Sync,
 {
@@ -216,9 +217,19 @@ fn stmt_needs_cpu_parallel(stmt: &Stmt, cuda: &HashSet<String>, host: &HashSet<S
     }
 }
 
-/// True when any `Parallel Sum` appears (so its helper is emitted, and only then).
+/// True when any `Parallel Sum` appears (so Python/C refuse, and only then).
 pub fn program_uses_parallel_sum(program: &Program) -> bool {
-    let any = |stmts: &[Stmt]| stmts.iter().any(stmt_uses_parallel_sum);
+    program_has_parallel_sum(program, false)
+}
+
+/// True when any **host** `Parallel Sum` appears (so the CPU-thread helper is
+/// emitted). A device sum over `CudaBuffer` uses the CUDA helper instead.
+pub fn program_uses_host_parallel_sum(program: &Program) -> bool {
+    program_has_parallel_sum(program, true)
+}
+
+fn program_has_parallel_sum(program: &Program, host_only: bool) -> bool {
+    let any = |stmts: &[Stmt]| stmts.iter().any(|s| stmt_uses_parallel_sum(s, host_only));
     program.functions.iter().any(|f| any(&f.body))
         || program.tests.iter().any(|t| any(&t.body))
         || program.windows.iter().any(|w| {
@@ -285,7 +296,7 @@ fn stmt_uses_parallel(stmt: &Stmt) -> bool {
     }
 }
 
-fn stmt_uses_parallel_sum(stmt: &Stmt) -> bool {
+fn stmt_uses_parallel_sum(stmt: &Stmt, host_only: bool) -> bool {
     match stmt {
         Stmt::Dim { init: Some(e), .. }
         | Stmt::Set { value: e, .. }
@@ -295,9 +306,9 @@ fn stmt_uses_parallel_sum(stmt: &Stmt) -> bool {
         | Stmt::Log(_, e)
         | Stmt::Expr(e)
         | Stmt::RaiseError(e)
-        | Stmt::Assert(e) => expr_uses_parallel_sum(e),
+        | Stmt::Assert(e) => expr_uses_parallel_sum(e, host_only),
         Stmt::Assign { target, value, .. } => {
-            expr_uses_parallel_sum(target) || expr_uses_parallel_sum(value)
+            expr_uses_parallel_sum(target, host_only) || expr_uses_parallel_sum(value, host_only)
         }
         Stmt::If {
             branches,
@@ -305,21 +316,25 @@ fn stmt_uses_parallel_sum(stmt: &Stmt) -> bool {
         } => {
             branches
                 .iter()
-                .any(|(c, b)| expr_uses_parallel_sum(c) || b.iter().any(stmt_uses_parallel_sum))
+                .any(|(c, b)| {
+                    expr_uses_parallel_sum(c, host_only)
+                        || b.iter().any(|s| stmt_uses_parallel_sum(s, host_only))
+                })
                 || else_body
                     .as_ref()
-                    .is_some_and(|b| b.iter().any(stmt_uses_parallel_sum))
+                    .is_some_and(|b| b.iter().any(|s| stmt_uses_parallel_sum(s, host_only)))
         }
         Stmt::For {
             from, to, step, body, ..
         } => {
-            expr_uses_parallel_sum(from)
-                || expr_uses_parallel_sum(to)
-                || step.as_ref().is_some_and(expr_uses_parallel_sum)
-                || body.iter().any(stmt_uses_parallel_sum)
+            expr_uses_parallel_sum(from, host_only)
+                || expr_uses_parallel_sum(to, host_only)
+                || step.as_ref().is_some_and(|s| expr_uses_parallel_sum(s, host_only))
+                || body.iter().any(|s| stmt_uses_parallel_sum(s, host_only))
         }
         Stmt::ForEach { iter, body, .. } => {
-            expr_uses_parallel_sum(iter) || body.iter().any(stmt_uses_parallel_sum)
+            expr_uses_parallel_sum(iter, host_only)
+                || body.iter().any(|s| stmt_uses_parallel_sum(s, host_only))
         }
         Stmt::DoLoop { cond, body } => {
             let in_cond = match cond {
@@ -328,43 +343,47 @@ fn stmt_uses_parallel_sum(stmt: &Stmt) -> bool {
                     | DoCond::PreUntil(c)
                     | DoCond::PostWhile(c)
                     | DoCond::PostUntil(c),
-                ) => expr_uses_parallel_sum(c),
+                ) => expr_uses_parallel_sum(c, host_only),
                 None => false,
             };
-            in_cond || body.iter().any(stmt_uses_parallel_sum)
+            in_cond || body.iter().any(|s| stmt_uses_parallel_sum(s, host_only))
         }
         Stmt::Match { scrutinee, arms, .. } => {
-            expr_uses_parallel_sum(scrutinee)
+            expr_uses_parallel_sum(scrutinee, host_only)
                 || arms.iter().any(|a| {
-                    a.guard.as_ref().is_some_and(expr_uses_parallel_sum)
-                        || a.body.iter().any(stmt_uses_parallel_sum)
+                    a.guard.as_ref().is_some_and(|g| expr_uses_parallel_sum(g, host_only))
+                        || a.body.iter().any(|s| stmt_uses_parallel_sum(s, host_only))
                 })
         }
         Stmt::HandleErr { call, body, target, .. } => {
-            expr_uses_parallel_sum(call)
-                || target.as_ref().is_some_and(expr_uses_parallel_sum)
-                || body.iter().any(stmt_uses_parallel_sum)
+            expr_uses_parallel_sum(call, host_only)
+                || target.as_ref().is_some_and(|t| expr_uses_parallel_sum(t, host_only))
+                || body.iter().any(|s| stmt_uses_parallel_sum(s, host_only))
         }
-        Stmt::GpuInto { body, .. } => body.iter().any(stmt_uses_parallel_sum),
+        Stmt::GpuInto { body, .. } => body.iter().any(|s| stmt_uses_parallel_sum(s, host_only)),
         _ => false,
     }
 }
 
-fn expr_uses_parallel_sum(e: &Expr) -> bool {
+fn expr_uses_parallel_sum(e: &Expr, host_only: bool) -> bool {
     match &e.kind {
-        ExprKind::ParallelSum(_) => true,
+        ExprKind::ParallelSum(_, None) => true,
+        ExprKind::ParallelSum(_, Some(_)) => !host_only,
         ExprKind::Binary { lhs, rhs, .. }
         | ExprKind::Index(lhs, rhs)
         | ExprKind::ListRepeat { value: lhs, count: rhs } => {
-            expr_uses_parallel_sum(lhs) || expr_uses_parallel_sum(rhs)
+            expr_uses_parallel_sum(lhs, host_only) || expr_uses_parallel_sum(rhs, host_only)
         }
         ExprKind::MethodCall { recv, args, .. } => {
-            expr_uses_parallel_sum(recv) || args.iter().any(expr_uses_parallel_sum)
+            expr_uses_parallel_sum(recv, host_only)
+                || args.iter().any(|a| expr_uses_parallel_sum(a, host_only))
         }
         ExprKind::Call { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) => {
-            args.iter().any(expr_uses_parallel_sum)
+            args.iter().any(|a| expr_uses_parallel_sum(a, host_only))
         }
-        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_uses_parallel_sum(v)),
+        ExprKind::StructLit { fields, .. } => {
+            fields.iter().any(|(_, v)| expr_uses_parallel_sum(v, host_only))
+        }
         ExprKind::Field(inner, _)
         | ExprKind::Deref(inner)
         | ExprKind::MutRef(inner)
@@ -375,7 +394,7 @@ fn expr_uses_parallel_sum(e: &Expr) -> bool {
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
         | ExprKind::TupleIndex(inner, _)
-        | ExprKind::Closure { body: inner, .. } => expr_uses_parallel_sum(inner),
+        | ExprKind::Closure { body: inner, .. } => expr_uses_parallel_sum(inner, host_only),
         _ => false,
     }
 }
@@ -435,7 +454,7 @@ pub fn check(
                     return;
                 }
             }
-            if body.iter().any(stmt_uses_parallel_sum) {
+            if body.iter().any(|s| stmt_uses_parallel_sum(s, false)) {
                 diags.error(
                     line,
                     "`Parallel Sum` inside `Parallel For` would start more threads from \
@@ -446,7 +465,7 @@ pub fn check(
         }
         Nest::Flat => {}
     }
-    if body.iter().any(stmt_uses_parallel_sum) {
+    if body.iter().any(|s| stmt_uses_parallel_sum(s, false)) {
         diags.error(
             line,
             "`Parallel Sum` inside `Parallel For` would start more threads from \
@@ -1027,7 +1046,7 @@ fn check_read_expr(
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => {
             check_read_expr(vars, inner, written, line, diags);
@@ -1194,7 +1213,7 @@ fn walk_mutating(e: &Expr, locals: &HashSet<String>, line: usize, diags: &mut Di
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
         | ExprKind::Await(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => walk_mutating(inner, locals, line, diags),
         _ => {}
@@ -1281,7 +1300,7 @@ fn range_mentions(e: &Expr, names: &[String]) -> bool {
         | ExprKind::Try(inner)
         | ExprKind::Raw(inner)
         | ExprKind::Await(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::TupleIndex(inner, _) => range_mentions(inner, names),
         _ => false,
     }

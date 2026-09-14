@@ -1093,7 +1093,7 @@ impl Emitter {
                 let i = self.expr(inner);
                 format!("(!{})", i)
             }
-            ExprKind::ParallelSum(_) => {
+            ExprKind::ParallelSum(..) => {
                 self.warn("`Parallel Sum` is Rust-only.");
                 "0 /* [Bust→C] Parallel Sum */".to_string()
             }
@@ -3403,7 +3403,7 @@ fn expr_name(e: &ExprKind) -> &'static str {
         ExprKind::Index(..) => "indexing",
         ExprKind::List(_) => "list literal",
         ExprKind::ListRepeat { .. } => "list fill",
-        ExprKind::ParallelSum(_) => "Parallel Sum",
+        ExprKind::ParallelSum(..) => "Parallel Sum",
         ExprKind::Tuple(_) => "tuple",
         ExprKind::StructLit { .. } => "struct literal",
         ExprKind::InlineRust(_) => "inline Rust",

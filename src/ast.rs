@@ -1150,9 +1150,10 @@ pub enum ExprKind {
     InlinePython { inputs: Vec<String>, body: String },
     /// `Not inner` — logical negation → `!(inner)`.
     Not(Box<Expr>),
-    /// `Parallel Sum xs` — add every element of a numeric Vec/array. Proven
-    /// reduction (per-thread partials, then a sequential combine); not atomics.
-    ParallelSum(Box<Expr>),
+    /// `Parallel Sum xs` — add every element of a numeric Vec/array, or a 1-D
+    /// `CudaBuffer`. The `Option` is the device element type when `xs` lives on
+    /// the GPU (filled by the resolver); `None` is the CPU-thread reduction.
+    ParallelSum(Box<Expr>, Option<Type>),
     /// `Await inner` — only valid inside a Window event. The GUI codegen splits
     /// the event around it; it never reaches normal expression rendering.
     Await(Box<Expr>),

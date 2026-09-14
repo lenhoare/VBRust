@@ -220,7 +220,7 @@ impl Host {
                 .get(locals, name)
                 .ok_or_else(|| format!("unknown constant `{name}`")),
             ExprKind::Not(inner) => Ok(Val::Bool(!self.eval(locals, inner)?.as_bool())),
-            ExprKind::ParallelSum(_) => Err(vbr::parallel::RUST_ONLY.into()),
+            ExprKind::ParallelSum(..) => Err(vbr::parallel::RUST_ONLY.into()),
             ExprKind::Deref(inner) | ExprKind::Ref(inner) | ExprKind::MutRef(inner) => {
                 self.eval(locals, inner)
             }

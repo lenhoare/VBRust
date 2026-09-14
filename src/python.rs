@@ -1316,7 +1316,7 @@ impl Emitter {
                 let i = self.expr(inner);
                 format!("not ({})", i)
             }
-            ExprKind::ParallelSum(_) => {
+            ExprKind::ParallelSum(..) => {
                 self.warn("`Parallel Sum` is Rust-only.");
                 "0  # [Bust→Python] Parallel Sum".into()
             }
@@ -2023,7 +2023,7 @@ fn expr_name(e: &ExprKind) -> &'static str {
         ExprKind::InlineRust(_) => "inline Rust",
         ExprKind::InlinePython { .. } => "inline Python",
         ExprKind::Await(_) => "Await",
-        ExprKind::ParallelSum(_) => "Parallel Sum",
+        ExprKind::ParallelSum(..) => "Parallel Sum",
         ExprKind::Raw(_) => "Raw",
         ExprKind::Try(_) => "error propagation (?)",
         _ => "expression",

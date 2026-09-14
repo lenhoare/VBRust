@@ -1,4 +1,4 @@
-// Dot product on the GPU: each product is independent; adding them is Parallel Sum.
+// Parallel Sum on a CudaBuffer — the reduction runs on the GPU.
 
 #[allow(dead_code)]
 fn __vbr_parallel_sum<T>(xs: &[T]) -> T
@@ -763,19 +763,9 @@ fn __vbr_cuda_launch(
 }
 
 fn vbr_main() -> Result<(), String> {
-    let xs: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-    let ys: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
-    let n: i64 = xs.len() as i64;
-    let a: __VbrCudaBuffer<f32> = __vbr_cuda_upload((xs).as_slice())?;
-    let b: __VbrCudaBuffer<f32> = __vbr_cuda_upload((ys).as_slice())?;
-    let prod: __VbrCudaBuffer<f32> = __vbr_cuda_alloc(n)?;
-    {
-        let __from = 0;
-        let __to = n - 1;
-        let __n: usize = if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 };
-        __vbr_cuda_for(__n, "extern \"C\" __global__ void k(float* a, float* b, float* prod, long long __from, long long __step, long long __n) {\n    long long __k = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__k >= __n) return;\n    long long i = __from + __k * __step;\n    prod[i] = (a[i] * b[i]);\n}\n", &[a.ptr, b.ptr, prod.ptr], __from as i64, 1)?;
-    }
-    let total: f32 = __vbr_cuda_sum(&prod, "float")?;
+    let xs: Vec<i64> = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    let a: __VbrCudaBuffer<i64> = __vbr_cuda_upload((xs).as_slice())?;
+    let total: i64 = __vbr_cuda_sum(&a, "long long")?;
     println!("{}", total);
     Ok(())
 }

@@ -314,14 +314,20 @@ impl Typer {
                 }
             }
             ExprKind::Not(_) => DeclType::Plain(Type::Boolean),
-            ExprKind::ParallelSum(inner) => match self.infer(inner) {
-                DeclType::Vec(t) => match *t {
-                    DeclType::Plain(ty) if ty.is_number() => DeclType::Plain(ty),
-                    other => other,
-                },
-                DeclType::Array(ty, _) if ty.is_number() => DeclType::Plain(ty),
-                other => other,
-            },
+            ExprKind::ParallelSum(inner, _) => {
+                let t = self.infer(inner);
+                match crate::cuda::cuda_leaf(&t) {
+                    Some((ty, false)) => DeclType::Plain(ty),
+                    _ => match t {
+                        DeclType::Vec(inner) => match *inner {
+                            DeclType::Plain(ty) if ty.is_number() => DeclType::Plain(ty),
+                            other => other,
+                        },
+                        DeclType::Array(ty, _) if ty.is_number() => DeclType::Plain(ty),
+                        other => other,
+                    },
+                }
+            }
             // `expr?` yields the unwrapped success value. Implicit `?` on a
             // user function (Bust type is already `T`) is a no-op for inference.
             ExprKind::Try(inner) => match self.infer(inner) {
@@ -420,9 +426,12 @@ impl Typer {
                         let m = method.to_ascii_lowercase().replace('_', "");
                         let err = || Box::new(DeclType::Plain(Type::Text));
                         match m.as_str() {
-                            "upload" => {
+                            "upload" | "upload2d" => {
                                 let inner = args.first().map(|a| match self.infer(a) {
-                                    DeclType::Vec(t) => *t,
+                                    DeclType::Vec(t) => match *t {
+                                        DeclType::Vec(elem) => DeclType::CudaBuffer(elem),
+                                        other => other,
+                                    },
                                     DeclType::Array(t, _) => DeclType::Plain(t),
                                     other => other,
                                 }).unwrap_or(DeclType::Plain(Type::Single));
@@ -431,17 +440,27 @@ impl Typer {
                                     err(),
                                 )
                             }
-                            "download" => {
+                            "download" | "download2d" => {
                                 let inner = args.first().map(|a| match self.infer(a) {
-                                    DeclType::CudaBuffer(t) => *t,
+                                    DeclType::CudaBuffer(t) => match *t {
+                                        DeclType::CudaBuffer(elem) => DeclType::Vec(elem),
+                                        other => other,
+                                    },
                                     other => other,
                                 }).unwrap_or(DeclType::Plain(Type::Single));
                                 DeclType::Result(Box::new(DeclType::Vec(Box::new(inner))), err())
                             }
-                            "alloc" => DeclType::Result(
-                                Box::new(DeclType::CudaBuffer(Box::new(DeclType::Plain(Type::Single)))),
-                                err(),
-                            ),
+                            "alloc" | "alloc2d" => {
+                                let elem = if args.len() >= 2 {
+                                    DeclType::CudaBuffer(Box::new(DeclType::Plain(Type::Single)))
+                                } else {
+                                    DeclType::Plain(Type::Single)
+                                };
+                                DeclType::Result(
+                                    Box::new(DeclType::CudaBuffer(Box::new(elem))),
+                                    err(),
+                                )
+                            }
                             _ => DeclType::Plain(Type::Long),
                         }
                     }
@@ -473,7 +492,7 @@ impl Typer {
                     DeclType::Vec(elem) | DeclType::CudaBuffer(elem) => match m.as_str() {
                         "sum" | "get" => (**elem).clone(),
                         "any" | "all" => DeclType::Plain(Type::Boolean),
-                        "len" | "count" => DeclType::Plain(Type::Long),
+                        "len" | "count" | "cols" => DeclType::Plain(Type::Long),
                         // Adapters/`collect` keep the collection type (for chains).
                         _ => recv_ty.clone(),
                     },

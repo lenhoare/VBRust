@@ -7,16 +7,16 @@ syntax = """
 Parallel Sum <list>
 """
 
-summary = "Add every element of a numeric Vec or array — a proven reduction, not atomics."
+summary = "Add every element of a numeric Vec, array, or 1-D CudaBuffer — a proven reduction, not atomics."
 
 remarks = """
-`Parallel Sum xs` is the first-class reduction that `total = total + xs[i]` is not. The compiler splits the list across CPU threads, each thread adds its chunk, then the partials combine in order. Empty input is `0` (or `0.0`).
+`Parallel Sum xs` is the first-class reduction that `total = total + xs[i]` is not. On a host `Vec` (or array) the compiler splits the list across CPU threads, each thread adds its chunk, then the partials combine in order. On a 1-D `CudaBuffer` the same spelling reduces on the GPU — there is no silent download. Empty input is `0` (or `0.0`).
 
-The argument is a numeric `Vec` or fixed array (`Integer` / `Long` / `LongLong` / `Single` / `Double` / `Byte`). The result is that element type. `Sum` itself is not a keyword — `Dim Sum` and `.Sum()` still work; only `Parallel Sum` is this form.
+The argument is a numeric `Vec`, fixed array, or 1-D `CudaBuffer` (`Integer` / `Long` / `LongLong` / `Single` / `Double` / `Byte`). The result is that element type. A 2-D `CudaBuffer<CudaBuffer<T>>` is an error (that's nested `Parallel For y` / `x`). `Sum` itself is not a keyword — `Dim Sum` and `.Sum()` still work; only `Parallel Sum` is this form.
 
-It is an expression, not a statement: `Dim total As Long = Parallel Sum xs`, or `Debug.Print Parallel Sum [1, 2, 3, 4]`. `Parallel Sum xs + 1` is `(sum xs) + 1`. A method chain on the list (`Parallel Sum xs.Filter(…).Collect()`) is the argument.
+It is an expression, not a statement: `Dim total As Long = Parallel Sum xs`, or `Debug.Print Parallel Sum [1, 2, 3, 4]`. `Parallel Sum xs + 1` is `(sum xs) + 1`. A method chain on the list (`Parallel Sum xs.Filter(…).Collect()`) is the argument. A device sum can fail (no GPU) and uses implicit `?` like `CUDA.Download`.
 
-Rust-only: `vbr run` uses CPU threads. Python and C do not get a sequential stand-in. Inside `Parallel For` it is an error (that would spawn more threads per iteration). `Parallel Min` / `Max` are the same shape later.
+Rust-only: `vbr run` uses CPU threads for `Vec`s and the GPU for `CudaBuffer`. Python and C do not get a sequential stand-in. Inside `Parallel For` it is an error (that would spawn more work per iteration). `Parallel Min` / `Max` are the same shape later.
 
 `Parallel` is a keyword."""
 
@@ -28,4 +28,4 @@ Function Main()
 End Function
 """
 
-see_also = ["parallel-for", "vec"]
+see_also = ["parallel-for", "vec", "cuda"]

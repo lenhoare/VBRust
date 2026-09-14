@@ -230,7 +230,7 @@ fn expr_uses_rnd(e: &Expr) -> bool {
         | ExprKind::Ref(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Closure { body: inner, .. } => expr_uses_rnd(inner),
         ExprKind::Index(inner, idx) => expr_uses_rnd(inner) || expr_uses_rnd(idx),
         ExprKind::ListRepeat { value, count } => expr_uses_rnd(value) || expr_uses_rnd(count),
@@ -890,7 +890,13 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
         DeclType::Map(k, v) => format!("HashMap<{}, {}>", decltype_rust(k), decltype_rust(v)),
         DeclType::Result(t, e) => format!("Result<{}, {}>", decltype_rust(t), decltype_rust(e)),
         DeclType::Option(t) => format!("Option<{}>", decltype_rust(t)),
-        DeclType::CudaBuffer(t) => format!("__VbrCudaBuffer<{}>", decltype_rust(t)),
+        DeclType::CudaBuffer(t) => {
+            let leaf = match t.as_ref() {
+                DeclType::CudaBuffer(inner) => decltype_rust(inner),
+                _ => decltype_rust(t),
+            };
+            format!("__VbrCudaBuffer<{leaf}>")
+        }
         DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
         DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
     }
@@ -1460,7 +1466,7 @@ pub(crate) fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
             collect_expr_idents(lhs, out);
             collect_expr_idents(rhs, out);
         }
-        ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+        ExprKind::Not(i) | ExprKind::ParallelSum(i, _) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
         | ExprKind::Try(i) | ExprKind::Raw(i) | ExprKind::Await(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
         | ExprKind::Closure { body: i, .. } => collect_expr_idents(i, out),
         ExprKind::MethodCall { recv, args, .. } => {
@@ -2723,7 +2729,7 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
         | ExprKind::Ref(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Closure { body: inner, .. } => expr_uses_file_dialog(inner),
         ExprKind::Index(inner, idx) => expr_uses_file_dialog(inner) || expr_uses_file_dialog(idx),
         ExprKind::ListRepeat { value, count } => {
@@ -2759,7 +2765,7 @@ fn expr_has_try(e: &Expr) -> bool {
         | ExprKind::Ref(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Closure { body: inner, .. } => expr_has_try(inner),
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_try(v)),
         ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_has_try),
@@ -2855,7 +2861,7 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
         | ExprKind::MutRef(inner)
         | ExprKind::Ref(inner)
         | ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Await(inner)
         | ExprKind::Closure { body: inner, .. } => mark_mutating_calls(inner, set),
         ExprKind::StructLit { fields, .. } => {
@@ -3080,6 +3086,25 @@ fn emit_cuda_for(
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    if let Some(inner_for) = crate::parallel::nested_grid2(body) {
+        if let Stmt::For {
+            var: vx,
+            from: fx,
+            to: tx,
+            step: sx,
+            body: bx,
+            ty: tyx,
+            ..
+        } = inner_for
+        {
+            emit_cuda_for_2d(
+                var, from, to, step, ty, vx, fx, tx, sx.as_ref(), *tyx, bx, bufs, indent, diags, out,
+            );
+            return;
+        }
+    }
     if !diags.has_errors() {
         diags.note(
             "parallel-for-cuda",
@@ -3087,8 +3112,6 @@ fn emit_cuda_for(
              loops stay on CPU threads — there is no silent upload.",
         );
     }
-    let pad = "    ".repeat(indent);
-    let inner = "    ".repeat(indent + 1);
     let kernel = crate::cuda::kernel_c(var, bufs, body);
     let ptrs: Vec<String> = bufs
         .iter()
@@ -3108,6 +3131,68 @@ fn emit_cuda_for(
         format!("{:?}", kernel),
         ptrs.join(", "),
         step_expr
+    ));
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+fn emit_cuda_for_2d(
+    vy: &str,
+    fy: &Expr,
+    ty: &Expr,
+    sy: Option<&Expr>,
+    tty: Type,
+    vx: &str,
+    fx: &Expr,
+    tx: &Expr,
+    sx: Option<&Expr>,
+    ttx: Type,
+    body: &[Stmt],
+    bufs: &[(String, Type)],
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    if !diags.has_errors() {
+        diags.note(
+            "parallel-for-cuda-2d",
+            "Nested `Parallel For y` / `Parallel For x` over `CudaBuffer<CudaBuffer<T>>` \
+             is one 2-D CUDA grid. One launch, one thread per `(y, x)`.",
+        );
+    }
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    let kernel = crate::cuda::kernel_c_2d(vy, vx, bufs, body);
+    let ptrs: Vec<String> = bufs
+        .iter()
+        .map(|(n, _)| format!("{}.ptr", rust_name(n)))
+        .collect();
+    let cols: Vec<String> = bufs
+        .iter()
+        .map(|(n, _)| format!("{}.cols as u64", rust_name(n)))
+        .collect();
+    let step_y = peel_step_int(sy).unwrap_or(1);
+    let step_x = peel_step_int(sx).unwrap_or(1);
+    out.push_str(&format!("{}{{\n", pad));
+    emit_parallel_bounds("_y", fy, ty, sy, tty, &inner, out);
+    emit_parallel_bounds("_x", fx, tx, sx, ttx, &inner, out);
+    let sy_expr = if step_y == 1 {
+        "1".to_string()
+    } else {
+        "__step_y as i64".to_string()
+    };
+    let sx_expr = if step_x == 1 {
+        "1".to_string()
+    } else {
+        "__step_x as i64".to_string()
+    };
+    out.push_str(&format!(
+        "{}__vbr_cuda_for_2d(__n_y, __n_x, {}, &[{}], &[{}], __from_y as i64, {}, __from_x as i64, {})?;\n",
+        inner,
+        format!("{:?}", kernel),
+        ptrs.join(", "),
+        cols.join(", "),
+        sy_expr,
+        sx_expr
     ));
     out.push_str(&format!("{pad}}}\n"));
 }
@@ -3610,7 +3695,7 @@ fn rewrite_parallel_expr(e: &mut Expr, ptrs: &HashMap<String, String>) {
         | ExprKind::Try(inner)
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
-        | ExprKind::ParallelSum(inner)
+        | ExprKind::ParallelSum(inner, _)
         | ExprKind::Await(inner)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => rewrite_parallel_expr(inner, ptrs),
@@ -3845,8 +3930,17 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                     let key = method.to_ascii_lowercase().replace('_', "");
                     return match key.as_str() {
                         "upload" => format!("__vbr_cuda_upload(({}).as_slice())", arg),
+                        "upload2d" => format!("__vbr_cuda_upload_2d(({}).as_slice())", arg),
                         "download" => format!("__vbr_cuda_download(&{})", arg),
+                        "download2d" => format!("__vbr_cuda_download_2d(&{})", arg),
                         "alloc" => format!("__vbr_cuda_alloc({})", arg),
+                        "alloc2d" => {
+                            let b = args
+                                .get(1)
+                                .map(|a| render_expr(a, None))
+                                .unwrap_or_else(|| "0".to_string());
+                            format!("__vbr_cuda_alloc_2d({arg}, {b})")
+                        }
                         _ => format!("/* CUDA.{} */", method),
                     };
                 }
@@ -3945,7 +4039,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         ExprKind::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
         // `Parallel Sum xs` — borrow the Vec/array as a slice; the helper
         // folds per-thread partials, then combines. Empty is `T::default()`.
-        ExprKind::ParallelSum(inner) => {
+        // `Parallel Sum xs` — host Vec/array uses CPU threads; a 1-D
+        // `CudaBuffer` reduces on the GPU (implicit `?`, like `CUDA.Download`).
+        ExprKind::ParallelSum(inner, Some(ty)) => {
+            format!(
+                "__vbr_cuda_sum(&{}, {:?})",
+                render_expr(inner, None),
+                crate::cuda::cuda_c_type(*ty)
+            )
+        }
+        ExprKind::ParallelSum(inner, None) => {
             format!("__vbr_parallel_sum(({}).as_slice())", render_expr(inner, None))
         }
         // `Await` is consumed by the GUI codegen (event splitting); if one reaches
