@@ -253,12 +253,14 @@ pub(crate) fn fallible_init(e: &Expr, t: &Tables) -> bool {
         | ExprKind::Try(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Await(inner)
         | ExprKind::Raw(inner)
         | ExprKind::Ref(inner)
         | ExprKind::MutRef(inner)
         | ExprKind::Deref(inner) => fallible_init(inner, t),
         ExprKind::List(xs) | ExprKind::Tuple(xs) => xs.iter().any(|x| fallible_init(x, t)),
+        ExprKind::ListRepeat { value, count } => fallible_init(value, t) || fallible_init(count, t),
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| fallible_init(v, t)),
         _ => false,
     }
@@ -1010,10 +1012,12 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
         }
         // Children are never "awaited" by this expression.
         match &e.kind {
-            ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+            ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
             | ExprKind::Try(i) | ExprKind::Raw(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
             | ExprKind::Closure { body: i, .. } => ex(i, false, diags),
-            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+            ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::Index(lhs, rhs)
+            | ExprKind::ListRepeat { value: lhs, count: rhs } => {
                 ex(lhs, false, diags);
                 ex(rhs, false, diags);
             }
@@ -1106,11 +1110,13 @@ pub(crate) fn stmt_has_await(s: &Stmt) -> bool {
 fn expr_has_await(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Await(_) => true,
-        ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+        ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
         | ExprKind::Try(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _) | ExprKind::Closure { body: i, .. } => {
             expr_has_await(i)
         }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             expr_has_await(lhs) || expr_has_await(rhs)
         }
         ExprKind::MethodCall { recv, args, .. } => {
@@ -1139,10 +1145,12 @@ pub(crate) fn collect_event_stdlib(stmts: &[Stmt], out: &mut Vec<String>) {
                     ex(a, out);
                 }
             }
-            ExprKind::Await(i) | ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i)
+            ExprKind::Await(i) | ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i)
             | ExprKind::Cast(i, _) | ExprKind::Try(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
             | ExprKind::Closure { body: i, .. } => ex(i, out),
-            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+            ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::Index(lhs, rhs)
+            | ExprKind::ListRepeat { value: lhs, count: rhs } => {
                 ex(lhs, out);
                 ex(rhs, out);
             }
@@ -1255,6 +1263,7 @@ fn rewrite_expr_subs(
             rhs: Box::new(go(*rhs)),
         },
         ExprKind::Not(inner) => ExprKind::Not(Box::new(go(*inner))),
+        ExprKind::ParallelSum(inner) => ExprKind::ParallelSum(Box::new(go(*inner))),
         // A call to an in-block `Sub` helper → a method call on the receiver.
         ExprKind::Call { name, args } if subs.contains(&rust_name(&name)) => ExprKind::MethodCall {
             recv: Box::new(ExprKind::Ident(recv.to_string()).at(span)),
@@ -1295,6 +1304,10 @@ fn rewrite_expr_subs(
         ExprKind::Await(inner) => ExprKind::Await(Box::new(go(*inner))),
         ExprKind::Tuple(elems) => ExprKind::Tuple(elems.into_iter().map(go).collect()),
         ExprKind::List(elems) => ExprKind::List(elems.into_iter().map(go).collect()),
+        ExprKind::ListRepeat { value, count } => ExprKind::ListRepeat {
+            value: Box::new(go(*value)),
+            count: Box::new(go(*count)),
+        },
         ExprKind::StructLit { name, fields } => ExprKind::StructLit {
             name,
             fields: fields.into_iter().map(|(n, v)| (n, go(v))).collect(),

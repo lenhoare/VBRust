@@ -3578,14 +3578,14 @@ impl<'a> Parser<'a> {
                 None
             }
             Tok::For => self.parse_for(false),
-            // Soft keyword: `Parallel For i = … To …`. Only at statement start
-            // and only when `For` follows, so a variable named `Parallel` is
-            // untouched (`parallel = 1`, `parallel.Push(x)`).
-            Tok::Ident(w)
-                if w.eq_ignore_ascii_case("parallel") && matches!(self.peek2(), Tok::For) =>
-            {
-                self.advance(); // `Parallel`
-                self.parse_for(true)
+            Tok::Parallel => {
+                if matches!(self.peek2(), Tok::For) {
+                    self.advance();
+                    self.parse_for(true)
+                } else {
+                    // `Parallel Sum xs` as a (usually assigned) expression.
+                    Some(Stmt::Expr(self.parse_expr()?))
+                }
             }
             // A standalone inline Rust block (side effects; no value used).
             Tok::InlineRust(_) => Some(Stmt::Expr(self.parse_primary()?)),
@@ -4916,6 +4916,38 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_atom(&mut self) -> Option<Expr> {
+        // `Parallel Sum xs` — a prefix, same position as a list or a call.
+        if matches!(self.peek(), Tok::Parallel) {
+            let start = self.span();
+            let line = self.line();
+            self.advance();
+            if matches!(self.peek(), Tok::For) {
+                self.diags.error_at(
+                    start,
+                    line,
+                    "`Parallel For` is a statement, not a value. `Parallel Sum xs` \
+                     is the reduction that yields a number.",
+                );
+                return None;
+            }
+            let is_sum = match self.peek() {
+                Tok::Ident(s) if s.eq_ignore_ascii_case("sum") => true,
+                _ => false,
+            };
+            if !is_sum {
+                self.diags.error_at(
+                    self.span(),
+                    self.line(),
+                    "`Parallel` starts `Parallel For` (independent iterations) or \
+                     `Parallel Sum <list>` (add every element).",
+                );
+                return None;
+            }
+            self.advance();
+            let inner = self.parse_primary()?;
+            let span = start.to(inner.span);
+            return Some(ExprKind::ParallelSum(Box::new(inner)).at(span));
+        }
         // An inline Rust block.
         if let Tok::InlineRust(raw) = self.peek().clone() {
             let span = self.span();
@@ -5058,23 +5090,72 @@ impl<'a> Parser<'a> {
                     Some(ExprKind::Ident(name).at(start))
                 }
             }
-            // `[a, b, …]` — an inline list literal (primary position). Postfix
-            // `expr[i]` indexing is handled in the suffix loop, so no clash.
+            // `[a, b, …]` — an inline list; `[value; count]` — a filled list.
+            // Postfix `expr[i]` indexing is handled in the suffix loop, so no clash.
             Tok::LBracket => {
                 self.advance();
-                let mut elems = Vec::new();
-                if !matches!(self.peek(), Tok::RBracket) {
-                    loop {
-                        elems.push(self.parse_expr()?);
-                        if !self.eat(&Tok::Comma) {
-                            break;
-                        }
-                        // Allow a trailing comma before `]` (common when the list
-                        // spans lines).
-                        if matches!(self.peek(), Tok::RBracket) {
-                            break;
-                        }
+                if matches!(self.peek(), Tok::RBracket) {
+                    self.advance();
+                    return Some(ExprKind::List(Vec::new()).at(start.to(self.prev_span())));
+                }
+                if matches!(self.peek(), Tok::Semicolon) {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "a fill is `[value; count]` — write a value before the semicolon.",
+                    );
+                    return None;
+                }
+                let first = self.parse_expr()?;
+                if self.eat(&Tok::Semicolon) {
+                    if matches!(self.peek(), Tok::RBracket) {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            "a fill is `[value; count]` — the count is missing.",
+                        );
+                        return None;
                     }
+                    let count = self.parse_expr()?;
+                    if matches!(self.peek(), Tok::Comma | Tok::Semicolon) {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            "a fill is `[value; count]`; a list is `[a, b, …]` — not both.",
+                        );
+                        return None;
+                    }
+                    self.expect(&Tok::RBracket, "to close the list fill")?;
+                    return Some(
+                        ExprKind::ListRepeat {
+                            value: Box::new(first),
+                            count: Box::new(count),
+                        }
+                        .at(start.to(self.prev_span())),
+                    );
+                }
+                let mut elems = vec![first];
+                while self.eat(&Tok::Comma) {
+                    if matches!(self.peek(), Tok::RBracket) {
+                        break;
+                    }
+                    if matches!(self.peek(), Tok::Semicolon) {
+                        self.diags.error_at(
+                            self.span(),
+                            self.line(),
+                            "a fill is `[value; count]`; a list is `[a, b, …]` — not both.",
+                        );
+                        return None;
+                    }
+                    elems.push(self.parse_expr()?);
+                }
+                if matches!(self.peek(), Tok::Semicolon) {
+                    self.diags.error_at(
+                        self.span(),
+                        self.line(),
+                        "a fill is `[value; count]`; a list is `[a, b, …]` — not both.",
+                    );
+                    return None;
                 }
                 self.expect(&Tok::RBracket, "to close the list literal")?;
                 Some(ExprKind::List(elems).at(start.to(self.prev_span())))

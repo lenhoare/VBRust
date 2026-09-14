@@ -1,4 +1,4 @@
-// Inline list literals — `[a, b, …]` builds a Vec<T>.
+// Inline list literals — `[a, b, …]` builds a Vec<T>; `[value; count]` fills one.
 // 
 // Prefix `[…]` is a list; postfix `x[i]` is still indexing — no clash, exactly
 // like Rust. String elements are owned automatically; numbers take their type
@@ -17,6 +17,12 @@ static void Vec_longlong_push(Vec_longlong* v, long long x) {
 static Vec_longlong Vec_longlong_of(size_t count, long long* items) {
     Vec_longlong v = {0};
     for (size_t i = 0; i < count; i++) Vec_longlong_push(&v, items[i]);
+    return v;
+}
+
+static Vec_longlong Vec_longlong_repeat(size_t count, long long x) {
+    Vec_longlong v = {0};
+    for (size_t i = 0; i < count; i++) Vec_longlong_push(&v, x);
     return v;
 }
 
@@ -67,5 +73,8 @@ int main(void) {
     printf("%s\n", vbr_concat("total = ", vbr_from_ll(_t1.ok)));
     Vec_str empty = {0};
     printf("%s\n", vbr_concat("empty count = ", vbr_from_ll(empty.len)));
+    // `[value; count]` fills a Vec in one go — Rust's `vec![value; n]`.
+    Vec_longlong zeros = Vec_longlong_repeat(4, 0);
+    printf("%s\n", vbr_concat("zeros count = ", vbr_from_ll(zeros.len)));
     return 0;
 }

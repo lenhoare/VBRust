@@ -91,6 +91,7 @@ pub fn emit_c(program: &Program) -> CProgram {
         err_names: HashSet::new(),
         success_ret: None,
         line_map: Vec::new(),
+        vec_repeat: HashSet::new(),
     };
     e.program(program);
     e.finish(program)
@@ -196,6 +197,8 @@ struct Emitter {
     /// Checkpoints into `out` (function bodies). Offset by the header/runtime
     /// prefix in `finish` so they index the final `.c`.
     line_map: Vec<(usize, usize)>,
+    /// Vec type names that used `[value; count]` — emit `{n}_repeat` for those.
+    vec_repeat: HashSet<String>,
 }
 
 impl Emitter {
@@ -526,6 +529,14 @@ impl Emitter {
              for (size_t i = 0; i < count; i++) {n}_push(&v, items[i]);\n    \
              return v;\n}}\n\n"
         ));
+        if self.vec_repeat.contains(&n) {
+            self.decls.push_str(&format!(
+                "static {n} {n}_repeat(size_t count, {et} x) {{\n    \
+                 {n} v = {{0}};\n    \
+                 for (size_t i = 0; i < count; i++) {n}_push(&v, x);\n    \
+                 return v;\n}}\n\n"
+            ));
+        }
     }
 
     fn emit_map_runtime(&mut self, ty: &DeclType) {
@@ -717,11 +728,8 @@ impl Emitter {
             Stmt::If { branches, else_body } => self.if_stmt(branches, else_body.as_deref()),
             Stmt::For { var, from, to, step, body, parallel, .. } => {
                 if *parallel {
-                    self.warn(
-                        "`Parallel For` runs sequentially on the C target — \
-                         the Rust target uses CPU threads."
-                            .to_string(),
-                    );
+                    self.warn(crate::parallel::RUST_ONLY.to_string());
+                    return;
                 }
                 self.for_stmt(var, from, to, step.as_ref(), body)
             }
@@ -1085,6 +1093,10 @@ impl Emitter {
                 let i = self.expr(inner);
                 format!("(!{})", i)
             }
+            ExprKind::ParallelSum(_) => {
+                self.warn("`Parallel Sum` is Rust-only.");
+                "0 /* [Bust→C] Parallel Sum */".to_string()
+            }
             ExprKind::Binary { op: BinOp::Concat, lhs, rhs } => {
                 self.need_concat = true;
                 let l = self.as_str(lhs);
@@ -1149,6 +1161,22 @@ impl Emitter {
                     let parts: Vec<String> = items.iter().map(|i| self.expr(i)).collect();
                     format!("{}_of({}, ({}[]){{ {} }})", vec_name(&ty), items.len(), et, parts.join(", "))
                 }
+            }
+            // `[value; count]` — `{n}_repeat(count, value)`.
+            ExprKind::ListRepeat { value, count } => {
+                let ty = self.type_of(e);
+                let n = vec_name(&ty);
+                self.vec_repeat.insert(n.clone());
+                let v = self.expr(value);
+                let c = match &count.kind {
+                    ExprKind::Int(k) if *k >= 0 => k.to_string(),
+                    ExprKind::Int(_) => "0".to_string(),
+                    _ => {
+                        let c = self.expr(count);
+                        format!("(({c}) > 0 ? (size_t)({c}) : (size_t)0)")
+                    }
+                };
+                format!("{n}_repeat({c}, {v})")
             }
             other => {
                 self.warn(format!("`{}` doesn't lower to C yet.", expr_name(other)));
@@ -3374,6 +3402,8 @@ fn expr_name(e: &ExprKind) -> &'static str {
         ExprKind::Field(..) => "field access",
         ExprKind::Index(..) => "indexing",
         ExprKind::List(_) => "list literal",
+        ExprKind::ListRepeat { .. } => "list fill",
+        ExprKind::ParallelSum(_) => "Parallel Sum",
         ExprKind::Tuple(_) => "tuple",
         ExprKind::StructLit { .. } => "struct literal",
         ExprKind::InlineRust(_) => "inline Rust",

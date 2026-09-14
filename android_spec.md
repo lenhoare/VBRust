@@ -2,7 +2,7 @@
 
 A phone-sized editor that **runs** VBR. The desktop IDE (`vbr-ide`) shells out to
 `rustc`; a phone has no Rust toolchain, so this app takes the **C target**
-(`language_spec.md` §14, `targets_spec.md` §4) and compiles it in-process with
+(`language_spec.md` §15, `targets_spec.md` §4) and compiles it in-process with
 **TinyCC**.
 
 The VBR compiler itself still runs on the device — as a prebuilt native library,

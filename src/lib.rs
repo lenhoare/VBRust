@@ -367,6 +367,9 @@ pub fn compile_python(source: &str) -> PyCompiled {
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
+    if crate::parallel::program_uses_parallel(&program) {
+        diags.error_once("parallel-rust-only", crate::parallel::RUST_ONLY);
+    }
     if diags.has_errors() {
         return PyCompiled {
             code: String::new(),
@@ -428,6 +431,9 @@ pub fn compile_c(source: &str) -> CCompiled {
     let mut diags = Diagnostics::new();
     let tokens = lexer::lex(source);
     let program = parser::parse(tokens, &mut diags);
+    if crate::parallel::program_uses_parallel(&program) {
+        diags.error_once("parallel-rust-only", crate::parallel::RUST_ONLY);
+    }
     if diags.has_errors() {
         return CCompiled {
             code: String::new(),

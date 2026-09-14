@@ -1,0 +1,14 @@
+' Nested Parallel For — a 2-D index space. One CPU launch over ny * nx.
+Function Main()
+    Dim src As Vec<Vec<Long>> = [[1, 2, 3], [4, 5, 6]]
+    Dim dest As Vec<Vec<Long>> = [[0; 3]; 2]
+
+    Parallel For y = 0 To 1
+        Parallel For x = 0 To 2
+            dest[y][x] = src[y][x] * 2
+        Next
+    Next
+
+    Debug.Print dest[0][0]
+    Debug.Print dest[1][2]
+End Function

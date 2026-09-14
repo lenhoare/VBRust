@@ -1,27 +1,34 @@
 id = "parallel-for"
 title = "Parallel For"
-category = "Control flow"
+category = "Parallel"
 kind = "keyword"
 
 syntax = """
 Parallel For <var> = <start> To <end> [Step <n>]
     <statements>
 Next
+
+Parallel For y = <y0> To <y1>
+    Parallel For x = <x0> To <x1>
+        <statements>
+    Next
+Next
 """
 
-summary = "A For whose iterations are independent — the compiler may run them on CPU threads (and later, a GPU)."
+summary = "A numeric For whose iterations are independent — Rust runs them on CPU threads (and later, a GPU)."
 
 remarks = """
 `Parallel For` is the explicit index-space form of the same idea as a DataFrame formula: you describe work per element, and the compiler is allowed to do the elements at the same time.
 
-Each iteration may *read* anything. Two iterations may not *write* the same location. `out[i] = in[i] * 2` is fine; `total = total + in[i]` is a compile error (that's a reduction — `Parallel Sum` later). A stencil that *reads* a neighbour of a different array (`in[i + 1]`) is fine so long as writes stay `out[i]`.
+Each iteration may *read* anything. Two iterations may not *write* the same location. `out[i] = in[i] * 2` is fine; `total = total + in[i]` is a compile error (that's a reduction — `Parallel Sum xs`). A stencil that *reads* a neighbour of a different array (`in[i + 1]`) is fine so long as writes stay `out[i]`.
 
-Writes must be `arr[i]` where `i` is exactly the loop variable. `Exit For`, `Continue`, `Return`, nested `Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating `Step` are rejected. `Dim` inside the body is a per-iteration local.
+Writes must be `arr[i]` where `i` is exactly the loop variable. Nested `Parallel For y` wrapping `Parallel For x` is a 2-D index space: writes are `arr[y][x]` (or `arr[x][y]`), and Rust runs one launch over `ny * nx` — not a thread pool per row. A sequential `For x` inside `Parallel For y` can also write `arr[y][x]` (the inner loop stays sequential). `Exit For`, `Continue`, `Return`, a third `Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating `Step` are rejected. `Dim` inside the body is a per-iteration local.
 
-The Rust target runs the loop on CPU threads (`std::thread`). Python and C run it sequentially for now. CUDA / GPU buffers are a later slice — ordinary `Vec`s stay on the CPU; nothing is silently uploaded.
+Rust-only: `vbr run` uses CPU threads (`std::thread`). Python and C do not get a sequential stand-in — a parallel claim that runs in one thread would teach the wrong model. CUDA / GPU buffers are a later slice; ordinary `Vec`s stay on the CPU.
 
-`Parallel` is a soft keyword: a variable named `Parallel` is still a variable. Only `Parallel For` at the start of a statement is the loop.
-"""
+Slots have to exist before you write `dest[i]`. There is no `ReDim` / `Resize` keyword: start dest with a fill — `Dim dest As Vec<Long> = [0; n]` — then write the slots in `Parallel For`. A log-depth sum is several of those rounds: each writes `dest[i]` and reads the previous array at `2 * i` (see `examples/parallel_sum.vbr`).
+
+`Parallel` is a keyword."""
 
 example = """
 Function Main()
@@ -38,4 +45,4 @@ Function Main()
 End Function
 """
 
-see_also = ["for", "for-each", "vec"]
+see_also = ["for", "vec", "parallel-sum"]

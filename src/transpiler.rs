@@ -230,8 +230,10 @@ fn expr_uses_rnd(e: &Expr) -> bool {
         | ExprKind::Ref(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Closure { body: inner, .. } => expr_uses_rnd(inner),
         ExprKind::Index(inner, idx) => expr_uses_rnd(inner) || expr_uses_rnd(idx),
+        ExprKind::ListRepeat { value, count } => expr_uses_rnd(value) || expr_uses_rnd(count),
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_uses_rnd(v)),
         ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_uses_rnd),
         _ => false,
@@ -493,6 +495,10 @@ pub fn transpile_module(
     if crate::parallel::program_uses_parallel_for(program) {
         sep(&mut out);
         out.push_str(crate::parallel::PARALLEL_HELPER);
+    }
+    if crate::parallel::program_uses_parallel_sum(program) {
+        sep(&mut out);
+        out.push_str(crate::parallel::PARALLEL_SUM_HELPER);
     }
     // The `Log` sink helper, emitted only when the program logs.
     if program_uses_log(program) {
@@ -1439,11 +1445,13 @@ pub(crate) fn collect_expr_idents(e: &Expr, out: &mut HashSet<String>) {
         ExprKind::Ident(n) => {
             out.insert(rust_name(n));
         }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             collect_expr_idents(lhs, out);
             collect_expr_idents(rhs, out);
         }
-        ExprKind::Not(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
+        ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
         | ExprKind::Try(i) | ExprKind::Raw(i) | ExprKind::Await(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
         | ExprKind::Closure { body: i, .. } => collect_expr_idents(i, out),
         ExprKind::MethodCall { recv, args, .. } => {
@@ -2676,8 +2684,12 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
         | ExprKind::Ref(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Closure { body: inner, .. } => expr_uses_file_dialog(inner),
         ExprKind::Index(inner, idx) => expr_uses_file_dialog(inner) || expr_uses_file_dialog(idx),
+        ExprKind::ListRepeat { value, count } => {
+            expr_uses_file_dialog(value) || expr_uses_file_dialog(count)
+        }
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_uses_file_dialog(v)),
         ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_uses_file_dialog),
         _ => false,
@@ -2691,7 +2703,9 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
 fn expr_has_try(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Try(_) => true,
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             expr_has_try(lhs) || expr_has_try(rhs)
         }
         ExprKind::MethodCall { recv, args, .. } => {
@@ -2706,6 +2720,7 @@ fn expr_has_try(e: &Expr) -> bool {
         | ExprKind::Ref(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Closure { body: inner, .. } => expr_has_try(inner),
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_try(v)),
         ExprKind::Tuple(elems) | ExprKind::List(elems) => elems.iter().any(expr_has_try),
@@ -2788,7 +2803,9 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
                 mark_mutating_calls(a, set);
             }
         }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             mark_mutating_calls(lhs, set);
             mark_mutating_calls(rhs, set);
         }
@@ -2798,6 +2815,9 @@ fn mark_mutating_calls(e: &Expr, set: &mut HashSet<String>) {
         | ExprKind::Deref(inner)
         | ExprKind::MutRef(inner)
         | ExprKind::Ref(inner)
+        | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
+        | ExprKind::Await(inner)
         | ExprKind::Closure { body: inner, .. } => mark_mutating_calls(inner, set),
         ExprKind::StructLit { fields, .. } => {
             for (_, v) in fields {
@@ -3023,6 +3043,39 @@ fn emit_parallel_for(
     diags: &mut Diagnostics,
     out: &mut String,
 ) {
+    if let Some(inner) = crate::parallel::nested_grid2(body) {
+        if let Stmt::For {
+            var: vx,
+            from: fx,
+            to: tx,
+            step: sx,
+            body: bx,
+            ty: tyx,
+            ..
+        } = inner
+        {
+            emit_parallel_for_2d(
+                var,
+                from,
+                to,
+                step,
+                ty,
+                vx,
+                fx,
+                tx,
+                sx.as_ref(),
+                *tyx,
+                bx,
+                body,
+                mutated,
+                byref,
+                indent,
+                diags,
+                out,
+            );
+            return;
+        }
+    }
     if !diags.has_errors() {
         diags.note(
             "parallel-for-cpu",
@@ -3039,7 +3092,8 @@ fn emit_parallel_for(
 
     let mut locals = HashSet::new();
     crate::parallel::collect_locals(body, &mut locals);
-    let written = crate::parallel::written_arrays(var, body, &locals);
+    let vs = vec![var.to_string()];
+    let written = crate::parallel::written_arrays(&vs, body, &locals);
     let mut names: Vec<String> = written.into_iter().collect();
     names.sort();
     let mut ptrs = HashMap::new();
@@ -3048,16 +3102,7 @@ fn emit_parallel_for(
     }
 
     out.push_str(&format!("{}{{\n", pad));
-    out.push_str(&format!(
-        "{}let __from = {};\n",
-        inner,
-        render_expr(from, Some(ty))
-    ));
-    out.push_str(&format!("{}let __to = {};\n", inner, render_expr(to, Some(ty))));
-    if step_n != 1 {
-        out.push_str(&format!("{}let __step: {} = {};\n", inner, rt, step_n));
-    }
-    out.push_str(&format!("{}let __n: usize = {};\n", inner, parallel_n_expr(step_n, rt)));
+    emit_parallel_bounds("", from, to, step, ty, &inner, out);
     for arr in &names {
         let ptr = &ptrs[arr];
         out.push_str(&format!(
@@ -3084,6 +3129,140 @@ fn emit_parallel_for(
     out.push_str(&format!("{inner}}});\n{pad}}}\n"));
 }
 
+fn emit_parallel_for_2d(
+    vy: &str,
+    from_y: &Expr,
+    to_y: &Expr,
+    step_y: Option<&Expr>,
+    ty_y: Type,
+    vx: &str,
+    from_x: &Expr,
+    to_x: &Expr,
+    step_x: Option<&Expr>,
+    ty_x: Type,
+    inner_body: &[Stmt],
+    outer_body: &[Stmt],
+    mutated: &HashSet<String>,
+    byref: &HashSet<String>,
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    if !diags.has_errors() {
+        diags.note(
+            "parallel-for-2d",
+            "`Parallel For y` wrapping `Parallel For x` is one 2-D index space — \
+             CPU threads over `ny * nx`, not a thread pool per row.",
+        );
+    }
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    let kpad = "    ".repeat(indent + 2);
+    let y = rust_name(vy);
+    let x = rust_name(vx);
+    let rty = ty_y.rust();
+    let rtx = ty_x.rust();
+    let step_ny = peel_step_int(step_y).unwrap_or(1);
+    let step_nx = peel_step_int(step_x).unwrap_or(1);
+
+    let mut locals = HashSet::new();
+    crate::parallel::collect_locals(outer_body, &mut locals);
+    let vs = vec![vy.to_string(), vx.to_string()];
+    let written = crate::parallel::written_arrays(&vs, inner_body, &locals);
+    let mut names: Vec<String> = written.into_iter().collect();
+    names.sort();
+    let mut ptrs = HashMap::new();
+    for arr in &names {
+        ptrs.insert(arr.clone(), format!("__p_{}", rust_name(arr)));
+    }
+
+    out.push_str(&format!("{}{{\n", pad));
+    emit_parallel_bounds("_y", from_y, to_y, step_y, ty_y, &inner, out);
+    emit_parallel_bounds("_x", from_x, to_x, step_x, ty_x, &inner, out);
+    out.push_str(&format!("{}let __n: usize = __n_y.saturating_mul(__n_x);\n", inner));
+    for arr in &names {
+        let ptr = &ptrs[arr];
+        out.push_str(&format!(
+            "{}let {} = {}.as_mut_ptr() as usize;\n",
+            inner,
+            ptr,
+            rust_name(arr)
+        ));
+    }
+    out.push_str(&format!("{}__vbr_parallel_for(__n, &|__k| {{\n", inner));
+    out.push_str(&format!("{}#[allow(unused_variables)]\n", kpad));
+    out.push_str(&format!(
+        "{}let __ky = if __n_x == 0 {{ 0 }} else {{ __k / __n_x }};\n",
+        kpad
+    ));
+    out.push_str(&format!(
+        "{}let __kx = if __n_x == 0 {{ 0 }} else {{ __k % __n_x }};\n",
+        kpad
+    ));
+    if step_ny == 1 {
+        out.push_str(&format!("{}let {} = __from_y + (__ky as {});\n", kpad, y, rty));
+    } else {
+        out.push_str(&format!(
+            "{}let {} = __from_y + (__ky as {}) * __step_y;\n",
+            kpad, y, rty
+        ));
+    }
+    if step_nx == 1 {
+        out.push_str(&format!("{}let {} = __from_x + (__kx as {});\n", kpad, x, rtx));
+    } else {
+        out.push_str(&format!(
+            "{}let {} = __from_x + (__kx as {}) * __step_x;\n",
+            kpad, x, rtx
+        ));
+    }
+
+    let mut body = inner_body.to_vec();
+    rewrite_parallel_stmts(&mut body, &ptrs);
+    emit_block(&body, mutated, byref, indent + 2, diags, out);
+    out.push_str(&format!("{inner}}});\n{pad}}}\n"));
+}
+
+fn emit_parallel_bounds(
+    suffix: &str,
+    from: &Expr,
+    to: &Expr,
+    step: Option<&Expr>,
+    ty: Type,
+    pad: &str,
+    out: &mut String,
+) {
+    let rt = ty.rust();
+    let step_n = peel_step_int(step).unwrap_or(1);
+    out.push_str(&format!(
+        "{}let __from{} = {};\n",
+        pad,
+        suffix,
+        render_expr(from, Some(ty))
+    ));
+    out.push_str(&format!(
+        "{}let __to{} = {};\n",
+        pad,
+        suffix,
+        render_expr(to, Some(ty))
+    ));
+    if step_n != 1 {
+        out.push_str(&format!("{}let __step{}: {} = {};\n", pad, suffix, rt, step_n));
+    }
+    let n_name = if suffix.is_empty() {
+        "__n".to_string()
+    } else {
+        format!("__n{}", suffix)
+    };
+    let from_n = format!("__from{}", suffix);
+    let to_n = format!("__to{}", suffix);
+    out.push_str(&format!(
+        "{}let {}: usize = {};\n",
+        pad,
+        n_name,
+        parallel_n_expr_named(&from_n, &to_n, step_n, rt)
+    ));
+}
+
 fn peel_step_int(step: Option<&Expr>) -> Option<i64> {
     match step {
         None => Some(1),
@@ -3093,18 +3272,46 @@ fn peel_step_int(step: Option<&Expr>) -> Option<i64> {
     }
 }
 
-fn parallel_n_expr(step: i64, rt: &str) -> String {
+fn parallel_n_expr_named(from: &str, to: &str, step: i64, rt: &str) -> String {
     if step == 1 {
-        "if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 }".to_string()
+        format!(
+            "if {to} >= {from} {{ (({to} - {from}) as usize).saturating_add(1) }} else {{ 0 }}"
+        )
     } else if step > 0 {
         format!(
-            "if __to >= __from {{ (((__to - __from) / ({step} as {rt})) as usize).saturating_add(1) }} else {{ 0 }}"
+            "if {to} >= {from} {{ ((({to} - {from}) / ({step} as {rt})) as usize).saturating_add(1) }} else {{ 0 }}"
         )
     } else {
         let abs = -step;
         format!(
-            "if __to <= __from {{ (((__from - __to) / ({abs} as {rt})) as usize).saturating_add(1) }} else {{ 0 }}"
+            "if {to} <= {from} {{ ((({from} - {to}) / ({abs} as {rt})) as usize).saturating_add(1) }} else {{ 0 }}"
         )
+    }
+}
+
+fn ptr_index_rust(ptr: &str, idxs: &[Expr], assign: Option<(&str, &str)>) -> String {
+    let is: Vec<String> = idxs
+        .iter()
+        .map(|i| format!("({}) as usize", render_expr(i, None)))
+        .collect();
+    match (is.as_slice(), assign) {
+        ([], _) => "unsafe { () }".to_string(),
+        ([i], None) => format!("unsafe {{ *__vbr_at({ptr}, {i}) }}"),
+        ([i], Some((op, v))) => format!("unsafe {{ *__vbr_at({ptr}, {i}) {op} {v} }}"),
+        (rest, None) => {
+            let tail: String = rest[1..].iter().map(|i| format!("[{i}]")).collect();
+            format!(
+                "unsafe {{ (&*__vbr_at::<Vec<_>>({ptr}, {})){tail} }}",
+                rest[0]
+            )
+        }
+        (rest, Some((op, v))) => {
+            let tail: String = rest[1..].iter().map(|i| format!("[{i}]")).collect();
+            format!(
+                "unsafe {{ (&mut (*__vbr_at::<Vec<_>>({ptr}, {}))){tail} {op} {v} }}",
+                rest[0]
+            )
+        }
     }
 }
 
@@ -3126,30 +3333,23 @@ fn rewrite_parallel_stmt(s: &mut Stmt, ptrs: &HashMap<String, String>) {
                 unreachable!()
             };
             rewrite_parallel_expr(&mut value, ptrs);
-            let ptr = match &target.kind {
-                ExprKind::Index(inner, _) => match &inner.kind {
-                    ExprKind::Ident(name) => ptrs.get(&name.to_ascii_lowercase()).cloned(),
-                    _ => None,
-                },
-                _ => None,
-            };
+            let ptr = crate::parallel::index_chain(&target).and_then(|(name, _)| ptrs.get(&name).cloned());
             if let Some(ptr) = ptr {
-                if let ExprKind::Index(_, idx) = &mut target.kind {
-                    rewrite_parallel_expr(idx, ptrs);
-                    let i = render_expr(idx, None);
-                    let v = render_expr(&value, None);
-                    let assign = match op {
-                        Some(o) => format!("{}=", op_str(o)),
-                        None => "=".to_string(),
-                    };
-                    *s = Stmt::Expr(
-                        ExprKind::InlineRust(format!(
-                            "unsafe {{ *__vbr_at({ptr}, ({i}) as usize) {assign} {v} }}"
-                        ))
-                        .synth(),
-                    );
-                    return;
+                let mut idxs: Vec<Expr> = crate::parallel::index_chain(&target)
+                    .map(|(_, is)| is.into_iter().cloned().collect())
+                    .unwrap_or_default();
+                for i in &mut idxs {
+                    rewrite_parallel_expr(i, ptrs);
                 }
+                let v = render_expr(&value, None);
+                let assign = match op {
+                    Some(o) => format!("{}=", op_str(o)),
+                    None => "=".to_string(),
+                };
+                *s = Stmt::Expr(
+                    ExprKind::InlineRust(ptr_index_rust(&ptr, &idxs, Some((&assign, &v)))).synth(),
+                );
+                return;
             }
             rewrite_parallel_expr(&mut target, ptrs);
             *s = Stmt::Assign { target, value, op };
@@ -3278,20 +3478,25 @@ fn rewrite_shape(shape: &mut Shape, ptrs: &HashMap<String, String>) {
 }
 
 fn rewrite_parallel_expr(e: &mut Expr, ptrs: &HashMap<String, String>) {
+    if let Some((name, _)) = crate::parallel::index_chain(e) {
+        if let Some(ptr) = ptrs.get(&name).cloned() {
+            let mut idxs: Vec<Expr> = crate::parallel::index_chain(e)
+                .map(|(_, is)| is.into_iter().cloned().collect())
+                .unwrap_or_default();
+            for i in &mut idxs {
+                rewrite_parallel_expr(i, ptrs);
+            }
+            e.kind = ExprKind::InlineRust(ptr_index_rust(&ptr, &idxs, None));
+            return;
+        }
+    }
     match &mut e.kind {
         ExprKind::Index(inner, idx) => {
             rewrite_parallel_expr(inner, ptrs);
             rewrite_parallel_expr(idx, ptrs);
-            if let ExprKind::Ident(name) = &inner.kind {
-                if let Some(ptr) = ptrs.get(&name.to_ascii_lowercase()) {
-                    let i = render_expr(idx, None);
-                    e.kind = ExprKind::InlineRust(format!(
-                        "unsafe {{ *__vbr_at({ptr}, ({i}) as usize) }}"
-                    ));
-                }
-            }
         }
-        ExprKind::Binary { lhs, rhs, .. } => {
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             rewrite_parallel_expr(lhs, ptrs);
             rewrite_parallel_expr(rhs, ptrs);
         }
@@ -3319,6 +3524,7 @@ fn rewrite_parallel_expr(e: &mut Expr, ptrs: &HashMap<String, String>) {
         | ExprKind::Try(inner)
         | ExprKind::Raw(inner)
         | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Await(inner)
         | ExprKind::TupleIndex(inner, _)
         | ExprKind::Closure { body: inner, .. } => rewrite_parallel_expr(inner, ptrs),
@@ -3599,6 +3805,16 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                 .collect();
             format!("vec![{}]", parts.join(", "))
         }
+        // `[value; count]` → `vec![value; n]`. A negative count is empty, not a
+        // panic (same kindness as `Space(n)`). A string fill is owned once, then
+        // cloned by the macro.
+        ExprKind::ListRepeat { value, count } => {
+            let v = match &value.kind {
+                ExprKind::Str(s) => format!("\"{}\".to_string()", escape(s)),
+                _ => render_expr(value, None),
+            };
+            format!("vec![{}; {}]", v, fill_count(count))
+        }
         ExprKind::TupleIndex(inner, n) => format!("{}.{}", render_recv(inner), n),
         ExprKind::Index(inner, idx) => {
             // A numeric index must be `usize`; a *map key* must not be cast.
@@ -3628,6 +3844,11 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         // `Not e` → `!e`. Unary `!` binds tighter than any binary op, so it never
         // needs outer parens; the operand is parenthesised if it's itself binary.
         ExprKind::Not(inner) => format!("!{}", render_prec(inner, None, 9, false)),
+        // `Parallel Sum xs` — borrow the Vec/array as a slice; the helper
+        // folds per-thread partials, then combines. Empty is `T::default()`.
+        ExprKind::ParallelSum(inner) => {
+            format!("__vbr_parallel_sum(({}).as_slice())", render_expr(inner, None))
+        }
         // `Await` is consumed by the GUI codegen (event splitting); if one reaches
         // here it's a misuse — render the inner call so output is still valid Rust.
         ExprKind::Await(inner) => render_prec(inner, expected, parent_prec, is_right),
@@ -3944,6 +4165,16 @@ fn as_usize_arg(e: &Expr) -> String {
     match &e.kind {
         ExprKind::Int(n) => n.to_string(),
         _ => format!("({}) as usize", render_expr(e, None)),
+    }
+}
+
+/// The repeat count of `[value; count]` → `vec![value; n]`. A non-positive
+/// count is empty, not a panic (and not a wrapping `as usize` into a huge Vec).
+fn fill_count(e: &Expr) -> String {
+    match &e.kind {
+        ExprKind::Int(n) if *n >= 0 => n.to_string(),
+        ExprKind::Int(_) => "0".to_string(),
+        _ => format!("(({}) as i64).max(0) as usize", render_expr(e, None)),
     }
 }
 

@@ -1,4 +1,4 @@
-// Inline list literals — `[a, b, …]` builds a Vec<T>.
+// Inline list literals — `[a, b, …]` builds a Vec<T>; `[value; count]` fills one.
 // 
 // Prefix `[…]` is a list; postfix `x[i]` is still indexing — no clash, exactly
 // like Rust. String elements are owned automatically; numbers take their type
@@ -20,6 +20,9 @@ fn vbr_main() -> Result<(), String> {
     println!("total = {}", total(&vec![10, 20, 30])?);
     let empty: Vec<String> = vec![];
     println!("empty count = {}", empty.len());
+    // `[value; count]` fills a Vec in one go — Rust's `vec![value; n]`.
+    let zeros: Vec<i64> = vec![0; 4];
+    println!("zeros count = {}", zeros.len());
     Ok(())
 }
 

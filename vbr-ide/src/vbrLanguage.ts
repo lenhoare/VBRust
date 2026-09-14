@@ -11,14 +11,13 @@ const KEYWORDS = [
   "Function", "Sub", "Return", "ByVal", "ByRef", "On", "Type", "Enum",
   "Public", "Private", "Const", "ReDim", "End", "Dim", "Set", "Mut", "As",
   "If", "Then", "ElseIf", "Else", "Select", "Case", "Match", "Await",
-  "For", "Each", "In", "To", "Step", "Next", "New", "Do", "Loop",
+  "For", "Parallel", "Each", "In", "To", "Step", "Next", "New", "Do", "Loop",
   "While", "Until", "Exit", "Continue", "With",
   "And", "Or", "Not", "Xor", "Mod",
   "True", "False",
   // Soft structural words — idents to the lexer, but they read as keywords and
   // head the GUI/TUI/web/module constructs.
   "Screen", "Window", "Page", "State", "View", "Events", "Use", "Me", "Nothing",
-  "Parallel",
 ];
 
 const TYPE_KEYWORDS = [

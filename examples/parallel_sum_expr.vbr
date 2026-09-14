@@ -1,0 +1,6 @@
+' Parallel Sum — first-class reduction. CPU threads, no atomics.
+Function Main()
+    Dim xs As Vec<Long> = [1, 2, 3, 4, 5, 6, 7, 8]
+    Dim total As Long = Parallel Sum xs
+    Debug.Print total
+End Function

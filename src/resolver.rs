@@ -683,6 +683,7 @@ pub fn resolve_body(
         enums,
         structs,
         no_auto_try: false,
+        parallel_vars: Vec::new(),
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -732,6 +733,7 @@ pub fn resolve_event_body(
         enums,
         structs,
         no_auto_try: false,
+        parallel_vars: Vec::new(),
     };
     resolve_stmts(stmts, &mut ctx);
     drop(ctx);
@@ -836,6 +838,9 @@ struct Ctx<'a> {
     /// When true, fallible calls are left as `Result` (inside `Raw`, `Await`,
     /// or a `Handle` subject) instead of wrapping in implicit `?`.
     no_auto_try: bool,
+    /// Enclosing `Parallel For` variables, outermost first. Nested
+    /// `Parallel For y` / `Parallel For x` is a 2-D index space.
+    parallel_vars: Vec<String>,
 }
 
 impl Ctx<'_> {
@@ -1099,9 +1104,20 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     maybe_cast(s, var_ty, ctx);
                 }
                 ctx.bind(var, DeclType::Plain(var_ty));
+                if *parallel {
+                    ctx.parallel_vars.push(var.clone());
+                }
                 resolve_stmts(body, ctx);
                 if *parallel {
-                    crate::parallel::check(var, step.as_ref(), body, *ty, *line, ctx.diags);
+                    crate::parallel::check(
+                        &ctx.parallel_vars,
+                        step.as_ref(),
+                        body,
+                        *ty,
+                        *line,
+                        ctx.diags,
+                    );
+                    ctx.parallel_vars.pop();
                 }
             }
             Stmt::DoLoop { cond, body } => {
@@ -1589,7 +1605,9 @@ fn first_nested_fallible(call: &Expr, ctx: &Ctx) -> Option<String> {
                 }
                 walk(recv, ctx).or_else(|| args.iter().find_map(|a| walk(a, ctx)))
             }
-            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+            ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::Index(lhs, rhs)
+            | ExprKind::ListRepeat { value: lhs, count: rhs } => {
                 walk(lhs, ctx).or_else(|| walk(rhs, ctx))
             }
             ExprKind::Raw(inner)
@@ -1597,6 +1615,7 @@ fn first_nested_fallible(call: &Expr, ctx: &Ctx) -> Option<String> {
             | ExprKind::Try(inner)
             | ExprKind::Field(inner, _)
             | ExprKind::Not(inner)
+            | ExprKind::ParallelSum(inner)
             | ExprKind::Deref(inner)
             | ExprKind::Ref(inner)
             | ExprKind::MutRef(inner)
@@ -2357,6 +2376,10 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                 resolve_expr(el, ctx);
             }
         }
+        ExprKind::ListRepeat { value, count } => {
+            resolve_expr(value, ctx);
+            resolve_expr(count, ctx);
+        }
         ExprKind::Index(inner, idx) => {
             resolve_expr(inner, ctx);
             resolve_expr(idx, ctx);
@@ -2391,6 +2414,36 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         // Inline Rust/Python are opaque — no resolution.
         ExprKind::InlineRust(_) | ExprKind::InlinePython { .. } => {}
         ExprKind::Not(inner) => resolve_expr(inner, ctx),
+        ExprKind::ParallelSum(inner) => {
+            resolve_expr(inner, ctx);
+            match infer(inner, ctx) {
+                VType::Decl(DeclType::Vec(t)) => match t.as_ref() {
+                    DeclType::Plain(ty) if ty.is_number() => {}
+                    other => ctx.diags.error_once(
+                        "parallel-sum-elem",
+                        format!(
+                            "`Parallel Sum` adds numbers (`Long`, `Double`, …). \
+                             This list holds `{}`.",
+                            other.vb()
+                        ),
+                    ),
+                },
+                VType::Decl(DeclType::Array(ty, _)) if ty.is_number() => {}
+                VType::Decl(DeclType::Array(ty, _)) => ctx.diags.error_once(
+                    "parallel-sum-elem",
+                    format!(
+                        "`Parallel Sum` adds numbers (`Long`, `Double`, …). \
+                         This array holds `{}`.",
+                        ty.vb_name()
+                    ),
+                ),
+                _ => ctx.diags.error_once(
+                    "parallel-sum-vec",
+                    "`Parallel Sum xs` adds every element of a `Vec` (or array) \
+                     of numbers. This isn't one.",
+                ),
+            }
+        }
         ExprKind::Await(inner) => {
             let saved = ctx.no_auto_try;
             ctx.no_auto_try = true;
@@ -2583,12 +2636,14 @@ fn mutated_capture(e: &Expr, params: &[String], ctx: &Ctx) -> Option<String> {
             mutated_capture(recv, params, ctx)
                 .or_else(|| args.iter().find_map(|a| mutated_capture(a, params, ctx)))
         }
-        ExprKind::Binary { lhs, rhs, .. } => mutated_capture(lhs, params, ctx)
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => mutated_capture(lhs, params, ctx)
             .or_else(|| mutated_capture(rhs, params, ctx)),
-        ExprKind::Call { args, .. } | ExprKind::Tuple(args) => {
+        ExprKind::Call { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) => {
             args.iter().find_map(|a| mutated_capture(a, params, ctx))
         }
         ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Deref(inner)
         | ExprKind::Ref(inner)
         | ExprKind::MutRef(inner)
@@ -2657,11 +2712,16 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
             }
             _ => VType::Unknown,
         },
-        // An inline list `[a, b, …]` → `Vec<T>`, with T from the first element
-        // (a bare String element is owned, so a `Text` list is `Vec<String>`).
+        // An inline list `[a, b, …]` or fill `[value; count]` → `Vec<T>`, with T
+        // from the first / fill element (a bare String is owned, so `Vec<String>`).
         ExprKind::List(elems) => match elems.first().map(|e| infer(e, ctx)) {
             Some(VType::Decl(dt)) => VType::Decl(DeclType::Vec(Box::new(dt))),
             Some(VType::Str) => VType::Decl(DeclType::Vec(Box::new(DeclType::Plain(Type::Text)))),
+            _ => VType::Unknown,
+        },
+        ExprKind::ListRepeat { value, .. } => match infer(value, ctx) {
+            VType::Decl(dt) => VType::Decl(DeclType::Vec(Box::new(dt))),
+            VType::Str => VType::Decl(DeclType::Vec(Box::new(DeclType::Plain(Type::Text)))),
             _ => VType::Unknown,
         },
         // A module constant infers to its declared scalar type (looked up by the
@@ -2681,6 +2741,14 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         | ExprKind::InlineRust(_)
         | ExprKind::InlinePython { .. } => VType::Unknown,
         ExprKind::Not(_) => vt(Type::Boolean),
+        ExprKind::ParallelSum(inner) => match infer(inner, ctx) {
+            VType::Decl(DeclType::Vec(t)) => match *t {
+                DeclType::Plain(ty) if ty.is_number() => vt(ty),
+                _ => VType::Unknown,
+            },
+            VType::Decl(DeclType::Array(ty, _)) if ty.is_number() => vt(ty),
+            _ => VType::Unknown,
+        },
         ExprKind::Binary { op, lhs, rhs } => match op {
             BinOp::Concat => vt(Type::Text),
             BinOp::Pow => vt(Type::Double),
@@ -2995,6 +3063,8 @@ fn clone_moved_rvalues(e: &mut Expr, ctx: &Ctx, owned: bool) {
         | ExprKind::Await(inner)
         | ExprKind::Raw(inner)
         | ExprKind::Closure { body: inner, .. } => clone_moved_rvalues(inner, ctx, owned),
+        // `({xs}).as_slice()` borrows — the Vec stays usable after the sum.
+        ExprKind::ParallelSum(inner) => clone_moved_rvalues(inner, ctx, false),
         ExprKind::Deref(inner) => clone_moved_rvalues(inner, ctx, false),
         ExprKind::Index(inner, idx) => {
             clone_moved_rvalues(inner, ctx, false);
@@ -3009,6 +3079,10 @@ fn clone_moved_rvalues(e: &mut Expr, ctx: &Ctx, owned: bool) {
             for i in items {
                 clone_moved_rvalues(i, ctx, true);
             }
+        }
+        ExprKind::ListRepeat { value, count } => {
+            clone_moved_rvalues(value, ctx, true);
+            clone_moved_rvalues(count, ctx, true);
         }
         _ => {}
     }

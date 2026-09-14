@@ -450,10 +450,8 @@ impl Emitter {
             }
             Stmt::For { var, from, to, step, body, parallel, .. } => {
                 if *parallel {
-                    self.warn(
-                        "`Parallel For` runs sequentially on the Python target — \
-                         the Rust target uses CPU threads.",
-                    );
+                    self.warn(crate::parallel::RUST_ONLY);
+                    return;
                 }
                 self.declare(var, &DeclType::Plain(Type::Long));
                 let header = self.for_range(var, from, to, step.as_ref());
@@ -1298,6 +1296,17 @@ impl Emitter {
                 let parts: Vec<String> = items.iter().map(|i| self.expr(i)).collect();
                 format!("[{}]", parts.join(", "))
             }
+            ExprKind::ListRepeat { value, count } => {
+                let v = self.expr(value);
+                match &count.kind {
+                    ExprKind::Int(n) if *n >= 0 => format!("[{}] * {}", v, n),
+                    ExprKind::Int(_) => format!("[{}] * 0", v),
+                    _ => {
+                        let n = self.expr(count);
+                        format!("[{}] * max(0, int({}))", v, n)
+                    }
+                }
+            }
             ExprKind::Index(recv, idx) => {
                 let r = self.expr(recv);
                 let i = self.expr(idx);
@@ -1306,6 +1315,10 @@ impl Emitter {
             ExprKind::Not(inner) => {
                 let i = self.expr(inner);
                 format!("not ({})", i)
+            }
+            ExprKind::ParallelSum(_) => {
+                self.warn("`Parallel Sum` is Rust-only.");
+                "0  # [Bust→Python] Parallel Sum".into()
             }
             ExprKind::Try(inner) => self.hoist_try(inner),
             ExprKind::Raw(inner) => {
@@ -2004,11 +2017,13 @@ fn expr_name(e: &ExprKind) -> &'static str {
         ExprKind::Closure { .. } => "closure",
         ExprKind::Tuple(_) => "tuple",
         ExprKind::List(_) => "list literal",
+        ExprKind::ListRepeat { .. } => "list fill",
         ExprKind::TupleIndex(_, _) => "tuple index",
         ExprKind::Index(_, _) => "indexing",
         ExprKind::InlineRust(_) => "inline Rust",
         ExprKind::InlinePython { .. } => "inline Python",
         ExprKind::Await(_) => "Await",
+        ExprKind::ParallelSum(_) => "Parallel Sum",
         ExprKind::Raw(_) => "Raw",
         ExprKind::Try(_) => "error propagation (?)",
         _ => "expression",

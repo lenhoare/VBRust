@@ -314,6 +314,14 @@ impl Typer {
                 }
             }
             ExprKind::Not(_) => DeclType::Plain(Type::Boolean),
+            ExprKind::ParallelSum(inner) => match self.infer(inner) {
+                DeclType::Vec(t) => match *t {
+                    DeclType::Plain(ty) if ty.is_number() => DeclType::Plain(ty),
+                    other => other,
+                },
+                DeclType::Array(ty, _) if ty.is_number() => DeclType::Plain(ty),
+                other => other,
+            },
             // `expr?` yields the unwrapped success value. Implicit `?` on a
             // user function (Bust type is already `T`) is a no-op for inference.
             ExprKind::Try(inner) => match self.infer(inner) {
@@ -467,6 +475,12 @@ impl Typer {
                 for i in items.iter().skip(1) {
                     self.infer(i);
                 }
+                DeclType::Vec(Box::new(elem))
+            }
+            // `[value; count]` — same Vec type, filled.
+            ExprKind::ListRepeat { value, count } => {
+                let elem = self.infer(value);
+                self.infer(count);
                 DeclType::Vec(Box::new(elem))
             }
             // `v[i]` — a Vec element or a Map value.

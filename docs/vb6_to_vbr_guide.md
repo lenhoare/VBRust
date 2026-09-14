@@ -168,10 +168,6 @@ Next
 
 Do While total < 100 ... Loop        ' test first
 Do ... Loop Until done               ' test after
-
-Parallel For i = 0 To xs.Len() - 1   ' independent iterations (CPU threads on Rust)
-    out[i] = xs[i] * 2               ' writes must be arr[i] — no shared total =
-Next
 ```
 
 `Exit For/Do/Function` and `Continue` do the obvious. And the pause every module
@@ -286,6 +282,7 @@ Dim scores(10) As Long             ' fixed, stack, zero-based; index scores[i]
 Dim nums As Vec<Long>              ' growable list
 nums.push(10)
 Dim names As Vec<String> = ["alice", "bob"]    ' inline list literal
+Dim zeros As Vec<Long> = [0; n]                ' fill n slots (not ReDim)
 Dim ages As HashMap<String, Long>
 ages.insert("Ada", 36)
 ```
@@ -408,6 +405,28 @@ vbr test hello.vbr         # run the Test blocks
 
 The generated Rust is never a secret — reading it beside your Bust is the fastest
 way to actually *learn* Rust, which, when you're ready, is the real destination.
+
+---
+
+## Parallel (Rust-only)
+
+Ordinary `For` is sequential and can accumulate (`total = total + i`).
+`Parallel For` is a different claim: these iterations are independent, so
+Rust may run them on CPU threads.
+
+```vb
+Parallel For i = 0 To xs.Len() - 1
+    out[i] = xs[i] * 2
+Next
+```
+
+Writes must be `arr[i]`. Nested `Parallel For y` / `Parallel For x` writes
+`arr[y][x]` (one launch over the grid). A shared `total =` is a compile
+error — that's `Parallel Sum xs` (`Dim total As Long = Parallel Sum xs`).
+Python and C do not get a sequential stand-in. `examples/parallel_for_2d.vbr`
+is the nest; `examples/parallel_sum_expr.vbr` is the reduction;
+`examples/parallel_sum.vbr` is the hand-rolled tree that still uses
+`Parallel For`.
 
 ---
 

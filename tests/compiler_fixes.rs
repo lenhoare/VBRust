@@ -2178,5 +2178,307 @@ fn parallel_for_rejects_for_each() {
     );
 }
 
+#[test]
+fn parallel_is_a_hard_keyword() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim Parallel As Long = 1\n\
+        \x20   Debug.Print Parallel\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Parallel as a name should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("keyword"),
+        "teaching error: {joined}"
+    );
+}
 
+#[test]
+fn parallel_for_is_rust_only() {
+    let src = "Function Main()\n\
+        \x20   Dim a As Vec<Long> = [1, 2, 3, 4]\n\
+        \x20   Dim b As Vec<Long> = [0, 0, 0, 0]\n\
+        \x20   Parallel For i = 0 To a.Len() - 1\n\
+        \x20       b[i] = a[i]\n\
+        \x20   Next\n\
+        End Function\n";
+    let py = vbr::compile_python(src);
+    assert!(py.has_errors, "Python should refuse Parallel For: {:?}", py.diagnostics);
+    assert!(
+        py.diagnostics.iter().any(|d| d.contains("Rust-only")),
+        "teaching error: {:?}",
+        py.diagnostics
+    );
+    let c = vbr::compile_c(src);
+    assert!(c.has_errors, "C should refuse Parallel For: {:?}", c.diagnostics);
+    assert!(
+        c.diagnostics.iter().any(|d| d.contains("Rust-only")),
+        "teaching error: {:?}",
+        c.diagnostics
+    );
+}
+
+#[test]
+fn parallel_for_2d_flattens_to_one_launch() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim src As Vec<Vec<Long>> = [[1, 2, 3], [4, 5, 6]]\n\
+        \x20   Dim dest As Vec<Vec<Long>> = [[0; 3]; 2]\n\
+        \x20   Parallel For y = 0 To 1\n\
+        \x20       Parallel For x = 0 To 2\n\
+        \x20           dest[y][x] = src[y][x] * 2\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        \x20   Debug.Print dest[0][0]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("saturating_mul") && rust.contains("__n_y") && rust.contains("__n_x"),
+        "2-D nest should flatten ny * nx: {rust}"
+    );
+    assert_eq!(
+        rust.matches("__vbr_parallel_for(__n").count(),
+        1,
+        "one launch, not nested thread pools: {rust}"
+    );
+    assert!(
+        rust.contains("__vbr_at::<Vec<_>>"),
+        "2-D write should go through a row pointer: {rust}"
+    );
+    assert_rustc_clean("parallel_for_2d", &rust);
+}
+
+#[test]
+fn parallel_for_sequential_inner_writes_row() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim dest As Vec<Vec<Long>> = [[0; 3]; 2]\n\
+        \x20   Parallel For y = 0 To 1\n\
+        \x20       For x = 0 To 2\n\
+        \x20           dest[y][x] = y * 10 + x\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        \x20   Debug.Print dest[1][2]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_at::<Vec<_>>") && rust.contains("for x in"),
+        "sequential inner For should write dest[y][x] through a pointer: {rust}"
+    );
+    assert_rustc_clean("parallel_for_seq_inner", &rust);
+}
+
+#[test]
+fn parallel_for_rejects_three_deep() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim a As Vec<Vec<Vec<Long>>> = [[[0; 1]; 1]; 1]\n\
+        \x20   Parallel For z = 0 To 0\n\
+        \x20       Parallel For y = 0 To 0\n\
+        \x20           Parallel For x = 0 To 0\n\
+        \x20               a[z][y][x] = 1\n\
+        \x20           Next\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "3-D nest should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("3-D") || joined.contains("three deep"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn parallel_for_2d_rejects_missing_inner_index() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim dest As Vec<Vec<Long>> = [[0; 3]; 2]\n\
+        \x20   Parallel For y = 0 To 1\n\
+        \x20       Parallel For x = 0 To 2\n\
+        \x20           dest[y][0] = 1\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "row write in 2-D should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("arr[y][x]") || joined.contains("every parallel"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn parallel_for_2d_rejects_inner_bound_on_outer_var() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim dest As Vec<Vec<Long>> = [[0; 3]; 3]\n\
+        \x20   Parallel For y = 0 To 2\n\
+        \x20       Parallel For x = 0 To y\n\
+        \x20           dest[y][x] = 1\n\
+        \x20       Next\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "triangular inner range should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("rectangular") || joined.contains("outer variable"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn parallel_sum_emits_cpu_helper() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3, 4, 5, 6, 7, 8]\n\
+        \x20   Dim total As Long = Parallel Sum xs\n\
+        \x20   Debug.Print total\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_parallel_sum") && rust.contains("as_slice"),
+        "Parallel Sum should emit the reduction helper: {rust}"
+    );
+    assert!(
+        rust.contains("thread::scope") && rust.contains("Add<Output"),
+        "Parallel Sum should spawn threads and add: {rust}"
+    );
+    assert!(
+        !rust.contains("__vbr_parallel_for"),
+        "a Sum-only program should not emit the For helper: {rust}"
+    );
+    assert_rustc_clean("parallel_sum_expr", &rust);
+}
+
+#[test]
+fn parallel_sum_rejects_non_numeric() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<String> = [\"a\", \"b\"]\n\
+        \x20   Dim total As Long = Parallel Sum xs\n\
+        \x20   Debug.Print total\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "non-numeric Parallel Sum should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Parallel Sum") && (joined.contains("String") || joined.contains("numbers")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn parallel_sum_inside_parallel_for_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim a As Vec<Long> = [1, 2, 3, 4]\n\
+        \x20   Dim b As Vec<Long> = [0, 0, 0, 0]\n\
+        \x20   Parallel For i = 0 To a.Len() - 1\n\
+        \x20       b[i] = Parallel Sum a\n\
+        \x20   Next\n\
+        \x20   Debug.Print b[0]\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Sum inside For should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Parallel Sum") && joined.contains("Parallel For"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn parallel_sum_is_rust_only() {
+    let src = "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3, 4]\n\
+        \x20   Debug.Print Parallel Sum xs\n\
+        End Function\n";
+    let py = vbr::compile_python(src);
+    assert!(py.has_errors, "Python should refuse Parallel Sum: {:?}", py.diagnostics);
+    assert!(
+        py.diagnostics.iter().any(|d| d.contains("Rust-only")),
+        "teaching error: {:?}",
+        py.diagnostics
+    );
+    let c = vbr::compile_c(src);
+    assert!(c.has_errors, "C should refuse Parallel Sum: {:?}", c.diagnostics);
+    assert!(
+        c.diagnostics.iter().any(|d| d.contains("Rust-only")),
+        "teaching error: {:?}",
+        c.diagnostics
+    );
+}
+
+#[test]
+fn list_fill_emits_vec_repeat() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim n As Long = 4\n\
+        \x20   Dim zs As Vec<Long> = [0; n]\n\
+        \x20   Debug.Print zs.Len()\n\
+        End Function\n",
+    );
+    let packed = packed(&rust);
+    assert!(
+        packed.contains("vec![0;((n)asi64).max(0)asusize]")
+            || packed.contains("vec![0;((nasi64).max(0)asusize)]"),
+        "fill should emit vec![value; count]: {rust}"
+    );
+    assert_rustc_clean("list_fill", &rust);
+}
+
+#[test]
+fn list_fill_literal_count_is_bare() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim zs As Vec<Long> = [0; 4]\n\
+        \x20   Debug.Print zs.Len()\n\
+        End Function\n",
+    ));
+    assert!(rust.contains("vec![0;4]"), "literal count stays bare: {rust}");
+}
+
+#[test]
+fn list_fill_rejects_mixed_list() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim n As Long = 3\n\
+        \x20   Dim xs As Vec<Long> = [1, 2; n]\n\
+        \x20   Debug.Print xs.Len()\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "mixed list/fill should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("[value; count]") && joined.contains("not both"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn list_fill_python_and_c() {
+    let src = "Function Main()\n\
+        \x20   Dim zs As Vec<Long> = [0; 4]\n\
+        \x20   Debug.Print zs.Len()\n\
+        End Function\n";
+    let py = vbr::compile_python(src);
+    assert!(!py.has_errors, "python fill: {:?}", py.diagnostics);
+    assert!(
+        py.code.contains("[0] * 4"),
+        "python fill should be [value] * n: {}",
+        py.code
+    );
+    let c = vbr::compile_c(src);
+    assert!(!c.has_errors, "c fill: {:?}", c.diagnostics);
+    assert!(
+        c.code.contains("_repeat(4, 0)"),
+        "c fill should call _repeat: {}",
+        c.code
+    );
+}
 

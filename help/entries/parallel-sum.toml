@@ -1,0 +1,31 @@
+id = "parallel-sum"
+title = "Parallel Sum"
+category = "Parallel"
+kind = "keyword"
+
+syntax = """
+Parallel Sum <list>
+"""
+
+summary = "Add every element of a numeric Vec or array — a proven reduction, not atomics."
+
+remarks = """
+`Parallel Sum xs` is the first-class reduction that `total = total + xs[i]` is not. The compiler splits the list across CPU threads, each thread adds its chunk, then the partials combine in order. Empty input is `0` (or `0.0`).
+
+The argument is a numeric `Vec` or fixed array (`Integer` / `Long` / `LongLong` / `Single` / `Double` / `Byte`). The result is that element type. `Sum` itself is not a keyword — `Dim Sum` and `.Sum()` still work; only `Parallel Sum` is this form.
+
+It is an expression, not a statement: `Dim total As Long = Parallel Sum xs`, or `Debug.Print Parallel Sum [1, 2, 3, 4]`. `Parallel Sum xs + 1` is `(sum xs) + 1`. A method chain on the list (`Parallel Sum xs.Filter(…).Collect()`) is the argument.
+
+Rust-only: `vbr run` uses CPU threads. Python and C do not get a sequential stand-in. Inside `Parallel For` it is an error (that would spawn more threads per iteration). `Parallel Min` / `Max` are the same shape later.
+
+`Parallel` is a keyword."""
+
+example = """
+Function Main()
+    Dim xs As Vec<Long> = [1, 2, 3, 4, 5, 6, 7, 8]
+    Dim total As Long = Parallel Sum xs
+    Debug.Print total
+End Function
+"""
+
+see_also = ["parallel-for", "vec"]

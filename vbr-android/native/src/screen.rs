@@ -220,6 +220,7 @@ impl Host {
                 .get(locals, name)
                 .ok_or_else(|| format!("unknown constant `{name}`")),
             ExprKind::Not(inner) => Ok(Val::Bool(!self.eval(locals, inner)?.as_bool())),
+            ExprKind::ParallelSum(_) => Err(vbr::parallel::RUST_ONLY.into()),
             ExprKind::Deref(inner) | ExprKind::Ref(inner) | ExprKind::MutRef(inner) => {
                 self.eval(locals, inner)
             }
@@ -251,6 +252,12 @@ impl Host {
                     out.push(self.eval(locals, it)?);
                 }
                 Ok(Val::List(out))
+            }
+            ExprKind::ListRepeat { value, count } => {
+                let v = self.eval(locals, value)?;
+                let n = self.eval(locals, count)?.as_int();
+                let n = if n < 0 { 0 } else { n as usize };
+                Ok(Val::List(vec![v; n]))
             }
             ExprKind::Index(recv, idx) => {
                 let list = self.eval(locals, recv)?;
@@ -502,8 +509,12 @@ impl Host {
                 step,
                 body,
                 ty,
+                parallel,
                 ..
             } => {
+                if *parallel {
+                    return Err(vbr::parallel::RUST_ONLY.into());
+                }
                 if ty.is_float() {
                     // Floating bounds/Step: counted loop, same walk as the
                     // transpiler's `emit_counted_for`.

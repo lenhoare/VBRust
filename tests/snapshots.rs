@@ -79,6 +79,9 @@ const HAPPY: &[&str] = &[
     "tests",
     "logging",
     "parallel_for",
+    "parallel_for_2d",
+    "parallel_sum",
+    "parallel_sum_expr",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

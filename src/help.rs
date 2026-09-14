@@ -90,7 +90,6 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("if", "If…Then…Else", "Control flow", Keyword, "kw/If"),
         item!("match", "Match", "Control flow", Keyword, "kw/Match"),
         item!("for", "For…Next", "Control flow", Keyword, "kw/For"),
-        item!("parallel-for", "Parallel For", "Control flow", Keyword, "kw/ParallelFor"),
         item!("for-each", "For Each", "Control flow", Keyword, "kw/ForEach"),
         item!("do-loop", "Do…Loop", "Control flow", Keyword, "kw/Do"),
         item!("while", "While", "Control flow", Keyword, "kw/While"),
@@ -175,6 +174,9 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("regex", "Regex", "Standard library", Namespace, "ns/Regex"),
         item!("dataframe", "DataFrame", "Standard library", Namespace, "ns/DataFrame"),
         item!("shell", "Shell", "Standard library", Namespace, "ns/Shell"),
+        // Parallel — own section, after the sequential language, before surfaces.
+        item!("parallel-for", "Parallel For", "Parallel", Keyword, "kw/ParallelFor"),
+        item!("parallel-sum", "Parallel Sum", "Parallel", Keyword, "kw/ParallelSum"),
         // Surfaces (Window / Screen / Page / Sketch) — last in the sidebar so
         // the core language is the table of contents, then the places it runs.
         item!("window", "Window", "Surfaces", Keyword, "kw/Window"),

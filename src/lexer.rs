@@ -38,6 +38,7 @@ pub enum Tok {
     Match,
     Await,
     For,
+    Parallel,
     Each,
     In,
     To,
@@ -95,6 +96,7 @@ pub enum Tok {
     Comma,
     Dot,
     Colon,    // :
+    Semicolon, // ;  (list fill: `[value; count]`)
     Question, // ?
     Pipe,     // |
     FatArrow, // => (match arm)
@@ -278,6 +280,7 @@ pub fn lex(src: &str) -> Vec<Token> {
             }
             '.' => push(&mut tokens, Tok::Dot, line, sp(i, i + 1), &mut i),
             ':' => push(&mut tokens, Tok::Colon, line, sp(i, i + 1), &mut i),
+            ';' => push(&mut tokens, Tok::Semicolon, line, sp(i, i + 1), &mut i),
             '?' => push(&mut tokens, Tok::Question, line, sp(i, i + 1), &mut i),
             '|' => push(&mut tokens, Tok::Pipe, line, sp(i, i + 1), &mut i),
             '<' => {
@@ -629,6 +632,7 @@ pub(crate) fn keyword_word(tok: &Tok) -> Option<&'static str> {
         Tok::Match => "Match",
         Tok::Await => "Await",
         Tok::For => "For",
+        Tok::Parallel => "Parallel",
         Tok::Each => "Each",
         Tok::In => "In",
         Tok::To => "To",
@@ -681,6 +685,7 @@ fn keyword_or_ident(word: &str) -> Tok {
         "match" => Tok::Match,
         "await" => Tok::Await,
         "for" => Tok::For,
+        "parallel" => Tok::Parallel,
         "each" => Tok::Each,
         "in" => Tok::In,
         "to" => Tok::To,

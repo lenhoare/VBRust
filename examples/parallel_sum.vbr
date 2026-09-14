@@ -1,0 +1,22 @@
+' Parallel reduction: each round writes dest[i] and reads a previous array
+' at 2*i. dest starts as `[0; n]` — one fill, no Push loop, no Resize keyword.
+Function Halve(ByVal src As Vec<Long>) As Vec<Long>
+    Dim n As Long = src.Len() / 2
+    Dim dest As Vec<Long> = [0; n]
+
+    Parallel For i = 0 To n - 1
+        dest[i] = src[2 * i] + src[2 * i + 1]
+    Next
+
+    Return dest
+End Function
+
+Function Main()
+    Dim src As Vec<Long> = [1, 2, 3, 4, 5, 6, 7, 8]
+
+    Do While src.Len() > 1
+        src = Halve(src)
+    Loop
+
+    Debug.Print src[0]
+End Function

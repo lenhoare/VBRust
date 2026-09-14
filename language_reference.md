@@ -245,7 +245,7 @@ You can't name a function, variable, parameter, or field after a **Bust keyword*
 — the same rule VB6 has. These are reserved:
 
 > `Dim` `ReDim` `Const` `As` `ByVal` `ByRef` `Function` `Sub` `End` `If` `Then`
-> `Else` `ElseIf` `For` `To` `Step` `Next` `Each` `In` `Do` `Loop` `While`
+> `Else` `ElseIf` `For` `Parallel` `To` `Step` `Next` `Each` `In` `Do` `Loop` `While`
 > `Until` `Match` `Select` `Case` `Return` `Type` `Enum` `Public` `Private`
 > `True` `False` `Nothing` `Is` `And` `Or` `Not` `Xor` `Mod` `New` `Me` `Use`
 
@@ -350,11 +350,6 @@ before the loop, Bust quietly drops that line — Rust's `for` creates its own
 `i`, so the separate declaration would just sit unused. One difference from
 VB6 follows: the counter is gone after `Next` (copy it to another variable
 inside the loop if you need its final value).
-
-`Parallel For` is the same range with an independence claim: iterations may
-run at the same time. Writes must be `arr[i]` for the loop variable (`out[i]
-= in[i] * 2`); a shared scalar (`total = total + in[i]`) is a compile error.
-The Rust target uses CPU threads; Python and C stay sequential for now.
 
 `For Each` walks a collection, borrowing each element:
 
@@ -554,12 +549,14 @@ Or build one in place with an **inline list literal**, `[a, b, …]`:
 Dim names As Vec<String> = ["alice", "bob"]   →   let names: Vec<String> =
                                                        vec!["alice".to_string(), "bob".to_string()];
 Dim nums  As Vec<Long>   = [10, 20, 30]        →   let nums: Vec<i64> = vec![10, 20, 30];
+Dim zeros As Vec<Long>   = [0; n]              →   vec![0; n]  (n copies)
 ```
 
 String elements are owned for you; numbers take their type from the `As Vec<…>`
-you wrote. This is a *prefix* `[…]`; the *postfix* `x[i]` you'd use to index a
-list is a different thing in a different place, so the two never collide — just
-like Rust.
+you wrote. `[value; count]` fills `count` slots with the same value — not a
+`ReDim`. A list and a fill don't mix (`[a, b; n]` is rejected). This is a
+*prefix* `[…]`; the *postfix* `x[i]` you'd use to index a list is a different
+thing in a different place, so the two never collide — just like Rust.
 
 Reading an element out by index copies it, as VB assignment always does:
 `Dim first As String = names[0]` becomes `names[0].clone()` — Rust would
@@ -1099,7 +1096,40 @@ hidden. You can ignore it while you are comfortable, read it when you are curiou
 run `cargo` in it yourself when you are ready, and keep it when the day comes that
 you no longer need the VB on top. That day is the whole purpose of the language.
 
-## 11. A bonus: the same program in three languages
+## 11. Parallel
+
+`Parallel For` is a counting loop whose iterations are independent. It lives
+apart from ordinary `For` on purpose: a sequential sum (`total = total + i`)
+is the usual `For`; claiming independence is a different statement.
+
+```vb
+Parallel For i = 0 To xs.Len() - 1
+    out[i] = xs[i] * xs[i]
+Next
+```
+
+Each iteration may read anything; two iterations may not write the same
+slot. Writes are `arr[i]` for the loop variable. Nested `Parallel For y` /
+`Parallel For x` is a 2-D index space (`arr[y][x]`); a sequential inner
+`For x` can write `arr[y][x]` too. A shared scalar (`total = total + xs[i]`)
+is a compile error — that's `Parallel Sum xs`. Reading a *different* array
+at a neighbour (`xs[i + 1]` while writing `out[i]`) is fine.
+
+`Parallel Sum xs` adds every element of a numeric `Vec` or array (empty is
+`0`). `examples/parallel_sum_expr.vbr` prints `36` for `[1..8]`. Inside
+`Parallel For` it is an error.
+
+A log-depth parallel sum still fits as teaching: each round is its own
+`Parallel For` that writes `out[i]` and reads the previous array at
+`2 * i` / `2 * i + 1`. In-place `a[i] = a[2 * i] + a[2 * i + 1]` does not —
+that reads the array being written. `out` is a `Vec`: grow it with `.Push`
+(there is no `Resize` keyword), then fill the slots.
+`examples/parallel_sum.vbr` is that tree.
+
+Rust-only (`vbr run` uses CPU threads). Python and C refuse it rather than
+loop sequentially. CUDA / GPU buffers are later. `Sum` is not a keyword.
+
+## 12. A bonus: the same program in three languages
 
 Everything above is about Rust — the language is built around it, and the Rust it
 generates is the point. But once a program is written, you can also see it in two

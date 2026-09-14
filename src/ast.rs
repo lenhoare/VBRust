@@ -50,6 +50,14 @@ impl Type {
         matches!(self, Type::Single | Type::Double)
     }
 
+    /// Numeric types `Parallel Sum` can add — not Boolean or String.
+    pub fn is_number(self) -> bool {
+        matches!(
+            self,
+            Type::Integer | Type::Long | Type::LongLong | Type::Single | Type::Double | Type::Byte
+        )
+    }
+
     /// The VB-facing name, for diagnostics.
     pub fn vb_name(self) -> &'static str {
         match self {
@@ -956,7 +964,8 @@ pub enum Stmt {
         /// Filled in by the resolver (`Integer` until then).
         ty: Type,
         /// `Parallel For` — the iterations are independent. Ordinary `For` is
-        /// `false`. Nested `Parallel For` is rejected in v1.
+        /// `false`. Nested `Parallel For y` / `Parallel For x` is a 2-D index
+        /// space (one launch over `ny * nx`). A third nest is rejected.
         parallel: bool,
         /// Source line of the `For` / `Parallel For` header (diagnostics).
         line: usize,
@@ -1115,6 +1124,9 @@ pub enum ExprKind {
     Tuple(Vec<Expr>),
     /// `[a, b, …]` — an inline list literal → `Vec<T>` (empty `[]` allowed).
     List(Vec<Expr>),
+    /// `[value; count]` — a filled list → `vec![value; count]` (`Vec<T>` of
+    /// `count` copies). Not mixed with comma lists (`[a, b; n]` is rejected).
+    ListRepeat { value: Box<Expr>, count: Box<Expr> },
     /// `expr.0` — tuple element access.
     TupleIndex(Box<Expr>, usize),
     /// `expr[index]` — array/Vec indexing.
@@ -1129,6 +1141,9 @@ pub enum ExprKind {
     InlinePython { inputs: Vec<String>, body: String },
     /// `Not inner` — logical negation → `!(inner)`.
     Not(Box<Expr>),
+    /// `Parallel Sum xs` — add every element of a numeric Vec/array. Proven
+    /// reduction (per-thread partials, then a sequential combine); not atomics.
+    ParallelSum(Box<Expr>),
     /// `Await inner` — only valid inside a Window event. The GUI codegen splits
     /// the event around it; it never reaches normal expression rendering.
     Await(Box<Expr>),

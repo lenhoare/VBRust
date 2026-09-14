@@ -352,12 +352,15 @@ fn walk_expr(e: &Expr, add: &mut impl FnMut(&Expr)) {
     add(e);
     match &e.kind {
         ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner)
         | ExprKind::Cast(inner, _)
         | ExprKind::Deref(inner)
         | ExprKind::Ref(inner)
         | ExprKind::MutRef(inner)
         | ExprKind::Try(inner) => walk_expr(inner, add),
-        ExprKind::Binary { lhs, rhs, .. } => {
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
             walk_expr(lhs, add);
             walk_expr(rhs, add);
         }
@@ -878,7 +881,14 @@ fn wgsl_stmt(
             );
             None
         }
-        Stmt::For { var, from, to, step, body, .. } => {
+        Stmt::For { var, from, to, step, body, parallel, .. } => {
+            if *parallel {
+                diags.error_once(
+                    "gpu-parallel-for",
+                    "`Parallel For` isn't used inside `Gpu Draw` — the kernel already runs per pixel.",
+                );
+                return None;
+            }
             let v = rust_name(var);
             let a = wgsl_expr(from, uniforms, diags)?;
             let b = wgsl_expr(to, uniforms, diags)?;
@@ -986,6 +996,13 @@ fn wgsl_expr(e: &Expr, uniforms: &HashSet<String>, diags: &mut Diagnostics) -> O
             Some(rust_name(leaf))
         }
         ExprKind::Not(inner) => Some(format!("!({})", wgsl_expr(inner, uniforms, diags)?)),
+        ExprKind::ParallelSum(_) => {
+            diags.error_once(
+                "gpu-parallel-sum",
+                "`Parallel Sum` isn't used inside `Gpu Draw` — the kernel already runs per pixel.",
+            );
+            None
+        }
         ExprKind::Cast(inner, _) => wgsl_expr(inner, uniforms, diags),
         ExprKind::Deref(inner) | ExprKind::Ref(inner) | ExprKind::MutRef(inner) => {
             wgsl_expr(inner, uniforms, diags)

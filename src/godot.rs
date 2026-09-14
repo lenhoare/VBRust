@@ -602,12 +602,23 @@ impl Rw<'_> {
                 span: e.span,
             },
             ExprKind::Not(inner) => Expr { kind: ExprKind::Not(Box::new(self.expr(*inner))), span: e.span },
+            ExprKind::ParallelSum(inner) => Expr {
+                kind: ExprKind::ParallelSum(Box::new(self.expr(*inner))),
+                span: e.span,
+            },
             ExprKind::Field(recv, name) => Expr {
                 kind: ExprKind::Field(Box::new(self.expr(*recv)), name),
                 span: e.span,
             },
             ExprKind::Index(recv, idx) => Expr {
                 kind: ExprKind::Index(Box::new(self.expr(*recv)), Box::new(self.expr(*idx))),
+                span: e.span,
+            },
+            ExprKind::ListRepeat { value, count } => Expr {
+                kind: ExprKind::ListRepeat {
+                    value: Box::new(self.expr(*value)),
+                    count: Box::new(self.expr(*count)),
+                },
                 span: e.span,
             },
             ExprKind::MethodCall { recv, method, args } => Expr {
@@ -783,8 +794,11 @@ fn expr_uses_input(e: &Expr) -> bool {
                 || expr_uses_input(recv)
                 || args.iter().any(expr_uses_input)
         }
-        ExprKind::Binary { lhs, rhs, .. } => expr_uses_input(lhs) || expr_uses_input(rhs),
-        ExprKind::Not(i) | ExprKind::Field(i, _) => expr_uses_input(i),
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
+            expr_uses_input(lhs) || expr_uses_input(rhs)
+        },
+        ExprKind::Not(i) | ExprKind::ParallelSum(i) | ExprKind::Field(i, _) => expr_uses_input(i),
         ExprKind::Index(a, b) => expr_uses_input(a) || expr_uses_input(b),
         ExprKind::Call { args, .. } => args.iter().any(expr_uses_input),
         _ => false,

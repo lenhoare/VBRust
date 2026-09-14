@@ -132,11 +132,14 @@ An **inline list literal** builds a `Vec<T>` directly:
 Dim names As Vec<String> = ["alice", "bob"]   ' → vec!["alice".to_string(), …]
 Dim nums  As Vec<Long>   = [10, 20, 30]        ' → vec![10, 20, 30]
 Dim none  As Vec<String> = []                  ' empty; type from the annotation
+Dim zeros As Vec<Long>   = [0; n]              ' → vec![0; n]  (fill, n copies)
 ```
-`[a, b, …]` in expression position is a list (→ `vec![…]`); string elements are
-owned automatically, numeric elements take their type from the target. Prefix
-`[…]` (a literal) and postfix `x[i]` (indexing) never clash — the brackets start
-an expression in one case and follow one in the other, as in Rust.
+`[a, b, …]` in expression position is a list (→ `vec![…]`); `[value; count]` is
+a fill (→ `vec![value; count]`). Not mixed: `[a, b; n]` is an error. String
+elements are owned automatically, numeric elements take their type from the
+target. A non-positive count is empty, not a panic. Prefix `[…]` (a literal)
+and postfix `x[i]` (indexing) never clash — the brackets start an expression
+in one case and follow one in the other, as in Rust.
 
 `Dim x As T = v[i]` **copies** the element, as VB assignment always does:
 numbers and Booleans are Rust `Copy`; a `String`, nested collection, or struct
@@ -452,20 +455,6 @@ The counter's type is the widened type of the bounds and `Step`. `For i = 1 To
 variable, or floating bounds (`For x = 0.0 To 1.0 Step 0.1`), is a counted loop
 of that type: `To` is inclusive, and direction follows the sign of `Step`.
 
-```
-Parallel For i = lo To hi [Step s]
-    out[i] = in[i] * 2
-Next
-```
-
-`Parallel For` asserts that the iterations are independent. Each may read
-anything; two iterations may not write the same location. Writes must be
-`arr[i]` where `i` is the loop variable (`out[i] = in[i] * 2` is fine;
-`total = total + in[i]` is a compile error). Nested `Parallel For`, `Exit For`,
-`Continue`, `Return`, and a variable or floating `Step` are rejected in this
-slice. The Rust target runs the loop on CPU threads; Python and C run it
-sequentially. CUDA / GPU buffers are later — ordinary `Vec`s stay on the CPU.
-
 ### Loop control
 `Exit Do`, `Exit For`, `Exit Function`, `Continue`.
 
@@ -706,7 +695,7 @@ End Python
   can use them by name.
 - Needs the project build; requires a Python interpreter (with dev headers)
   present. Pulled in only when a `Python` block is used.
-- On the **Python target** (§14) the block *is* Python: it splices through
+- On the **Python target** (§15) the block *is* Python: it splices through
   verbatim (no pyo3 marshalling) — the mirror of how inline `Rust` splices on the
   Rust target.
 
@@ -865,7 +854,7 @@ Use rand 0.8          →   [dependencies]  rand = "0.8"
   points to `runproject` (`rustc` alone can't link crates).
 
 `Use` is **target-aware**: on the Rust target it declares a Cargo dependency; on
-the **Python target** (§14) the same statement declares a **pip** dependency
+the **Python target** (§15) the same statement declares a **pip** dependency
 (`import` + a generated `requirements.txt`). An optional `As <module>` renames the
 import for packages whose install name differs from their import name:
 
@@ -873,7 +862,42 @@ import for packages whose install name differs from their import name:
 Use PyYAML 6.0 As yaml    →   import yaml       +   PyYAML==6.0   (requirements.txt)
 ```
 
-## 14. Alternative targets — Python & C
+## 14. Parallel
+
+`Parallel For` is a numeric `For` whose iterations are independent. It is
+**Rust-only** (CPU threads today; GPU buffers later). Python and C do not
+lower it — a sequential stand-in would teach the wrong model.
+
+```
+Parallel For i = lo To hi [Step s]
+    out[i] = in[i] * 2
+Next
+```
+
+Each iteration may read anything. Two iterations may not write the same
+location. Writes must be `arr[i]` where `i` is the loop variable
+(`out[i] = in[i] * 2` is fine; `total = total + in[i]` is a compile error —
+that's `Parallel Sum xs`). A stencil that reads a *different* array
+(`in[i + 1]` while writing `out[i]`) is fine. Nested `Parallel For y`
+wrapping `Parallel For x` is a 2-D index space (`out[y][x] = …`; one CPU
+launch over `ny * nx`). A sequential `For x` inside `Parallel For y` can
+write `arr[y][x]` too. `Exit For`, `Continue`, `Return`, a third nested
+`Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating
+`Step` are rejected. `Dim` inside the body is a per-iteration local. Ordinary
+`Vec`s stay on the CPU — nothing is silently uploaded. There is no `Resize`
+keyword: grow `dest` with `.Push`, then write `dest[i]`. A log-depth tree
+that still uses `Parallel For` is `examples/parallel_sum.vbr`. A 2-D nest is
+`examples/parallel_for_2d.vbr`.
+
+`Parallel Sum xs` adds every element of a numeric `Vec` or array. The result
+is the element type; empty input is `0`. It is an expression
+(`Dim total As Long = Parallel Sum xs`). Inside `Parallel For` it is an
+error. `examples/parallel_sum_expr.vbr` prints `36` for `[1..8]`.
+
+`Parallel` is a reserved word. `Sum` is not — `.Sum()` and `Dim Sum` still
+work.
+
+## 15. Alternative targets — Python & C
 
 Bust is **Rust-first**: the semantics are Rust's and the language is defined around
 Rust (§1–§13). As an additive bolt-on, the *same source* can also transpile to:
@@ -885,7 +909,7 @@ Rust (§1–§13). As an additive bolt-on, the *same source* can also transpile 
 
 Both consume the same parsed AST as the Rust backend via a shared typed/desugared
 front-end. They cover the **core language** (§1–§9, plus collections and
-`Option`/`Result`); the GUI/TUI/Web surfaces stay **Rust-only**. For deterministic
+`Option`/`Result`); the GUI/TUI/Web surfaces, `Parallel For`, and `Parallel Sum` stay **Rust-only**. For deterministic
 programs the output is verified **byte-for-byte against `vbr run`**. Inline `Python`
 splices through verbatim on the Python target (the mirror of inline `Rust`).
 

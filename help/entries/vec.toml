@@ -5,6 +5,7 @@ kind = "type"
 
 syntax = """
 Dim <name> As Vec<<T>> = [<items>]
+Dim <name> As Vec<<T>> = [<value>; <count>]
 """
 
 replaces = "fixed arrays and ReDim (and Collection)"
@@ -14,7 +15,7 @@ summary = "A list that grows and shrinks — the everyday collection."
 remarks = """
 `Vec<T>` is a list of values, all of the same type `T`. It replaces classic VB's fixed arrays and `ReDim` dance: it grows on demand, so you rarely need to know the size in advance.
 
-Start it with a list literal — `[1, 2, 3]` — or empty with `[]`. Add to it with `.Push(x)`, count with `.Len()`, read an item with `list[i]`, and walk every item with `For Each`. Index safely with `.Get(i)`, which returns an `Option` rather than risking an out-of-range crash.
+Start it with a list literal — `[1, 2, 3]` — or empty with `[]`. Fill `n` slots with the same value using `[0; n]` (Rust's `vec![0; n]`). Add to it with `.Push(x)`, count with `.Len()`, read an item with `list[i]`, and walk every item with `For Each`. Index safely with `.Get(i)`, which returns an `Option` rather than risking an out-of-range crash.
 """
 
 members = """
