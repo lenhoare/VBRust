@@ -18,9 +18,9 @@ remarks = """
 
 `buf.Len()` / `.Count()` are host-side. `buf[i]` is the kernel: it only runs inside `Parallel For`. On the host, download first.
 
-Mixing a `Vec` and a `CudaBuffer` in one `Parallel For` is an error. Python and C refuse CUDA rather than faking a host array. `CUDA` is not a `vbr_stdlib` crate — the compiler emits the driver/nvrtc loader only when the program uses it.
+Mixing a `Vec` and a `CudaBuffer` in one `Parallel For` is an error. Python and C refuse CUDA rather than faking a host array. `CUDA` is not a `vbr_stdlib` crate — the compiler emits the driver/nvrtc loader only when the program uses it. Linux loads `libcuda` / `libnvrtc`; Windows loads `nvcuda.dll` / `nvrtc64_*.dll` (and `%CUDA_PATH%\\bin` for the compiler). The Bust program is the same.
 
-A 2-D CUDA grid, a device reduction (`Parallel Sum` on a `CudaBuffer`), managed memory, and device versions of user functions are later. A dot product is therefore GPU multiply + host `Parallel Sum` (`examples/cuda_dot.vbr`); a 3-vector cross product fits one `Parallel For` because reads of a *different* buffer may use any index (`examples/cuda_cross.vbr`).
+A 2-D CUDA grid, a device reduction (`Parallel Sum` on a `CudaBuffer`), and managed memory are later. A numeric `Function` (ByVal numbers in, a number out — `If` / `Return` / arithmetic) can be called from a CUDA `Parallel For`; it still exists as Rust on the host. `Sin` / `Sqr` / `Abs` / `IIf` work in the loop too. `examples/cuda_call.vbr` is `Clamp(Sq(a[i]), …)`. A dot product is GPU multiply + host `Parallel Sum` (`examples/cuda_dot.vbr`); a 3-vector cross product fits one `Parallel For` because reads of a *different* buffer may use any index (`examples/cuda_cross.vbr`).
 """
 
 example = """

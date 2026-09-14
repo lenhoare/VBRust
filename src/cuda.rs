@@ -4,18 +4,41 @@
 //! claim; ordinary `Vec` Parallel For stays on CPU threads. There is no silent
 //! host copy of a `Vec` onto the device.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::transpiler::rust_name;
 
+thread_local! {
+    static SRC_FNS: RefCell<Vec<Function>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Makes same-file `Function`s visible while resolving/emitting a CUDA kernel.
+pub struct SrcFns;
+pub struct SrcFnsGuard;
+
+impl SrcFns {
+    pub fn install(fns: &[Function]) -> SrcFnsGuard {
+        SRC_FNS.with(|s| *s.borrow_mut() = fns.to_vec());
+        SrcFnsGuard
+    }
+}
+
+impl Drop for SrcFnsGuard {
+    fn drop(&mut self) {
+        SRC_FNS.with(|s| s.borrow_mut().clear());
+    }
+}
+
 /// Why Python and C refuse CUDA rather than faking a host `Vec`.
 pub const RUST_ONLY: &str = "`CudaBuffer` and `CUDA.Upload` are Rust-only. Python and C have no \
 device backend, and we won't emit a host array that pretends otherwise. Run it with `vbr run`.";
 
 /// Runtime for device buffers and kernel launch. Emitted only when the program
-/// uses `CudaBuffer` / `CUDA.*`. Dynamically loads `libcuda` and `libnvrtc` —
+/// uses `CudaBuffer` / `CUDA.*`. Dynamically loads the driver and NVRTC
+/// (`libcuda`/`libnvrtc` on Unix, `nvcuda.dll`/`nvrtc64_*.dll` on Windows) —
 /// no CUDA toolkit link, so CPU-only machines still `rustc` the program.
 pub const CUDA_HELPER: &str = r#"
 #[allow(dead_code, unused_mut, unused_variables, unused_assignments, unused_unsafe)]
@@ -44,11 +67,11 @@ impl<T> Drop for __VbrCudaBuffer<T> {
     }
 }
 
-const __VBR_CUDA_NEEDED: &str = "CUDA needs an NVIDIA GPU and driver (libcuda). There is no silent \
+const __VBR_CUDA_NEEDED: &str = "CUDA needs an NVIDIA GPU and driver (libcuda / nvcuda.dll). There is no silent \
 CPU copy — ordinary Vec Parallel For stays on the CPU. Install a driver, or keep this work on a Vec.";
 
 const __VBR_NVRTC_NEEDED: &str = "The GPU is there, but compiling a Parallel For kernel needs the \
-CUDA toolkit (libnvrtc). Install the toolkit, or keep this loop on a Vec.";
+CUDA toolkit (libnvrtc / nvrtc64_*.dll). Install the toolkit, or keep this loop on a Vec.";
 
 fn __vbr_cuda_upload<T: Copy>(xs: &[T]) -> Result<__VbrCudaBuffer<T>, String> {
     let bytes = std::mem::size_of_val(xs);
@@ -119,47 +142,55 @@ fn __vbr_cuda_for(
     __vbr_cuda_launch(fun, grid, block, &mut args)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_alloc_bytes(_: usize) -> Result<u64, String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_free(_: u64) -> Result<(), String> {
     Ok(())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_copy_hto_d(_: u64, _: *const u8, _: usize) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_copy_d_to_h(_: *mut u8, _: u64, _: usize) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_memset(_: u64, _: usize) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_compile(_: &str) -> Result<u64, String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_launch(_: u64, _: u32, _: u32, _: &mut [*mut std::ffi::c_void]) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod __vbr_cuda_drv {
     #![allow(dead_code, unused_unsafe)]
     use std::collections::HashMap;
     use std::ffi::{CString, c_char, c_int, c_uint, c_void};
     use std::sync::{Mutex, OnceLock};
 
+    #[cfg(unix)]
     const RTLD_NOW: c_int = 2;
 
+    #[cfg(unix)]
     extern "C" {
         fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
         fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+
+    #[cfg(windows)]
+    extern "system" {
+        fn LoadLibraryA(name: *const c_char) -> *mut c_void;
+        fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
     }
 
     struct Api {
@@ -208,12 +239,32 @@ mod __vbr_cuda_drv {
     unsafe impl Send for Api {}
     unsafe impl Sync for Api {}
 
+    fn try_load(name: &str) -> Option<*mut c_void> {
+        let c = CString::new(name).ok()?;
+        #[cfg(unix)]
+        let h = unsafe { dlopen(c.as_ptr(), RTLD_NOW) };
+        #[cfg(windows)]
+        let h = unsafe { LoadLibraryA(c.as_ptr()) };
+        if h.is_null() {
+            None
+        } else {
+            Some(h)
+        }
+    }
+
     fn load_lib(names: &[&str]) -> Result<*mut c_void, ()> {
         for n in names {
-            let c = CString::new(*n).map_err(|_| ())?;
-            let h = unsafe { dlopen(c.as_ptr(), RTLD_NOW) };
-            if !h.is_null() {
+            if let Some(h) = try_load(n) {
                 return Ok(h);
+            }
+        }
+        #[cfg(windows)]
+        if let Ok(root) = std::env::var("CUDA_PATH") {
+            let bin = format!("{}\\bin", root.trim_end_matches(['\\', '/']));
+            for n in names {
+                if let Some(h) = try_load(&format!("{bin}\\{n}")) {
+                    return Ok(h);
+                }
             }
         }
         Err(())
@@ -222,7 +273,10 @@ mod __vbr_cuda_drv {
     unsafe fn sym(h: *mut c_void, names: &[&str]) -> Result<*mut c_void, String> {
         for n in names {
             let c = CString::new(*n).unwrap();
+            #[cfg(unix)]
             let p = dlsym(h, c.as_ptr());
+            #[cfg(windows)]
+            let p = GetProcAddress(h, c.as_ptr());
             if !p.is_null() {
                 return Ok(p);
             }
@@ -239,13 +293,44 @@ mod __vbr_cuda_drv {
     }
 
     unsafe fn load_api() -> Result<Api, String> {
-        let cuda = load_lib(&["libcuda.so.1", "libcuda.so"])
-            .map_err(|_| super::__VBR_CUDA_NEEDED.to_string())?;
+        let cuda = load_lib(&[
+            #[cfg(unix)]
+            "libcuda.so.1",
+            #[cfg(unix)]
+            "libcuda.so",
+            #[cfg(windows)]
+            "nvcuda.dll",
+        ])
+        .map_err(|_| super::__VBR_CUDA_NEEDED.to_string())?;
         let nvrtc = load_lib(&[
-            "libnvrtc.so.12",
+            #[cfg(unix)]
             "libnvrtc.so.13",
+            #[cfg(unix)]
+            "libnvrtc.so.12",
+            #[cfg(unix)]
             "libnvrtc.so.11",
+            #[cfg(unix)]
             "libnvrtc.so",
+            #[cfg(windows)]
+            "nvrtc64_130_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_128_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_126_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_124_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_120_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_118_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_112_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_110_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_12.dll",
+            #[cfg(windows)]
+            "nvrtc.dll",
         ])
         .map_err(|_| super::__VBR_NVRTC_NEEDED.to_string())?;
         let cu_init = std::mem::transmute(sym(cuda, &["cuInit"])?);
@@ -440,31 +525,31 @@ mod __vbr_cuda_drv {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_alloc_bytes(n: usize) -> Result<u64, String> {
     __vbr_cuda_drv::alloc_bytes(n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_free(ptr: u64) -> Result<(), String> {
     __vbr_cuda_drv::free(ptr)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_copy_hto_d(dst: u64, src: *const u8, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::copy_hto_d(dst, src, n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_copy_d_to_h(dst: *mut u8, src: u64, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::copy_d_to_h(dst, src, n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_memset(ptr: u64, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::memset(ptr, n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_compile(src: &str) -> Result<u64, String> {
     __vbr_cuda_drv::compile(src).map(|p| p as u64)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_launch(
     fun: u64,
     grid: u32,
@@ -861,13 +946,21 @@ fn walk_expr_idents(e: &Expr, allow: &HashSet<String>, out: &mut HashSet<String>
     }
 }
 
-/// CUDA Parallel For body this slice: assignments and `Dim` locals only.
+/// CUDA Parallel For body: assignments, `Dim` locals, and device-safe calls.
 pub fn check_device_body(stmts: &[Stmt], line: usize, diags: &mut Diagnostics) -> bool {
     for s in stmts {
         match s {
             Stmt::LineMark(_) | Stmt::Comment(_) => {}
             Stmt::Assign { .. } => {}
             Stmt::Dim { .. } => {}
+            Stmt::If { .. } => {
+                diags.error(
+                    line,
+                    "Put the `If` in a numeric `Function` and call it from the loop. \
+                     A CUDA `Parallel For` body is assignments (and `Dim` locals) this slice.",
+                );
+                return false;
+            }
             Stmt::For { parallel: true, .. } => {
                 diags.error(
                     line,
@@ -889,19 +982,23 @@ pub fn check_device_body(stmts: &[Stmt], line: usize, diags: &mut Diagnostics) -
                 diags.error(
                     line,
                     format!(
-                        "CUDA `Parallel For` body is assignments and `Dim` locals \
-                         this slice (`{}` isn't).",
+                        "CUDA `Parallel For` body is assignments, `Dim` locals, and \
+                         device-safe calls this slice (`{}` isn't).",
                         stmt_kind(other)
                     ),
                 );
                 return false;
             }
         }
+        if !check_calls_in_stmt(s, line, diags) {
+            return false;
+        }
         if stmt_has_host_expr(s) {
             diags.error(
                 line,
                 "CUDA `Parallel For` body is arithmetic on `buf[i]` — no method \
-                 calls, no host functions. Compute on the device with `a[i] * 2.0`.",
+                 calls, no host functions. Compute on the device with `a[i] * 2.0`, \
+                 or call a numeric `Function`.",
             );
             return false;
         }
@@ -909,19 +1006,260 @@ pub fn check_device_body(stmts: &[Stmt], line: usize, diags: &mut Diagnostics) -
     true
 }
 
+fn check_calls_in_stmt(s: &Stmt, line: usize, diags: &mut Diagnostics) -> bool {
+    let mut ok = true;
+    walk_stmt_calls(s, &mut |name| {
+        if !call_ok(name, line, diags) {
+            ok = false;
+        }
+    });
+    ok
+}
+
+fn walk_stmt_calls(s: &Stmt, f: &mut impl FnMut(&str)) {
+    match s {
+        Stmt::Assign { target, value, .. } => {
+            walk_expr_calls(target, f);
+            walk_expr_calls(value, f);
+        }
+        Stmt::Dim { init: Some(e), .. } | Stmt::Return(Some(e)) => walk_expr_calls(e, f),
+        Stmt::If { branches, else_body } => {
+            for (c, b) in branches {
+                walk_expr_calls(c, f);
+                for s in b {
+                    walk_stmt_calls(s, f);
+                }
+            }
+            if let Some(b) = else_body {
+                for s in b {
+                    walk_stmt_calls(s, f);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn walk_expr_calls(e: &Expr, f: &mut impl FnMut(&str)) {
+    match &e.kind {
+        ExprKind::Call { name, args } => {
+            f(name);
+            for a in args {
+                walk_expr_calls(a, f);
+            }
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
+            walk_expr_calls(lhs, f);
+            walk_expr_calls(rhs, f);
+        }
+        ExprKind::Not(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Try(inner)
+        | ExprKind::Raw(inner)
+        | ExprKind::Deref(inner) => walk_expr_calls(inner, f),
+        ExprKind::MethodCall { recv, args, .. } => {
+            walk_expr_calls(recv, f);
+            for a in args {
+                walk_expr_calls(a, f);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn call_ok(name: &str, line: usize, diags: &mut Diagnostics) -> bool {
+    if is_device_math(name) {
+        return true;
+    }
+    if name.eq_ignore_ascii_case("rnd") {
+        diags.error(
+            line,
+            "`Rnd` is host-side. A CUDA `Parallel For` can call a numeric `Function` \
+             (`Sin`, `Sqr`, …, or your own ByVal number-in / number-out helper).",
+        );
+        return false;
+    }
+    match device_fn_problem(name, &mut HashSet::new()) {
+        None => true,
+        Some(msg) => {
+            diags.error(line, msg);
+            false
+        }
+    }
+}
+
+fn is_device_math(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "sqr" | "abs" | "int" | "round" | "sin" | "cos" | "tan" | "atn" | "log" | "exp" | "iif"
+    )
+}
+
+fn is_device_scalar(ty: &DeclType) -> bool {
+    matches!(ty, DeclType::Plain(t) if t.is_number() || *t == Type::Boolean)
+}
+
+fn find_fn(name: &str) -> Option<Function> {
+    let key = rust_name(name);
+    SRC_FNS.with(|s| {
+        s.borrow()
+            .iter()
+            .find(|f| f.receiver.is_none() && rust_name(&f.name) == key)
+            .cloned()
+    })
+}
+
+/// `None` if `name` is a device-safe same-file function.
+fn device_fn_problem(name: &str, visiting: &mut HashSet<String>) -> Option<String> {
+    let key = rust_name(name);
+    if !visiting.insert(key.clone()) {
+        return None;
+    }
+    let Some(f) = find_fn(name) else {
+        return Some(format!(
+            "CUDA `Parallel For` can call a numeric `Function` this slice — `{name}` \
+             isn't one. Write `Function {name}(ByVal x As Single) As Single` (numbers \
+             in, a number out), or keep the arithmetic in the loop."
+        ));
+    };
+    if f.gpu {
+        return Some(format!(
+            "`{name}` is a `Gpu Function` (a Draw shader helper), not a CUDA device \
+             function. Write an ordinary `Function` with ByVal numbers."
+        ));
+    }
+    if f.params.iter().any(|p| p.mode == ParamMode::ByRef) {
+        return Some(format!(
+            "`{name}` takes `ByRef` — a CUDA helper is ByVal numbers (the kernel \
+             already holds `buf[i]` as a scalar)."
+        ));
+    }
+    if f.params.iter().any(|p| !is_device_scalar(&p.ty)) {
+        return Some(format!(
+            "`{name}` isn't device-safe — parameters must be numbers (or Boolean), \
+             not a `Vec` / `String` / struct. Pass `a[i]`, not the buffer."
+        ));
+    }
+    match &f.ret {
+        Some(ty) if is_device_scalar(ty) => {}
+        _ => {
+            return Some(format!(
+                "`{name}` needs a numeric return to run on the GPU (`As Single` / \
+                 `As Long` / …). A `Sub` stays on the host."
+            ));
+        }
+    }
+    let mut allow = HashSet::new();
+    for p in &f.params {
+        allow.insert(p.name.to_ascii_lowercase());
+    }
+    crate::parallel::collect_locals(&f.body, &mut allow);
+    if let Some(host) = stray_idents(&f.body, &allow).iter().next() {
+        return Some(format!(
+            "`{name}` reads `{host}`, which isn't a parameter or local — a CUDA \
+             helper only sees the numbers you pass in."
+        ));
+    }
+    if let Some(why) = device_fn_body_problem(&f.body) {
+        return Some(format!(
+            "`{name}` isn't device-safe ({why}). A CUDA helper is `If` / `Return` / \
+             arithmetic on its parameters — no `Debug.Print`, no `FileSystem`, no `Vec`."
+        ));
+    }
+    let mut nested_msg = None;
+    walk_stmts_calls(&f.body, &mut |callee| {
+        if nested_msg.is_some() || is_device_math(callee) {
+            return;
+        }
+        if let Some(msg) = device_fn_problem(callee, visiting) {
+            nested_msg = Some(msg);
+        }
+    });
+    nested_msg
+}
+
+fn walk_stmts_calls(stmts: &[Stmt], f: &mut impl FnMut(&str)) {
+    for s in stmts {
+        walk_stmt_calls(s, f);
+    }
+}
+
+/// True when some `Parallel For` in the program calls `name` (device kernels
+/// inline the helper as CUDA C, so the Rust `fn` can look unused).
+pub fn used_from_parallel(name: &str) -> bool {
+    let key = rust_name(name);
+    SRC_FNS.with(|s| {
+        s.borrow().iter().any(|f| parallel_calls(&f.body, &key))
+    })
+}
+
+fn parallel_calls(stmts: &[Stmt], key: &str) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::For { parallel: true, body, .. } => {
+            let mut hit = false;
+            walk_stmts_calls(body, &mut |n| {
+                if rust_name(n) == key {
+                    hit = true;
+                }
+            });
+            hit || parallel_calls(body, key)
+        }
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| parallel_calls(b, key))
+                || else_body.as_ref().is_some_and(|b| parallel_calls(b, key))
+        }
+        Stmt::For { body, .. } | Stmt::DoLoop { body, .. } | Stmt::ForEach { body, .. } => {
+            parallel_calls(body, key)
+        }
+        _ => false,
+    })
+}
+
+fn device_fn_body_problem(stmts: &[Stmt]) -> Option<&'static str> {
+    for s in stmts {
+        match s {
+            Stmt::LineMark(_) | Stmt::Comment(_) | Stmt::Assign { .. } | Stmt::Dim { .. } => {}
+            Stmt::Return(_) => {}
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    if let Some(w) = device_fn_body_problem(b) {
+                        return Some(w);
+                    }
+                }
+                if let Some(b) = else_body {
+                    if let Some(w) = device_fn_body_problem(b) {
+                        return Some(w);
+                    }
+                }
+            }
+            other => return Some(stmt_kind(other)),
+        }
+        if stmt_has_host_expr(s) {
+            return Some("a method call or host expression");
+        }
+    }
+    None
+}
+
 fn stmt_has_host_expr(s: &Stmt) -> bool {
     match s {
         Stmt::Assign { target, value, .. } => expr_has_host(target) || expr_has_host(value),
-        Stmt::Dim { init: Some(e), .. } => expr_has_host(e),
+        Stmt::Dim { init: Some(e), .. } | Stmt::Return(Some(e)) => expr_has_host(e),
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(c, b)| {
+                expr_has_host(c) || b.iter().any(stmt_has_host_expr)
+            }) || else_body
+                .as_ref()
+                .is_some_and(|b| b.iter().any(stmt_has_host_expr))
+        }
         _ => false,
     }
 }
 
 fn expr_has_host(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::MethodCall { .. } | ExprKind::Call { .. } | ExprKind::ParallelSum(_) | ExprKind::Str(_) => {
-            true
-        }
+        ExprKind::MethodCall { .. } | ExprKind::ParallelSum(_) | ExprKind::Str(_) => true,
+        ExprKind::Call { args, .. } => args.iter().any(expr_has_host),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Index(lhs, rhs) => {
             expr_has_host(lhs) || expr_has_host(rhs)
         }
@@ -947,9 +1285,111 @@ fn stmt_kind(s: &Stmt) -> &'static str {
     }
 }
 
+fn cuda_fn_ident(name: &str) -> String {
+    format!(
+        "__vbr_d_{}",
+        rust_name(name).trim_start_matches("r#").replace('#', "")
+    )
+}
+
+fn collect_helpers(stmts: &[Stmt]) -> Vec<Function> {
+    let mut order = Vec::new();
+    let mut seen = HashSet::new();
+    collect_helpers_from(stmts, &mut seen, &mut order);
+    order
+}
+
+fn collect_helpers_from(stmts: &[Stmt], seen: &mut HashSet<String>, order: &mut Vec<Function>) {
+    walk_stmts_calls(stmts, &mut |name| {
+        if is_device_math(name) {
+            return;
+        }
+        let Some(f) = find_fn(name) else {
+            return;
+        };
+        if f.gpu {
+            return;
+        }
+        let key = rust_name(&f.name);
+        if !seen.insert(key) {
+            return;
+        }
+        collect_helpers_from(&f.body, seen, order);
+        order.push(f);
+    });
+}
+
+fn fn_use_f(f: &Function) -> bool {
+    f.params.iter().any(|p| matches!(&p.ty, DeclType::Plain(Type::Single)))
+        || matches!(&f.ret, Some(DeclType::Plain(Type::Single)))
+}
+
+fn emit_device_fn(f: &Function) -> String {
+    let use_f = fn_use_f(f);
+    let mut body = f.body.clone();
+    crate::transpiler::convert_returns(&mut body, &rust_name(&f.name));
+    let ret = match &f.ret {
+        Some(DeclType::Plain(t)) => cuda_c_type(*t),
+        _ => "void",
+    };
+    let params: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| {
+            let ty = match &p.ty {
+                DeclType::Plain(t) => cuda_c_type(*t),
+                _ => "long long",
+            };
+            format!("{ty} {}", rust_name(&p.name))
+        })
+        .collect();
+    let mut src = format!(
+        "__device__ {ret} {}({}) {{\n",
+        cuda_fn_ident(&f.name),
+        params.join(", ")
+    );
+    for s in &body {
+        if let Some(text) = cuda_stmt(s, use_f, 1) {
+            src.push_str(&text);
+        }
+    }
+    src.push_str("}\n\n");
+    src
+}
+
 /// CUDA C kernel for a 1-D device `Parallel For`. `bufs` is `(name, element)`.
 pub fn kernel_c(var: &str, bufs: &[(String, Type)], body: &[Stmt]) -> String {
     let use_f = bufs.iter().any(|(_, t)| *t == Type::Single);
+    let helpers = collect_helpers(body);
+    let mut src = String::new();
+    for f in &helpers {
+        let ret = match &f.ret {
+            Some(DeclType::Plain(t)) => cuda_c_type(*t),
+            _ => "void",
+        };
+        let params: Vec<String> = f
+            .params
+            .iter()
+            .map(|p| {
+                let ty = match &p.ty {
+                    DeclType::Plain(t) => cuda_c_type(*t),
+                    _ => "long long",
+                };
+                format!("{ty} {}", rust_name(&p.name))
+            })
+            .collect();
+        src.push_str(&format!(
+            "__device__ {ret} {}({});\n",
+            cuda_fn_ident(&f.name),
+            params.join(", ")
+        ));
+    }
+    if !helpers.is_empty() {
+        src.push('\n');
+    }
+    for f in &helpers {
+        src.push_str(&emit_device_fn(f));
+    }
     let mut params: Vec<String> = bufs
         .iter()
         .map(|(n, t)| format!("{}* {}", cuda_c_type(*t), rust_name(n)))
@@ -957,7 +1397,6 @@ pub fn kernel_c(var: &str, bufs: &[(String, Type)], body: &[Stmt]) -> String {
     params.push("long long __from".into());
     params.push("long long __step".into());
     params.push("long long __n".into());
-    let mut src = String::new();
     src.push_str("extern \"C\" __global__ void k(");
     src.push_str(&params.join(", "));
     src.push_str(") {\n");
@@ -970,28 +1409,36 @@ pub fn kernel_c(var: &str, bufs: &[(String, Type)], body: &[Stmt]) -> String {
         rust_name(var)
     ));
     for s in body {
-        if let Some(line) = cuda_stmt(s, use_f) {
-            src.push_str(&format!("    {line}\n"));
+        if let Some(text) = cuda_stmt(s, use_f, 1) {
+            src.push_str(&text);
         }
     }
     src.push_str("}\n");
     src
 }
 
-fn cuda_stmt(s: &Stmt, use_f: bool) -> Option<String> {
+fn cuda_stmt(s: &Stmt, use_f: bool, indent: usize) -> Option<String> {
+    let pad = "    ".repeat(indent);
     match s {
-        Stmt::Assign { target, value, .. } => Some(format!(
-            "{} = {};",
-            cuda_expr(target, use_f),
-            cuda_expr(value, use_f)
-        )),
+        Stmt::LineMark(_) | Stmt::Comment(_) => Some(String::new()),
+        Stmt::Assign { target, value, op } => {
+            let t = cuda_expr(target, use_f);
+            let v = cuda_expr(value, use_f);
+            let rhs = match op {
+                None => v,
+                Some(BinOp::Pow) if use_f => format!("powf((float)({t}), (float)({v}))"),
+                Some(BinOp::Pow) => format!("pow((double)({t}), (double)({v}))"),
+                Some(op) => format!("{t} {} {v}", cuda_bin(*op)),
+            };
+            Some(format!("{pad}{t} = {rhs};\n"))
+        }
         Stmt::Dim {
             name,
             ty: DeclType::Plain(t),
             init: Some(e),
             ..
         } => Some(format!(
-            "{} {} = {};",
+            "{pad}{} {} = {};\n",
             cuda_c_type(*t),
             rust_name(name),
             cuda_expr(e, use_f)
@@ -1001,7 +1448,37 @@ fn cuda_stmt(s: &Stmt, use_f: bool) -> Option<String> {
             ty: DeclType::Plain(t),
             init: None,
             ..
-        } => Some(format!("{} {};", cuda_c_type(*t), rust_name(name))),
+        } => Some(format!("{pad}{} {};\n", cuda_c_type(*t), rust_name(name))),
+        Stmt::Return(None) => Some(format!("{pad}return;\n")),
+        Stmt::Return(Some(e)) => Some(format!("{pad}return {};\n", cuda_expr(e, use_f))),
+        Stmt::If {
+            branches,
+            else_body,
+        } => {
+            let mut out = String::new();
+            for (i, (cond, body)) in branches.iter().enumerate() {
+                let head = if i == 0 { "if" } else { "} else if" };
+                out.push_str(&format!(
+                    "{pad}{head} ({}) {{\n",
+                    cuda_expr(cond, use_f)
+                ));
+                for s in body {
+                    if let Some(t) = cuda_stmt(s, use_f, indent + 1) {
+                        out.push_str(&t);
+                    }
+                }
+            }
+            if let Some(body) = else_body {
+                out.push_str(&format!("{pad}}} else {{\n"));
+                for s in body {
+                    if let Some(t) = cuda_stmt(s, use_f, indent + 1) {
+                        out.push_str(&t);
+                    }
+                }
+            }
+            out.push_str(&format!("{pad}}}\n"));
+            Some(out)
+        }
         _ => None,
     }
 }
@@ -1040,6 +1517,61 @@ fn cuda_expr(e: &Expr, use_f: bool) -> String {
         ExprKind::Cast(inner, t) => format!("(({})({}))", cuda_c_type(*t), cuda_expr(inner, use_f)),
         ExprKind::Try(inner) | ExprKind::Raw(inner) => cuda_expr(inner, use_f),
         ExprKind::Deref(inner) => cuda_expr(inner, use_f),
+        ExprKind::Call { name, args } => cuda_call(name, args, use_f),
+        _ => "0".into(),
+    }
+}
+
+fn cuda_call(name: &str, args: &[Expr], use_f: bool) -> String {
+    let a: Vec<String> = args.iter().map(|e| cuda_expr(e, use_f)).collect();
+    let key = name.to_ascii_lowercase();
+    if key == "iif" && a.len() == 3 {
+        return format!("(({}) ? ({}) : ({}))", a[0], a[1], a[2]);
+    }
+    if is_device_math(name) {
+        return cuda_math(&key, &a, use_f);
+    }
+    format!("{}({})", cuda_fn_ident(name), a.join(", "))
+}
+
+fn cuda_math(name: &str, a: &[String], use_f: bool) -> String {
+    let x = a.first().map(|s| s.as_str()).unwrap_or("0");
+    let f = |n: &str| {
+        if use_f {
+            format!("{n}f((float)({x}))")
+        } else {
+            format!("{n}((double)({x}))")
+        }
+    };
+    match name {
+        "sqr" => f("sqrt"),
+        "abs" => {
+            if use_f {
+                format!("fabsf((float)({x}))")
+            } else {
+                format!("fabs((double)({x}))")
+            }
+        }
+        "int" => f("floor"),
+        "round" if a.len() >= 2 => {
+            let p = &a[1];
+            if use_f {
+                format!(
+                    "(roundf((float)({x}) * powf(10.0f, (float)({p}))) / powf(10.0f, (float)({p})))"
+                )
+            } else {
+                format!(
+                    "(round((double)({x}) * pow(10.0, (double)({p}))) / pow(10.0, (double)({p})))"
+                )
+            }
+        }
+        "round" => f("round"),
+        "sin" => f("sin"),
+        "cos" => f("cos"),
+        "tan" => f("tan"),
+        "atn" => f("atan"),
+        "log" => f("log"),
+        "exp" => f("exp"),
         _ => "0".into(),
     }
 }

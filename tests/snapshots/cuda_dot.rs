@@ -64,11 +64,11 @@ impl<T> Drop for __VbrCudaBuffer<T> {
     }
 }
 
-const __VBR_CUDA_NEEDED: &str = "CUDA needs an NVIDIA GPU and driver (libcuda). There is no silent \
+const __VBR_CUDA_NEEDED: &str = "CUDA needs an NVIDIA GPU and driver (libcuda / nvcuda.dll). There is no silent \
 CPU copy — ordinary Vec Parallel For stays on the CPU. Install a driver, or keep this work on a Vec.";
 
 const __VBR_NVRTC_NEEDED: &str = "The GPU is there, but compiling a Parallel For kernel needs the \
-CUDA toolkit (libnvrtc). Install the toolkit, or keep this loop on a Vec.";
+CUDA toolkit (libnvrtc / nvrtc64_*.dll). Install the toolkit, or keep this loop on a Vec.";
 
 fn __vbr_cuda_upload<T: Copy>(xs: &[T]) -> Result<__VbrCudaBuffer<T>, String> {
     let bytes = std::mem::size_of_val(xs);
@@ -139,47 +139,55 @@ fn __vbr_cuda_for(
     __vbr_cuda_launch(fun, grid, block, &mut args)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_alloc_bytes(_: usize) -> Result<u64, String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_free(_: u64) -> Result<(), String> {
     Ok(())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_copy_hto_d(_: u64, _: *const u8, _: usize) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_copy_d_to_h(_: *mut u8, _: u64, _: usize) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_memset(_: u64, _: usize) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_compile(_: &str) -> Result<u64, String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn __vbr_cuda_launch(_: u64, _: u32, _: u32, _: &mut [*mut std::ffi::c_void]) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod __vbr_cuda_drv {
     #![allow(dead_code, unused_unsafe)]
     use std::collections::HashMap;
     use std::ffi::{CString, c_char, c_int, c_uint, c_void};
     use std::sync::{Mutex, OnceLock};
 
+    #[cfg(unix)]
     const RTLD_NOW: c_int = 2;
 
+    #[cfg(unix)]
     extern "C" {
         fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
         fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+
+    #[cfg(windows)]
+    extern "system" {
+        fn LoadLibraryA(name: *const c_char) -> *mut c_void;
+        fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
     }
 
     struct Api {
@@ -228,12 +236,32 @@ mod __vbr_cuda_drv {
     unsafe impl Send for Api {}
     unsafe impl Sync for Api {}
 
+    fn try_load(name: &str) -> Option<*mut c_void> {
+        let c = CString::new(name).ok()?;
+        #[cfg(unix)]
+        let h = unsafe { dlopen(c.as_ptr(), RTLD_NOW) };
+        #[cfg(windows)]
+        let h = unsafe { LoadLibraryA(c.as_ptr()) };
+        if h.is_null() {
+            None
+        } else {
+            Some(h)
+        }
+    }
+
     fn load_lib(names: &[&str]) -> Result<*mut c_void, ()> {
         for n in names {
-            let c = CString::new(*n).map_err(|_| ())?;
-            let h = unsafe { dlopen(c.as_ptr(), RTLD_NOW) };
-            if !h.is_null() {
+            if let Some(h) = try_load(n) {
                 return Ok(h);
+            }
+        }
+        #[cfg(windows)]
+        if let Ok(root) = std::env::var("CUDA_PATH") {
+            let bin = format!("{}\\bin", root.trim_end_matches(['\\', '/']));
+            for n in names {
+                if let Some(h) = try_load(&format!("{bin}\\{n}")) {
+                    return Ok(h);
+                }
             }
         }
         Err(())
@@ -242,7 +270,10 @@ mod __vbr_cuda_drv {
     unsafe fn sym(h: *mut c_void, names: &[&str]) -> Result<*mut c_void, String> {
         for n in names {
             let c = CString::new(*n).unwrap();
+            #[cfg(unix)]
             let p = dlsym(h, c.as_ptr());
+            #[cfg(windows)]
+            let p = GetProcAddress(h, c.as_ptr());
             if !p.is_null() {
                 return Ok(p);
             }
@@ -259,13 +290,44 @@ mod __vbr_cuda_drv {
     }
 
     unsafe fn load_api() -> Result<Api, String> {
-        let cuda = load_lib(&["libcuda.so.1", "libcuda.so"])
-            .map_err(|_| super::__VBR_CUDA_NEEDED.to_string())?;
+        let cuda = load_lib(&[
+            #[cfg(unix)]
+            "libcuda.so.1",
+            #[cfg(unix)]
+            "libcuda.so",
+            #[cfg(windows)]
+            "nvcuda.dll",
+        ])
+        .map_err(|_| super::__VBR_CUDA_NEEDED.to_string())?;
         let nvrtc = load_lib(&[
-            "libnvrtc.so.12",
+            #[cfg(unix)]
             "libnvrtc.so.13",
+            #[cfg(unix)]
+            "libnvrtc.so.12",
+            #[cfg(unix)]
             "libnvrtc.so.11",
+            #[cfg(unix)]
             "libnvrtc.so",
+            #[cfg(windows)]
+            "nvrtc64_130_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_128_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_126_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_124_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_120_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_118_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_112_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_110_0.dll",
+            #[cfg(windows)]
+            "nvrtc64_12.dll",
+            #[cfg(windows)]
+            "nvrtc.dll",
         ])
         .map_err(|_| super::__VBR_NVRTC_NEEDED.to_string())?;
         let cu_init = std::mem::transmute(sym(cuda, &["cuInit"])?);
@@ -460,31 +522,31 @@ mod __vbr_cuda_drv {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_alloc_bytes(n: usize) -> Result<u64, String> {
     __vbr_cuda_drv::alloc_bytes(n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_free(ptr: u64) -> Result<(), String> {
     __vbr_cuda_drv::free(ptr)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_copy_hto_d(dst: u64, src: *const u8, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::copy_hto_d(dst, src, n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_copy_d_to_h(dst: *mut u8, src: u64, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::copy_d_to_h(dst, src, n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_memset(ptr: u64, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::memset(ptr, n)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_compile(src: &str) -> Result<u64, String> {
     __vbr_cuda_drv::compile(src).map(|p| p as u64)
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn __vbr_cuda_launch(
     fun: u64,
     grid: u32,

@@ -1128,9 +1128,10 @@ that reads the array being written. `out` is a `Vec`: grow it with `.Push`
 
 Rust-only (`vbr run` uses CPU threads for `Vec`s). A `Parallel For` over
 `CudaBuffer`s (`CUDA.Upload` / `Alloc` / `Download`) runs on the GPU; mixing
-a host `Vec` with a device buffer in one loop is an error. Python and C
-refuse Parallel rather than loop sequentially. `Sum` is not a keyword.
-`examples/cuda_dot.vbr` is a GPU multiply plus host `Parallel Sum`;
+a host `Vec` with a device buffer in one loop is an error. A numeric
+`Function` called from that loop runs on the device (`examples/cuda_call.vbr`).
+Python and C refuse Parallel rather than loop sequentially. `Sum` is not a
+keyword. `examples/cuda_dot.vbr` is a GPU multiply plus host `Parallel Sum`;
 `examples/cuda_cross.vbr` is a 3-vector cross product.
 
 ## 12. A bonus: the same program in three languages

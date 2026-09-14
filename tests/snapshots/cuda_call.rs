@@ -1,5 +1,4 @@
-// Cross product of two 3-vectors. Writes are c[i]; reads of a and b may use any index.
-// The cyclic formula needs no If: c = (a[(i+1) Mod 3] * b[(i+2) Mod 3]) - …
+// Device-safe calls: an ordinary Function runs on the GPU when a CUDA Parallel For calls it.
 
 
 #[allow(dead_code, unused_mut, unused_variables, unused_assignments, unused_unsafe)]
@@ -520,22 +519,36 @@ fn __vbr_cuda_launch(
     __vbr_cuda_drv::launch(fun as usize, grid, block, args)
 }
 
+#[allow(dead_code)]
+fn sq(x: f32) -> Result<f32, String> {
+    Ok(x * x)
+}
+
+#[allow(dead_code)]
+fn clamp(x: f32, lo: f32, hi: f32) -> Result<f32, String> {
+    if x < lo {
+        return Ok(lo);
+    }
+    if x > hi {
+        return Ok(hi);
+    }
+    Ok(x)
+}
+
 fn vbr_main() -> Result<(), String> {
-    let u: Vec<f32> = vec![1.0, 0.0, 0.0];
-    let v: Vec<f32> = vec![0.0, 1.0, 0.0];
-    let a: __VbrCudaBuffer<f32> = __vbr_cuda_upload((u).as_slice())?;
-    let b: __VbrCudaBuffer<f32> = __vbr_cuda_upload((v).as_slice())?;
-    let c: __VbrCudaBuffer<f32> = __vbr_cuda_alloc(3)?;
+    let xs: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+    let n: i64 = xs.len() as i64;
+    let a: __VbrCudaBuffer<f32> = __vbr_cuda_upload((xs).as_slice())?;
+    let b: __VbrCudaBuffer<f32> = __vbr_cuda_alloc(n)?;
     {
         let __from = 0;
-        let __to = 2;
+        let __to = n - 1;
         let __n: usize = if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 };
-        __vbr_cuda_for(__n, "extern \"C\" __global__ void k(float* a, float* b, float* c, long long __from, long long __step, long long __n) {\n    long long __k = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__k >= __n) return;\n    long long i = __from + __k * __step;\n    c[i] = ((a[((i + 1) % 3)] * b[((i + 2) % 3)]) - (a[((i + 2) % 3)] * b[((i + 1) % 3)]));\n}\n", &[a.ptr, b.ptr, c.ptr], __from as i64, 1)?;
+        __vbr_cuda_for(__n, "__device__ float __vbr_d_clamp(float x, float lo, float hi);\n__device__ float __vbr_d_sq(float x);\n\n__device__ float __vbr_d_clamp(float x, float lo, float hi) {\n    if ((x < lo)) {\n        return lo;\n    }\n    if ((x > hi)) {\n        return hi;\n    }\n    return x;\n}\n\n__device__ float __vbr_d_sq(float x) {\n    return (x * x);\n}\n\nextern \"C\" __global__ void k(float* a, float* b, long long __from, long long __step, long long __n) {\n    long long __k = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__k >= __n) return;\n    long long i = __from + __k * __step;\n    b[i] = __vbr_d_clamp(__vbr_d_sq(a[i]), 0.0f, 8.0f);\n}\n", &[a.ptr, b.ptr], __from as i64, 1)?;
     }
-    let w: Vec<f32> = __vbr_cuda_download(&c)?;
-    println!("{}", w[0]);
-    println!("{}", w[1]);
-    println!("{}", w[2]);
+    let result: Vec<f32> = __vbr_cuda_download(&b)?;
+    println!("{}", result[0]);
+    println!("{}", clamp(sq(1.0)?, 0.0, 8.0)?);
     Ok(())
 }
 

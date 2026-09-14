@@ -346,6 +346,7 @@ pub fn transpile_module(
     web: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    let _cuda_fns = crate::cuda::SrcFns::install(&program.functions);
     // Which sibling types this module could be borrowing (Public Types/Enums
     // are project-global, VB6-style) — the generated code gets a
     // `use crate::module::Name;` for each one it actually mentions.
@@ -1095,6 +1096,9 @@ pub(crate) fn emit_fn(
 
     // Checkpoint the header too, so signature-level rustc errors map back.
     diags.map_line(out.matches('\n').count() + 1, func.line);
+    if crate::cuda::used_from_parallel(&func.name) {
+        out.push_str(&format!("{}#[allow(dead_code)]\n", pad));
+    }
     out.push_str(&format!(
         "{}{}fn {}({}){} {{\n",
         pad, vis, rust_name_out, params.join(", "), ret

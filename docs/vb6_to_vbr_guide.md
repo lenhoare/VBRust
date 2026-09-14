@@ -428,7 +428,8 @@ runs on the GPU; mixing a host `Vec` with a device buffer in one loop is
 an error, not a silent copy. Python and C do not get a sequential stand-in.
 `examples/parallel_for_2d.vbr` is the nest; `examples/parallel_sum_expr.vbr`
 is the reduction; `examples/parallel_sum.vbr` is the hand-rolled tree;
-`examples/cuda_upload.vbr` is the GPU path; `examples/cuda_dot.vbr` and
+`examples/cuda_upload.vbr` is the GPU path; `examples/cuda_call.vbr` is a
+numeric helper called from the kernel; `examples/cuda_dot.vbr` and
 `examples/cuda_cross.vbr` are a dot product and a 3-vector cross product.
 
 ---

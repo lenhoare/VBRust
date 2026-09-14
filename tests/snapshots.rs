@@ -83,6 +83,7 @@ const HAPPY: &[&str] = &[
     "parallel_sum",
     "parallel_sum_expr",
     "cuda_upload",
+    "cuda_call",
     "cuda_dot",
     "cuda_cross",
 ];

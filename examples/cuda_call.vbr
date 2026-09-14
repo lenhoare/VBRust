@@ -1,0 +1,29 @@
+' Device-safe calls: an ordinary Function runs on the GPU when a CUDA Parallel For calls it.
+Function Sq(ByVal x As Single) As Single
+    Return x * x
+End Function
+
+Function Clamp(ByVal x As Single, ByVal lo As Single, ByVal hi As Single) As Single
+    If x < lo Then
+        Return lo
+    End If
+    If x > hi Then
+        Return hi
+    End If
+    Return x
+End Function
+
+Function Main()
+    Dim xs As Vec<Single> = [1.0, 2.0, 3.0, 4.0]
+    Dim n As Long = xs.Len()
+    Dim a As CudaBuffer<Single> = CUDA.Upload(xs)
+    Dim b As CudaBuffer<Single> = CUDA.Alloc(n)
+
+    Parallel For i = 0 To n - 1
+        b[i] = Clamp(Sq(a[i]), 0.0, 8.0)
+    Next
+
+    Dim result As Vec<Single> = CUDA.Download(b)
+    Debug.Print result[0]
+    Debug.Print Clamp(Sq(1.0), 0.0, 8.0)
+End Function

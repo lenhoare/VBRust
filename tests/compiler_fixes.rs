@@ -2444,7 +2444,122 @@ fn cuda_upload_emits_device_helper() {
         !rust.contains("__vbr_parallel_for("),
         "a device loop should not emit CPU threads: {rust}"
     );
+    assert!(
+        rust.contains("nvcuda.dll")
+            && rust.contains("LoadLibraryA")
+            && rust.contains("GetProcAddress")
+            && rust.contains("nvrtc64_120_0.dll")
+            && rust.contains("CUDA_PATH"),
+        "generated Rust should LoadLibrary the Windows CUDA DLLs as well as dlopen on Unix: {rust}"
+    );
     assert_rustc_clean("cuda_upload", &rust);
+}
+
+#[test]
+fn cuda_device_call_emits_device_fn() {
+    let rust = rust_of(
+        "Function Sq(ByVal x As Single) As Single\n\
+        \x20   Return x * x\n\
+        End Function\n\
+        Function Clamp(ByVal x As Single, ByVal lo As Single, ByVal hi As Single) As Single\n\
+        \x20   If x < lo Then\n\
+        \x20       Return lo\n\
+        \x20   End If\n\
+        \x20   If x > hi Then\n\
+        \x20       Return hi\n\
+        \x20   End If\n\
+        \x20   Return x\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Dim xs As Vec<Single> = [1.0, 2.0, 3.0, 4.0]\n\
+        \x20   Dim n As Long = xs.Len()\n\
+        \x20   Dim a As CudaBuffer<Single> = CUDA.Upload(xs)\n\
+        \x20   Dim b As CudaBuffer<Single> = CUDA.Alloc(n)\n\
+        \x20   Parallel For i = 0 To n - 1\n\
+        \x20       b[i] = Clamp(Sq(a[i]), 0.0, 8.0)\n\
+        \x20   Next\n\
+        \x20   Dim result As Vec<Single> = CUDA.Download(b)\n\
+        \x20   Debug.Print result[0]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__device__")
+            && rust.contains("__vbr_d_sq")
+            && rust.contains("__vbr_d_clamp")
+            && rust.contains("if ("),
+        "CUDA kernel should emit device helpers: {rust}"
+    );
+    assert!(
+        rust.contains("fn sq(") && rust.contains("fn clamp("),
+        "the same helpers must still exist as Rust on the host: {rust}"
+    );
+    assert_rustc_clean("cuda_call", &rust);
+}
+
+#[test]
+fn cuda_host_helper_is_rejected() {
+    let c = vbr::compile(
+        "Function Boom(ByVal x As Single) As Single\n\
+        \x20   Debug.Print x\n\
+        \x20   Return x\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Dim xs As Vec<Single> = [1.0]\n\
+        \x20   Dim a As CudaBuffer<Single> = CUDA.Upload(xs)\n\
+        \x20   Dim b As CudaBuffer<Single> = CUDA.Alloc(1)\n\
+        \x20   Parallel For i = 0 To 0\n\
+        \x20       b[i] = Boom(a[i])\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "host helper should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("device-safe") || joined.contains("Debug.Print") || joined.contains("Boom"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_rnd_in_kernel_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Single> = [1.0]\n\
+        \x20   Dim a As CudaBuffer<Single> = CUDA.Upload(xs)\n\
+        \x20   Dim b As CudaBuffer<Single> = CUDA.Alloc(1)\n\
+        \x20   Parallel For i = 0 To 0\n\
+        \x20       b[i] = a[i] + Rnd()\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Rnd in kernel should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Rnd") && (joined.contains("host") || joined.contains("Function")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_if_in_kernel_points_at_a_helper() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Single> = [1.0]\n\
+        \x20   Dim a As CudaBuffer<Single> = CUDA.Upload(xs)\n\
+        \x20   Dim b As CudaBuffer<Single> = CUDA.Alloc(1)\n\
+        \x20   Parallel For i = 0 To 0\n\
+        \x20       If a[i] > 0.0 Then\n\
+        \x20           b[i] = a[i]\n\
+        \x20       End If\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "If in kernel should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("If") && joined.contains("Function"),
+        "teaching error: {joined}"
+    );
 }
 
 #[test]
