@@ -1,0 +1,33 @@
+id = "cuda.download"
+title = "Download"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.Download"
+
+summary = "Copy a CudaBuffer back to a host Vec."
+
+syntax = """
+CUDA.Download(<buf>) As Vec<T>
+"""
+
+arguments = """
+buf | CudaBuffer<T> | The device buffer to copy. A 2-D buffer returns Vec<Vec<T>>.
+"""
+
+returns = "Vec<T> or Vec<Vec<T>>. Fails if there is no GPU or the copy cannot be made."
+
+remarks = """
+This is the host-side read for Upload/Alloc buffers. Indexing those on the host is a compile error — download first, then index the `Vec`. A `CUDA.Managed` buffer can be indexed on the host without downloading.
+"""
+
+example = """
+Function Main()
+    Dim xs As Vec<Long> = [1, 2, 3]
+    Dim a As CudaBuffer<Long> = CUDA.Upload(xs)
+    Dim ys As Vec<Long> = CUDA.Download(a)
+    Debug.Print ys[0]
+End Function
+"""
+
+see_also = ["cuda", "cuda.upload", "cuda.managed", "cuda-buffer"]

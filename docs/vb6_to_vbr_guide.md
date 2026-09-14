@@ -377,6 +377,8 @@ high. Each has its own spec in `docs/`.
   buttons, just `Draw` and `Every`. There's even a visual form designer in the IDE.
 - **Games.** A `Node2D` / `Node3D` block compiles to a Godot 4 extension —
   `vbr rungodot` and you're moving sprites.
+- **Parallel / CUDA.** Independent loops and NVIDIA GPU buffers — a niche of
+  their own (`parallel_spec.md`), not something mixed into ordinary `For`.
 - **Other backends.** The same core-language file can transpile to **Python**
   (`vbr py`) or **C** (`vbr c`), not just Rust — handy for teaching or for dropping
   Bust logic into an existing codebase.
@@ -405,36 +407,6 @@ vbr test hello.vbr         # run the Test blocks
 
 The generated Rust is never a secret — reading it beside your Bust is the fastest
 way to actually *learn* Rust, which, when you're ready, is the real destination.
-
----
-
-## Parallel (Rust-only)
-
-Ordinary `For` is sequential and can accumulate (`total = total + i`).
-`Parallel For` is a different claim: these iterations are independent, so
-Rust may run them on CPU threads.
-
-```vb
-Parallel For i = 0 To xs.Len() - 1
-    out[i] = xs[i] * 2
-Next
-```
-
-Writes must be `arr[i]`. Nested `Parallel For y` / `Parallel For x` writes
-`arr[y][x]` (one launch over the grid). A shared `total =` is a compile
-error — that's `Parallel Sum xs` (`Dim total As Long = Parallel Sum xs`).
-A `Parallel For` over `CudaBuffer`s (`CUDA.Upload` / `Alloc` / `Download`)
-runs on the GPU; mixing a host `Vec` with a device buffer in one loop is
-an error, not a silent copy. Nested `Parallel For y` / `x` over
-`CudaBuffer<CudaBuffer<T>>` is one 2-D CUDA grid.
-Python and C do not get a sequential stand-in.
-`examples/parallel_for_2d.vbr` is the CPU nest; `examples/cuda_grid.vbr`
-is the same nest on the GPU; `examples/parallel_sum_expr.vbr`
-is the host reduction; `examples/cuda_sum.vbr` is `Parallel Sum` on a
-`CudaBuffer`; `examples/parallel_sum.vbr` is the hand-rolled tree;
-`examples/cuda_upload.vbr` is the 1-D GPU path; `examples/cuda_call.vbr` is a
-numeric helper called from the kernel; `examples/cuda_dot.vbr` and
-`examples/cuda_cross.vbr` are a dot product and a 3-vector cross product.
 
 ---
 

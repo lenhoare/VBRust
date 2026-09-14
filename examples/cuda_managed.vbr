@@ -1,0 +1,14 @@
+' CUDA.Managed — still a CudaBuffer; host index is allowed. Prefetch makes the move explicit.
+Function Main()
+    Dim n As Long = 8
+    Dim a As CudaBuffer<Long> = CUDA.Managed(n)
+    a[0] = 1
+    a[1] = 2
+    CUDA.Prefetch(a)
+    Parallel For i = 0 To n - 1
+        a[i] = a[i] * 2
+    Next
+    CUDA.PrefetchHost(a)
+    CUDA.Sync()
+    Debug.Print a[0]
+End Function

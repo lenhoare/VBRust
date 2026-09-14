@@ -1,4 +1,4 @@
-// Nested Parallel For over device buffers — one 2-D CUDA grid.
+// CUDA.Managed — still a CudaBuffer; host index is allowed. Prefetch makes the move explicit.
 
 
 #[allow(dead_code, unused_mut, unused_variables, unused_assignments, unused_unsafe)]
@@ -891,21 +891,20 @@ fn __vbr_cuda_launch(
 }
 
 fn vbr_main() -> Result<(), String> {
-    let src: Vec<Vec<i64>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-    let a: __VbrCudaBuffer<i64> = __vbr_cuda_upload_2d((src).as_slice())?;
-    let b: __VbrCudaBuffer<i64> = __vbr_cuda_alloc_2d(2, 3)?;
+    let n: i64 = 8;
+    let mut a: __VbrCudaBuffer<i64> = __vbr_cuda_managed(n)?;
+    a[0] = 1;
+    a[1] = 2;
+    __vbr_cuda_prefetch(&a, false)?;
     {
-        let __from_y = 0;
-        let __to_y = 1;
-        let __n_y: usize = if __to_y >= __from_y { ((__to_y - __from_y) as usize).saturating_add(1) } else { 0 };
-        let __from_x = 0;
-        let __to_x = 2;
-        let __n_x: usize = if __to_x >= __from_x { ((__to_x - __from_x) as usize).saturating_add(1) } else { 0 };
-        __vbr_cuda_for_2d(__n_y, __n_x, "extern \"C\" __global__ void k(long long* a, long long a_cols, long long* b, long long b_cols, long long __yfrom, long long __ystep, long long __ny, long long __xfrom, long long __xstep, long long __nx) {\n    long long __ky = (long long)blockIdx.y * (long long)blockDim.y + (long long)threadIdx.y;\n    long long __kx = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__ky >= __ny || __kx >= __nx) return;\n    long long y = __yfrom + __ky * __ystep;\n    long long x = __xfrom + __kx * __xstep;\n    b[(y) * (b_cols) + (x)] = (a[(y) * (a_cols) + (x)] * 2);\n}\n", &[a.ptr, b.ptr], &[a.cols as u64, b.cols as u64], __from_y as i64, 1, __from_x as i64, 1)?;
+        let __from = 0;
+        let __to = n - 1;
+        let __n: usize = if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 };
+        __vbr_cuda_for(__n, "extern \"C\" __global__ void k(long long* a, long long __from, long long __step, long long __n) {\n    long long __k = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__k >= __n) return;\n    long long i = __from + __k * __step;\n    a[i] = (a[i] * 2);\n}\n", &[a.ptr], __from as i64, 1)?;
     }
-    let result: Vec<Vec<i64>> = __vbr_cuda_download_2d(&b)?;
-    println!("{}", result[0].clone()[0]);
-    println!("{}", result[1].clone()[2]);
+    __vbr_cuda_prefetch(&a, true)?;
+    __vbr_cuda_sync()?;
+    println!("{}", a[0]);
     Ok(())
 }
 

@@ -1,0 +1,32 @@
+id = "cuda.prefetchhost"
+title = "PrefetchHost"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.PrefetchHost"
+
+summary = "Page a Managed buffer toward the CPU."
+
+syntax = """
+CUDA.PrefetchHost(<buf>)
+"""
+
+arguments = """
+buf | CudaBuffer<T> | A buffer from CUDA.Managed — not Upload or Alloc.
+"""
+
+remarks = """
+Optional. After a GPU `Parallel For`, PrefetchHost pages the buffer toward the host before you read `buf[i]`. `CUDA.Prefetch` is the opposite direction. `CUDA.Sync()` waits for outstanding prefetch.
+"""
+
+example = """
+Function Main()
+    Dim a As CudaBuffer<Long> = CUDA.Managed(4)
+    a[0] = 1
+    CUDA.PrefetchHost(a)
+    CUDA.Sync()
+    Debug.Print a[0]
+End Function
+"""
+
+see_also = ["cuda.managed", "cuda.prefetch", "cuda.sync", "cuda"]

@@ -2,23 +2,30 @@ id = "cuda-buffer"
 title = "CudaBuffer<T>"
 category = "Parallel"
 kind = "type"
+anchor = "ty/CudaBuffer"
 
 syntax = """
 Dim <name> As CudaBuffer<<T>> = CUDA.Upload(<vec>)
 Dim <name> As CudaBuffer<<T>> = CUDA.Alloc(<n>)
+Dim <name> As CudaBuffer<<T>> = CUDA.Managed(<n>)
 Dim <name> As CudaBuffer<CudaBuffer<<T>>> = CUDA.Alloc(<rows>, <cols>)
+Dim <name> As CudaBuffer<CudaBuffer<<T>>> = CUDA.Managed(<rows>, <cols>)
 """
 
 summary = "A numeric list that lives on the GPU — not a host Vec with a flag."
 
 remarks = """
-`CudaBuffer<T>` is a 1-D device array of numbers (`Integer` / `Long` / `Single` / `Double` / `Byte`). `CudaBuffer<CudaBuffer<T>>` is a rectangular 2-D grid — one flat allocation, not an array of device pointers. Both are created by `CUDA.Upload` or `CUDA.Alloc`; there is no empty `CudaBuffer` and no `.Push`.
+`CudaBuffer<T>` is a 1-D device array of numbers (`Integer` / `Long` / `Single` / `Double` / `Byte`). `CudaBuffer<CudaBuffer<T>>` is a rectangular 2-D grid — one flat allocation, not an array of device pointers. Created by `CUDA.Upload`, `CUDA.Alloc`, or `CUDA.Managed`; there is no empty `CudaBuffer` and no `.Push`.
 
-On the host you can ask `.Len()` / `.Count()` (length, or rows) and `.Cols()` (columns; 0 if 1-D). Indexing `buf[i]` or `buf[y][x]` is a kernel read or write and only happens inside `Parallel For`. `Parallel Sum buf` reduces a 1-D buffer on the GPU. `CUDA.Download(buf)` returns a `Vec<T>` or `Vec<Vec<T>>`.
+Indexing `buf[i]` or `buf[y][x]` is a kernel read or write inside `Parallel For`. A `CUDA.Managed` buffer may also be indexed on the host; Upload/Alloc stay device-only until `CUDA.Download`. A `CudaBuffer` parameter is not treated as managed. Movement for managed memory is `CUDA.Prefetch` / `PrefetchHost` / `Sync`.
 
-A `Parallel For` that touches a `CudaBuffer` must touch **only** `CudaBuffer`s of the same rank. Mixing with a `Vec`, or mixing 1-D and 2-D buffers, would hide a copy; the compiler refuses it.
+A `Parallel For` that touches a `CudaBuffer` must touch **only** `CudaBuffer`s of the same rank. Mixing with a `Vec`, or mixing 1-D and 2-D buffers, would hide a copy; the compiler refuses it. Rust-only (`vbr run`). The full surface is `parallel_spec.md`.
+"""
 
-Rust-only (`vbr run`). Python, C, and the Android interpreter refuse rather than silently running on the CPU.
+members = """
+property | .Len()    | Length, or rows of a 2-D buffer.
+property | .Count()  | Same as .Len().
+property | .Cols()   | Column count; 0 if 1-D.
 """
 
 example = """
@@ -31,4 +38,4 @@ Function Main()
 End Function
 """
 
-see_also = ["cuda", "parallel-for", "vec"]
+see_also = ["cuda", "cuda.managed", "parallel-for", "parallel-sum"]

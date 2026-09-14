@@ -24,7 +24,7 @@ Each iteration may *read* anything. Two iterations may not *write* the same loca
 
 Writes must be `arr[i]` where `i` is exactly the loop variable. Nested `Parallel For y` wrapping `Parallel For x` is a 2-D index space: writes are `arr[y][x]` (or `arr[x][y]`). On `Vec`s, Rust runs one CPU launch over `ny * nx` — not a thread pool per row. On `CudaBuffer<CudaBuffer<T>>`, the same nest is one 2-D CUDA grid. A sequential `For x` inside `Parallel For y` can also write `arr[y][x]` (the inner loop stays sequential). `Exit For`, `Continue`, `Return`, a third `Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating `Step` are rejected. `Dim` inside the body is a per-iteration local.
 
-Rust-only: `vbr run` uses CPU threads (`std::thread`) for ordinary `Vec`s. A `Parallel For` over `CudaBuffer`s (from `CUDA.Upload` / `CUDA.Alloc`) is the GPU path — mixing a `Vec` and a `CudaBuffer` in one loop is an error, not a silent copy. Python and C do not get a sequential stand-in.
+Rust-only: `vbr run` uses CPU threads (`std::thread`) for ordinary `Vec`s. A `Parallel For` over `CudaBuffer`s (from `CUDA.Upload` / `CUDA.Alloc` / `CUDA.Managed`) is the GPU path — mixing a `Vec` and a `CudaBuffer` in one loop is an error, not a silent copy. Python and C do not get a sequential stand-in. The full surface is `parallel_spec.md`.
 
 Slots have to exist before you write `dest[i]`. There is no `ReDim` / `Resize` keyword: start dest with a fill — `Dim dest As Vec<Long> = [0; n]` — then write the slots in `Parallel For`. A log-depth sum is several of those rounds: each writes `dest[i]` and reads the previous array at `2 * i` (see `examples/parallel_sum.vbr`).
 
@@ -45,4 +45,4 @@ Function Main()
 End Function
 """
 
-see_also = ["for", "vec", "parallel-sum", "cuda"]
+see_also = ["for", "parallel-sum", "cuda", "cuda-buffer"]

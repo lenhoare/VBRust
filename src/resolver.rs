@@ -685,6 +685,7 @@ pub fn resolve_body(
         no_auto_try: false,
         parallel_vars: Vec::new(),
         cuda_alloc_elem: None,
+        cuda_managed: HashSet::new(),
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -736,6 +737,7 @@ pub fn resolve_event_body(
         no_auto_try: false,
         parallel_vars: Vec::new(),
         cuda_alloc_elem: None,
+        cuda_managed: HashSet::new(),
     };
     resolve_stmts(stmts, &mut ctx);
     drop(ctx);
@@ -845,6 +847,9 @@ struct Ctx<'a> {
     parallel_vars: Vec<String>,
     /// Element type of an enclosing `Dim … As CudaBuffer<T> = CUDA.Alloc(n)`.
     cuda_alloc_elem: Option<DeclType>,
+    /// Locals created by `CUDA.Managed` (snake_case). Host index is allowed
+    /// on these; `Upload` / `Alloc` / parameters stay device-only.
+    cuda_managed: HashSet<String>,
 }
 
 impl Ctx<'_> {
@@ -957,8 +962,8 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     if init.is_none() {
                         ctx.diags.error_once(
                             "cuda-empty",
-                            "`CudaBuffer` needs `CUDA.Alloc(n)`, `Alloc(rows, cols)`, or \
-                             `CUDA.Upload(xs)` — there is no empty device buffer.",
+                            "`CudaBuffer` needs `CUDA.Alloc(n)`, `Alloc(rows, cols)`, \
+                             `CUDA.Managed(n)`, or `CUDA.Upload(xs)` — there is no empty device buffer.",
                         );
                     }
                     let saved = ctx.cuda_alloc_elem.clone();
@@ -978,6 +983,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 ctx.bind_at(name, ty.clone(), *name_span);
                 // The declaration itself hovers like a use (`Dim total As Long`).
                 record_hover(*name_span, name, ctx);
+                track_cuda_managed(name, ty, init.as_ref(), ctx);
             }
             Stmt::DestructureDim { names, ty, value } => {
                 resolve_expr(value, ctx);
@@ -1029,6 +1035,19 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
                 resolve_expr(value, ctx);
                 clone_rvalue_indexes(value, ctx);
+                if let ExprKind::Ident(name) = &target.kind {
+                    if matches!(
+                        ctx.binding(name).and_then(|b| b.ty.as_ref()),
+                        Some(DeclType::CudaBuffer(_))
+                    ) {
+                        let key = snake(name);
+                        if expr_is_cuda_managed(value, ctx) {
+                            ctx.cuda_managed.insert(key);
+                        } else {
+                            ctx.cuda_managed.remove(&key);
+                        }
+                    }
+                }
                 if let Some(ty) = target_ty {
                     maybe_cast(value, ty, ctx);
                     // Assigning a `&str` (a literal like `""`, a param, Mid…) to a
@@ -1973,7 +1992,8 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                             format!(
                                 "`CudaBuffer` isn't a `Vec` — on the host it's `{v}.Len()` / \
                                  `.Count()` / `.Cols()`, then `CUDA.Download({v})`. Writes are \
-                                 `buf[i]` or `buf[y][x]` inside `Parallel For`."
+                                 `buf[i]` or `buf[y][x]` inside `Parallel For`, or host index \
+                                 of a `CUDA.Managed` buffer."
                             ),
                         );
                     }
@@ -2452,32 +2472,100 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             resolve_expr(count, ctx);
         }
         ExprKind::Index(inner, idx) => {
-            resolve_expr(inner, ctx);
-            resolve_expr(idx, ctx);
-            // A `HashMap` indexes by `&Q`, so a map key that is a plain variable
-            // must be borrowed — `map[key]` → `map[&key]`. String literals are
-            // handled by the backend; a numeric Vec/array index is left to be
-            // cast to `usize`.
-            if let ExprKind::Ident(name) = &inner.kind {
-                if ctx.is_map(name)
-                    && !matches!(&idx.kind, ExprKind::Ref(_) | ExprKind::Str(_))
-                {
-                    let key = std::mem::replace(&mut idx.kind, ExprKind::Int(0)).at(idx.span);
-                    idx.kind = ExprKind::Ref(Box::new(key));
+            // Host `buf[y][x]` on a 2-D managed buffer flattens to
+            // `buf[y * buf.Cols() + x]` so Rust `Index<usize>` can serve it.
+            // Resolve the nest as a unit — `buf[y]` alone is not a row.
+            let nest = if ctx.parallel_vars.is_empty() {
+                match &inner.kind {
+                    ExprKind::Index(base, _) => match &base.kind {
+                        ExprKind::Ident(name)
+                            if cuda_is_2d(ctx, name) && cuda_managed_of(ctx, name) =>
+                        {
+                            Some(name.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
                 }
-                if matches!(
-                    ctx.binding(name).and_then(|b| b.ty.as_ref()),
-                    Some(DeclType::CudaBuffer(_))
-                ) && ctx.parallel_vars.is_empty()
-                {
-                    ctx.diags.error_once(
-                        &format!("cuda-host-index-{}", snake(name)),
-                        format!(
-                            "`{name}[i]` is the GPU kernel — it only runs inside \
-                             `Parallel For`. On the host, `CUDA.Download({name})` \
-                             first, then index the `Vec`."
-                        ),
-                    );
+            } else {
+                None
+            };
+            if let Some(name) = nest {
+                let (base, y) = match std::mem::replace(&mut inner.kind, ExprKind::Int(0)) {
+                    ExprKind::Index(base, y) => (base, *y),
+                    other => {
+                        inner.kind = other;
+                        unreachable!("2-D managed nest");
+                    }
+                };
+                let x = std::mem::replace(&mut idx.kind, ExprKind::Int(0)).at(idx.span);
+                let span = x.span;
+                let cols = ExprKind::MethodCall {
+                    recv: Box::new(ExprKind::Ident(name).at(base.span)),
+                    method: "Cols".into(),
+                    args: vec![],
+                }
+                .at(base.span);
+                let flat = ExprKind::Binary {
+                    op: BinOp::Add,
+                    lhs: Box::new(
+                        ExprKind::Binary {
+                            op: BinOp::Mul,
+                            lhs: Box::new(y),
+                            rhs: Box::new(cols),
+                        }
+                        .at(span),
+                    ),
+                    rhs: Box::new(x),
+                }
+                .at(span);
+                *inner = base;
+                idx.kind = flat.kind;
+                idx.span = flat.span;
+                resolve_expr(inner, ctx);
+                resolve_expr(idx, ctx);
+                note_cuda_managed_host(ctx);
+            } else {
+                resolve_expr(inner, ctx);
+                resolve_expr(idx, ctx);
+                // A `HashMap` indexes by `&Q`, so a map key that is a plain variable
+                // must be borrowed — `map[key]` → `map[&key]`. String literals are
+                // handled by the backend; a numeric Vec/array index is left to be
+                // cast to `usize`.
+                if let ExprKind::Ident(name) = &inner.kind {
+                    if ctx.is_map(name)
+                        && !matches!(&idx.kind, ExprKind::Ref(_) | ExprKind::Str(_))
+                    {
+                        let key = std::mem::replace(&mut idx.kind, ExprKind::Int(0)).at(idx.span);
+                        idx.kind = ExprKind::Ref(Box::new(key));
+                    }
+                    if matches!(
+                        ctx.binding(name).and_then(|b| b.ty.as_ref()),
+                        Some(DeclType::CudaBuffer(_))
+                    ) && ctx.parallel_vars.is_empty()
+                    {
+                        if cuda_is_2d(ctx, name) && cuda_managed_of(ctx, name) {
+                            ctx.diags.error_once(
+                                &format!("cuda-host-row-{}", snake(name)),
+                                format!(
+                                    "A 2-D `CudaBuffer` is `{name}[y][x]` — one index is a row, \
+                                     not a host value. Write both indexes (or `CUDA.Download({name})`)."
+                                ),
+                            );
+                        } else if cuda_managed_of(ctx, name) {
+                            note_cuda_managed_host(ctx);
+                        } else {
+                            ctx.diags.error_once(
+                                &format!("cuda-host-index-{}", snake(name)),
+                                format!(
+                                    "`{name}[i]` is the GPU kernel — it only runs inside \
+                                     `Parallel For`. On the host, `CUDA.Download({name})` \
+                                     first, then index the `Vec`. (`CUDA.Managed` is the \
+                                     buffer you can index from both sides.)"
+                                ),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -3033,34 +3121,53 @@ fn infer_cuda_call(method: &str, args: &[Expr], ctx: &Ctx) -> VType {
             },
             _ => VType::Unknown,
         },
-        "alloc" | "alloc2d" => match &ctx.cuda_alloc_elem {
+        "alloc" | "alloc2d" | "managed" | "managed2d" => match &ctx.cuda_alloc_elem {
             Some(elem) => err_ty(DeclType::CudaBuffer(Box::new(elem.clone()))),
             None => VType::Unknown,
         },
+        "prefetch" | "prefetchhost" | "sync" => err_ty(DeclType::Tuple(Vec::new())),
         _ => VType::Unknown,
     }
 }
 
 fn resolve_cuda_call(method: &mut String, args: &mut [Expr], ctx: &mut Ctx) {
     let m = method.to_ascii_lowercase().replace('_', "");
-    let alloc_2d = m == "alloc" && args.len() == 2;
-    if m == "alloc" {
-        if args.len() != 1 && args.len() != 2 {
-            ctx.diags.error_once(
-                "cuda-arity-alloc",
-                "`CUDA.Alloc` is `Alloc(n)` for a 1-D buffer or `Alloc(rows, cols)` for 2-D.",
-            );
-            return;
+    match m.as_str() {
+        "sync" => {
+            if !args.is_empty() {
+                ctx.diags.error_once(
+                    "cuda-arity-sync",
+                    "`CUDA.Sync()` waits for the GPU — it takes no arguments.",
+                );
+                return;
+            }
         }
-    } else if args.len() != 1 {
-        ctx.diags.error_once(
-            &format!("cuda-arity-{m}"),
-            format!(
-                "`CUDA.{}` takes one argument — `Upload(xs)`, `Alloc(n)`, or `Download(buf)`.",
-                method
-            ),
-        );
-        return;
+        "alloc" | "managed" => {
+            if args.len() != 1 && args.len() != 2 {
+                let who = if m == "managed" { "Managed" } else { "Alloc" };
+                ctx.diags.error_once(
+                    &format!("cuda-arity-{m}"),
+                    format!(
+                        "`CUDA.{who}` is `{who}(n)` for a 1-D buffer or `{who}(rows, cols)` for 2-D."
+                    ),
+                );
+                return;
+            }
+        }
+        _ => {
+            if args.len() != 1 {
+                ctx.diags.error_once(
+                    &format!("cuda-arity-{m}"),
+                    format!(
+                        "`CUDA.{}` takes one argument — `Upload(xs)`, `Download(buf)`, \
+                         `Prefetch(buf)`, or `PrefetchHost(buf)`. `Alloc`/`Managed` take \
+                         one or two sizes; `Sync()` takes none.",
+                        method
+                    ),
+                );
+                return;
+            }
+        }
     }
     for a in args.iter_mut() {
         resolve_expr(a, ctx);
@@ -3111,37 +3218,119 @@ fn resolve_cuda_call(method: &mut String, args: &mut [Expr], ctx: &mut Ctx) {
                 "`CUDA.Download(buf)` copies a `CudaBuffer` back to a host `Vec`.",
             ),
         },
-        "alloc" => {
+        "alloc" | "managed" => {
+            let who = if m == "managed" { "Managed" } else { "Alloc" };
             if ctx.cuda_alloc_elem.is_none() {
                 ctx.diags.error_once(
-                    "cuda-alloc-as",
-                    "`CUDA.Alloc(n)` needs a target — `Dim b As CudaBuffer<Single> = CUDA.Alloc(n)`. \
-                     The element type is the `As` clause, not `Alloc<Single>` (that's a comparison).",
+                    &format!("cuda-{m}-as"),
+                    format!(
+                        "`CUDA.{who}(n)` needs a target — `Dim b As CudaBuffer<Single> = CUDA.{who}(n)`. \
+                         The element type is the `As` clause, not `{who}<Single>` (that's a comparison)."
+                    ),
                 );
             }
             maybe_cast(&mut args[0], Type::Long, ctx);
-            if alloc_2d {
+            let two = args.len() == 2;
+            if two {
                 maybe_cast(&mut args[1], Type::Long, ctx);
                 match &ctx.cuda_alloc_elem {
                     Some(DeclType::CudaBuffer(_)) => {
-                        *method = "alloc2d".into();
+                        *method = format!("{m}2d");
                     }
                     Some(_) => ctx.diags.error_once(
-                        "cuda-alloc-2d-as",
-                        "`CUDA.Alloc(rows, cols)` needs `Dim b As CudaBuffer<CudaBuffer<T>>` — \
-                         a 2-D device grid. One-arg `Alloc(n)` is the 1-D buffer.",
+                        &format!("cuda-{m}-2d-as"),
+                        format!(
+                            "`CUDA.{who}(rows, cols)` needs `Dim b As CudaBuffer<CudaBuffer<T>>` — \
+                             a 2-D device grid. One-arg `{who}(n)` is the 1-D buffer."
+                        ),
                     ),
                     None => {}
                 }
             } else if matches!(&ctx.cuda_alloc_elem, Some(DeclType::CudaBuffer(_))) {
                 ctx.diags.error_once(
-                    "cuda-alloc-2d-arity",
-                    "A 2-D `CudaBuffer<CudaBuffer<T>>` is `CUDA.Alloc(rows, cols)` — two sizes.",
+                    &format!("cuda-{m}-2d-arity"),
+                    format!(
+                        "A 2-D `CudaBuffer<CudaBuffer<T>>` is `CUDA.{who}(rows, cols)` — two sizes."
+                    ),
                 );
             }
         }
+        "prefetch" | "prefetchhost" => match infer(&args[0], ctx) {
+            VType::Decl(DeclType::CudaBuffer(_)) => {
+                if let ExprKind::Ident(n) = &args[0].kind {
+                    if !cuda_managed_of(ctx, n) {
+                        ctx.diags.error_once(
+                            &format!("cuda-prefetch-{}", snake(n)),
+                            format!(
+                                "`CUDA.Prefetch` / `PrefetchHost` move a `CUDA.Managed` buffer. \
+                                 `{n}` came from Upload/Alloc (or a parameter) — those stay on \
+                                 the device. `CUDA.Download({n})` copies back to a `Vec`."
+                            ),
+                        );
+                    }
+                }
+                note_cuda_managed_host(ctx);
+            }
+            _ => ctx.diags.error_once(
+                "cuda-prefetch-buf",
+                "`CUDA.Prefetch(buf)` / `PrefetchHost(buf)` take a `CudaBuffer` from `CUDA.Managed`.",
+            ),
+        },
+        "sync" => {}
         _ => {}
     }
+}
+
+fn cuda_managed_of(ctx: &Ctx, name: &str) -> bool {
+    ctx.cuda_managed.contains(&snake(name))
+}
+
+fn cuda_is_2d(ctx: &Ctx, name: &str) -> bool {
+    matches!(
+        ctx.binding(name)
+            .and_then(|b| b.ty.as_ref())
+            .and_then(crate::cuda::cuda_leaf),
+        Some((_, true))
+    )
+}
+
+fn expr_is_cuda_managed(e: &Expr, ctx: &Ctx) -> bool {
+    match &e.kind {
+        ExprKind::Try(inner) | ExprKind::Raw(inner) | ExprKind::Await(inner) => {
+            expr_is_cuda_managed(inner, ctx)
+        }
+        ExprKind::MethodCall { recv, method, .. } => {
+            matches!(&recv.kind, ExprKind::Ident(n) if crate::cuda::is_cuda_ns(n))
+                && matches!(
+                    method.to_ascii_lowercase().replace('_', "").as_str(),
+                    "managed" | "managed2d"
+                )
+        }
+        ExprKind::Ident(n) => cuda_managed_of(ctx, n),
+        _ => false,
+    }
+}
+
+fn track_cuda_managed(name: &str, ty: &DeclType, init: Option<&Expr>, ctx: &mut Ctx) {
+    let key = snake(name);
+    ctx.cuda_managed.remove(&key);
+    if matches!(ty, DeclType::CudaBuffer(_)) {
+        if let Some(e) = init {
+            if expr_is_cuda_managed(e, ctx) {
+                ctx.cuda_managed.insert(key);
+            }
+        }
+    }
+}
+
+fn note_cuda_managed_host(ctx: &mut Ctx) {
+    ctx.diags.note(
+        "cuda-managed-host",
+        "`CUDA.Managed` is still a `CudaBuffer` — host index is allowed because the pages \
+         can live on both sides. Movement is `CUDA.Prefetch` / `PrefetchHost` / `Sync`, \
+         not a silent `Vec`. Prefetch is optional (the GPU can page-fault); it makes the \
+         move explicit.",
+    );
 }
 
 fn mark_cuda_loop(

@@ -13,6 +13,7 @@ and the generated Rust is always there to read.
 - **`web_spec.md`** — browser apps: a `Page` → a Yew (WebAssembly) application.
 - **`stdlib_spec.md`** — the standard library.
 - **`dataframe_spec.md`** — native dataframes: a `DataFrame` → the polars crate.
+- **`parallel_spec.md`** — independent loops and CUDA (niche, Rust-only).
 - **`targets_spec.md`** — the alternative transpile targets: `vbr py` (Python) and `vbr c` (C).
 - **`godot_spec.md`** — an optional extra: a `Node2D`/`Node3D` (…) → a Godot game, via godot-rust.
 - **`android_spec.md`** — a phone editor that **runs** VBR (`vbr-android/`).

@@ -450,7 +450,7 @@ impl Typer {
                                 }).unwrap_or(DeclType::Plain(Type::Single));
                                 DeclType::Result(Box::new(DeclType::Vec(Box::new(inner))), err())
                             }
-                            "alloc" | "alloc2d" => {
+                            "alloc" | "alloc2d" | "managed" | "managed2d" => {
                                 let elem = if args.len() >= 2 {
                                     DeclType::CudaBuffer(Box::new(DeclType::Plain(Type::Single)))
                                 } else {
@@ -461,6 +461,10 @@ impl Typer {
                                     err(),
                                 )
                             }
+                            "prefetch" | "prefetchhost" | "sync" => DeclType::Result(
+                                Box::new(DeclType::Tuple(Vec::new())),
+                                err(),
+                            ),
                             _ => DeclType::Plain(Type::Long),
                         }
                     }

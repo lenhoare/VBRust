@@ -1,0 +1,35 @@
+id = "cuda.alloc"
+title = "Alloc"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.Alloc"
+
+summary = "An empty device buffer — 1-D Alloc(n), or 2-D Alloc(rows, cols)."
+
+syntax = """
+CUDA.Alloc(<n>) As CudaBuffer<T>
+CUDA.Alloc(<rows>, <cols>) As CudaBuffer<CudaBuffer<T>>
+"""
+
+arguments = """
+n | Long | Length of a 1-D buffer.
+rows | Long | Rows of a 2-D grid (two-arg form).
+cols | Long | Columns of a 2-D grid (two-arg form).
+"""
+
+returns = "CudaBuffer<T>. Fails if there is no GPU or allocation fails."
+
+remarks = """
+The element type comes from `Dim … As CudaBuffer<T>` — not `Alloc<Single>`, which the parser would read as a comparison. `Alloc(rows, cols)` needs `Dim b As CudaBuffer<CudaBuffer<T>>`. The buffer is zeroed. Index it inside `Parallel For`, then `CUDA.Download`.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 4
+    Dim b As CudaBuffer<Long> = CUDA.Alloc(n)
+    Debug.Print b.Len()
+End Function
+"""
+
+see_also = ["cuda", "cuda.managed", "cuda.upload", "cuda-buffer", "parallel-for"]

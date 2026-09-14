@@ -1,3 +1,8 @@
+Design notes that led to the Parallel/CUDA surface. The user-facing spec is
+`parallel_spec.md`; compiler help is the **Parallel** category.
+
+---
+
 Worked for 26s
 
 Yes. And I think there is a very natural VBR version of this.

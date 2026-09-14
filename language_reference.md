@@ -12,7 +12,8 @@ already understand.
 This is the discursive guide. Its terse companion, `language_spec.md`, is the
 normative reference; when in doubt, that document is the law. In a hurry, or coming
 straight from VB6? `vb6_to_vbr_guide.md` is the short on-ramp — just the
-differences, readable in an afternoon. Throughout, examples
+differences, readable in an afternoon. Independent loops and CUDA are a niche of
+their own (`parallel_spec.md`) — they are not part of this tour. Throughout, examples
 are shown as a pair — the Bust on the left of the arrow, the Rust it becomes on the
 right — because the second half is the whole point.
 
@@ -1096,49 +1097,7 @@ hidden. You can ignore it while you are comfortable, read it when you are curiou
 run `cargo` in it yourself when you are ready, and keep it when the day comes that
 you no longer need the VB on top. That day is the whole purpose of the language.
 
-## 11. Parallel
-
-`Parallel For` is a counting loop whose iterations are independent. It lives
-apart from ordinary `For` on purpose: a sequential sum (`total = total + i`)
-is the usual `For`; claiming independence is a different statement.
-
-```vb
-Parallel For i = 0 To xs.Len() - 1
-    out[i] = xs[i] * xs[i]
-Next
-```
-
-Each iteration may read anything; two iterations may not write the same
-slot. Writes are `arr[i]` for the loop variable. Nested `Parallel For y` /
-`Parallel For x` is a 2-D index space (`arr[y][x]`); a sequential inner
-`For x` can write `arr[y][x]` too. A shared scalar (`total = total + xs[i]`)
-is a compile error — that's `Parallel Sum xs`. Reading a *different* array
-at a neighbour (`xs[i + 1]` while writing `out[i]`) is fine.
-
-`Parallel Sum xs` adds every element of a numeric `Vec` or array (empty is
-`0`). Over a 1-D `CudaBuffer` the same spelling reduces on the GPU
-(`examples/cuda_sum.vbr`). `examples/parallel_sum_expr.vbr` prints `36` for
-`[1..8]`. Inside `Parallel For` it is an error.
-`Parallel For` it is an error.
-
-A log-depth parallel sum still fits as teaching: each round is its own
-`Parallel For` that writes `out[i]` and reads the previous array at
-`2 * i` / `2 * i + 1`. In-place `a[i] = a[2 * i] + a[2 * i + 1]` does not —
-that reads the array being written. `out` is a `Vec`: grow it with `.Push`
-(there is no `Resize` keyword), then fill the slots.
-`examples/parallel_sum.vbr` is that tree.
-
-Rust-only (`vbr run` uses CPU threads for `Vec`s). A `Parallel For` over
-`CudaBuffer`s (`CUDA.Upload` / `Alloc` / `Download`) runs on the GPU; mixing
-a host `Vec` with a device buffer in one loop is an error. Nested
-`Parallel For y` / `x` over `CudaBuffer<CudaBuffer<T>>` is one 2-D CUDA
-grid (`examples/cuda_grid.vbr`). A numeric `Function` called from that
-loop runs on the device (`examples/cuda_call.vbr`).
-Python and C refuse Parallel rather than loop sequentially. `Sum` is not a
-keyword. `examples/cuda_dot.vbr` is a GPU multiply plus `Parallel Sum` of
-the product buffer; `examples/cuda_cross.vbr` is a 3-vector cross product.
-
-## 12. A bonus: the same program in three languages
+## 11. A bonus: the same program in three languages
 
 Everything above is about Rust — the language is built around it, and the Rust it
 generates is the point. But once a program is written, you can also see it in two

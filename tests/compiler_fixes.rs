@@ -2789,6 +2789,112 @@ fn cuda_sum_2d_is_rejected() {
 }
 
 #[test]
+fn cuda_managed_emits_host_index_and_prefetch() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim n As Long = 8\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Managed(n)\n\
+        \x20   a[0] = 1\n\
+        \x20   CUDA.Prefetch(a)\n\
+        \x20   Parallel For i = 0 To n - 1\n\
+        \x20       a[i] = a[i] * 2\n\
+        \x20   Next\n\
+        \x20   CUDA.PrefetchHost(a)\n\
+        \x20   CUDA.Sync()\n\
+        \x20   Debug.Print a[0]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_cuda_managed")
+            && rust.contains("cuMemAllocManaged")
+            && rust.contains("__vbr_cuda_prefetch")
+            && rust.contains("__vbr_cuda_sync()")
+            && rust.contains("a[0]"),
+        "managed host path: {rust}"
+    );
+    assert!(
+        rust.contains("__vbr_cuda_prefetch(&a, false)")
+            && rust.contains("__vbr_cuda_prefetch(&a, true)"),
+        "prefetch directions: {rust}"
+    );
+    assert_rustc_clean("cuda_managed", &rust);
+}
+
+#[test]
+fn cuda_managed_2d_host_index_flattens() {
+    let rust = packed(&rust_of(
+        "Function Main()\n\
+        \x20   Dim g As CudaBuffer<CudaBuffer<Long>> = CUDA.Managed(2, 3)\n\
+        \x20   g[1][2] = 7\n\
+        \x20   Debug.Print g[1][2]\n\
+        End Function\n",
+    ));
+    assert!(
+        rust.contains("__vbr_cuda_managed_2d"),
+        "2-D managed alloc: {rust}"
+    );
+    assert!(
+        rust.contains("g.cols()"),
+        "flatten uses Cols: {rust}"
+    );
+    assert!(
+        !rust.contains("g[(1)asusize][(2)asusize]"),
+        "must not emit nested host index: {rust}"
+    );
+}
+
+#[test]
+fn cuda_prefetch_of_alloc_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Alloc(4)\n\
+        \x20   CUDA.Prefetch(a)\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "prefetch of Alloc should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Managed") && (joined.contains("Prefetch") || joined.contains("Alloc")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_managed_needs_as_type() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim n As Long = 4\n\
+        \x20   Debug.Print CUDA.Managed(n)\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Managed without As should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Managed") && (joined.contains("CudaBuffer") || joined.contains("As")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_managed_param_host_index_is_rejected() {
+    let c = vbr::compile(
+        "Function Peek(buf As CudaBuffer<Long>) As Long\n\
+        \x20   Return buf[0]\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Managed(2)\n\
+        \x20   Debug.Print Peek(a)\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "param host index should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Download") || joined.contains("Parallel For") || joined.contains("Managed"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
 fn list_fill_emits_vec_repeat() {
     let rust = rust_of(
         "Function Main()\n\

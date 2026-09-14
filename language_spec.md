@@ -864,40 +864,9 @@ Use PyYAML 6.0 As yaml    →   import yaml       +   PyYAML==6.0   (requirement
 
 ## 14. Parallel
 
-`Parallel For` is a numeric `For` whose iterations are independent. It is
-**Rust-only** (CPU threads today; GPU buffers later). Python and C do not
-lower it — a sequential stand-in would teach the wrong model.
-
-```
-Parallel For i = lo To hi [Step s]
-    out[i] = in[i] * 2
-Next
-```
-
-Each iteration may read anything. Two iterations may not write the same
-location. Writes must be `arr[i]` where `i` is the loop variable
-(`out[i] = in[i] * 2` is fine; `total = total + in[i]` is a compile error —
-that's `Parallel Sum xs`). A stencil that reads a *different* array
-(`in[i + 1]` while writing `out[i]`) is fine. Nested `Parallel For y`
-wrapping `Parallel For x` is a 2-D index space (`out[y][x] = …`; one CPU
-launch over `ny * nx`). A sequential `For x` inside `Parallel For y` can
-write `arr[y][x]` too. `Exit For`, `Continue`, `Return`, a third nested
-`Parallel For`, mutating methods (`Push`/`Pop`), and a variable or floating
-`Step` are rejected. `Dim` inside the body is a per-iteration local. Ordinary
-`Vec`s stay on the CPU — nothing is silently uploaded. There is no `Resize`
-keyword: grow `dest` with `.Push`, then write `dest[i]`. A log-depth tree
-that still uses `Parallel For` is `examples/parallel_sum.vbr`. A 2-D nest is
-`examples/parallel_for_2d.vbr`.
-
-`Parallel Sum xs` adds every element of a numeric `Vec` or array. The result
-is the element type; empty input is `0`. Over a 1-D `CudaBuffer` the same
-spelling reduces on the GPU. It is an expression
-(`Dim total As Long = Parallel Sum xs`). Inside `Parallel For` it is an
-error. `examples/parallel_sum_expr.vbr` prints `36` for `[1..8]`;
-`examples/cuda_sum.vbr` is the device form.
-
-`Parallel` is a reserved word. `Sum` is not — `.Sum()` and `Dim Sum` still
-work.
+A niche, specified separately in **`parallel_spec.md`** (help category
+**Parallel**). `Parallel` is a reserved word; `Sum` is not. Python and C
+do not lower it — a sequential stand-in would teach the wrong model.
 
 ## 15. Alternative targets — Python & C
 

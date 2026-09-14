@@ -7,6 +7,7 @@ struct __VbrCudaBuffer<T> {
     ptr: u64,
     len: usize,
     cols: usize,
+    managed: bool,
     _t: std::marker::PhantomData<T>,
 }
 
@@ -20,6 +21,38 @@ impl<T> __VbrCudaBuffer<T> {
     }
     fn cols(&self) -> usize {
         self.cols
+    }
+}
+
+impl<T> std::ops::Index<usize> for __VbrCudaBuffer<T> {
+    type Output = T;
+    fn index(&self, i: usize) -> &T {
+        assert!(
+            self.managed,
+            "host index needs CUDA.Managed — Upload/Alloc stay on the device. CUDA.Download, or index inside Parallel For."
+        );
+        let n = if self.cols == 0 {
+            self.len
+        } else {
+            self.len.saturating_mul(self.cols)
+        };
+        assert!(i < n, "CudaBuffer index out of bounds");
+        unsafe { &*(self.ptr as *const T).add(i) }
+    }
+}
+impl<T> std::ops::IndexMut<usize> for __VbrCudaBuffer<T> {
+    fn index_mut(&mut self, i: usize) -> &mut T {
+        let n = if self.cols == 0 {
+            self.len
+        } else {
+            self.len.saturating_mul(self.cols)
+        };
+        assert!(
+            self.managed,
+            "host index needs CUDA.Managed — Upload/Alloc stay on the device. CUDA.Download, or index inside Parallel For."
+        );
+        assert!(i < n, "CudaBuffer index out of bounds");
+        unsafe { &mut *(self.ptr as *mut T).add(i) }
     }
 }
 
@@ -49,6 +82,7 @@ fn __vbr_cuda_upload<T: Copy>(xs: &[T]) -> Result<__VbrCudaBuffer<T>, String> {
         ptr,
         len: xs.len(),
         cols: 0,
+        managed: false,
         _t: std::marker::PhantomData,
     })
 }
@@ -77,6 +111,7 @@ fn __vbr_cuda_upload_2d<T: Copy>(rows: &[Vec<T>]) -> Result<__VbrCudaBuffer<T>, 
         ptr,
         len: ny,
         cols: nx,
+        managed: false,
         _t: std::marker::PhantomData,
     })
 }
@@ -96,6 +131,7 @@ fn __vbr_cuda_alloc<T>(n: i64) -> Result<__VbrCudaBuffer<T>, String> {
         ptr,
         len: n,
         cols: 0,
+        managed: false,
         _t: std::marker::PhantomData,
     })
 }
@@ -117,8 +153,75 @@ fn __vbr_cuda_alloc_2d<T>(rows: i64, cols: i64) -> Result<__VbrCudaBuffer<T>, St
         ptr,
         len: ny,
         cols: nx,
+        managed: false,
         _t: std::marker::PhantomData,
     })
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_managed<T>(n: i64) -> Result<__VbrCudaBuffer<T>, String> {
+    if n < 0 {
+        return Err("CUDA.Managed(n) needs a non-negative length.".into());
+    }
+    let n = n as usize;
+    let bytes = n.saturating_mul(std::mem::size_of::<T>());
+    let ptr = __vbr_cuda_alloc_managed_bytes(bytes)?;
+    if bytes > 0 {
+        __vbr_cuda_memset(ptr, bytes)?;
+    }
+    Ok(__VbrCudaBuffer {
+        ptr,
+        len: n,
+        cols: 0,
+        managed: true,
+        _t: std::marker::PhantomData,
+    })
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_managed_2d<T>(rows: i64, cols: i64) -> Result<__VbrCudaBuffer<T>, String> {
+    if rows < 0 || cols < 0 {
+        return Err("CUDA.Managed(rows, cols) needs non-negative sizes.".into());
+    }
+    let ny = rows as usize;
+    let nx = cols as usize;
+    let n = ny.saturating_mul(nx);
+    let bytes = n.saturating_mul(std::mem::size_of::<T>());
+    let ptr = __vbr_cuda_alloc_managed_bytes(bytes)?;
+    if bytes > 0 {
+        __vbr_cuda_memset(ptr, bytes)?;
+    }
+    Ok(__VbrCudaBuffer {
+        ptr,
+        len: ny,
+        cols: nx,
+        managed: true,
+        _t: std::marker::PhantomData,
+    })
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_prefetch<T>(buf: &__VbrCudaBuffer<T>, host: bool) -> Result<(), String> {
+    if !buf.managed {
+        return Err(
+            "CUDA.Prefetch is for CUDA.Managed buffers — Upload/Alloc stay on the device.".into(),
+        );
+    }
+    let n = if buf.cols == 0 {
+        buf.len
+    } else {
+        buf.len.saturating_mul(buf.cols)
+    };
+    let bytes = n.saturating_mul(std::mem::size_of::<T>());
+    if bytes == 0 || buf.ptr == 0 {
+        return Ok(());
+    }
+    __vbr_cuda_prefetch_bytes(buf.ptr, bytes, host)
+}
+
+#[allow(dead_code)]
+fn __vbr_cuda_sync() -> Result<(), String> {
+    __vbr_cuda_ctx_sync()
 }
 
 #[allow(dead_code)]
@@ -332,6 +435,18 @@ fn __vbr_cuda_launch(
 ) -> Result<(), String> {
     Err(__VBR_CUDA_NEEDED.into())
 }
+#[cfg(not(any(unix, windows)))]
+fn __vbr_cuda_alloc_managed_bytes(_: usize) -> Result<u64, String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(any(unix, windows)))]
+fn __vbr_cuda_prefetch_bytes(_: u64, _: usize, _: bool) -> Result<(), String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(any(unix, windows)))]
+fn __vbr_cuda_ctx_sync() -> Result<(), String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
 
 #[cfg(any(unix, windows))]
 mod __vbr_cuda_drv {
@@ -360,10 +475,12 @@ mod __vbr_cuda_drv {
         cu_device_get: unsafe extern "C" fn(*mut c_int, c_int) -> c_int,
         cu_ctx_create: unsafe extern "C" fn(*mut usize, c_uint, c_int) -> c_int,
         cu_mem_alloc: unsafe extern "C" fn(*mut u64, usize) -> c_int,
+        cu_mem_alloc_managed: unsafe extern "C" fn(*mut u64, usize, c_uint) -> c_int,
         cu_mem_free: unsafe extern "C" fn(u64) -> c_int,
         cu_memcpy_htod: unsafe extern "C" fn(u64, *const c_void, usize) -> c_int,
         cu_memcpy_dtoh: unsafe extern "C" fn(*mut c_void, u64, usize) -> c_int,
         cu_memset: unsafe extern "C" fn(u64, c_uint, usize) -> c_int,
+        cu_mem_prefetch: unsafe extern "C" fn(u64, usize, c_int, usize) -> c_int,
         cu_module_load_data: unsafe extern "C" fn(*mut usize, *const c_void) -> c_int,
         cu_module_get_function: unsafe extern "C" fn(*mut usize, usize, *const c_char) -> c_int,
         cu_launch: unsafe extern "C" fn(
@@ -396,6 +513,7 @@ mod __vbr_cuda_drv {
         nvrtc_destroy: unsafe extern "C" fn(usize) -> c_int,
         _cuda: *mut c_void,
         _nvrtc: *mut c_void,
+        device: c_int,
     }
 
     unsafe impl Send for Api {}
@@ -500,12 +618,14 @@ mod __vbr_cuda_drv {
         let cu_ctx_create =
             std::mem::transmute(sym(cuda, &["cuCtxCreate_v2", "cuCtxCreate"])?);
         let cu_mem_alloc = std::mem::transmute(sym(cuda, &["cuMemAlloc_v2", "cuMemAlloc"])?);
+        let cu_mem_alloc_managed = std::mem::transmute(sym(cuda, &["cuMemAllocManaged"])?);
         let cu_mem_free = std::mem::transmute(sym(cuda, &["cuMemFree_v2", "cuMemFree"])?);
         let cu_memcpy_htod =
             std::mem::transmute(sym(cuda, &["cuMemcpyHtoD_v2", "cuMemcpyHtoD"])?);
         let cu_memcpy_dtoh =
             std::mem::transmute(sym(cuda, &["cuMemcpyDtoH_v2", "cuMemcpyDtoH"])?);
         let cu_memset = std::mem::transmute(sym(cuda, &["cuMemsetD8_v2", "cuMemsetD8"])?);
+        let cu_mem_prefetch = std::mem::transmute(sym(cuda, &["cuMemPrefetchAsync"])?);
         let cu_module_load_data = std::mem::transmute(sym(cuda, &["cuModuleLoadData"])?);
         let cu_module_get_function = std::mem::transmute(sym(cuda, &["cuModuleGetFunction"])?);
         let cu_launch = std::mem::transmute(sym(cuda, &["cuLaunchKernel"])?);
@@ -517,15 +637,17 @@ mod __vbr_cuda_drv {
         let nvrtc_log_size = std::mem::transmute(sym(nvrtc, &["nvrtcGetProgramLogSize"])?);
         let nvrtc_log = std::mem::transmute(sym(nvrtc, &["nvrtcGetProgramLog"])?);
         let nvrtc_destroy = std::mem::transmute(sym(nvrtc, &["nvrtcDestroyProgram"])?);
-        let api = Api {
+        let mut api = Api {
             cu_init,
             cu_device_get,
             cu_ctx_create,
             cu_mem_alloc,
+            cu_mem_alloc_managed,
             cu_mem_free,
             cu_memcpy_htod,
             cu_memcpy_dtoh,
             cu_memset,
+            cu_mem_prefetch,
             cu_module_load_data,
             cu_module_get_function,
             cu_launch,
@@ -539,6 +661,7 @@ mod __vbr_cuda_drv {
             nvrtc_destroy,
             _cuda: cuda,
             _nvrtc: nvrtc,
+            device: 0,
         };
         check((api.cu_init)(0), "cuInit")?;
         let mut dev: c_int = 0;
@@ -546,6 +669,7 @@ mod __vbr_cuda_drv {
         let mut ctx: usize = 0;
         check((api.cu_ctx_create)(&mut ctx, 0, dev), "cuCtxCreate")?;
         let _ = ctx;
+        api.device = dev;
         Ok(api)
     }
 
@@ -608,6 +732,36 @@ mod __vbr_cuda_drv {
     pub fn memset(ptr: u64, n: usize) -> Result<(), String> {
         let api = api()?;
         check(unsafe { (api.cu_memset)(ptr, 0, n) }, "cuMemsetD8")
+    }
+
+    pub fn alloc_managed(n: usize) -> Result<u64, String> {
+        if n == 0 {
+            return Ok(0);
+        }
+        let api = api()?;
+        let mut ptr = 0u64;
+        check(
+            unsafe { (api.cu_mem_alloc_managed)(&mut ptr, n, 1) },
+            "cuMemAllocManaged",
+        )?;
+        Ok(ptr)
+    }
+
+    pub fn prefetch(ptr: u64, n: usize, host: bool) -> Result<(), String> {
+        if ptr == 0 || n == 0 {
+            return Ok(());
+        }
+        let api = api()?;
+        let dest: c_int = if host { -1 } else { api.device };
+        check(
+            unsafe { (api.cu_mem_prefetch)(ptr, n, dest, 0) },
+            "cuMemPrefetchAsync",
+        )
+    }
+
+    pub fn sync() -> Result<(), String> {
+        let api = api()?;
+        check(unsafe { (api.cu_sync)() }, "cuCtxSynchronize")
     }
 
     pub fn compile(src: &str) -> Result<usize, String> {
@@ -708,6 +862,18 @@ fn __vbr_cuda_copy_d_to_h(dst: *mut u8, src: u64, n: usize) -> Result<(), String
 #[cfg(any(unix, windows))]
 fn __vbr_cuda_memset(ptr: u64, n: usize) -> Result<(), String> {
     __vbr_cuda_drv::memset(ptr, n)
+}
+#[cfg(any(unix, windows))]
+fn __vbr_cuda_alloc_managed_bytes(n: usize) -> Result<u64, String> {
+    __vbr_cuda_drv::alloc_managed(n)
+}
+#[cfg(any(unix, windows))]
+fn __vbr_cuda_prefetch_bytes(ptr: u64, n: usize, host: bool) -> Result<(), String> {
+    __vbr_cuda_drv::prefetch(ptr, n, host)
+}
+#[cfg(any(unix, windows))]
+fn __vbr_cuda_ctx_sync() -> Result<(), String> {
+    __vbr_cuda_drv::sync()
 }
 #[cfg(any(unix, windows))]
 fn __vbr_cuda_compile(src: &str) -> Result<u64, String> {

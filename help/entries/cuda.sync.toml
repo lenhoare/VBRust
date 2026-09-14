@@ -1,0 +1,28 @@
+id = "cuda.sync"
+title = "Sync"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.Sync"
+
+summary = "Wait for the GPU and outstanding prefetch."
+
+syntax = """
+CUDA.Sync()
+"""
+
+remarks = """
+Takes no arguments. A CUDA `Parallel For` already waits for the kernel. `Sync` is the teaching wait after `Prefetch` / `PrefetchHost`, and any time you want the GPU finished before the next host step. Can fail if there is no driver.
+"""
+
+example = """
+Function Main()
+    Dim a As CudaBuffer<Long> = CUDA.Managed(2)
+    a[0] = 1
+    CUDA.PrefetchHost(a)
+    CUDA.Sync()
+    Debug.Print a[0]
+End Function
+"""
+
+see_also = ["cuda.prefetch", "cuda.prefetchhost", "cuda.managed", "cuda"]

@@ -810,7 +810,7 @@ pub enum DeclType {
     /// `Result<T, E>`. `Result<T>` is shorthand: the parser fills `E` with `String`.
     Result(Box<DeclType>, Box<DeclType>),
     Option(Box<DeclType>), // → Option<T>
-    /// Device buffer — `CUDA.Upload` / `CUDA.Alloc`. Not a host `Vec`.
+    /// Device buffer — `CUDA.Upload` / `CUDA.Alloc` / `CUDA.Managed`. Not a host `Vec`.
     CudaBuffer(Box<DeclType>),
     Tuple(Vec<DeclType>),
     Array(Type, usize),          // Dim x(N)      → [T; N]

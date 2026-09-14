@@ -3941,6 +3941,17 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
                                 .unwrap_or_else(|| "0".to_string());
                             format!("__vbr_cuda_alloc_2d({arg}, {b})")
                         }
+                        "managed" => format!("__vbr_cuda_managed({})", arg),
+                        "managed2d" => {
+                            let b = args
+                                .get(1)
+                                .map(|a| render_expr(a, None))
+                                .unwrap_or_else(|| "0".to_string());
+                            format!("__vbr_cuda_managed_2d({arg}, {b})")
+                        }
+                        "prefetch" => format!("__vbr_cuda_prefetch(&{}, false)", arg),
+                        "prefetchhost" => format!("__vbr_cuda_prefetch(&{}, true)", arg),
+                        "sync" => "__vbr_cuda_sync()".to_string(),
                         _ => format!("/* CUDA.{} */", method),
                     };
                 }

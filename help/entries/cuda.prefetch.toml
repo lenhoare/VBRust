@@ -1,0 +1,32 @@
+id = "cuda.prefetch"
+title = "Prefetch"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.Prefetch"
+
+summary = "Page a Managed buffer toward the GPU."
+
+syntax = """
+CUDA.Prefetch(<buf>)
+"""
+
+arguments = """
+buf | CudaBuffer<T> | A buffer from CUDA.Managed — not Upload or Alloc.
+"""
+
+remarks = """
+Optional. Unified memory can page-fault on first touch; Prefetch makes the move explicit before a `Parallel For`. `CUDA.Prefetch` of an Upload/Alloc buffer (or a parameter) is a compile error. Pair with `CUDA.Sync()` if you need to wait. `CUDA.PrefetchHost` is the opposite direction.
+"""
+
+example = """
+Function Main()
+    Dim a As CudaBuffer<Long> = CUDA.Managed(4)
+    a[0] = 1
+    CUDA.Prefetch(a)
+    CUDA.Sync()
+    Debug.Print a[0]
+End Function
+"""
+
+see_also = ["cuda.managed", "cuda.prefetchhost", "cuda.sync", "cuda"]

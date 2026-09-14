@@ -1,0 +1,44 @@
+id = "cuda.managed"
+title = "Managed"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.Managed"
+
+summary = "A CudaBuffer you can index on the host — not a Vec that magically lives on the GPU."
+
+syntax = """
+CUDA.Managed(<n>) As CudaBuffer<T>
+CUDA.Managed(<rows>, <cols>) As CudaBuffer<CudaBuffer<T>>
+"""
+
+arguments = """
+n | Long | Length of a 1-D buffer.
+rows | Long | Rows of a 2-D grid (two-arg form).
+cols | Long | Columns of a 2-D grid (two-arg form).
+"""
+
+returns = "CudaBuffer<T> — the same type as Upload/Alloc. Fails if there is no GPU or allocation fails."
+
+remarks = """
+Host index is allowed because the pages can live on both sides. Movement is `CUDA.Prefetch` / `PrefetchHost` / `Sync`, not a silent copy. Prefetch is optional (unified memory can page-fault); it makes the move explicit.
+
+The element type comes from `Dim … As` — not `Managed<Single>`. A `CudaBuffer` parameter is not treated as managed (the callee does not know). `examples/cuda_managed.vbr` is the 1-D path.
+"""
+
+example = """
+Function Main()
+    Dim n As Long = 8
+    Dim a As CudaBuffer<Long> = CUDA.Managed(n)
+    a[0] = 1
+    CUDA.Prefetch(a)
+    Parallel For i = 0 To n - 1
+        a[i] = a[i] * 2
+    Next
+    CUDA.PrefetchHost(a)
+    CUDA.Sync()
+    Debug.Print a[0]
+End Function
+"""
+
+see_also = ["cuda", "cuda.prefetch", "cuda.prefetchhost", "cuda.sync", "cuda-buffer", "parallel-for"]

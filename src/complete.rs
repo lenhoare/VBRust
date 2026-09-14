@@ -429,7 +429,11 @@ fn namespace_members(ns: &str) -> &'static [(&'static str, &'static str)] {
         "CUDA" => &[
             ("Upload", "CUDA.Upload(xs) As CudaBuffer<T> — copy a Vec (or Vec<Vec>) onto the GPU"),
             ("Alloc", "CUDA.Alloc(n) or Alloc(rows, cols) — empty device buffer; T from Dim As"),
+            ("Managed", "CUDA.Managed(n) or Managed(rows, cols) — CudaBuffer you can index on the host"),
             ("Download", "CUDA.Download(buf) As Vec<T> or Vec<Vec<T>> — copy back to the host"),
+            ("Prefetch", "CUDA.Prefetch(buf) — page a Managed buffer toward the GPU"),
+            ("PrefetchHost", "CUDA.PrefetchHost(buf) — page a Managed buffer toward the CPU"),
+            ("Sync", "CUDA.Sync() — wait for the GPU (and outstanding prefetch)"),
         ],
         _ => &[],
     }

@@ -2,11 +2,17 @@ id = "cuda"
 title = "CUDA"
 category = "Parallel"
 kind = "namespace"
+anchor = "ns/CUDA"
 
 syntax = """
 Dim a As CudaBuffer<Single> = CUDA.Upload(xs)
 Dim b As CudaBuffer<Single> = CUDA.Alloc(n)
+Dim m As CudaBuffer<Long> = CUDA.Managed(n)
 Dim result As Vec<Single> = CUDA.Download(b)
+
+CUDA.Prefetch(m)
+CUDA.PrefetchHost(m)
+CUDA.Sync()
 
 Dim grid As CudaBuffer<CudaBuffer<Long>> = CUDA.Upload(rows)
 Dim out As CudaBuffer<CudaBuffer<Long>> = CUDA.Alloc(ny, nx)
@@ -17,13 +23,21 @@ summary = "Copy numeric lists onto an NVIDIA GPU and back — where Parallel For
 remarks = """
 `CUDA` names **where** work runs. `Parallel` names **independence**. A `Parallel For` over `CudaBuffer`s is the GPU claim; the same loop over ordinary `Vec`s stays on CPU threads. There is no silent upload of a host `Vec`.
 
-`CUDA.Upload(xs)` copies a numeric `Vec` (or array) onto the device. `CUDA.Upload` of a `Vec<Vec<T>>` is a 2-D buffer (`CudaBuffer<CudaBuffer<T>>`). `CUDA.Alloc(n)` makes an empty 1-D buffer; `CUDA.Alloc(rows, cols)` is the 2-D grid. The element type comes from `Dim … As CudaBuffer<T>` — not `Alloc<Single>`, which the parser would read as a comparison. `CUDA.Download(buf)` copies back to a host `Vec` (or `Vec<Vec<T>>`). All three can fail (no GPU, out of memory) and use implicit `?` like `FileSystem.Read`.
+The element type comes from `Dim … As CudaBuffer<T>` — not `Alloc<Single>` / `Managed<Single>`, which the parser would read as a comparison. Fallible calls (no GPU, out of memory) use implicit `?` like `FileSystem.Read`. `CUDA` is not a `vbr_stdlib` crate — the compiler emits the driver/nvrtc loader only when the program uses it.
 
-`buf.Len()` / `.Count()` are host-side (length, or rows of a 2-D buffer). `.Cols()` is the column count (0 if 1-D). `buf[i]` / `buf[y][x]` is the kernel: it only runs inside `Parallel For`. On the host, download first.
+Mixing a `Vec` and a `CudaBuffer` in one `Parallel For` is an error. Mixing 1-D and 2-D buffers in one loop is an error too. Nested `Parallel For y` / `Parallel For x` over 2-D buffers is one CUDA launch. Python and C refuse CUDA rather than faking a host array. The full surface is `parallel_spec.md`.
+"""
 
-Mixing a `Vec` and a `CudaBuffer` in one `Parallel For` is an error. Mixing 1-D and 2-D buffers in one loop is an error too. Nested `Parallel For y` / `Parallel For x` over 2-D buffers is one CUDA launch (`grid.x` × `grid.y`) — the inner loop is not a second kernel. Python and C refuse CUDA rather than faking a host array. `CUDA` is not a `vbr_stdlib` crate — the compiler emits the driver/nvrtc loader only when the program uses it. Linux loads `libcuda` / `libnvrtc`; Windows loads `nvcuda.dll` / `nvrtc64_*.dll` (and `%CUDA_PATH%\\bin` for the compiler). The Bust program is the same.
-
-A numeric `Function` (ByVal numbers in, a number out — `If` / `Return` / arithmetic) can be called from a CUDA `Parallel For`; it still exists as Rust on the host. `Sin` / `Sqr` / `Abs` / `IIf` work in the loop too. `examples/cuda_call.vbr` is `Clamp(Sq(a[i]), …)`. `Parallel Sum` over a 1-D `CudaBuffer` reduces on the GPU (`examples/cuda_sum.vbr`); a dot product is GPU multiply then `Parallel Sum` of that buffer (`examples/cuda_dot.vbr`). A 3-vector cross product fits one `Parallel For` because reads of a *different* buffer may use any index (`examples/cuda_cross.vbr`). `examples/cuda_grid.vbr` is the 2-D nest. Managed memory is later.
+members = """
+method | Upload(xs)              | Copy a numeric Vec (or Vec<Vec>) onto the GPU. Returns CudaBuffer (can fail).
+method | Alloc(n)                | Empty 1-D device buffer; T from Dim As. Can fail.
+method | Alloc(rows, cols)       | Empty 2-D device grid. Needs CudaBuffer<CudaBuffer<T>>. Can fail.
+method | Managed(n)              | Same CudaBuffer type; host index allowed. Can fail.
+method | Managed(rows, cols)     | 2-D managed grid. Can fail.
+method | Download(buf)           | Copy a CudaBuffer back to a host Vec (or Vec<Vec>). Can fail.
+method | Prefetch(buf)           | Page a Managed buffer toward the GPU. Optional. Can fail.
+method | PrefetchHost(buf)       | Page a Managed buffer toward the CPU. Optional. Can fail.
+method | Sync()                  | Wait for the GPU and outstanding prefetch. Can fail.
 """
 
 example = """
@@ -41,4 +55,4 @@ Function Main()
 End Function
 """
 
-see_also = ["cuda-buffer", "parallel-for", "parallel-sum", "vec"]
+see_also = ["cuda-buffer", "cuda.upload", "cuda.alloc", "cuda.managed", "cuda.download", "cuda.prefetch", "parallel-for", "parallel-sum"]

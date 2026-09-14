@@ -1,0 +1,32 @@
+id = "cuda.upload"
+title = "Upload"
+category = "Parallel"
+kind = "method"
+parent = "cuda"
+anchor = "ns/CUDA.Upload"
+
+summary = "Copy a numeric Vec (or Vec<Vec>) onto the GPU."
+
+syntax = """
+CUDA.Upload(<xs>) As CudaBuffer<T>
+"""
+
+arguments = """
+xs | Vec<T> or Vec<Vec<T>> | A numeric list (or rectangle of lists) to copy onto the device.
+"""
+
+returns = "CudaBuffer<T> or CudaBuffer<CudaBuffer<T>>. Fails if there is no GPU or the copy cannot be made."
+
+remarks = """
+This is an explicit copy. A `Parallel For` over ordinary `Vec`s stays on CPU threads — there is no silent upload. A `Vec<Vec<T>>` becomes a 2-D buffer (`CudaBuffer<CudaBuffer<T>>`). The list must be a rectangle (every row the same length).
+"""
+
+example = """
+Function Main()
+    Dim xs As Vec<Long> = [1, 2, 3, 4]
+    Dim a As CudaBuffer<Long> = CUDA.Upload(xs)
+    Debug.Print a.Len()
+End Function
+"""
+
+see_also = ["cuda", "cuda.alloc", "cuda.download", "cuda-buffer", "parallel-for"]
