@@ -500,6 +500,10 @@ pub fn transpile_module(
         sep(&mut out);
         out.push_str(crate::parallel::PARALLEL_SUM_HELPER);
     }
+    if crate::cuda::program_uses_cuda(program) {
+        sep(&mut out);
+        out.push_str(crate::cuda::CUDA_HELPER);
+    }
     // The `Log` sink helper, emitted only when the program logs.
     if program_uses_log(program) {
         sep(&mut out);
@@ -885,6 +889,7 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
         DeclType::Map(k, v) => format!("HashMap<{}, {}>", decltype_rust(k), decltype_rust(v)),
         DeclType::Result(t, e) => format!("Result<{}, {}>", decltype_rust(t), decltype_rust(e)),
         DeclType::Option(t) => format!("Option<{}>", decltype_rust(t)),
+        DeclType::CudaBuffer(t) => format!("__VbrCudaBuffer<{}>", decltype_rust(t)),
         DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
         DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
     }
@@ -1735,6 +1740,21 @@ pub(crate) fn emit_stmt(
                         value
                     ));
                 }
+                DeclType::CudaBuffer(_) => {
+                    let kw = let_kw(mutated.contains(&var));
+                    let value = init
+                        .as_ref()
+                        .map(|e| render_expr(e, None))
+                        .unwrap_or_else(|| "__vbr_cuda_alloc(0)".to_string());
+                    out.push_str(&format!(
+                        "{}{} {}: {} = {};\n",
+                        pad,
+                        kw,
+                        var,
+                        decltype_rust(ty),
+                        value
+                    ));
+                }
                 // Fixed arrays are auto-zeroed; the size is the element count.
                 DeclType::Array(t, n) => {
                     array_size_note(diags);
@@ -2015,9 +2035,24 @@ pub(crate) fn emit_stmt(
             body,
             ty,
             parallel,
+            device,
+            device_bufs,
             ..
         } => {
-            if *parallel {
+            if *device {
+                emit_cuda_for(
+                    var,
+                    from,
+                    to,
+                    step.as_ref(),
+                    body,
+                    *ty,
+                    device_bufs,
+                    indent,
+                    diags,
+                    out,
+                );
+            } else if *parallel {
                 emit_parallel_for(
                     var, from, to, step.as_ref(), body, *ty, mutated, byref, indent, diags, out,
                 );
@@ -3027,6 +3062,52 @@ fn for_uses_rust_range(ty: Type, step: Option<&Expr>) -> bool {
     }
 }
 
+/// GPU `Parallel For` over `CudaBuffer`s: snapshot the range, compile the
+/// generated CUDA C kernel at runtime (nvrtc), launch it.
+fn emit_cuda_for(
+    var: &str,
+    from: &Expr,
+    to: &Expr,
+    step: Option<&Expr>,
+    body: &[Stmt],
+    ty: Type,
+    bufs: &[(String, Type)],
+    indent: usize,
+    diags: &mut Diagnostics,
+    out: &mut String,
+) {
+    if !diags.has_errors() {
+        diags.note(
+            "parallel-for-cuda",
+            "`Parallel For` over `CudaBuffer` runs on the GPU. Ordinary `Vec` \
+             loops stay on CPU threads — there is no silent upload.",
+        );
+    }
+    let pad = "    ".repeat(indent);
+    let inner = "    ".repeat(indent + 1);
+    let kernel = crate::cuda::kernel_c(var, bufs, body);
+    let ptrs: Vec<String> = bufs
+        .iter()
+        .map(|(n, _)| format!("{}.ptr", rust_name(n)))
+        .collect();
+    let step_n = peel_step_int(step).unwrap_or(1);
+    out.push_str(&format!("{}{{\n", pad));
+    emit_parallel_bounds("", from, to, step, ty, &inner, out);
+    let step_expr = if step_n == 1 {
+        "1".to_string()
+    } else {
+        "__step as i64".to_string()
+    };
+    out.push_str(&format!(
+        "{}__vbr_cuda_for(__n, {}, &[{}], __from as i64, {})?;\n",
+        inner,
+        format!("{:?}", kernel),
+        ptrs.join(", "),
+        step_expr
+    ));
+    out.push_str(&format!("{pad}}}\n"));
+}
+
 /// CPU-thread `Parallel For`: snapshot the range, take pointers to written
 /// Vecs, then `__vbr_parallel_for` over the iteration count. The checker has
 /// already proved each iteration writes a distinct slot.
@@ -3080,7 +3161,8 @@ fn emit_parallel_for(
         diags.note(
             "parallel-for-cpu",
             "`Parallel For` runs across CPU threads. Each iteration must write a \
-             different slot — typically `out[i] = …`. CUDA / GPU buffers are a later slice.",
+             different slot — typically `out[i] = …`. Ordinary `Vec`s stay on the \
+             CPU; `CudaBuffer` + `CUDA.Upload` is the GPU path.",
         );
     }
     let pad = "    ".repeat(indent);
@@ -3751,6 +3833,19 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
             let m = rust_name(method);
             // Stdlib namespace call: `FileSystem.Read(x)` → `FileSystem::read(x)`.
             if let ExprKind::Ident(name) = &(&**recv).kind {
+                if crate::cuda::is_cuda_ns(name) && crate::cuda::is_cuda_method(method) {
+                    let arg = args
+                        .first()
+                        .map(|a| render_expr(a, None))
+                        .unwrap_or_else(|| "0".to_string());
+                    let key = method.to_ascii_lowercase().replace('_', "");
+                    return match key.as_str() {
+                        "upload" => format!("__vbr_cuda_upload(({}).as_slice())", arg),
+                        "download" => format!("__vbr_cuda_download(&{})", arg),
+                        "alloc" => format!("__vbr_cuda_alloc({})", arg),
+                        _ => format!("/* CUDA.{} */", method),
+                    };
+                }
                 if name.eq_ignore_ascii_case("Pixels") && m == "of" {
                     let rendered: Vec<String> = args.iter().map(|a| render_expr(a, None)).collect();
                     return format!("Pixels::of({})", rendered.join(", "));
@@ -4305,7 +4400,12 @@ pub(crate) fn collect_mutated(stmts: &[Stmt], set: &mut HashSet<String>) {
                     collect_mutated(body, set);
                 }
             }
-            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            Stmt::For { body, device, .. } => {
+                if !*device {
+                    collect_mutated(body, set)
+                }
+            }
+            Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
                 collect_mutated(body, set)
             }
             // The scrutinee of a `Match` — and of `If … Is …` (an if-let) — can
@@ -4418,7 +4518,9 @@ pub(crate) fn stdlib_types_declared(
     fn collect_decltype(dt: &DeclType, used: &mut Vec<&'static str>) {
         match dt {
             DeclType::Named(n) => collect_name(n, used),
-            DeclType::Vec(t) | DeclType::Option(t) => collect_decltype(t, used),
+            DeclType::Vec(t) | DeclType::Option(t) | DeclType::CudaBuffer(t) => {
+                collect_decltype(t, used)
+            }
             DeclType::Result(t, e) => {
                 collect_decltype(t, used);
                 collect_decltype(e, used);

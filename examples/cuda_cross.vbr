@@ -1,0 +1,19 @@
+' Cross product of two 3-vectors. Writes are c[i]; reads of a and b may use any index.
+' The cyclic formula needs no If: c = (a[(i+1) Mod 3] * b[(i+2) Mod 3]) - …
+Function Main()
+    Dim u As Vec<Single> = [1.0, 0.0, 0.0]
+    Dim v As Vec<Single> = [0.0, 1.0, 0.0]
+
+    Dim a As CudaBuffer<Single> = CUDA.Upload(u)
+    Dim b As CudaBuffer<Single> = CUDA.Upload(v)
+    Dim c As CudaBuffer<Single> = CUDA.Alloc(3)
+
+    Parallel For i = 0 To 2
+        c[i] = a[(i + 1) Mod 3] * b[(i + 2) Mod 3] - a[(i + 2) Mod 3] * b[(i + 1) Mod 3]
+    Next
+
+    Dim w As Vec<Single> = CUDA.Download(c)
+    Debug.Print w[0]
+    Debug.Print w[1]
+    Debug.Print w[2]
+End Function

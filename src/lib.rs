@@ -6,6 +6,7 @@
 pub mod ast;
 pub mod c;
 pub mod complete;
+pub mod cuda;
 pub mod diagnostics;
 pub mod fmtpat;
 pub mod godot;
@@ -370,6 +371,9 @@ pub fn compile_python(source: &str) -> PyCompiled {
     if crate::parallel::program_uses_parallel(&program) {
         diags.error_once("parallel-rust-only", crate::parallel::RUST_ONLY);
     }
+    if crate::cuda::program_uses_cuda(&program) {
+        diags.error_once("cuda-rust-only", crate::cuda::RUST_ONLY);
+    }
     if diags.has_errors() {
         return PyCompiled {
             code: String::new(),
@@ -433,6 +437,9 @@ pub fn compile_c(source: &str) -> CCompiled {
     let program = parser::parse(tokens, &mut diags);
     if crate::parallel::program_uses_parallel(&program) {
         diags.error_once("parallel-rust-only", crate::parallel::RUST_ONLY);
+    }
+    if crate::cuda::program_uses_cuda(&program) {
+        diags.error_once("cuda-rust-only", crate::cuda::RUST_ONLY);
     }
     if diags.has_errors() {
         return CCompiled {

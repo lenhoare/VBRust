@@ -3937,7 +3937,8 @@ impl<'a> Parser<'a> {
                 }
             }
             // A collection may take an initialiser (e.g. an iterator `.collect()`).
-            DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(..) | DeclType::Option(_) => {
+            DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(..) | DeclType::Option(_)
+            | DeclType::CudaBuffer(_) => {
                 if self.eat(&Tok::Eq) {
                     Some(self.parse_expr()?)
                 } else {
@@ -4074,6 +4075,13 @@ impl<'a> Parser<'a> {
                     let t = self.parse_decl_type()?;
                     self.expect(&Tok::Gt, "to close `Option<...>`")?;
                     Some(DeclType::Option(Box::new(t)))
+                }
+                "CudaBuffer" => {
+                    self.advance();
+                    self.expect(&Tok::Lt, "before the element type, e.g. CudaBuffer<Single>")?;
+                    let t = self.parse_decl_type()?;
+                    self.expect(&Tok::Gt, "to close `CudaBuffer<...>`")?;
+                    Some(DeclType::CudaBuffer(Box::new(t)))
                 }
                 _ if name.eq_ignore_ascii_case("Date") => {
                     self.reject_date(self.line());
@@ -4580,6 +4588,8 @@ impl<'a> Parser<'a> {
             body,
             ty: Type::Integer,
             parallel,
+            device: false,
+            device_bufs: Vec::new(),
             line,
         })
     }

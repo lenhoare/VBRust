@@ -177,6 +177,8 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         // Parallel — own section, after the sequential language, before surfaces.
         item!("parallel-for", "Parallel For", "Parallel", Keyword, "kw/ParallelFor"),
         item!("parallel-sum", "Parallel Sum", "Parallel", Keyword, "kw/ParallelSum"),
+        item!("cuda", "CUDA", "Parallel", Namespace, "ns/CUDA"),
+        item!("cuda-buffer", "CudaBuffer", "Parallel", Type, "ty/CudaBuffer"),
         // Surfaces (Window / Screen / Page / Sketch) — last in the sidebar so
         // the core language is the table of contents, then the places it runs.
         item!("window", "Window", "Surfaces", Keyword, "kw/Window"),

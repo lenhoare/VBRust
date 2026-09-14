@@ -1,0 +1,33 @@
+id = "cuda-buffer"
+title = "CudaBuffer<T>"
+category = "Parallel"
+kind = "type"
+
+syntax = """
+Dim <name> As CudaBuffer<<T>> = CUDA.Upload(<vec>)
+Dim <name> As CudaBuffer<<T>> = CUDA.Alloc(<n>)
+"""
+
+summary = "A numeric list that lives on the GPU — not a host Vec with a flag."
+
+remarks = """
+`CudaBuffer<T>` is a 1-D device array of numbers (`Integer` / `Long` / `Single` / `Double` / `Byte`). It is created by `CUDA.Upload` or `CUDA.Alloc`; there is no empty `CudaBuffer` and no `.Push`.
+
+On the host you can ask `.Len()` / `.Count()`. Indexing `buf[i]` is a kernel read or write and only happens inside `Parallel For`. After the loop, `CUDA.Download(buf)` returns a `Vec<T>`.
+
+A `Parallel For` that touches a `CudaBuffer` must touch **only** `CudaBuffer`s. Mixing with a `Vec` would hide a copy; the compiler refuses it.
+
+Rust-only (`vbr run`). Python, C, and the Android interpreter refuse rather than silently running on the CPU.
+"""
+
+example = """
+Function Main()
+    Dim xs As Vec<Long> = [1, 2, 3, 4]
+    Dim a As CudaBuffer<Long> = CUDA.Upload(xs)
+    Debug.Print a.Len()
+    Dim ys As Vec<Long> = CUDA.Download(a)
+    Debug.Print ys[0]
+End Function
+"""
+
+see_also = ["cuda", "parallel-for", "vec"]

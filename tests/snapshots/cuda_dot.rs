@@ -1,0 +1,521 @@
+// Dot product on the GPU: each product is independent; adding them is Parallel Sum.
+
+fn __vbr_parallel_sum<T>(xs: &[T]) -> T
+where
+    T: Copy + Default + std::ops::Add<Output = T> + Send + Sync,
+{
+    let n = xs.len();
+    if n == 0 {
+        return T::default();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        return xs.iter().copied().fold(T::default(), |a, b| a + b);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(1)
+            .clamp(1, n);
+        let chunk = (n + threads - 1) / threads;
+        let mut parts = vec![T::default(); threads];
+        std::thread::scope(|scope| {
+            for (t, slot) in parts.iter_mut().enumerate() {
+                let start = t * chunk;
+                if start >= n {
+                    break;
+                }
+                let end = (start + chunk).min(n);
+                let slice = &xs[start..end];
+                scope.spawn(move || {
+                    *slot = slice.iter().copied().fold(T::default(), |a, b| a + b);
+                });
+            }
+        });
+        parts.into_iter().fold(T::default(), |a, b| a + b)
+    }
+}
+
+
+#[allow(dead_code, unused_mut, unused_variables, unused_assignments, unused_unsafe)]
+struct __VbrCudaBuffer<T> {
+    ptr: u64,
+    len: usize,
+    _t: std::marker::PhantomData<T>,
+}
+
+#[allow(dead_code)]
+impl<T> __VbrCudaBuffer<T> {
+    fn len(&self) -> usize {
+        self.len
+    }
+    fn count(&self) -> usize {
+        self.len
+    }
+}
+
+impl<T> Drop for __VbrCudaBuffer<T> {
+    fn drop(&mut self) {
+        if self.ptr != 0 {
+            let _ = __vbr_cuda_free(self.ptr);
+            self.ptr = 0;
+        }
+    }
+}
+
+const __VBR_CUDA_NEEDED: &str = "CUDA needs an NVIDIA GPU and driver (libcuda). There is no silent \
+CPU copy — ordinary Vec Parallel For stays on the CPU. Install a driver, or keep this work on a Vec.";
+
+const __VBR_NVRTC_NEEDED: &str = "The GPU is there, but compiling a Parallel For kernel needs the \
+CUDA toolkit (libnvrtc). Install the toolkit, or keep this loop on a Vec.";
+
+fn __vbr_cuda_upload<T: Copy>(xs: &[T]) -> Result<__VbrCudaBuffer<T>, String> {
+    let bytes = std::mem::size_of_val(xs);
+    let ptr = __vbr_cuda_alloc_bytes(bytes)?;
+    if bytes > 0 {
+        __vbr_cuda_copy_hto_d(ptr, xs.as_ptr() as *const u8, bytes)?;
+    }
+    Ok(__VbrCudaBuffer {
+        ptr,
+        len: xs.len(),
+        _t: std::marker::PhantomData,
+    })
+}
+
+fn __vbr_cuda_alloc<T>(n: i64) -> Result<__VbrCudaBuffer<T>, String> {
+    if n < 0 {
+        return Err("CUDA.Alloc(n) needs a non-negative length.".into());
+    }
+    let n = n as usize;
+    let bytes = n.saturating_mul(std::mem::size_of::<T>());
+    let ptr = __vbr_cuda_alloc_bytes(bytes)?;
+    if bytes > 0 {
+        __vbr_cuda_memset(ptr, bytes)?;
+    }
+    Ok(__VbrCudaBuffer {
+        ptr,
+        len: n,
+        _t: std::marker::PhantomData,
+    })
+}
+
+fn __vbr_cuda_download<T: Copy + Default>(buf: &__VbrCudaBuffer<T>) -> Result<Vec<T>, String> {
+    let mut out = vec![T::default(); buf.len];
+    let bytes = std::mem::size_of_val(out.as_slice());
+    if bytes > 0 {
+        __vbr_cuda_copy_d_to_h(out.as_mut_ptr() as *mut u8, buf.ptr, bytes)?;
+    }
+    Ok(out)
+}
+
+fn __vbr_cuda_for(
+    n: usize,
+    src: &str,
+    ptrs: &[u64],
+    from: i64,
+    step: i64,
+) -> Result<(), String> {
+    if n == 0 {
+        return Ok(());
+    }
+    if n > u32::MAX as usize {
+        return Err("CUDA Parallel For is too large for one launch.".into());
+    }
+    let fun = __vbr_cuda_compile(src)?;
+    let mut slots: Vec<u64> = ptrs.to_vec();
+    let mut from = from;
+    let mut step = step;
+    let mut n_i = n as i64;
+    let mut args: Vec<*mut std::ffi::c_void> = slots
+        .iter_mut()
+        .map(|p| p as *mut u64 as *mut std::ffi::c_void)
+        .collect();
+    args.push(&mut from as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut step as *mut i64 as *mut std::ffi::c_void);
+    args.push(&mut n_i as *mut i64 as *mut std::ffi::c_void);
+    let block: u32 = 256;
+    let grid: u32 = ((n as u32) + block - 1) / block;
+    __vbr_cuda_launch(fun, grid, block, &mut args)
+}
+
+#[cfg(not(unix))]
+fn __vbr_cuda_alloc_bytes(_: usize) -> Result<u64, String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(unix))]
+fn __vbr_cuda_free(_: u64) -> Result<(), String> {
+    Ok(())
+}
+#[cfg(not(unix))]
+fn __vbr_cuda_copy_hto_d(_: u64, _: *const u8, _: usize) -> Result<(), String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(unix))]
+fn __vbr_cuda_copy_d_to_h(_: *mut u8, _: u64, _: usize) -> Result<(), String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(unix))]
+fn __vbr_cuda_memset(_: u64, _: usize) -> Result<(), String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(unix))]
+fn __vbr_cuda_compile(_: &str) -> Result<u64, String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+#[cfg(not(unix))]
+fn __vbr_cuda_launch(_: u64, _: u32, _: u32, _: &mut [*mut std::ffi::c_void]) -> Result<(), String> {
+    Err(__VBR_CUDA_NEEDED.into())
+}
+
+#[cfg(unix)]
+mod __vbr_cuda_drv {
+    #![allow(dead_code, unused_unsafe)]
+    use std::collections::HashMap;
+    use std::ffi::{CString, c_char, c_int, c_uint, c_void};
+    use std::sync::{Mutex, OnceLock};
+
+    const RTLD_NOW: c_int = 2;
+
+    extern "C" {
+        fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
+        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+
+    struct Api {
+        cu_init: unsafe extern "C" fn(c_uint) -> c_int,
+        cu_device_get: unsafe extern "C" fn(*mut c_int, c_int) -> c_int,
+        cu_ctx_create: unsafe extern "C" fn(*mut usize, c_uint, c_int) -> c_int,
+        cu_mem_alloc: unsafe extern "C" fn(*mut u64, usize) -> c_int,
+        cu_mem_free: unsafe extern "C" fn(u64) -> c_int,
+        cu_memcpy_htod: unsafe extern "C" fn(u64, *const c_void, usize) -> c_int,
+        cu_memcpy_dtoh: unsafe extern "C" fn(*mut c_void, u64, usize) -> c_int,
+        cu_memset: unsafe extern "C" fn(u64, c_uint, usize) -> c_int,
+        cu_module_load_data: unsafe extern "C" fn(*mut usize, *const c_void) -> c_int,
+        cu_module_get_function: unsafe extern "C" fn(*mut usize, usize, *const c_char) -> c_int,
+        cu_launch: unsafe extern "C" fn(
+            usize,
+            c_uint,
+            c_uint,
+            c_uint,
+            c_uint,
+            c_uint,
+            c_uint,
+            c_uint,
+            usize,
+            *mut *mut c_void,
+            *mut *mut c_void,
+        ) -> c_int,
+        cu_sync: unsafe extern "C" fn() -> c_int,
+        nvrtc_create: unsafe extern "C" fn(
+            *mut usize,
+            *const c_char,
+            *const c_char,
+            c_int,
+            *const *const c_char,
+            *const *const c_char,
+        ) -> c_int,
+        nvrtc_compile: unsafe extern "C" fn(usize, c_int, *const *const c_char) -> c_int,
+        nvrtc_ptx_size: unsafe extern "C" fn(usize, *mut usize) -> c_int,
+        nvrtc_ptx: unsafe extern "C" fn(usize, *mut c_char) -> c_int,
+        nvrtc_log_size: unsafe extern "C" fn(usize, *mut usize) -> c_int,
+        nvrtc_log: unsafe extern "C" fn(usize, *mut c_char) -> c_int,
+        nvrtc_destroy: unsafe extern "C" fn(usize) -> c_int,
+        _cuda: *mut c_void,
+        _nvrtc: *mut c_void,
+    }
+
+    unsafe impl Send for Api {}
+    unsafe impl Sync for Api {}
+
+    fn load_lib(names: &[&str]) -> Result<*mut c_void, ()> {
+        for n in names {
+            let c = CString::new(*n).map_err(|_| ())?;
+            let h = unsafe { dlopen(c.as_ptr(), RTLD_NOW) };
+            if !h.is_null() {
+                return Ok(h);
+            }
+        }
+        Err(())
+    }
+
+    unsafe fn sym(h: *mut c_void, names: &[&str]) -> Result<*mut c_void, String> {
+        for n in names {
+            let c = CString::new(*n).unwrap();
+            let p = dlsym(h, c.as_ptr());
+            if !p.is_null() {
+                return Ok(p);
+            }
+        }
+        Err(format!("CUDA symbol {} missing", names[0]))
+    }
+
+    fn api() -> Result<&'static Api, String> {
+        static API: OnceLock<Result<Api, String>> = OnceLock::new();
+        match API.get_or_init(|| unsafe { load_api() }) {
+            Ok(a) => Ok(a),
+            Err(e) => Err(e.clone()),
+        }
+    }
+
+    unsafe fn load_api() -> Result<Api, String> {
+        let cuda = load_lib(&["libcuda.so.1", "libcuda.so"])
+            .map_err(|_| super::__VBR_CUDA_NEEDED.to_string())?;
+        let nvrtc = load_lib(&[
+            "libnvrtc.so.12",
+            "libnvrtc.so.13",
+            "libnvrtc.so.11",
+            "libnvrtc.so",
+        ])
+        .map_err(|_| super::__VBR_NVRTC_NEEDED.to_string())?;
+        let cu_init = std::mem::transmute(sym(cuda, &["cuInit"])?);
+        let cu_device_get = std::mem::transmute(sym(cuda, &["cuDeviceGet"])?);
+        let cu_ctx_create =
+            std::mem::transmute(sym(cuda, &["cuCtxCreate_v2", "cuCtxCreate"])?);
+        let cu_mem_alloc = std::mem::transmute(sym(cuda, &["cuMemAlloc_v2", "cuMemAlloc"])?);
+        let cu_mem_free = std::mem::transmute(sym(cuda, &["cuMemFree_v2", "cuMemFree"])?);
+        let cu_memcpy_htod =
+            std::mem::transmute(sym(cuda, &["cuMemcpyHtoD_v2", "cuMemcpyHtoD"])?);
+        let cu_memcpy_dtoh =
+            std::mem::transmute(sym(cuda, &["cuMemcpyDtoH_v2", "cuMemcpyDtoH"])?);
+        let cu_memset = std::mem::transmute(sym(cuda, &["cuMemsetD8_v2", "cuMemsetD8"])?);
+        let cu_module_load_data = std::mem::transmute(sym(cuda, &["cuModuleLoadData"])?);
+        let cu_module_get_function = std::mem::transmute(sym(cuda, &["cuModuleGetFunction"])?);
+        let cu_launch = std::mem::transmute(sym(cuda, &["cuLaunchKernel"])?);
+        let cu_sync = std::mem::transmute(sym(cuda, &["cuCtxSynchronize"])?);
+        let nvrtc_create = std::mem::transmute(sym(nvrtc, &["nvrtcCreateProgram"])?);
+        let nvrtc_compile = std::mem::transmute(sym(nvrtc, &["nvrtcCompileProgram"])?);
+        let nvrtc_ptx_size = std::mem::transmute(sym(nvrtc, &["nvrtcGetPTXSize"])?);
+        let nvrtc_ptx = std::mem::transmute(sym(nvrtc, &["nvrtcGetPTX"])?);
+        let nvrtc_log_size = std::mem::transmute(sym(nvrtc, &["nvrtcGetProgramLogSize"])?);
+        let nvrtc_log = std::mem::transmute(sym(nvrtc, &["nvrtcGetProgramLog"])?);
+        let nvrtc_destroy = std::mem::transmute(sym(nvrtc, &["nvrtcDestroyProgram"])?);
+        let api = Api {
+            cu_init,
+            cu_device_get,
+            cu_ctx_create,
+            cu_mem_alloc,
+            cu_mem_free,
+            cu_memcpy_htod,
+            cu_memcpy_dtoh,
+            cu_memset,
+            cu_module_load_data,
+            cu_module_get_function,
+            cu_launch,
+            cu_sync,
+            nvrtc_create,
+            nvrtc_compile,
+            nvrtc_ptx_size,
+            nvrtc_ptx,
+            nvrtc_log_size,
+            nvrtc_log,
+            nvrtc_destroy,
+            _cuda: cuda,
+            _nvrtc: nvrtc,
+        };
+        check((api.cu_init)(0), "cuInit")?;
+        let mut dev: c_int = 0;
+        check((api.cu_device_get)(&mut dev, 0), "cuDeviceGet")?;
+        let mut ctx: usize = 0;
+        check((api.cu_ctx_create)(&mut ctx, 0, dev), "cuCtxCreate")?;
+        let _ = ctx;
+        Ok(api)
+    }
+
+    fn check(st: c_int, what: &str) -> Result<(), String> {
+        if st == 0 {
+            Ok(())
+        } else {
+            Err(format!("{what} failed (CUDA error {st})"))
+        }
+    }
+
+    fn nvrtc_log(api: &Api, prog: usize) -> String {
+        let mut n = 0usize;
+        if unsafe { (api.nvrtc_log_size)(prog, &mut n) } != 0 || n == 0 {
+            return String::new();
+        }
+        let mut buf = vec![0u8; n];
+        if unsafe { (api.nvrtc_log)(prog, buf.as_mut_ptr() as *mut c_char) } != 0 {
+            return String::new();
+        }
+        String::from_utf8_lossy(&buf).trim_end_matches('\0').to_string()
+    }
+
+    static KERNELS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+
+    pub fn alloc_bytes(n: usize) -> Result<u64, String> {
+        if n == 0 {
+            return Ok(0);
+        }
+        let api = api()?;
+        let mut ptr = 0u64;
+        check(unsafe { (api.cu_mem_alloc)(&mut ptr, n) }, "cuMemAlloc")?;
+        Ok(ptr)
+    }
+
+    pub fn free(ptr: u64) -> Result<(), String> {
+        if ptr == 0 {
+            return Ok(());
+        }
+        let api = api()?;
+        check(unsafe { (api.cu_mem_free)(ptr) }, "cuMemFree")
+    }
+
+    pub fn copy_hto_d(dst: u64, src: *const u8, n: usize) -> Result<(), String> {
+        let api = api()?;
+        check(
+            unsafe { (api.cu_memcpy_htod)(dst, src as *const c_void, n) },
+            "cuMemcpyHtoD",
+        )
+    }
+
+    pub fn copy_d_to_h(dst: *mut u8, src: u64, n: usize) -> Result<(), String> {
+        let api = api()?;
+        check(
+            unsafe { (api.cu_memcpy_dtoh)(dst as *mut c_void, src, n) },
+            "cuMemcpyDtoH",
+        )
+    }
+
+    pub fn memset(ptr: u64, n: usize) -> Result<(), String> {
+        let api = api()?;
+        check(unsafe { (api.cu_memset)(ptr, 0, n) }, "cuMemsetD8")
+    }
+
+    pub fn compile(src: &str) -> Result<usize, String> {
+        let api = api()?;
+        let cache = KERNELS.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Some(fun) = cache.lock().unwrap().get(src).copied() {
+            return Ok(fun);
+        }
+        let mut prog: usize = 0;
+        let src_c = CString::new(src).map_err(|_| "kernel source")?;
+        let name = CString::new("k.cu").unwrap();
+        check(
+            unsafe {
+                (api.nvrtc_create)(&mut prog, src_c.as_ptr(), name.as_ptr(), 0, std::ptr::null(), std::ptr::null())
+            },
+            "nvrtcCreateProgram",
+        )?;
+        let st = unsafe { (api.nvrtc_compile)(prog, 0, std::ptr::null()) };
+        if st != 0 {
+            let log = nvrtc_log(api, prog);
+            unsafe { (api.nvrtc_destroy)(prog) };
+            return Err(if log.trim().is_empty() {
+                format!("nvrtcCompileProgram failed (error {st})")
+            } else {
+                format!("CUDA kernel compile failed:\n{log}")
+            });
+        }
+        let mut ptx_n = 0usize;
+        check(unsafe { (api.nvrtc_ptx_size)(prog, &mut ptx_n) }, "nvrtcGetPTXSize")?;
+        let mut ptx = vec![0u8; ptx_n];
+        check(
+            unsafe { (api.nvrtc_ptx)(prog, ptx.as_mut_ptr() as *mut c_char) },
+            "nvrtcGetPTX",
+        )?;
+        unsafe { (api.nvrtc_destroy)(prog) };
+        let mut module: usize = 0;
+        check(
+            unsafe { (api.cu_module_load_data)(&mut module, ptx.as_ptr() as *const c_void) },
+            "cuModuleLoadData",
+        )?;
+        let mut fun: usize = 0;
+        let kname = CString::new("k").unwrap();
+        check(
+            unsafe { (api.cu_module_get_function)(&mut fun, module, kname.as_ptr()) },
+            "cuModuleGetFunction",
+        )?;
+        cache.lock().unwrap().insert(src.to_string(), fun);
+        Ok(fun)
+    }
+
+    pub fn launch(
+        fun: usize,
+        grid: u32,
+        block: u32,
+        args: &mut [*mut c_void],
+    ) -> Result<(), String> {
+        let api = api()?;
+        check(
+            unsafe {
+                (api.cu_launch)(
+                    fun,
+                    grid,
+                    1,
+                    1,
+                    block,
+                    1,
+                    1,
+                    0,
+                    0,
+                    args.as_mut_ptr(),
+                    std::ptr::null_mut(),
+                )
+            },
+            "cuLaunchKernel",
+        )?;
+        check(unsafe { (api.cu_sync)() }, "cuCtxSynchronize")
+    }
+}
+
+#[cfg(unix)]
+fn __vbr_cuda_alloc_bytes(n: usize) -> Result<u64, String> {
+    __vbr_cuda_drv::alloc_bytes(n)
+}
+#[cfg(unix)]
+fn __vbr_cuda_free(ptr: u64) -> Result<(), String> {
+    __vbr_cuda_drv::free(ptr)
+}
+#[cfg(unix)]
+fn __vbr_cuda_copy_hto_d(dst: u64, src: *const u8, n: usize) -> Result<(), String> {
+    __vbr_cuda_drv::copy_hto_d(dst, src, n)
+}
+#[cfg(unix)]
+fn __vbr_cuda_copy_d_to_h(dst: *mut u8, src: u64, n: usize) -> Result<(), String> {
+    __vbr_cuda_drv::copy_d_to_h(dst, src, n)
+}
+#[cfg(unix)]
+fn __vbr_cuda_memset(ptr: u64, n: usize) -> Result<(), String> {
+    __vbr_cuda_drv::memset(ptr, n)
+}
+#[cfg(unix)]
+fn __vbr_cuda_compile(src: &str) -> Result<u64, String> {
+    __vbr_cuda_drv::compile(src).map(|p| p as u64)
+}
+#[cfg(unix)]
+fn __vbr_cuda_launch(
+    fun: u64,
+    grid: u32,
+    block: u32,
+    args: &mut [*mut std::ffi::c_void],
+) -> Result<(), String> {
+    __vbr_cuda_drv::launch(fun as usize, grid, block, args)
+}
+
+fn vbr_main() -> Result<(), String> {
+    let xs: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+    let ys: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
+    let n: i64 = xs.len() as i64;
+    let a: __VbrCudaBuffer<f32> = __vbr_cuda_upload((xs).as_slice())?;
+    let b: __VbrCudaBuffer<f32> = __vbr_cuda_upload((ys).as_slice())?;
+    let prod: __VbrCudaBuffer<f32> = __vbr_cuda_alloc(n)?;
+    {
+        let __from = 0;
+        let __to = n - 1;
+        let __n: usize = if __to >= __from { ((__to - __from) as usize).saturating_add(1) } else { 0 };
+        __vbr_cuda_for(__n, "extern \"C\" __global__ void k(float* a, float* b, float* prod, long long __from, long long __step, long long __n) {\n    long long __k = (long long)blockIdx.x * (long long)blockDim.x + (long long)threadIdx.x;\n    if (__k >= __n) return;\n    long long i = __from + __k * __step;\n    prod[i] = (a[i] * b[i]);\n}\n", &[a.ptr, b.ptr, prod.ptr], __from as i64, 1)?;
+    }
+    let parts: Vec<f32> = __vbr_cuda_download(&prod)?;
+    let total: f32 = __vbr_parallel_sum((parts).as_slice());
+    println!("{}", total);
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = vbr_main() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
+}

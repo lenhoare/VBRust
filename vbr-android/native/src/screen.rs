@@ -340,6 +340,9 @@ impl Host {
         method: &str,
         args: &[Expr],
     ) -> Result<Val, String> {
+        if matches!(&recv.kind, ExprKind::Ident(n) if vbr::cuda::is_cuda_ns(n)) {
+            return Err(vbr::cuda::RUST_ONLY.into());
+        }
         if method.eq_ignore_ascii_case("push") {
             if let ExprKind::Ident(name) = &recv.kind {
                 let arg = if args.is_empty() {
@@ -449,6 +452,9 @@ impl Host {
                 Ok(Flow::Next)
             }
             Stmt::Dim { name, ty, init, .. } => {
+                if matches!(ty, DeclType::CudaBuffer(_)) {
+                    return Err(vbr::cuda::RUST_ONLY.into());
+                }
                 let v = if let Some(e) = init {
                     self.eval(locals, e)?
                 } else {

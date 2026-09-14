@@ -409,12 +409,42 @@ impl Typer {
             // declared return type (mostly `Result<…>`).
             ExprKind::MethodCall { recv, method, args }
                 if matches!(&recv.kind,
-                    ExprKind::Ident(n) if stdlib_return(&n.to_ascii_lowercase(), &method.to_ascii_lowercase()).is_some()) =>
+                    ExprKind::Ident(n) if stdlib_return(&n.to_ascii_lowercase(), &method.to_ascii_lowercase()).is_some()
+                        || crate::cuda::is_cuda_ns(n)) =>
             {
                 for a in args {
                     self.infer(a);
                 }
                 match &recv.kind {
+                    ExprKind::Ident(n) if crate::cuda::is_cuda_ns(n) => {
+                        let m = method.to_ascii_lowercase().replace('_', "");
+                        let err = || Box::new(DeclType::Plain(Type::Text));
+                        match m.as_str() {
+                            "upload" => {
+                                let inner = args.first().map(|a| match self.infer(a) {
+                                    DeclType::Vec(t) => *t,
+                                    DeclType::Array(t, _) => DeclType::Plain(t),
+                                    other => other,
+                                }).unwrap_or(DeclType::Plain(Type::Single));
+                                DeclType::Result(
+                                    Box::new(DeclType::CudaBuffer(Box::new(inner))),
+                                    err(),
+                                )
+                            }
+                            "download" => {
+                                let inner = args.first().map(|a| match self.infer(a) {
+                                    DeclType::CudaBuffer(t) => *t,
+                                    other => other,
+                                }).unwrap_or(DeclType::Plain(Type::Single));
+                                DeclType::Result(Box::new(DeclType::Vec(Box::new(inner))), err())
+                            }
+                            "alloc" => DeclType::Result(
+                                Box::new(DeclType::CudaBuffer(Box::new(DeclType::Plain(Type::Single)))),
+                                err(),
+                            ),
+                            _ => DeclType::Plain(Type::Long),
+                        }
+                    }
                     ExprKind::Ident(n) => {
                         stdlib_return(&n.to_ascii_lowercase(), &method.to_ascii_lowercase()).unwrap()
                     }
@@ -440,7 +470,7 @@ impl Typer {
                 }
                 let m = method.to_ascii_lowercase();
                 match &recv_ty {
-                    DeclType::Vec(elem) => match m.as_str() {
+                    DeclType::Vec(elem) | DeclType::CudaBuffer(elem) => match m.as_str() {
                         "sum" | "get" => (**elem).clone(),
                         "any" | "all" => DeclType::Plain(Type::Boolean),
                         "len" | "count" => DeclType::Plain(Type::Long),
@@ -488,7 +518,7 @@ impl Typer {
                 let rty = self.infer(recv);
                 self.infer(idx);
                 match rty {
-                    DeclType::Vec(elem) => (*elem).clone(),
+                    DeclType::Vec(elem) | DeclType::CudaBuffer(elem) => (*elem).clone(),
                     DeclType::Map(_, v) => (*v).clone(),
                     _ => DeclType::Plain(Type::Long),
                 }

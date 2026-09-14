@@ -2415,6 +2415,116 @@ fn parallel_sum_is_rust_only() {
 }
 
 #[test]
+fn cuda_upload_emits_device_helper() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Single> = [1.0, 2.0, 3.0, 4.0]\n\
+        \x20   Dim n As Long = xs.Len()\n\
+        \x20   Dim a As CudaBuffer<Single> = CUDA.Upload(xs)\n\
+        \x20   Dim b As CudaBuffer<Single> = CUDA.Alloc(n)\n\
+        \x20   Parallel For i = 0 To n - 1\n\
+        \x20       b[i] = a[i] * a[i] + 1.0\n\
+        \x20   Next\n\
+        \x20   Dim result As Vec<Single> = CUDA.Download(b)\n\
+        \x20   Debug.Print result[0]\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("__vbr_cuda_upload")
+            && rust.contains("__vbr_cuda_alloc")
+            && rust.contains("__vbr_cuda_download")
+            && rust.contains("__vbr_cuda_for"),
+        "CUDA program should emit device helpers: {rust}"
+    );
+    assert!(
+        rust.contains("__global__") && rust.contains("b[i]"),
+        "CUDA Parallel For should embed a kernel: {rust}"
+    );
+    assert!(
+        !rust.contains("__vbr_parallel_for("),
+        "a device loop should not emit CPU threads: {rust}"
+    );
+    assert_rustc_clean("cuda_upload", &rust);
+}
+
+#[test]
+fn cuda_mix_vec_and_buffer_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Single> = [1.0, 2.0]\n\
+        \x20   Dim a As CudaBuffer<Single> = CUDA.Upload(xs)\n\
+        \x20   Dim b As Vec<Single> = [0.0, 0.0]\n\
+        \x20   Parallel For i = 0 To 1\n\
+        \x20       b[i] = a[i]\n\
+        \x20   Next\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "mix should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("CudaBuffer") && (joined.contains("Vec") || joined.contains("silent")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_index_outside_parallel_for_is_rejected() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3]\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Upload(xs)\n\
+        \x20   Debug.Print a[0]\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "host index should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Download") || joined.contains("Parallel For"),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_alloc_needs_as_type() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim n As Long = 4\n\
+        \x20   Debug.Print CUDA.Alloc(n)\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Alloc without As should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Alloc") && (joined.contains("CudaBuffer") || joined.contains("As")),
+        "teaching error: {joined}"
+    );
+}
+
+#[test]
+fn cuda_is_rust_only() {
+    let src = "Function Main()\n\
+        \x20   Dim xs As Vec<Long> = [1, 2, 3]\n\
+        \x20   Dim a As CudaBuffer<Long> = CUDA.Upload(xs)\n\
+        \x20   Dim ys As Vec<Long> = CUDA.Download(a)\n\
+        \x20   Debug.Print ys[0]\n\
+        End Function\n";
+    let py = vbr::compile_python(src);
+    assert!(py.has_errors, "Python should refuse CUDA: {:?}", py.diagnostics);
+    assert!(
+        py.diagnostics.iter().any(|d| d.contains("Rust-only")),
+        "teaching error: {:?}",
+        py.diagnostics
+    );
+    let c = vbr::compile_c(src);
+    assert!(c.has_errors, "C should refuse CUDA: {:?}", c.diagnostics);
+    assert!(
+        c.diagnostics.iter().any(|d| d.contains("Rust-only")),
+        "teaching error: {:?}",
+        c.diagnostics
+    );
+}
+
+#[test]
 fn list_fill_emits_vec_repeat() {
     let rust = rust_of(
         "Function Main()\n\

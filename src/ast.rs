@@ -810,6 +810,8 @@ pub enum DeclType {
     /// `Result<T, E>`. `Result<T>` is shorthand: the parser fills `E` with `String`.
     Result(Box<DeclType>, Box<DeclType>),
     Option(Box<DeclType>), // → Option<T>
+    /// Device buffer — `CUDA.Upload` / `CUDA.Alloc`. Not a host `Vec`.
+    CudaBuffer(Box<DeclType>),
     Tuple(Vec<DeclType>),
     Array(Type, usize),          // Dim x(N)      → [T; N]
     Array2D(Type, usize, usize), // Dim grid(R, C) → [[T; C]; R]
@@ -826,6 +828,7 @@ impl DeclType {
             DeclType::Map(k, v) => format!("Map<{}, {}>", k.vb(), v.vb()),
             DeclType::Result(t, e) => format!("Result<{}, {}>", t.vb(), e.vb()),
             DeclType::Option(t) => format!("Option<{}>", t.vb()),
+            DeclType::CudaBuffer(t) => format!("CudaBuffer<{}>", t.vb()),
             DeclType::Tuple(ts) => format!(
                 "({})",
                 ts.iter().map(|t| t.vb()).collect::<Vec<_>>().join(", ")
@@ -967,6 +970,12 @@ pub enum Stmt {
         /// `false`. Nested `Parallel For y` / `Parallel For x` is a 2-D index
         /// space (one launch over `ny * nx`). A third nest is rejected.
         parallel: bool,
+        /// `Parallel For` over `CudaBuffer`s — the kernel runs on the GPU.
+        /// Ordinary `Vec` Parallel For stays on CPU threads. Filled by the resolver.
+        device: bool,
+        /// `(name, element type)` of every `CudaBuffer` the device loop indexes.
+        /// Empty when `device` is false.
+        device_bufs: Vec<(String, Type)>,
         /// Source line of the `For` / `Parallel For` header (diagnostics).
         line: usize,
     },

@@ -3169,7 +3169,7 @@ fn is_stdlib_type(name: &str) -> bool {
 fn type_mentions(ty: &DeclType, name: &str) -> bool {
     match ty {
         DeclType::Named(n) => n == name,
-        DeclType::Vec(e) | DeclType::Option(e) => type_mentions(e, name),
+        DeclType::Vec(e) | DeclType::Option(e) | DeclType::CudaBuffer(e) => type_mentions(e, name),
         DeclType::Map(a, b) | DeclType::Result(a, b) => type_mentions(a, name) || type_mentions(b, name),
         DeclType::Tuple(ts) => ts.iter().any(|t| type_mentions(t, name)),
         _ => false,

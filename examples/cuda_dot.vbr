@@ -1,0 +1,18 @@
+' Dot product on the GPU: each product is independent; adding them is Parallel Sum.
+Function Main()
+    Dim xs As Vec<Single> = [1.0, 2.0, 3.0, 4.0]
+    Dim ys As Vec<Single> = [5.0, 6.0, 7.0, 8.0]
+    Dim n As Long = xs.Len()
+
+    Dim a As CudaBuffer<Single> = CUDA.Upload(xs)
+    Dim b As CudaBuffer<Single> = CUDA.Upload(ys)
+    Dim prod As CudaBuffer<Single> = CUDA.Alloc(n)
+
+    Parallel For i = 0 To n - 1
+        prod[i] = a[i] * b[i]
+    Next
+
+    Dim parts As Vec<Single> = CUDA.Download(prod)
+    Dim total As Single = Parallel Sum parts
+    Debug.Print total
+End Function

@@ -82,6 +82,9 @@ const HAPPY: &[&str] = &[
     "parallel_for_2d",
     "parallel_sum",
     "parallel_sum_expr",
+    "cuda_upload",
+    "cuda_dot",
+    "cuda_cross",
 ];
 
 /// Programs whose Rust output and notes we snapshot, but which we don't compile

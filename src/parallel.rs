@@ -2,10 +2,10 @@
 //! reduction.
 //!
 //! The source says the index space is free of loop-carried writes, or that a
-//! Vec is summed as a proven reduction. CUDA (and other devices) are later
-//! backends for the same claim; this module is the checker that makes the
-//! claim hold, plus the scan the Rust emitter uses to know whether to emit
-//! the CPU-thread helpers.
+//! Vec is summed as a proven reduction. CUDA (`CudaBuffer` + `CUDA.*`) is a
+//! backend for the same claim when every array in the loop lives on the
+//! device; this module is the CPU checker plus the scan the Rust emitter
+//! uses to know whether to emit the CPU-thread helpers.
 
 use std::collections::HashSet;
 
@@ -101,11 +101,12 @@ where
 }
 ";
 
-/// True when any `Parallel For` appears in the program (so the helper is
-/// emitted, and only then).
+/// True when any **CPU** `Parallel For` appears (so the thread helper is
+/// emitted). A device loop over `CudaBuffer`s uses the CUDA helper instead.
+/// Walks `Dim` types because this runs before the resolver sets `For.device`.
 pub fn program_uses_parallel_for(program: &Program) -> bool {
-    let any = |stmts: &[Stmt]| stmts.iter().any(stmt_uses_parallel);
-    program.functions.iter().any(|f| any(&f.body))
+    let any = |stmts: &[Stmt]| fn_needs_cpu_parallel(stmts);
+    program.functions.iter().any(|f| params_need_cpu(&f.params, &f.body))
         || program.tests.iter().any(|t| any(&t.body))
         || program.windows.iter().any(|w| {
             w.events.iter().any(|e| any(&e.body)) || w.subs.iter().any(|s| any(&s.body))
@@ -125,6 +126,94 @@ pub fn program_uses_parallel_for(program: &Program) -> bool {
         || program.godot_nodes.iter().any(|n| {
             n.events.iter().any(|e| any(&e.body)) || n.handlers.iter().any(|h| any(&h.body))
         })
+}
+
+fn params_need_cpu(params: &[Param], body: &[Stmt]) -> bool {
+    let mut cuda = HashSet::new();
+    let mut host = HashSet::new();
+    for p in params {
+        match &p.ty {
+            DeclType::CudaBuffer(_) => {
+                cuda.insert(p.name.to_ascii_lowercase());
+            }
+            DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
+                host.insert(p.name.to_ascii_lowercase());
+            }
+            _ => {}
+        }
+    }
+    collect_dim_arrays(body, &mut cuda, &mut host);
+    stmts_need_cpu_parallel(body, &cuda, &host)
+}
+
+fn fn_needs_cpu_parallel(stmts: &[Stmt]) -> bool {
+    let mut cuda = HashSet::new();
+    let mut host = HashSet::new();
+    collect_dim_arrays(stmts, &mut cuda, &mut host);
+    stmts_need_cpu_parallel(stmts, &cuda, &host)
+}
+
+fn collect_dim_arrays(stmts: &[Stmt], cuda: &mut HashSet<String>, host: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::Dim { name, ty, .. } => match ty {
+                DeclType::CudaBuffer(_) => {
+                    cuda.insert(name.to_ascii_lowercase());
+                }
+                DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
+                    host.insert(name.to_ascii_lowercase());
+                }
+                _ => {}
+            },
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    collect_dim_arrays(b, cuda, host);
+                }
+                if let Some(b) = else_body {
+                    collect_dim_arrays(b, cuda, host);
+                }
+            }
+            Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. }
+            | Stmt::DoLoop { body, .. }
+            | Stmt::GpuInto { body, .. }
+            | Stmt::HandleErr { body, .. } => collect_dim_arrays(body, cuda, host),
+            Stmt::Match { arms, .. } => {
+                for a in arms {
+                    collect_dim_arrays(&a.body, cuda, host);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn stmts_need_cpu_parallel(stmts: &[Stmt], cuda: &HashSet<String>, host: &HashSet<String>) -> bool {
+    stmts.iter().any(|s| stmt_needs_cpu_parallel(s, cuda, host))
+}
+
+fn stmt_needs_cpu_parallel(stmt: &Stmt, cuda: &HashSet<String>, host: &HashSet<String>) -> bool {
+    match stmt {
+        Stmt::For { parallel: true, body, .. } => {
+            let idx = crate::cuda::indexed_names(body);
+            let uses_cuda = idx.iter().any(|n| cuda.contains(&n.to_ascii_lowercase()));
+            let uses_host = idx.iter().any(|n| host.contains(&n.to_ascii_lowercase()));
+            (uses_host || !uses_cuda) || stmts_need_cpu_parallel(body, cuda, host)
+        }
+        Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::DoLoop { body, .. }
+        | Stmt::GpuInto { body, .. }
+        | Stmt::HandleErr { body, .. } => stmts_need_cpu_parallel(body, cuda, host),
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| stmts_need_cpu_parallel(b, cuda, host))
+                || else_body.as_ref().is_some_and(|b| stmts_need_cpu_parallel(b, cuda, host))
+        }
+        Stmt::Match { arms, .. } => arms
+            .iter()
+            .any(|a| stmts_need_cpu_parallel(&a.body, cuda, host)),
+        _ => false,
+    }
 }
 
 /// True when any `Parallel Sum` appears (so its helper is emitted, and only then).
@@ -153,7 +242,31 @@ pub fn program_uses_parallel_sum(program: &Program) -> bool {
 }
 
 pub fn program_uses_parallel(program: &Program) -> bool {
-    program_uses_parallel_for(program) || program_uses_parallel_sum(program)
+    program_uses_any_parallel_for(program) || program_uses_parallel_sum(program)
+}
+
+fn program_uses_any_parallel_for(program: &Program) -> bool {
+    let any = |stmts: &[Stmt]| stmts.iter().any(stmt_uses_parallel);
+    program.functions.iter().any(|f| any(&f.body))
+        || program.tests.iter().any(|t| any(&t.body))
+        || program.windows.iter().any(|w| {
+            w.events.iter().any(|e| any(&e.body)) || w.subs.iter().any(|s| any(&s.body))
+        })
+        || program.sketches.iter().any(|s| {
+            any(&s.draw)
+                || s.events.iter().any(|e| any(&e.body))
+                || s.subs.iter().any(|sub| any(&sub.body))
+        })
+        || program.screens.iter().any(|s| {
+            s.events.iter().any(|e| any(&e.body)) || s.subs.iter().any(|sub| any(&sub.body))
+        })
+        || program.pages.iter().any(|p| {
+            p.events.iter().any(|e| any(&e.body)) || p.subs.iter().any(|s| any(&s.body))
+        })
+        || program.canvases.iter().any(|c| any(&c.body))
+        || program.godot_nodes.iter().any(|n| {
+            n.events.iter().any(|e| any(&e.body)) || n.handlers.iter().any(|h| any(&h.body))
+        })
 }
 
 fn stmt_uses_parallel(stmt: &Stmt) -> bool {

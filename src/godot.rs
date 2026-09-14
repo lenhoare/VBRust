@@ -494,7 +494,7 @@ impl Rw<'_> {
                     .collect(),
                 else_body: else_body.map(|b| b.into_iter().map(|s| self.stmt(s)).collect()),
             },
-            Stmt::For { var, from, to, step, body, ty, parallel, line } => Stmt::For {
+            Stmt::For { var, from, to, step, body, ty, parallel, device, device_bufs, line } => Stmt::For {
                 var,
                 from: self.expr(from),
                 to: self.expr(to),
@@ -502,6 +502,8 @@ impl Rw<'_> {
                 body: body.into_iter().map(|s| self.stmt(s)).collect(),
                 ty,
                 parallel,
+                device,
+                device_bufs,
                 line,
             },
             other => other,

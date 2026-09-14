@@ -3149,7 +3149,7 @@ fn rewrite_canvas_stmt(
                 .collect(),
             else_body: else_body.map(|b| b.into_iter().map(rec).collect()),
         },
-        Stmt::For { var, from, to, step, body, ty, parallel, line } => Stmt::For {
+        Stmt::For { var, from, to, step, body, ty, parallel, device, device_bufs, line } => Stmt::For {
             var,
             from: re(from),
             to: re(to),
@@ -3157,6 +3157,8 @@ fn rewrite_canvas_stmt(
             body: body.into_iter().map(rec).collect(),
             ty,
             parallel,
+            device,
+            device_bufs,
             line,
         },
         Stmt::ForEach { var1, var2, iter, body } => Stmt::ForEach {

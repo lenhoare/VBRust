@@ -158,6 +158,9 @@ fn member_completions(
             kind: CompletionKind::Method,
         }];
     }
+    if recv.eq_ignore_ascii_case("cuda") {
+        return table(namespace_members("CUDA"), CompletionKind::Method);
+    }
     // A stdlib namespace → its functions.
     if let Some(ns) = crate::transpiler::stdlib_type(recv) {
         return table(namespace_members(ns), CompletionKind::Method);
@@ -187,6 +190,18 @@ fn type_members(ty: &DeclType, program: &Program) -> Vec<Completion> {
         DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..) => {
             table(VEC_METHODS, CompletionKind::Method)
         }
+        DeclType::CudaBuffer(_) => vec![
+            Completion {
+                label: "Len".to_string(),
+                detail: "Len() As Long — element count (host)".to_string(),
+                kind: CompletionKind::Method,
+            },
+            Completion {
+                label: "Count".to_string(),
+                detail: "Count() As Long — same as Len".to_string(),
+                kind: CompletionKind::Method,
+            },
+        ],
         DeclType::Map(..) => table(MAP_METHODS, CompletionKind::Method),
         DeclType::Result(..) => table(RESULT_METHODS, CompletionKind::Method),
         DeclType::Option(..) => table(OPTION_METHODS, CompletionKind::Method),
@@ -406,6 +421,11 @@ fn namespace_members(ns: &str) -> &'static [(&'static str, &'static str)] {
             ("Run", "Shell.Run(command) As String — run to completion, capture output"),
             ("Start", "Shell.Start(command) As Process — launch without waiting"),
         ],
+        "CUDA" => &[
+            ("Upload", "CUDA.Upload(xs) As CudaBuffer<T> — copy a Vec onto the GPU"),
+            ("Alloc", "CUDA.Alloc(n) As CudaBuffer<T> — empty device buffer; T from Dim As"),
+            ("Download", "CUDA.Download(buf) As Vec<T> — copy back to the host"),
+        ],
         _ => &[],
     }
 }
@@ -419,6 +439,7 @@ const NAMESPACES: &[(&str, &str)] = &[
     ("DataFrame", "tabular data (polars)"),
     ("Database", "SQLite"),
     ("Shell", "run commands"),
+    ("CUDA", "GPU device buffers"),
 ];
 
 const KEYWORDS: &[&str] = &[

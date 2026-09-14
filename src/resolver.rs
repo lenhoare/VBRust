@@ -684,6 +684,7 @@ pub fn resolve_body(
         structs,
         no_auto_try: false,
         parallel_vars: Vec::new(),
+        cuda_alloc_elem: None,
     };
     resolve_stmts(stmts, &mut ctx);
     passed
@@ -734,6 +735,7 @@ pub fn resolve_event_body(
         structs,
         no_auto_try: false,
         parallel_vars: Vec::new(),
+        cuda_alloc_elem: None,
     };
     resolve_stmts(stmts, &mut ctx);
     drop(ctx);
@@ -841,6 +843,8 @@ struct Ctx<'a> {
     /// Enclosing `Parallel For` variables, outermost first. Nested
     /// `Parallel For y` / `Parallel For x` is a 2-D index space.
     parallel_vars: Vec<String>,
+    /// Element type of an enclosing `Dim … As CudaBuffer<T> = CUDA.Alloc(n)`.
+    cuda_alloc_elem: Option<DeclType>,
 }
 
 impl Ctx<'_> {
@@ -939,6 +943,31 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                             to_owned_string(e);
                         }
                     }
+                } else if let DeclType::CudaBuffer(elem) = ty {
+                    match elem.as_ref() {
+                        DeclType::Plain(t) if t.is_number() => {}
+                        other => ctx.diags.error_once(
+                            "cuda-elem",
+                            format!(
+                                "`CudaBuffer<{}>` holds numbers (`Single`, `Long`, …) — \
+                                 not nested lists or strings. Upload a numeric `Vec`.",
+                                other.vb()
+                            ),
+                        ),
+                    }
+                    if init.is_none() {
+                        ctx.diags.error_once(
+                            "cuda-empty",
+                            "`CudaBuffer` needs `CUDA.Alloc(n)` or `CUDA.Upload(xs)` — \
+                             there is no empty device buffer.",
+                        );
+                    }
+                    let saved = ctx.cuda_alloc_elem.clone();
+                    ctx.cuda_alloc_elem = Some((**elem).clone());
+                    if let Some(e) = init {
+                        resolve_expr(e, ctx);
+                    }
+                    ctx.cuda_alloc_elem = saved;
                 } else if let Some(e) = init {
                     resolve_expr(e, ctx);
                 }
@@ -1082,7 +1111,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                     resolve_stmts(body, ctx);
                 }
             }
-            Stmt::For { var, from, to, step, body, ty, parallel, line } => {
+            Stmt::For { var, from, to, step, body, ty, parallel, device, device_bufs, line } => {
                 resolve_expr(from, ctx);
                 clone_rvalue_indexes(from, ctx);
                 resolve_expr(to, ctx);
@@ -1109,14 +1138,18 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
                 }
                 resolve_stmts(body, ctx);
                 if *parallel {
+                    let vars = ctx.parallel_vars.clone();
                     crate::parallel::check(
-                        &ctx.parallel_vars,
+                        &vars,
                         step.as_ref(),
                         body,
                         *ty,
                         *line,
                         ctx.diags,
                     );
+                    let (dev, bufs) = mark_cuda_loop(&vars, body, *line, ctx);
+                    *device = dev;
+                    *device_bufs = bufs;
                     ctx.parallel_vars.pop();
                 }
             }
@@ -1564,6 +1597,9 @@ fn is_auto_try_expr(e: &Expr, ctx: &Ctx) -> bool {
                 ) {
                     return matches!(dt, DeclType::Result(..));
                 }
+                if crate::cuda::is_cuda_ns(ns) && crate::cuda::is_cuda_method(&lookup) {
+                    return true;
+                }
                 if ctx.binding(ns).is_none() {
                     if let Some(s) = ctx.struct_of(ns) {
                         if ctx.methods.contains_key(&(s.to_string(), snake(method))) {
@@ -1689,6 +1725,9 @@ fn try_operand_shape(e: &Expr, ctx: &Ctx) -> Option<FailShape> {
                         .as_ref()
                         .and_then(decl_shape);
                 }
+                if crate::cuda::is_cuda_ns(n) && crate::cuda::is_cuda_method(&m) {
+                    return Some(FailShape::Result);
+                }
                 // A method on a stdlib wrapper instance — `doc.Get_String(...)`.
                 if let Some(DeclType::Named(t)) = ctx.binding(n).and_then(|b| b.ty.as_ref()) {
                     if stdlib_type(t).is_some() {
@@ -1732,6 +1771,17 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
     // to be a sequence falls through to normal method resolution.
     if let ExprKind::MethodCall { method, args, .. } = &(&*e).kind {
         if is_iter_adapter(&snake(method), args) && resolve_iter_chain(e, ctx).is_some() {
+            return;
+        }
+    }
+    if let ExprKind::MethodCall { recv, method, .. } = &e.kind {
+        if matches!(&recv.kind, ExprKind::Ident(n) if crate::cuda::is_cuda_ns(n))
+            && crate::cuda::is_cuda_method(method)
+        {
+            if let ExprKind::MethodCall { method, args, .. } = &mut e.kind {
+                resolve_cuda_call(method, args, ctx);
+            }
+            auto_try(e, ctx);
             return;
         }
     }
@@ -1906,6 +1956,24 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     check_closure_captures(&params, body, ctx);
                 } else {
                     resolve_expr(a, ctx);
+                }
+            }
+            if let ExprKind::Ident(v) = &(&**recv).kind {
+                if matches!(
+                    ctx.binding(v).and_then(|b| b.ty.as_ref()),
+                    Some(DeclType::CudaBuffer(_))
+                ) {
+                    let m = snake(method);
+                    if crate::transpiler::is_mutating_method(&m) || !matches!(m.as_str(), "len" | "count") {
+                        ctx.diags.error_once(
+                            &format!("cuda-method-{m}"),
+                            format!(
+                                "`CudaBuffer` isn't a `Vec` — on the host it's `{v}.Len()` / \
+                                 `.Count()`, then `CUDA.Download({v})`. Writes are `buf[i]` \
+                                 inside `Parallel For`."
+                            ),
+                        );
+                    }
                 }
             }
             // `coll.push(s)` / `coll.insert(s)` of a `&str` need an owned String
@@ -2394,6 +2462,20 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
                     let key = std::mem::replace(&mut idx.kind, ExprKind::Int(0)).at(idx.span);
                     idx.kind = ExprKind::Ref(Box::new(key));
                 }
+                if matches!(
+                    ctx.binding(name).and_then(|b| b.ty.as_ref()),
+                    Some(DeclType::CudaBuffer(_))
+                ) && ctx.parallel_vars.is_empty()
+                {
+                    ctx.diags.error_once(
+                        &format!("cuda-host-index-{}", snake(name)),
+                        format!(
+                            "`{name}[i]` is the GPU kernel — it only runs inside \
+                             `Parallel For`. On the host, `CUDA.Download({name})` \
+                             first, then index the `Vec`."
+                        ),
+                    );
+                }
             }
         }
         ExprKind::StructLit { name, fields } => {
@@ -2700,7 +2782,7 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         // `v(i)` / `arr(i)` — the element type. Indexing a 2-D array once
         // yields its row (an inner array), so `g(r)(c)` infers through.
         ExprKind::Index(inner, _) => match infer(inner, ctx) {
-            VType::Decl(DeclType::Vec(t)) => VType::Decl(*t),
+            VType::Decl(DeclType::Vec(t) | DeclType::CudaBuffer(t)) => VType::Decl(*t),
             VType::Decl(DeclType::Array(t, _)) => vt(t),
             VType::Decl(DeclType::Array2D(t, _, c)) => VType::Decl(DeclType::Array(t, c)),
             _ => VType::Unknown,
@@ -2813,7 +2895,12 @@ fn infer(e: &Expr, ctx: &Ctx) -> VType {
         // Rust methods pass through verbatim; this curated table just tells the
         // coercion logic what the common ones *return*, so e.g. assigning
         // `s.trim()` (a `&str`) to a String still gets its `.to_string()`.
-        ExprKind::MethodCall { recv, method, .. } => {
+        ExprKind::MethodCall { recv, method, args } => {
+            if let ExprKind::Ident(ns) = &recv.kind {
+                if crate::cuda::is_cuda_ns(ns) && crate::cuda::is_cuda_method(method) {
+                    return infer_cuda_call(method, args, ctx);
+                }
+            }
             let m = snake(method);
             // Numeric methods that yield the receiver's own type (`abs`, `min`,
             // `sqrt`, `floor`, …) — infer through to the receiver so the numeric
@@ -2866,6 +2953,178 @@ fn method_vtype(m: &str) -> VType {
         // Iterators, parses, and anything else: leave to Rust (no coercion).
         _ => VType::Unknown,
     }
+}
+
+fn err_ty(inner: DeclType) -> VType {
+    VType::Decl(DeclType::Result(
+        Box::new(inner),
+        Box::new(DeclType::Plain(Type::Text)),
+    ))
+}
+
+fn infer_cuda_call(method: &str, args: &[Expr], ctx: &Ctx) -> VType {
+    let m = method.to_ascii_lowercase().replace('_', "");
+    match m.as_str() {
+        "upload" => match args.first().map(|a| infer(a, ctx)) {
+            Some(VType::Decl(DeclType::Vec(t))) => err_ty(DeclType::CudaBuffer(t)),
+            Some(VType::Decl(DeclType::Array(t, _))) if t.is_number() => {
+                err_ty(DeclType::CudaBuffer(Box::new(DeclType::Plain(t))))
+            }
+            _ => VType::Unknown,
+        },
+        "download" => match args.first().map(|a| infer(a, ctx)) {
+            Some(VType::Decl(DeclType::CudaBuffer(t))) => err_ty(DeclType::Vec(t)),
+            _ => VType::Unknown,
+        },
+        "alloc" => match &ctx.cuda_alloc_elem {
+            Some(elem) => err_ty(DeclType::CudaBuffer(Box::new(elem.clone()))),
+            None => VType::Unknown,
+        },
+        _ => VType::Unknown,
+    }
+}
+
+fn resolve_cuda_call(method: &str, args: &mut [Expr], ctx: &mut Ctx) {
+    let m = method.to_ascii_lowercase().replace('_', "");
+    if args.len() != 1 {
+        ctx.diags.error_once(
+            &format!("cuda-arity-{m}"),
+            format!(
+                "`CUDA.{}` takes one argument — `Upload(xs)`, `Alloc(n)`, or `Download(buf)`.",
+                method
+            ),
+        );
+        return;
+    }
+    resolve_expr(&mut args[0], ctx);
+    clone_rvalue_indexes(&mut args[0], ctx);
+    match m.as_str() {
+        "upload" => match infer(&args[0], ctx) {
+            VType::Decl(DeclType::Vec(t)) => match t.as_ref() {
+                DeclType::Plain(ty) if ty.is_number() => {}
+                other => ctx.diags.error_once(
+                    "cuda-upload-elem",
+                    format!(
+                        "`CUDA.Upload` copies a numeric `Vec` onto the GPU. This list holds `{}`.",
+                        other.vb()
+                    ),
+                ),
+            },
+            VType::Decl(DeclType::Array(ty, _)) if ty.is_number() => {}
+            VType::Decl(DeclType::CudaBuffer(_)) => ctx.diags.error_once(
+                "cuda-upload-buf",
+                "`CUDA.Upload` takes a host `Vec`, not a `CudaBuffer` that's already on the device.",
+            ),
+            _ => ctx.diags.error_once(
+                "cuda-upload-vec",
+                "`CUDA.Upload(xs)` copies a numeric `Vec` (or array) onto the GPU. This isn't one.",
+            ),
+        },
+        "download" => match infer(&args[0], ctx) {
+            VType::Decl(DeclType::CudaBuffer(_)) => {}
+            _ => ctx.diags.error_once(
+                "cuda-download-buf",
+                "`CUDA.Download(buf)` copies a `CudaBuffer` back to a host `Vec`.",
+            ),
+        },
+        "alloc" => {
+            if ctx.cuda_alloc_elem.is_none() {
+                ctx.diags.error_once(
+                    "cuda-alloc-as",
+                    "`CUDA.Alloc(n)` needs a target — `Dim b As CudaBuffer<Single> = CUDA.Alloc(n)`. \
+                     The element type is the `As` clause, not `Alloc<Single>` (that's a comparison).",
+                );
+            }
+            maybe_cast(&mut args[0], Type::Long, ctx);
+        }
+        _ => {}
+    }
+}
+
+fn mark_cuda_loop(
+    vars: &[String],
+    body: &[Stmt],
+    line: usize,
+    ctx: &mut Ctx,
+) -> (bool, Vec<(String, Type)>) {
+    let names = crate::cuda::indexed_names(body);
+    let mut device = Vec::new();
+    let mut host: Vec<String> = Vec::new();
+    for n in &names {
+        match ctx.binding(n).and_then(|b| b.ty.as_ref()) {
+            Some(DeclType::CudaBuffer(inner)) => match inner.as_ref() {
+                DeclType::Plain(t) if t.is_number() => device.push((n.clone(), *t)),
+                other => ctx.diags.error(
+                    line,
+                    format!(
+                        "`CudaBuffer<{}>` isn't a numeric device buffer. Upload `Single` / `Long` / ….",
+                        other.vb()
+                    ),
+                ),
+            },
+            Some(DeclType::Vec(_) | DeclType::Array(..) | DeclType::Array2D(..)) => {
+                host.push(n.clone())
+            }
+            _ => {}
+        }
+    }
+    if device.is_empty() {
+        return (false, Vec::new());
+    }
+    if !host.is_empty() {
+        ctx.diags.error(
+            line,
+            format!(
+                "This `Parallel For` mixes a host `Vec` (`{}`) with a `CudaBuffer` (`{}`). \
+                 CUDA describes where work runs — there is no silent upload. Keep the loop \
+                 on `Vec`s (CPU threads) or `CUDA.Upload` every array first.",
+                host.join(", "),
+                device
+                    .iter()
+                    .map(|(n, _)| n.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+        return (false, Vec::new());
+    }
+    if vars.len() > 1 || crate::parallel::nested_grid2(body).is_some() {
+        ctx.diags.error(
+            line,
+            "CUDA buffers are a 1-D index space (`buf[i]`). Nested \
+             `Parallel For y` / `Parallel For x` stays on CPU `Vec`s — a 2-D CUDA grid is later.",
+        );
+        return (false, Vec::new());
+    }
+    if !crate::cuda::check_device_body(body, line, ctx.diags) {
+        return (false, Vec::new());
+    }
+    let mut locals = std::collections::HashSet::new();
+    crate::parallel::collect_locals(body, &mut locals);
+    let mut allow = std::collections::HashSet::new();
+    for v in vars {
+        allow.insert(v.to_ascii_lowercase());
+    }
+    for l in &locals {
+        allow.insert(l.clone());
+    }
+    for (n, _) in &device {
+        allow.insert(n.to_ascii_lowercase());
+    }
+    let stray = crate::cuda::stray_idents(body, &allow);
+    if let Some(name) = stray.iter().next() {
+        ctx.diags.error(
+            line,
+            format!(
+                "CUDA `Parallel For` can read `CudaBuffer`s and literals this slice — \
+                 host variable `{name}` isn't on the device. Fold it into the expression, \
+                 or `CUDA.Upload` it."
+            ),
+        );
+        return (false, Vec::new());
+    }
+    device.sort_by(|a, b| a.0.cmp(&b.0));
+    (true, device)
 }
 
 // ---- DataFrame column formulas -------------------------------------------------

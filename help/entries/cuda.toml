@@ -1,0 +1,40 @@
+id = "cuda"
+title = "CUDA"
+category = "Parallel"
+kind = "namespace"
+
+syntax = """
+Dim a As CudaBuffer<Single> = CUDA.Upload(xs)
+Dim b As CudaBuffer<Single> = CUDA.Alloc(n)
+Dim result As Vec<Single> = CUDA.Download(b)
+"""
+
+summary = "Copy numeric lists onto an NVIDIA GPU and back — where Parallel For on those buffers runs."
+
+remarks = """
+`CUDA` names **where** work runs. `Parallel For` names **independence**. A `Parallel For` over `CudaBuffer`s is the GPU claim; the same loop over ordinary `Vec`s stays on CPU threads. There is no silent upload of a host `Vec`.
+
+`CUDA.Upload(xs)` copies a numeric `Vec` (or array) onto the device. `CUDA.Alloc(n)` makes an empty buffer; the element type comes from `Dim … As CudaBuffer<T>` — not `Alloc<Single>`, which the parser would read as a comparison. `CUDA.Download(buf)` copies back to a host `Vec`. All three can fail (no GPU, out of memory) and use implicit `?` like `FileSystem.Read`.
+
+`buf.Len()` / `.Count()` are host-side. `buf[i]` is the kernel: it only runs inside `Parallel For`. On the host, download first.
+
+Mixing a `Vec` and a `CudaBuffer` in one `Parallel For` is an error. Python and C refuse CUDA rather than faking a host array. `CUDA` is not a `vbr_stdlib` crate — the compiler emits the driver/nvrtc loader only when the program uses it.
+
+A 2-D CUDA grid, a device reduction (`Parallel Sum` on a `CudaBuffer`), managed memory, and device versions of user functions are later. A dot product is therefore GPU multiply + host `Parallel Sum` (`examples/cuda_dot.vbr`); a 3-vector cross product fits one `Parallel For` because reads of a *different* buffer may use any index (`examples/cuda_cross.vbr`).
+"""
+
+example = """
+Function Main()
+    Dim input As Vec<Single> = [1.0, 2.0, 3.0, 4.0]
+    Dim n As Long = input.Len()
+    Dim a As CudaBuffer<Single> = CUDA.Upload(input)
+    Dim b As CudaBuffer<Single> = CUDA.Alloc(n)
+    Parallel For i = 0 To n - 1
+        b[i] = a[i] * a[i] + 1.0
+    Next
+    Dim result As Vec<Single> = CUDA.Download(b)
+    Debug.Print result[0]
+End Function
+"""
+
+see_also = ["cuda-buffer", "parallel-for", "parallel-sum", "vec"]
