@@ -1,5 +1,5 @@
-' An opaque Rust handle may only be passed back into another Rust block —
-' never used as a Vinyl value. Printing it is an error.
+' A Handle is a live Rust object — pass it, Return it, store it, or open it
+' inside `Rust … End Rust`. Printing it is an error.
 Function Main()
     Dim words = Rust "a b c".split_whitespace() End Rust
     Debug.Print words

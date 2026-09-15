@@ -15,11 +15,15 @@ replaces = "DoEvents (and blocking calls)"
 summary = "Runs slow work without freezing a Window, Screen, or Page."
 
 remarks = """
-`Await` belongs inside a surface **event** (a `Window`, `Screen`, or `Page` handler). It lets a slow call — a web request, a heavy computation — run off to one side so the interface stays live, then continues when the result lands. A Page awaits `Http.Get` and `Http.Post` on the browser's fetch.
+`Await` means: this call may take time; continue when it finishes.
 
-The usual shape: set a "working…" state first (the view redraws at once), then `Match Await` on the call to fold Ok/Err into state. A failed call hits the event sink unless you `Handle` it. It reads like ordinary sequential code, but nothing blocks.
+In `Function Main()` (a console program) that is just the call — there is no UI to freeze. In a `Window`, `Screen`, or `Page` **Event**, it runs the call off to one side so the interface stays live, then resumes. A helper `Sub` may contain the `Await` too, if the Event (or another such Sub) **ends** with a call to it — Vinyl flattens that tail into one kick-off / continuation. A Page awaits `Http.Get` and `Http.Post` on the browser's fetch.
 
-`Await` only makes sense in that event context, so there is no standalone example here — see the GUI / TUI guide for a full one.
+Do not put `Await` inside a `Function` in a surface program: keep the Function synchronous and write `Match Await Load(…)` in the Event, so the whole Function runs off-thread.
+
+The usual Event shape: set a "working…" state first (the view redraws at once), then `Match Await` on the call to fold Ok/Err into state. One `Await` per event, as a top-level `Match` or `Dim` — not nested in `If`/`For`. A failed call hits the event sink unless you `Handle` it.
+
+See the GUI / TUI guide, `examples/fetch.vbr`, and `examples/await_sub.vbr`.
 """
 
-see_also = ["match", "handle", "http", "page"]
+see_also = ["match", "handle", "http", "page", "sub"]

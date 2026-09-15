@@ -92,9 +92,12 @@ a crate type or understand a trait.
   End Rust
   ```
   → `let (q, r) = { (n / d, n % d) };`
-- **Crate objects live and die inside the block.** You don't hold a `ThreadRng`
-  or a `reqwest::Client` in a Vinyl variable — do the whole interaction in one
-  block and return the simple value. (Only Vinyl-expressible values cross back.)
+- **Crate objects can leave as a `Handle`.** You don't name the Rust type in Vinyl
+  — `Dim client = Rust reqwest::blocking::Client::new() End Rust` (or
+  `Function Make() As Handle`) boxes it. Pass, return, and store the Handle; open
+  it in a later `Rust` block. A value that isn't `'static` (a borrow of a local)
+  will not compile on `Return`. Plain Vinyl-expressible values still cross back
+  through `As Long` / `As String` / … as before.
 - **The block handles its own imports** (`use rand::Rng;` inside it). Self-contained.
 
 ---

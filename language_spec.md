@@ -94,7 +94,7 @@ Dim a As T1, b As T2 = expr      ' several variables, one per As (initialiser op
 Dim a, b = tupleExpr             ' tuple destructuring (inferred)
 Dim (a, b) As (T, U) = expr      ' tuple destructuring (typed)
 ```
-- A single `Dim` **requires** `As Type` (the one exception is an opaque handle,
+- A single `Dim` **requires** `As Type` (the one exception is an opaque `Handle`,
   §9). The untyped tuple-destructure form is inferred; the parenthesised form
   gives each binding a type via a tuple annotation — chiefly so an inline
   `Rust`/`Python` block can extract several typed values at once.
@@ -658,15 +658,23 @@ End Rust
 - The block body is captured **verbatim** (not tokenised); terminated by a line
   that is exactly `End Rust`.
 
-**Opaque handles** — `Dim name = Rust … End Rust` with **no `As`**:
-- Hold a value whose type is not Vinyl-expressible; Rust infers and owns the type.
-- The handle's **only** legal use is being spliced into a later inline-Rust block
-  (by name). Any other appearance — printing, comparison, assignment, passing to
-  a procedure — is rejected (§12).
-- Confined to one function (it cannot cross a procedure boundary, since Vinyl has
-  no type name for it). Within the function it may flow between any number of
-  Rust blocks, persisting state between them.
-- Emitted `let mut` (Vinyl cannot see whether a later block mutates it).
+**Handles** — `Dim name = Rust … End Rust` with **no `As`** (sugar for
+`Dim name As Handle = …`):
+- Hold a value whose type is not Vinyl-expressible. The inner Rust type is boxed;
+  Vinyl sees a `Handle`.
+- You may pass a Handle to a Function, `Return` it (`Function F() As Handle`),
+  assign it, and store it in `State` or a `Type` field.
+- `ByVal` **moves** the Handle (the caller cannot use it afterwards); `ByRef`
+  lends it so the callee can open and update the same object. Passing must be
+  explicit (`ByVal h As Handle` / `ByRef h As Handle`).
+- You cannot print, compare, concatenate, or call Vinyl methods on a Handle. Open
+  it inside a later `Rust` block (by name). Wrong inner type panics at runtime.
+  When the Handle crossed a Function, name the inner type so rustc can downcast
+  (`let words: &mut std::str::SplitWhitespace = words`).
+- The boxed value must be `'static` to leave a function — a borrow of a local
+  will not compile on `Return`. That is honest: the object has to outlive the
+  frame that created it.
+- Emitted `let mut` (a `Rust` block opens the Handle with `with_mut`).
 
 An inline block may use an external crate: declare it with `Use` (§13) and run
 the project with `runproject`.
@@ -713,7 +721,10 @@ Provided by the `vbr_stdlib` crate, auto-imported when referenced. Calls are
   one-shot requests; the visible type is `String` (the body). They can fail —
   a normal call propagates (§8). In a Window / Screen / Page event they run
   with `Await` (on a Page, Get and Post are the browser's fetch — `web_spec.md`
-  §5). For a reused client/session, use inline Rust or a `.rs` module.
+  §5); a helper `Sub` may hold that `Await` if the Event ends with a call to it.
+  A module Function in a surface program stays synchronous — `Match Await Load(…)`
+  from the Event runs it off-thread. In console `Main`, `Await` is the call.
+  For a reused client/session, use inline Rust or a `.rs` module.
 - **Wrapper types:** `DateTime`, `Json`, `Database` — opaque value types with
   methods (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`,
   `j.Get_String(...)`, SQLite via `Database.Open(...)`, etc.). Static calls use
@@ -769,7 +780,7 @@ These parse but are deliberately refused, each with guidance:
 | Passing a literal to `ByRef`    | Needs an assignable place.                      |
 | Declaring a struct uninitialised | Construct fully at `Dim`.                      |
 | Indexing where a bound/type is unknown | Compile-time error with explanation.     |
-| Using an opaque handle as a value | Only pass it back into a `Rust` block (§9).   |
+| Using a Handle as a Vinyl value | Pass it, `Return` it, store it, or open it in a `Rust` block (§9). |
 | Generic definitions (`Function F<T>`, `Type Pair<T>`, `Enum Maybe<T>`) | Trait bounds have no VB spelling; write it in a `.rs` module (the graduation ramp). |
 | A closure outside a method argument | Its type is unnameable — pass it directly (`v.filter(|x| …)`) or use a named `Function`. |
 | A closure mutating a captured variable | Closures *read* their surroundings; do the mutation in a `For Each` loop. |

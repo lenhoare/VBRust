@@ -484,7 +484,10 @@ hidden state machine, keeping the generated loop readable. To guard the call, pu
 the check *before* the `Await` (`If busy Then Return`, or set a flag first), or
 move the guard into the awaited helper (return early). Nesting an `Await` earns a
 teaching error that points at these options — Vinyl keeps async simple on purpose;
-reach for real Rust when you need more.
+reach for real Rust when you need more. A helper `Sub` may hold the `Await` if the
+Event **ends** with a call to it (same flattening as a Window). A module Function
+in a Screen program must not contain `Await` — `Match Await Load(…)` from the Event
+instead.
 
 ---
 

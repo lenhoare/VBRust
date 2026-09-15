@@ -138,7 +138,9 @@ End Screen
 just a call to it. This is the answer to "can one event call another?" — not
 directly (events are entry points), but a shared `Sub` gives you the same thing,
 more clearly. (Before, you'd hoist the logic to a module `Sub` and pass every
-field it touched as `ByRef` — the helper needs none of that.)
+field it touched as `ByRef` — the helper needs none of that.) If the helper
+uses `Await`, the Event must end with the call — Vinyl inlines that `Await` into
+the event, same as writing it there.
 
 That is the entire mental model. Everything else is *which widgets exist* and
 *how they're arranged* — and that is where a Window and a Screen part ways.

@@ -137,7 +137,8 @@ End Match
 - The event **splits** exactly as in a `Window`: everything before the `Await`
   runs in the kick-off (so `"loading…"` shows immediately), and the code after
   it lands in a generated `<Event>Done(result)` continuation that runs when
-  the response arrives. `Dim r As String = Await …` works too (failure hits the
+  the response arrives. A helper `Sub` may hold the `Await` if the Event ends
+  with a call to it. `Dim r As String = Await …` works too (failure hits the
   event sink unless you `Handle` it). `Match Await` still matches `Ok`/`Err`.
 - The kick-off hands the future to the component with
   `ctx.link().send_future(…)` — Yew's equivalent of Iced's `Task::perform`.

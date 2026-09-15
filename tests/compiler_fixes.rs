@@ -3013,3 +3013,248 @@ fn page_await_http_post_emits_fetch_wrapper() {
     );
 }
 
+#[test]
+fn handle_is_first_class() {
+    let rust = rust_of(
+        "Function MakeWords() As Handle\n\
+        \x20   Return Rust \"a b c\".split_whitespace() End Rust\n\
+        End Function\n\
+        Function NextWord(ByRef words As Handle) As String\n\
+        \x20   Return Rust\n\
+        \x20       let words: &mut std::str::SplitWhitespace = words;\n\
+        \x20       words.next().unwrap().to_string()\n\
+        \x20   End Rust\n\
+        End Function\n\
+        Function Main()\n\
+        \x20   Dim words As Handle = MakeWords()\n\
+        \x20   Debug.Print NextWord(words)\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("struct __VbrHandle") && rust.contains("fn with_mut"),
+        "Handle helper should be emitted:\n{rust}"
+    );
+    assert!(
+        rust.contains("__VbrHandle::new") && rust.contains(".with_mut(|words|"),
+        "create should box; use should open with_mut:\n{rust}"
+    );
+    assert!(
+        rust.contains("fn makewords() -> Result<__VbrHandle, String>")
+            && rust.contains("words: &mut __VbrHandle"),
+        "As Handle returns owned; ByRef is &mut:\n{rust}"
+    );
+    assert!(
+        rust.contains("mut words: __VbrHandle") || rust.contains("let mut words: __VbrHandle"),
+        "a Handle local should be mut:\n{rust}"
+    );
+}
+
+#[test]
+fn handle_print_is_an_error() {
+    let c = vbr::compile(
+        "Function Main()\n\
+        \x20   Dim words = Rust \"a b\".split_whitespace() End Rust\n\
+        \x20   Debug.Print words\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "printing a Handle should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("live Rust object") && joined.contains("can't print"),
+        "should mention Handle as a live object:\n{joined}"
+    );
+    assert!(
+        !joined.contains("or pass it to a function"),
+        "pass/return should be allowed now:\n{joined}"
+    );
+}
+
+#[test]
+fn handle_param_needs_byval_or_byref() {
+    let c = vbr::compile(
+        "Function NextWord(words As Handle) As String\n\
+        \x20   Return \"\"\n\
+        End Function\n\
+        Function Main()\n\
+        End Function\n",
+    );
+    assert!(c.has_errors, "Handle param needs ByVal/ByRef: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("ByVal") && joined.contains("ByRef") && joined.contains("Handle"),
+        "should teach ByVal move vs ByRef lend:\n{joined}"
+    );
+}
+
+fn mini_window(extra: &str) -> String {
+    format!(
+        "Window W\n\
+        \x20   Title \"W\"\n\
+        \x20   State\n\
+        \x20       Dim url As String = \"https://example.com\"\n\
+        \x20       Dim status As String = \"idle\"\n\
+        \x20   End State\n\
+        \x20   View\n\
+        \x20       Column\n\
+        \x20           Text status\n\
+        \x20       End Column\n\
+        \x20   End View\n\
+        {extra}\n\
+        End Window\n\
+        Function Main()\n\
+        \x20   W.Run\n\
+        End Function\n"
+    )
+}
+
+#[test]
+fn await_in_main_is_blocking() {
+    let rust = rust_of(
+        "Function Main()\n\
+        \x20   Dim body As String = Await Http.Get(\"https://example.com\")\n\
+        \x20   Debug.Print Len(body)\n\
+        End Function\n",
+    );
+    assert!(
+        rust.contains("Http::get") && !rust.contains(".await"),
+        "console Await should be the blocking call: {rust}"
+    );
+}
+
+#[test]
+fn await_in_surface_function_is_an_error() {
+    let src = mini_window(
+        "    Event E\n\
+        \x20       status = \"x\"\n\
+        \x20   End Event\n",
+    ) + "Function Load() As String\n\
+        \x20   Return Await Http.Get(\"https://example.com\")\n\
+        End Function\n";
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Await in a Window Function should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Await") && joined.contains("Function"),
+        "should refuse Await inside a surface Function:\n{joined}"
+    );
+}
+
+#[test]
+fn await_in_sub_tail_called_from_event() {
+    let src = mini_window(
+        "    Sub DoFetch\n\
+        \x20       status = \"loading…\"\n\
+        \x20       Match Await Http.Get(url)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Sub\n\
+        \x20   Event Fetch\n\
+        \x20       DoFetch()\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("Task::perform") && rust.contains("Http::get") && rust.contains("FetchDone"),
+        "async Sub should split like an Event Await: {rust}"
+    );
+    assert!(
+        !rust.contains("fn dofetch"),
+        "async Sub is inlined, not a state method: {rust}"
+    );
+}
+
+#[test]
+fn await_sub_not_tail_is_an_error() {
+    let src = mini_window(
+        "    Sub DoFetch\n\
+        \x20       Match Await Http.Get(url)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Sub\n\
+        \x20   Event Fetch\n\
+        \x20       DoFetch()\n\
+        \x20       status = \"kicked\"\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "code after async Sub should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("last statement") || joined.contains("DoFetch"),
+        "should require a tail call:\n{joined}"
+    );
+}
+
+#[test]
+fn two_events_can_share_an_async_sub() {
+    let src = mini_window(
+        "    Sub DoFetch\n\
+        \x20       Match Await Http.Get(url)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Sub\n\
+        \x20   Event Fetch\n\
+        \x20       DoFetch()\n\
+        \x20   End Event\n\
+        \x20   Event Refresh\n\
+        \x20       DoFetch()\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("FetchDone") && rust.contains("RefreshDone"),
+        "each Event keeps its own continuation: {rust}"
+    );
+}
+
+#[test]
+fn async_sub_chain_flattens() {
+    let src = mini_window(
+        "    Sub DoFetch\n\
+        \x20       Match Await Http.Get(url)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Sub\n\
+        \x20   Sub Load\n\
+        \x20       status = \"loading…\"\n\
+        \x20       DoFetch()\n\
+        \x20   End Sub\n\
+        \x20   Event Fetch\n\
+        \x20       Load()\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("loading") && rust.contains("Http::get") && rust.contains("FetchDone"),
+        "Event → Load → DoFetch should flatten to one split: {rust}"
+    );
+    assert!(
+        !rust.contains("fn load") && !rust.contains("fn dofetch"),
+        "async chain is inlined: {rust}"
+    );
+}
+
+#[test]
+fn async_sub_with_param() {
+    let src = mini_window(
+        "    Sub DoFetch(ByVal u As String)\n\
+        \x20       Match Await Http.Get(u)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Sub\n\
+        \x20   Event Fetch\n\
+        \x20       DoFetch(url)\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("Http::get") && rust.contains("FetchDone"),
+        "async Sub param should snapshot into the call: {rust}"
+    );
+}
+

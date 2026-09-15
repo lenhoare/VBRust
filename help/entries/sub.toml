@@ -16,7 +16,7 @@ A `Sub` is a `Function` with nothing to hand back — use it for actions: printi
 
 Parameters work exactly as in a `Function`. When you need a result instead, use a `Function` with `As <Type>` and `Return`.
 
-Inside a `Window` or `Screen` block, a `Sub` becomes a helper method on the state that events can share — see the surface guide.
+Inside a `Window` or `Screen` block, a `Sub` becomes a helper method on the state that events can share — see the surface guide. If the `Sub` uses `Await`, it is not a method: an Event must **end** with a call to it (or to a Sub that ends with that call), and Vinyl inlines the `Await` into that Event.
 """
 
 example = """
@@ -30,4 +30,4 @@ Function Main()
 End Function
 """
 
-see_also = ["function", "return"]
+see_also = ["function", "return", "await"]

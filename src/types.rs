@@ -145,6 +145,9 @@ impl Typer {
                     }
                 }
             }
+            Stmt::HandleDim { name, .. } => {
+                self.env.insert(name.to_ascii_lowercase(), DeclType::Handle);
+            }
             Stmt::Print(e) | Stmt::Return(Some(e)) => {
                 self.infer(e);
             }

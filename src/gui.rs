@@ -46,6 +46,7 @@ pub fn emit_gui_program(
     is_entry: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    surface::check_await_honesty(program, diags);
     let mut out = String::new();
     // The crate root of a multi-file project declares its sibling modules,
     // exactly as a plain program's entry does.
@@ -318,7 +319,7 @@ fn emit_sketch(
     }
 
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&s.events, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+        analyze_events(&s.events, &s.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
     let any_async = splits.iter().any(Option::is_some);
     let has_messages = !s.events.is_empty();
 
@@ -326,8 +327,8 @@ fn emit_sketch(
     if any_async {
         out.push_str("use iced::Task;\n");
     }
-    out.push_str(&surface::surface_std_imports(&s.events, helpers));
-    let mut std_used = event_stdlib_imports(&s.events, diags);
+    out.push_str(&surface::surface_std_imports(&s.events, &s.subs, helpers));
+    let mut std_used = event_stdlib_imports(&s.events, &s.subs, diags);
     for ns in std_top {
         if !std_used.iter().any(|u| u == ns) {
             std_used.push(ns.clone());
@@ -712,7 +713,7 @@ fn emit_window(
     // (returns a `Task`) and a generated `<Event>Done(...)` continuation arm. If
     // any event is async, the whole `update` returns `Task<Message>`.
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&w.events, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+        analyze_events(&w.events, &w.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
     let any_async = splits.iter().any(Option::is_some);
 
     // Import only the widgets the view uses, plus Task / stdlib namespaces when
@@ -727,10 +728,10 @@ fn emit_window(
     }
     // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
     // headers HashMap, or one built in a helper like `ChatComplete`).
-    out.push_str(&surface::surface_std_imports(&w.events, helpers));
+    out.push_str(&surface::surface_std_imports(&w.events, &w.subs, helpers));
     // vbr_stdlib namespaces: those called in events, plus item-level types /
     // `State` initialisers (`Database` for a db held in state).
-    let mut std_used = event_stdlib_imports(&w.events, diags);
+    let mut std_used = event_stdlib_imports(&w.events, &w.subs, diags);
     for ns in std_top {
         if !std_used.iter().any(|u| u == ns) {
             std_used.push(ns.clone());
@@ -1228,6 +1229,7 @@ fn emit_paint_fn(
         None,
         None,
         Some(crate::resolver::FailShape::Result),
+        false,
         diags,
     );
     elide_for_counter_dims(&mut body);

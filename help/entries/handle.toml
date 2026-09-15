@@ -25,6 +25,8 @@ Value form (`a = F() Handle err`): every path must leave (`Return`, `Exit For`, 
 Statement form (`F() Handle err`): falling through swallows the error. That swallow has to be written; a bare `F()` still propagates.
 
 `Handle` on something that cannot fail is a teaching error. Nested fallible calls inside the handled call are also a teaching error — give each call its own statement.
+
+This is not the `Handle` type (`vbr help handle-type`) — that is a live Rust object you pass and open inside `Rust … End Rust`.
 """
 
 example = """
@@ -42,4 +44,4 @@ Function Main()
 End Function
 """
 
-see_also = ["raiseerror", "raw", "result"]
+see_also = ["raiseerror", "raw", "result", "handle-type"]

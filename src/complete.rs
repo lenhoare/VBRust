@@ -211,6 +211,7 @@ fn type_members(ty: &DeclType, program: &Program) -> Vec<Completion> {
         DeclType::Result(..) => table(RESULT_METHODS, CompletionKind::Method),
         DeclType::Option(..) => table(OPTION_METHODS, CompletionKind::Method),
         DeclType::Tuple(_) => Vec::new(), // elements are .0 / .1
+        DeclType::Handle => Vec::new(),
         DeclType::Named(n) => named_members(n, program),
     }
 }

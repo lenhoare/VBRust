@@ -173,8 +173,8 @@ None of these require a published wrapper:
   ```
   `client` is declared once, lives for the whole function, and every iteration
   reuses it — Vinyl owns the control flow, the Rust object just gets handed to each
-  block. (An opaque handle is a value Vinyl holds but can't interpret — it can only
-  carry it and pass it back into Rust blocks.)
+  block. (A Handle is a live Rust object Vinyl can pass, return, and store — it can
+  only open it inside a `Rust` block.)
 - **Reusable in this project** → a **`.rs` module file** you write yourself (above).
 - **Worth sharing with all VBers** → *then* it graduates into the curated stdlib.
   But that's an optimisation for popular libraries — never a prerequisite.

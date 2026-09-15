@@ -283,6 +283,13 @@ Rules:
   it runs off-thread via `spawn_blocking`).
 - Calling a blocking stdlib call in an event **without** `Await` is a hard error
   (✘ "would freeze the window — use `Await`"), so the trap is caught at compile time.
+- A helper **`Sub` may contain the `Await`**. The Event (or another Sub) must
+  **end** with a call to it — Vinyl flattens that tail into the same one-cut
+  split. Code after the call is the same error as a second `Await`. The Sub is
+  not emitted as a method; two Events may share it (each gets its own `…Done`).
+- A module **`Function` in a Window/Screen/Page program must not contain `Await`**.
+  Keep it synchronous and write `Match Await Load(…)` in the Event (the Function
+  runs off-thread as a whole). In console `Main`, `Await` is just the call.
 
 ---
 

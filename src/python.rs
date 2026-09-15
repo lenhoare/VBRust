@@ -1356,6 +1356,7 @@ impl Emitter {
                     format!("{} {} {}", l, self.bin_op(*op), r)
                 }
             }
+            ExprKind::Await(inner) => self.expr(inner),
             ExprKind::Call { name, args } => {
                 let s = self.call(name, args);
                 if self.should_auto_try_call(name) {
@@ -1591,6 +1592,10 @@ impl Emitter {
             // wrappers, not a bare union — so `object` is the honest annotation.
             DeclType::Option(_) => "object".into(),
             DeclType::Result(_, _) => "object".into(),
+            DeclType::Handle => {
+                self.warn("`Handle` is a live Rust object — it has no Python form.");
+                "object".into()
+            }
             // A DataFrame is a polars frame (no imported class name); annotate it
             // `object` so a param/return hint can't NameError. Local-var hints
             // aren't evaluated at runtime, but params/returns are.

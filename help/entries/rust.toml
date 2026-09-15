@@ -8,6 +8,10 @@ Dim <name> As <Type> = Rust
     <rust>
 End Rust
 
+Dim <handle> As Handle = Rust
+    <rust>
+End Rust
+
 Dim <handle> = Rust
     <rust>
 End Rust
@@ -20,9 +24,9 @@ Vinyl covers a friendly slice of Rust. For everything else, this is the door: a 
 
 Your Vinyl variables are already in scope inside the block, by their lowercased names (`myValue` is `myvalue`; underscores stay). The last line, written **without** a semicolon, is the value. `As Long` (or whatever you declared) is the type that line must produce, and that value flows back into Vinyl.
 
-A `Dim` with **no `As`** holds an opaque handle — an iterator, a client, anything Vinyl has no type for. You cannot print it or compare it; the one thing you may do is hand it back into another `Rust` block. State inside it survives from one block to the next.
+A `Dim` with **no `As`** is a `Handle` — an iterator, a client, anything Vinyl has no type for. You can pass it, `Return` it, and store it. You cannot print it or compare it; open it inside another `Rust` block. `ByVal` moves it; `ByRef` lends it. The inner value must be `'static` to leave a function.
 
-Need a crate Vinyl does not ship? `Use rand 0.8` (or any `Use crate version`) writes the Cargo.toml line. The trait and generic complexity stays sealed inside the block; only a plain value comes back.
+Need a crate Vinyl does not ship? `Use rand 0.8` (or any `Use crate version`) writes the Cargo.toml line. The trait and generic complexity stays sealed inside the block; only a plain value or a Handle comes back.
 """
 
 example = """
@@ -46,4 +50,4 @@ Function Main()
 End Function
 """
 
-see_also = ["python", "iced", "ratatui", "dim", "raw"]
+see_also = ["python", "iced", "ratatui", "dim", "raw", "handle-type"]

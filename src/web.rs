@@ -50,6 +50,7 @@ pub fn emit_web_program(
     is_entry: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    surface::check_await_honesty(program, diags);
     let mut out = String::new();
     // The crate root of a multi-file project declares its sibling modules,
     // exactly as a plain program's entry does.
@@ -164,7 +165,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
     // (sends a future to the component) and a generated `<Event>Done(...)`
     // continuation arm. Also checks nothing blocking runs un-`Await`ed.
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&p.events, &field_ty, &t.fns, diags, AsyncBackend::Web);
+        analyze_events(&p.events, &p.subs, &field_ty, &t.fns, diags, AsyncBackend::Web);
     let any_async = splits.iter().any(Option::is_some);
 
     // Mark stdlib namespaces used in events so the program-wide fence catches
@@ -174,6 +175,9 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
     for e in &p.events {
         collect_event_stdlib(&e.body, &mut std_used);
     }
+    for s in &p.subs {
+        collect_event_stdlib(&s.body, &mut std_used);
+    }
     for ns in std_used.iter().filter(|ns| ns.as_str() != "Http") {
         diags.mark(&format!("stdlib:{}", ns));
     }
@@ -181,7 +185,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
     out.push_str("use yew::prelude::*;\n");
     // `std` types used in event bodies or helper functions (e.g. a HashMap
     // built in an event or a helper).
-    out.push_str(&surface::surface_std_imports(&p.events, helpers));
+    out.push_str(&surface::surface_std_imports(&p.events, &p.subs, helpers));
     out.push('\n');
 
     // ── State struct: a Yew component holds its state directly ──

@@ -1,0 +1,22 @@
+' A Handle is a live Rust object Vinyl can pass, return, and store.
+' Open it only inside a Rust block. ByRef lends it; ByVal would move it.
+Function MakeWords() As Handle
+    Return Rust
+        "the quick brown fox".split_whitespace()
+    End Rust
+End Function
+
+Function NextWord(ByRef words As Handle) As String
+    Return Rust
+        let words: &mut std::str::SplitWhitespace = words;
+        words.next().unwrap().to_string()
+    End Rust
+End Function
+
+Function Main()
+    Dim words As Handle = MakeWords()
+    Dim first As String = NextWord(words)
+    Dim second As String = NextWord(words)
+    Debug.Print "first:  " & first
+    Debug.Print "second: " & second
+End Function

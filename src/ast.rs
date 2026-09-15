@@ -352,8 +352,9 @@ pub struct Window {
     pub subs: Vec<GuiEvent>,
 }
 
-/// One field of a window's `State` block — a `Dim` with an initial value. The
-/// type is a primitive or a user enum (`DeclType::Plain`/`Named`).
+/// One field of a window's `State` block — a `Dim` with an initial value.
+/// Primitives and user enums need an initialiser; a `Vec` may start empty; a
+/// `Handle` holds a live Rust object (`Dim h = Rust …` or `Dim h As Handle = …`).
 #[derive(Debug, Clone)]
 pub struct StateField {
     pub name: String,
@@ -812,6 +813,9 @@ pub enum DeclType {
     Option(Box<DeclType>), // → Option<T>
     /// Device buffer — `CUDA.Upload` / `CUDA.Alloc` / `CUDA.Managed`. Not a host `Vec`.
     CudaBuffer(Box<DeclType>),
+    /// A live Rust value Vinyl has no other type for. Pass, return, and store
+    /// it; only a `Rust … End Rust` block may open it.
+    Handle,
     Tuple(Vec<DeclType>),
     Array(Type, usize),          // Dim x(N)      → [T; N]
     Array2D(Type, usize, usize), // Dim grid(R, C) → [[T; C]; R]
@@ -829,6 +833,7 @@ impl DeclType {
             DeclType::Result(t, e) => format!("Result<{}, {}>", t.vb(), e.vb()),
             DeclType::Option(t) => format!("Option<{}>", t.vb()),
             DeclType::CudaBuffer(t) => format!("CudaBuffer<{}>", t.vb()),
+            DeclType::Handle => "Handle".to_string(),
             DeclType::Tuple(ts) => format!(
                 "({})",
                 ts.iter().map(|t| t.vb()).collect::<Vec<_>>().join(", ")
@@ -922,9 +927,9 @@ pub enum Stmt {
         ty: Option<DeclType>,
         value: Expr,
     },
-    /// `Dim name = Rust … End Rust` — an opaque Rust handle. No `As` type: the
-    /// value's type lives only in Rust (inferred there). Vinyl can pass it back
-    /// into another inline-Rust block but never use it as a value.
+    /// `Dim name = Rust … End Rust` — a `Handle` (no `As` is sugar for
+    /// `As Handle`). The inner Rust type is boxed; Vinyl can pass, return, and
+    /// store the handle, and open it only inside a later `Rust` block.
     HandleDim {
         name: String,
         raw: String,

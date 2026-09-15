@@ -416,8 +416,7 @@ pub fn build_fn_table(program: &Program) -> FnTable {
 /// Everything the resolver knows about one name in scope.
 #[derive(Clone, Debug)]
 struct Binding {
-    /// The declared type. `None` for an opaque `Dim h = Rust …` handle, whose
-    /// type lives only inside Rust.
+    /// The declared type. `None` only for a leftover untyped binding.
     ty: Option<DeclType>,
     /// A ByVal parameter the generated Rust holds as a borrow (`&str` for a
     /// String, `&Vec`/`&HashMap` for a collection) — already a reference, so
@@ -629,6 +628,7 @@ pub fn resolve_body(
     ret_coerce: Option<Type>,
     ret_inner: Option<Type>,
     ret_shape: Option<FailShape>,
+    ret_handle: bool,
     diags: &mut Diagnostics,
 ) -> HashSet<String> {
     // Only ByRef *primitive* params are dereferenced — struct/collection field
@@ -675,6 +675,7 @@ pub fn resolve_body(
         ret_coerce,
         ret_inner,
         ret_shape,
+        ret_handle,
         diags,
         env: &mut env,
         passed: &mut passed,
@@ -727,6 +728,7 @@ pub fn resolve_event_body(
         ret_coerce: None,
         ret_inner: None,
         ret_shape: Some(FailShape::Result),
+        ret_handle: false,
         diags,
         env: &mut env,
         passed: &mut passed,
@@ -776,6 +778,8 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
             }
             // ByVal: borrow an unknown-size type, or adapt a numeric argument.
             Some(ParamMode::ByVal) => match sig.param_types.get(i) {
+                // A Handle moves (owned), like Option/Result — not borrowed.
+                Some(DeclType::Handle) => {}
                 // Enums are Copy — pass by value, same as a Long. Borrowing
                 // would make `lane = Lane.Doing` a `&Lane == Lane` type error.
                 Some(DeclType::Named(n)) if ctx.enums.contains(n) => {}
@@ -806,6 +810,22 @@ fn apply_fn_sig(sig: &FnSig, args: &mut [Expr], ctx: &mut Ctx) {
     }
 }
 
+fn expr_is_handle(e: &Expr, ctx: &Ctx) -> bool {
+    matches!(infer(e, ctx), VType::Decl(DeclType::Handle))
+}
+
+fn reject_handle_as_value(e: &Expr, ctx: &mut Ctx, doing: &str) {
+    if expr_is_handle(e, ctx) {
+        ctx.diags.error_once(
+            "handle-value",
+            format!(
+                "A Handle is a live Rust object — {doing}. Pass it to a Function, \
+                 Return it, store it, or open it inside `Rust … End Rust`."
+            ),
+        );
+    }
+}
+
 struct Ctx<'a> {
     /// Names whose uses are references and must be dereferenced: ByRef params
     /// plus the (scoped) variables of an enclosing `For Each`.
@@ -815,6 +835,8 @@ struct Ctx<'a> {
     consts: &'a ConstMap,
     /// The function's plain numeric return type, for coercing `Return` values.
     ret_coerce: Option<Type>,
+    /// True when this function is `As Handle` — `Return` may yield a Handle.
+    ret_handle: bool,
     /// The numeric inner type of a `Result<T>`/`Option<T>` return, for coercing
     /// the payload of a returned `Ok(x)`/`Some(x)` (so `Ok(a / b)` in a
     /// `Result<Long>` narrows the float quotient to `i64`).
@@ -869,11 +891,6 @@ impl Ctx<'_> {
 
     fn binding(&self, name: &str) -> Option<&Binding> {
         self.env.get(&snake(name))
-    }
-
-    /// An opaque `Dim h = Rust …` handle — a name whose type only Rust knows.
-    fn is_handle(&self, name: &str) -> bool {
-        self.binding(name).map_or(false, |b| b.ty.is_none())
     }
 
     /// A ByVal String parameter — a read-only `&str` in the generated Rust.
@@ -997,8 +1014,7 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             // The body is raw Rust (not an Expr), so there's nothing to resolve —
             // just record the name so later value-uses of it are caught.
             Stmt::HandleDim { name, .. } => {
-                ctx.env
-                    .insert(snake(name), Binding { ty: None, borrowed: false, byref: false, decl_span: Span::none() });
+                ctx.bind(name, DeclType::Handle);
             }
             Stmt::Assign { target, value, .. } => {
                 // Writing to a ByVal String parameter — it's a read-only `&str`.
@@ -1063,12 +1079,14 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Print(e) => {
                 resolve_expr(e, ctx);
+                reject_handle_as_value(e, ctx, "you can't print it");
                 // `println!("{}", *n)` borrows; don't clone a For-Each String
                 // just to print it. An index still clones (`vec[i]` would move).
                 clone_moved_rvalues(e, ctx, false);
             }
             Stmt::Log(_, e) => {
                 resolve_expr(e, ctx);
+                reject_handle_as_value(e, ctx, "you can't log it");
                 clone_moved_rvalues(e, ctx, false);
             }
             Stmt::Assert(e) => {
@@ -1077,6 +1095,22 @@ fn resolve_stmts(stmts: &mut [Stmt], ctx: &mut Ctx) {
             }
             Stmt::Return(Some(e)) => {
                 resolve_expr(e, ctx);
+                if expr_is_handle(e, ctx) && !ctx.ret_handle {
+                    ctx.diags.error_once(
+                        "handle-return",
+                        "This function doesn't return a Handle. Write `Function Name() As Handle` \
+                         to hand a Rust object back, or open it inside `Rust … End Rust` here.",
+                    );
+                }
+                if ctx.ret_handle && !expr_is_handle(e, ctx) {
+                    if !matches!(e.kind, ExprKind::InlineRust(_)) {
+                        ctx.diags.error_once(
+                            "handle-return-ty",
+                            "This function is `As Handle` — `Return` a Handle (from a `Rust` block \
+                             or another Function that yields one), not a Vinyl value.",
+                        );
+                    }
+                }
                 match ctx.ret_coerce {
                     // A String-returning function: an existing &str (literal, &str
                     // param, Trim(..)) becomes an owned String.
@@ -1458,24 +1492,32 @@ fn record_hover(span: crate::span::Span, name: &str, ctx: &mut Ctx) {
     let text = match ctx.binding(name) {
         Some(b) => match &b.ty {
             Some(ty) => {
-                let mode = if b.byref {
-                    " — passed ByRef (a `&mut` borrow)"
-                } else if b.borrowed {
-                    " — passed ByVal (borrowed, read-only)"
+                if matches!(ty, DeclType::Handle) {
+                    format!(
+                        "{} As Handle · a live Rust object — pass, return, or store it; \
+                         open it only in a `Rust` block",
+                        name
+                    )
                 } else {
-                    ""
-                };
-                format!(
-                    "{} As {} · Rust: `{}`{}",
-                    name,
-                    ty.vb(),
-                    crate::transpiler::decltype_rust(ty),
-                    mode
-                )
+                    let mode = if b.byref {
+                        " — passed ByRef (a `&mut` borrow)"
+                    } else if b.borrowed {
+                        " — passed ByVal (borrowed, read-only)"
+                    } else {
+                        ""
+                    };
+                    format!(
+                        "{} As {} · Rust: `{}`{}",
+                        name,
+                        ty.vb(),
+                        crate::transpiler::decltype_rust(ty),
+                        mode
+                    )
+                }
             }
             None => format!(
-                "{} — an opaque Rust handle (`Dim {} = Rust …`); its type lives in Rust",
-                name, name
+                "{} As Handle · a live Rust object — pass, return, or store it; open it only in a `Rust` block",
+                name
             ),
         },
         None if ctx.consts.contains_key(name) => {
@@ -1811,18 +1853,6 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         ExprKind::Ident(name) if vb_string_constant(name).is_some() => {
             e.kind = ExprKind::Str(vb_string_constant(name).unwrap());
         }
-        // An opaque Rust handle appearing as a value — the one thing it can't do.
-        ExprKind::Ident(name) if ctx.is_handle(name) => {
-            ctx.diags.error_once(
-                &format!("handle-value-{}", snake(name)),
-                format!(
-                    "'{}' is an opaque Rust handle — its type lives only inside Rust. \
-                     You can pass it back into another `Rust … End Rust` block, but Vinyl \
-                     can't print it, compare it, assign it, or pass it to a function.",
-                    name
-                ),
-            );
-        }
         ExprKind::Ident(name) if ctx.deref.contains(&snake(name)) => {
             let span = e.span;
             e.kind = ExprKind::Deref(Box::new(ExprKind::Ident(name.clone()).at(span)));
@@ -1831,10 +1861,14 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
         ExprKind::Ident(name) if ctx.consts.contains_key(name) => {
             e.kind = ExprKind::ConstRef(ctx.consts[name].0.clone());
         }
+        // Handle is a first-class value (pass / return / store). Opening it,
+        // printing it, or comparing it is a teaching error at the use site.
         ExprKind::Ident(_) | ExprKind::ConstRef(_) => {}
         ExprKind::Binary { op, lhs, rhs } => {
             resolve_expr(lhs, ctx);
             resolve_expr(rhs, ctx);
+            reject_handle_as_value(lhs, ctx, "you can't compare, add, or concatenate it");
+            reject_handle_as_value(rhs, ctx, "you can't compare, add, or concatenate it");
             // Integer `^` → `base.pow(exp)` (Rust's integer pow); only a float base
             // uses `.powi`/`.powf` (handled in the renderer).
             if *op == BinOp::Pow {
@@ -1903,6 +1937,15 @@ fn resolve_expr(e: &mut Expr, ctx: &mut Ctx) {
             }
         }
         ExprKind::MethodCall { recv, method, args } => {
+            if expr_is_handle(recv, ctx) {
+                ctx.diags.error_once(
+                    "handle-method",
+                    format!(
+                        "A Handle has no Vinyl methods — open it inside `Rust … End Rust` \
+                         (this looked like `.{method}` on a Handle)."
+                    ),
+                );
+            }
             // DataFrame transforms take column *formulas*, not ordinary
             // expressions: bare names are columns and operators broadcast. Lower
             // them here — where we know `recv` is a DataFrame — into polars

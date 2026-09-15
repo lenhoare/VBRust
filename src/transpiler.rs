@@ -24,6 +24,11 @@ thread_local! {
     /// painter's order is preserved (pixels already written appear under the
     /// vector command). Set around a canvas `Draw` body that uses `Set Pixel`.
     static PIXEL_FLUSH: Cell<bool> = Cell::new(false);
+    /// Handle ident → receiver expression (`words` or `state.words`) in the
+    /// function/event currently being emitted, so a `Rust` block that mentions
+    /// one is wrapped in `with_mut`.
+    static EMIT_HANDLES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    static EMIT_RET_HANDLE: Cell<bool> = Cell::new(false);
 }
 
 pub(crate) fn with_pixel_flush<R>(f: impl FnOnce() -> R) -> R {
@@ -37,6 +42,271 @@ pub(crate) fn with_pixel_flush<R>(f: impl FnOnce() -> R) -> R {
 
 fn pixel_flush_on() -> bool {
     PIXEL_FLUSH.with(|c| c.get())
+}
+
+pub(crate) fn with_emit_handles<R>(
+    handles: HashMap<String, String>,
+    ret_handle: bool,
+    f: impl FnOnce() -> R,
+) -> R {
+    EMIT_HANDLES.with(|slot| {
+        let prev = std::mem::replace(&mut *slot.borrow_mut(), handles);
+        let prev_ret = EMIT_RET_HANDLE.replace(ret_handle);
+        let r = f();
+        EMIT_RET_HANDLE.set(prev_ret);
+        *slot.borrow_mut() = prev;
+        r
+    })
+}
+
+pub(crate) fn boxed_handle_map(params: &[Param], stmts: &[Stmt]) -> HashMap<String, String> {
+    let mut boxed = HashMap::new();
+    for p in params {
+        if matches!(p.ty, DeclType::Handle) {
+            let n = rust_name(&p.name);
+            boxed.insert(n.clone(), n);
+        }
+    }
+    let mut names = HashSet::new();
+    collect_handle_names(stmts, &mut names);
+    let mut sugar = HashSet::new();
+    collect_handle_sugar(stmts, &mut sugar);
+    let mut vinyl = HashSet::new();
+    collect_vinyl_idents(stmts, &mut vinyl);
+    for n in names {
+        if !sugar.contains(&n) || vinyl.contains(&n) {
+            boxed.insert(n.clone(), n);
+        }
+    }
+    boxed
+}
+
+pub(crate) fn collect_handle_names(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::Dim { name, ty: DeclType::Handle, .. } => {
+                out.insert(rust_name(name));
+            }
+            Stmt::HandleDim { name, .. } => {
+                out.insert(rust_name(name));
+            }
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    collect_handle_names(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_handle_names(b, out);
+                }
+            }
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                collect_handle_names(body, out);
+            }
+            Stmt::Match { arms, .. } => {
+                for a in arms {
+                    collect_handle_names(&a.body, out);
+                }
+            }
+            Stmt::HandleErr { body, .. } | Stmt::GpuInto { body, .. } => {
+                collect_handle_names(body, out)
+            }
+            _ => {}
+        }
+    }
+}
+
+/// HandleDim names — sugar locals that stay unboxed unless used as a Vinyl value.
+fn collect_handle_sugar(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::HandleDim { name, .. } => {
+                out.insert(rust_name(name));
+            }
+            Stmt::If { branches, else_body } => {
+                for (_, b) in branches {
+                    collect_handle_sugar(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_handle_sugar(b, out);
+                }
+            }
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+                collect_handle_sugar(body, out);
+            }
+            Stmt::Match { arms, .. } => {
+                for a in arms {
+                    collect_handle_sugar(&a.body, out);
+                }
+            }
+            Stmt::HandleErr { body, .. } | Stmt::GpuInto { body, .. } => {
+                collect_handle_sugar(body, out)
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Identifiers that appear as Vinyl expressions (not inside a raw `Rust` block).
+fn collect_vinyl_idents(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::Dim { init: Some(e), .. }
+            | Stmt::Set { value: e, .. }
+            | Stmt::DestructureDim { value: e, .. }
+            | Stmt::Return(Some(e))
+            | Stmt::RaiseError(e)
+            | Stmt::Expr(e)
+            | Stmt::Print(e)
+            | Stmt::Log(_, e)
+            | Stmt::Assert(e) => collect_vinyl_expr(e, out),
+            Stmt::Assign { target, value, .. } => {
+                collect_vinyl_expr(target, out);
+                collect_vinyl_expr(value, out);
+            }
+            Stmt::If { branches, else_body } => {
+                for (c, b) in branches {
+                    collect_vinyl_expr(c, out);
+                    collect_vinyl_idents(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_vinyl_idents(b, out);
+                }
+            }
+            Stmt::For { from, to, step, body, .. } => {
+                collect_vinyl_expr(from, out);
+                collect_vinyl_expr(to, out);
+                if let Some(st) = step {
+                    collect_vinyl_expr(st, out);
+                }
+                collect_vinyl_idents(body, out);
+            }
+            Stmt::ForEach { iter, body, .. } => {
+                collect_vinyl_expr(iter, out);
+                collect_vinyl_idents(body, out);
+            }
+            Stmt::DoLoop { cond, body } => {
+                match cond {
+                    Some(
+                        DoCond::PreWhile(c)
+                        | DoCond::PreUntil(c)
+                        | DoCond::PostWhile(c)
+                        | DoCond::PostUntil(c),
+                    ) => collect_vinyl_expr(c, out),
+                    None => {}
+                }
+                collect_vinyl_idents(body, out);
+            }
+            Stmt::Match { scrutinee, arms, .. } => {
+                collect_vinyl_expr(scrutinee, out);
+                for a in arms {
+                    if let Some(g) = &a.guard {
+                        collect_vinyl_expr(g, out);
+                    }
+                    collect_vinyl_idents(&a.body, out);
+                }
+            }
+            Stmt::HandleErr { target, call, body, .. } => {
+                if let Some(t) = target {
+                    collect_vinyl_expr(t, out);
+                }
+                collect_vinyl_expr(call, out);
+                collect_vinyl_idents(body, out);
+            }
+            Stmt::GpuInto { body, .. } => collect_vinyl_idents(body, out),
+            _ => {}
+        }
+    }
+}
+
+fn collect_vinyl_expr(e: &Expr, out: &mut HashSet<String>) {
+    match &e.kind {
+        ExprKind::Ident(n) => {
+            out.insert(rust_name(n));
+        }
+        ExprKind::InlineRust(_) | ExprKind::InlinePython { .. } => {}
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
+            collect_vinyl_expr(lhs, out);
+            collect_vinyl_expr(rhs, out);
+        }
+        ExprKind::Not(i)
+        | ExprKind::ParallelSum(i, _)
+        | ExprKind::Ref(i)
+        | ExprKind::MutRef(i)
+        | ExprKind::Deref(i)
+        | ExprKind::Cast(i, _)
+        | ExprKind::Try(i)
+        | ExprKind::Raw(i)
+        | ExprKind::Await(i)
+        | ExprKind::Field(i, _)
+        | ExprKind::TupleIndex(i, _)
+        | ExprKind::Closure { body: i, .. } => collect_vinyl_expr(i, out),
+        ExprKind::MethodCall { recv, args, .. } => {
+            collect_vinyl_expr(recv, out);
+            args.iter().for_each(|a| collect_vinyl_expr(a, out));
+        }
+        ExprKind::Call { args, .. } => args.iter().for_each(|a| collect_vinyl_expr(a, out)),
+        ExprKind::Tuple(es) | ExprKind::List(es) => {
+            es.iter().for_each(|e| collect_vinyl_expr(e, out))
+        }
+        ExprKind::StructLit { fields, .. } => {
+            fields.iter().for_each(|(_, v)| collect_vinyl_expr(v, out))
+        }
+        _ => {}
+    }
+}
+
+fn rust_ident_appears(raw: &str, name: &str) -> bool {
+    let b = raw.as_bytes();
+    let n = name.as_bytes();
+    if n.is_empty() {
+        return false;
+    }
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut i = 0;
+    while i + n.len() <= b.len() {
+        if &b[i..i + n.len()] == n {
+            let before_ok = i == 0 || !ident(b[i - 1]);
+            let after_ok = i + n.len() == b.len() || !ident(b[i + n.len()]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+pub(crate) fn render_rust_for_handles(raw: &str, indent: usize, as_handle: bool) -> String {
+    let inner = render_inline_block(raw, indent);
+    let mut used: Vec<(String, String)> = EMIT_HANDLES.with(|s| {
+        s.borrow()
+            .iter()
+            .filter(|(h, _)| rust_ident_appears(raw, h))
+            .map(|(h, expr)| (h.clone(), expr.clone()))
+            .collect()
+    });
+    used.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut s = if as_handle {
+        format!("__VbrHandle::new({})", strip_trivial_block(&inner))
+    } else {
+        inner
+    };
+    for (h, expr) in used {
+        s = format!("{expr}.with_mut(|{h}| {s})");
+    }
+    s
+}
+
+/// `{ expr }` around a one-line Rust tail is a warning inside `__VbrHandle::new`.
+fn strip_trivial_block(s: &str) -> String {
+    let t = s.trim();
+    if t.starts_with('{') && t.ends_with('}') && !t.contains('\n') && t.bytes().filter(|b| *b == b'{').count() == 1
+    {
+        t[1..t.len() - 1].trim().to_string()
+    } else {
+        s.to_string()
+    }
 }
 
 /// Pixel-buffer paints. Flushing before these would blit and clear between
@@ -106,6 +376,24 @@ pub(crate) const RND_HELPER: &str = "fn rnd() -> f64 {
 }
 ";
 
+/// A `Handle` — a live Rust value Vinyl can pass, return, and store. The inner
+/// type is boxed; a `Rust` block opens it with `with_mut`, which infers T from
+/// how the block uses the name.
+pub(crate) const HANDLE_HELPER: &str = "\
+struct __VbrHandle(Box<dyn std::any::Any + Send>);
+impl __VbrHandle {
+    fn new<T: std::any::Any + Send>(value: T) -> Self {
+        Self(Box::new(value))
+    }
+    fn with_mut<T: std::any::Any + Send, R>(&mut self, f: impl FnOnce(&mut T) -> R) -> R {
+        let inner = self.0.downcast_mut::<T>().unwrap_or_else(|| {
+            panic!(\"this Handle holds a different Rust type than this `Rust` block uses\")
+        });
+        f(inner)
+    }
+}
+";
+
 /// True when `<expr>` anywhere in the program is passed to `Log` — so the sink
 /// helper is emitted (and only then). Scans plain code, tests, and every
 /// surface's event bodies.
@@ -117,6 +405,26 @@ pub(crate) fn program_uses_log(program: &Program) -> bool {
         || program.sketches.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
         || program.screens.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
         || program.pages.iter().any(|p| p.events.iter().any(|e| any(&e.body)))
+}
+
+pub(crate) fn program_uses_handle(program: &Program) -> bool {
+    fn ty_is(t: &DeclType) -> bool {
+        matches!(t, DeclType::Handle)
+    }
+    let fn_hit = program.functions.iter().any(|f| {
+        f.ret.as_ref().is_some_and(ty_is) || !boxed_handle_map(&f.params, &f.body).is_empty()
+    });
+    let fields = |fs: &[crate::ast::StateField]| fs.iter().any(|f| ty_is(&f.ty));
+    let events = |evs: &[crate::ast::GuiEvent]| {
+        evs.iter().any(|e| !boxed_handle_map(&e.params, &e.body).is_empty())
+    };
+    fn_hit
+        || program.windows.iter().any(|w| fields(&w.state) || events(&w.events))
+        || program.screens.iter().any(|s| fields(&s.state) || events(&s.events))
+        || program.pages.iter().any(|p| fields(&p.state) || events(&p.events))
+        || program.sketches.iter().any(|s| fields(&s.state) || events(&s.events))
+        || program.structs.iter().any(|s| s.fields.iter().any(|f| ty_is(&f.ty)))
+        || program.tests.iter().any(|t| !boxed_handle_map(&[], &t.body).is_empty())
 }
 
 /// True when the program calls `Rnd()` — so the `rnd` helper is emitted.
@@ -510,6 +818,10 @@ pub fn transpile_module(
         sep(&mut out);
         out.push_str(LOG_HELPER);
     }
+    if program_uses_handle(program) {
+        sep(&mut out);
+        out.push_str(HANDLE_HELPER);
+    }
 
     if !program.constants.is_empty() {
         sep(&mut out);
@@ -897,6 +1209,7 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
             };
             format!("__VbrCudaBuffer<{leaf}>")
         }
+        DeclType::Handle => "__VbrHandle".to_string(),
         DeclType::Array(t, n) => format!("[{}; {}]", t.rust(), n),
         DeclType::Array2D(t, r, c) => format!("[[{}; {}]; {}]", t.rust(), c, r),
     }
@@ -980,7 +1293,7 @@ fn emit_tests(
         let ret_shape = Some(resolver::FailShape::Result);
         let passed_by_ref = resolver::resolve_body(
             &mut body, &[], fns, methods, consts, modules, interfaces, enums, structs, None, None,
-            None, ret_shape, diags,
+            None, ret_shape, false, diags,
         );
         elide_for_counter_dims(&mut body);
         let mut mutated = HashSet::new();
@@ -991,7 +1304,9 @@ fn emit_tests(
             "    #[test]\n    fn {}() -> Result<(), String> {{\n",
             name
         ));
-        emit_block(&body, &mutated, &empty, 2, diags, out);
+        with_emit_handles(boxed_handle_map(&[], &body), false, || {
+            emit_block(&body, &mutated, &empty, 2, diags, out);
+        });
         if !body_never_returns(&body) {
             out.push_str("        Ok(())\n");
         }
@@ -1073,6 +1388,7 @@ pub(crate) fn emit_fn(
         tail_expected,
         ret_inner,
         Some(resolver::FailShape::Result),
+        matches!(func.ret, Some(DeclType::Handle)),
         diags,
     );
 
@@ -1093,7 +1409,9 @@ pub(crate) fn emit_fn(
     }
     params.extend(func.params.iter().map(|p| {
         let s = render_param_ty(p, Some(enums));
-        if p.mode == ParamMode::ByVal && mutated.contains(&rust_name(&p.name)) {
+        let need_mut = p.mode == ParamMode::ByVal
+            && (mutated.contains(&rust_name(&p.name)) || matches!(p.ty, DeclType::Handle));
+        if need_mut {
             format!("mut {}", s)
         } else {
             s
@@ -1110,16 +1428,22 @@ pub(crate) fn emit_fn(
         pad, vis, rust_name_out, params.join(", "), ret
     ));
 
-    emit_fn_body(
-        &body,
-        &mutated,
-        &byref,
-        tail_expected,
-        func.ret.is_none(),
-        diags,
-        out,
-        base_indent + 1,
-    );
+    with_emit_handles(
+        boxed_handle_map(&func.params, &body),
+        matches!(func.ret, Some(DeclType::Handle)),
+        || {
+        emit_fn_body(
+            &body,
+            &mutated,
+            &byref,
+            tail_expected,
+            func.ret.is_none(),
+            matches!(func.ret, Some(DeclType::Handle)),
+            diags,
+            out,
+            base_indent + 1,
+        );
+    });
     out.push_str(&format!("{}}}\n", pad));
 
     if is_main {
@@ -1138,7 +1462,9 @@ pub(crate) fn render_param_ty(p: &Param, enums: Option<&HashSet<String>>) -> Str
         (ParamMode::ByVal, DeclType::Tuple(_)) => decltype_rust(&p.ty),
         // ByVal Result/Option: taken by value (owned) — they carry an outcome to
         // consume, not a container to read through a borrow.
-        (ParamMode::ByVal, dt @ (DeclType::Result(..) | DeclType::Option(_))) => decltype_rust(dt),
+        (ParamMode::ByVal, dt @ (DeclType::Result(..) | DeclType::Option(_) | DeclType::Handle)) => {
+            decltype_rust(dt)
+        }
         // ByVal enum: Copy, pass by value (so `lane = Lane.Doing` type-checks).
         (ParamMode::ByVal, DeclType::Named(n))
             if enums.map(|e| e.contains(n)).unwrap_or(false) =>
@@ -1161,6 +1487,7 @@ fn emit_fn_body(
     byref: &HashSet<String>,
     ret: Option<Type>,
     unit: bool,
+    ret_handle: bool,
     diags: &mut Diagnostics,
     out: &mut String,
     indent: usize,
@@ -1181,7 +1508,13 @@ fn emit_fn_body(
             for stmt in &stmts[l + 1..] {
                 emit_stmt(stmt, mutated, byref, indent, diags, out);
             }
-            out.push_str(&format!("{}Ok({})\n", pad, render_expr(e, ret)));
+            let val = match &e.kind {
+                ExprKind::InlineRust(raw) if ret_handle => {
+                    render_rust_for_handles(raw, indent, true)
+                }
+                _ => render_expr(e, ret),
+            };
+            out.push_str(&format!("{}Ok({})\n", pad, val));
             return;
         }
     }
@@ -1699,14 +2032,19 @@ pub(crate) fn emit_stmt(
             }
             // `Dim x As T = Rust … End Rust` — the block's value, typed by `As T`.
             if let Some(Expr { kind: ExprKind::InlineRust(raw), .. }) = init {
-                let kw = let_kw(mutated.contains(&var));
+                let is_handle = matches!(ty, DeclType::Handle);
+                let kw = let_kw(mutated.contains(&var) || is_handle);
+                if is_handle {
+                    out.push_str(&format!("{}#[allow(unused_mut)]\n", pad));
+                }
+                let rust = render_rust_for_handles(raw, indent, is_handle);
                 out.push_str(&format!(
                     "{}{} {}: {} = {};\n",
                     pad,
                     kw,
                     var,
                     decltype_rust(ty),
-                    render_inline_block(raw, indent)
+                    rust
                 ));
                 return;
             }
@@ -1764,6 +2102,24 @@ pub(crate) fn emit_stmt(
                         decltype_rust(ty),
                         value
                     ));
+                }
+                DeclType::Handle => {
+                    let kw = let_kw(true);
+                    out.push_str(&format!("{}#[allow(unused_mut)]\n", pad));
+                    match init {
+                        Some(e) => {
+                            out.push_str(&format!(
+                                "{}{} {}: __VbrHandle = {};\n",
+                                pad,
+                                kw,
+                                var,
+                                render_expr(e, None)
+                            ));
+                        }
+                        None => {
+                            out.push_str(&format!("{}{} {}: __VbrHandle;\n", pad, kw, var));
+                        }
+                    }
                 }
                 // Fixed arrays are auto-zeroed; the size is the element count.
                 DeclType::Array(t, n) => {
@@ -1896,7 +2252,7 @@ pub(crate) fn emit_stmt(
         }
         Stmt::Expr(e) => {
             let rendered = match &e.kind {
-                ExprKind::InlineRust(raw) => render_inline_block(raw, indent),
+                ExprKind::InlineRust(raw) => render_rust_for_handles(raw, indent, false),
                 _ => render_expr(e, None),
             };
             out.push_str(&format!("{}{};\n", pad, rendered));
@@ -1921,7 +2277,7 @@ pub(crate) fn emit_stmt(
                 None => String::new(),
             };
             let val = match &value.kind {
-                ExprKind::InlineRust(raw) => render_inline_block(raw, indent),
+                ExprKind::InlineRust(raw) => render_rust_for_handles(raw, indent, false),
                 ExprKind::InlinePython { inputs, body } => {
                     render_python_block(inputs, body, ty.as_ref(), indent)
                 }
@@ -1930,20 +2286,34 @@ pub(crate) fn emit_stmt(
             out.push_str(&format!("{}let ({}){} = {};\n", pad, pat.join(", "), anno, val));
         }
         Stmt::HandleDim { name, raw, .. } => {
-            // An opaque handle: Rust infers the type (no annotation). We can't see
-            // whether later blocks mutate it (`.next()` vs a `&self` call), so we
-            // bind it `mut` and allow the case where that mut goes unused.
             let var = rust_name(name);
-            out.push_str(&format!(
-                "{}#[allow(unused_mut)]\n{}let mut {} = {};\n",
-                pad,
-                pad,
-                var,
-                render_inline_block(raw, indent)
-            ));
+            let boxed = EMIT_HANDLES.with(|s| s.borrow().contains_key(&var));
+            if boxed {
+                out.push_str(&format!(
+                    "{}#[allow(unused_mut)]\n{}let mut {}: __VbrHandle = {};\n",
+                    pad,
+                    pad,
+                    var,
+                    render_rust_for_handles(raw, indent, true)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{}#[allow(unused_mut)]\n{}let mut {} = {};\n",
+                    pad,
+                    pad,
+                    var,
+                    render_inline_block(raw, indent)
+                ));
+            }
         }
         Stmt::Return(Some(e)) => {
-            out.push_str(&format!("{}return Ok({});\n", pad, render_expr(e, None)));
+            let val = match &e.kind {
+                ExprKind::InlineRust(raw) => {
+                    render_rust_for_handles(raw, indent, EMIT_RET_HANDLE.with(|c| c.get()))
+                }
+                _ => render_expr(e, None),
+            };
+            out.push_str(&format!("{}return Ok({});\n", pad, val));
         }
         Stmt::Return(None) => {
             out.push_str(&format!("{}return Ok(());\n", pad));
@@ -4040,7 +4410,7 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         }
         // Fallback for inline Rust in an embedded position (statement positions
         // are rendered with proper indentation by the emitter).
-        ExprKind::InlineRust(raw) => render_inline_block(raw, 0),
+        ExprKind::InlineRust(raw) => render_rust_for_handles(raw, 0, false),
         // Inline Python is supported as a typed/handle `Dim` initialiser, which the
         // emitter handles with the target type in hand. In any other position we
         // have no type to extract into, so fall back to context inference.
@@ -4062,8 +4432,10 @@ fn render_prec(e: &Expr, expected: Option<Type>, parent_prec: u8, is_right: bool
         ExprKind::ParallelSum(inner, None) => {
             format!("__vbr_parallel_sum(({}).as_slice())", render_expr(inner, None))
         }
-        // `Await` is consumed by the GUI codegen (event splitting); if one reaches
-        // here it's a misuse — render the inner call so output is still valid Rust.
+        // `Await` on a console Function/Main means "wait for this I/O": there is
+        // no UI thread, so the inner call runs here. Surface events consume
+        // `Await` by splitting; a leftover on a Window/Screen/Page Function is a
+        // diagnostic (`await-in-function`), not a silent freeze.
         ExprKind::Await(inner) => render_prec(inner, expected, parent_prec, is_right),
         ExprKind::Call { name, args } => {
             if name.contains("::") {

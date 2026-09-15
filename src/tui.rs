@@ -144,6 +144,7 @@ pub fn emit_tui_program(
     web: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    surface::check_await_honesty(program, diags);
     let mut out = String::new();
     // The crate root of a multi-file project declares its sibling modules,
     // exactly as a plain program's entry does.
@@ -166,6 +167,9 @@ pub fn emit_tui_program(
             let mut used = Vec::new();
             for e in &sc.events {
                 surface::collect_event_stdlib(&e.body, &mut used);
+            }
+            for s in &sc.subs {
+                surface::collect_event_stdlib(&s.body, &mut used);
             }
             for ns in used {
                 diags.mark(&format!("stdlib:{}", ns));
@@ -265,6 +269,9 @@ pub fn emit_tui_program(
         for sc in &program.screens {
             for e in &sc.events {
                 surface::collect_event_stdlib(&e.body, &mut std_used);
+            }
+            for s in &sc.subs {
+                surface::collect_event_stdlib(&s.body, &mut std_used);
             }
         }
         std_used.extend(crate::transpiler::stdlib_used(diags));
@@ -370,7 +377,7 @@ fn emit_screen(
     out.push_str("use ratatui::Frame;\n");
     // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
     // headers HashMap) — shared across every surface, native and web alike.
-    out.push_str(&surface::surface_std_imports(&sc.events, helpers));
+    out.push_str(&surface::surface_std_imports(&sc.events, &sc.subs, helpers));
     out.push('\n');
 
     // ── State struct ──
@@ -1859,7 +1866,7 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     // work onto a background thread and delivers the result over a channel.
     // (`analyze_events` also checks nothing blocking runs un-`Await`ed.)
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&sc.events, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+        analyze_events(&sc.events, &sc.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
     let any_async = splits.iter().any(Option::is_some);
     let async_by_name: HashMap<String, &AwaitSplit> = sc
         .events
@@ -2116,7 +2123,7 @@ fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> S
     // extra thread. (`analyze_events` also checks nothing blocking runs
     // un-`Await`ed.)
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&sc.events, &field_ty, &t.fns, diags, surface::AsyncBackend::WebScreen);
+        analyze_events(&sc.events, &sc.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::WebScreen);
     let async_by_name: HashMap<String, &AwaitSplit> = sc
         .events
         .iter()

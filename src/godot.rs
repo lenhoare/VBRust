@@ -37,6 +37,7 @@ pub fn emit_godot_program(
     is_entry: bool,
     diags: &mut Diagnostics,
 ) -> String {
+    crate::surface::check_await_honesty(program, diags);
     let mut out = String::new();
     out.push_str("use godot::prelude::*;\n");
     // Each node's base class + its `I<Base>` interface trait need importing (some

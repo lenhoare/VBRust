@@ -322,9 +322,9 @@ End Rust
 
 This is "inline assembly" for Vinyl — the door to Rust operators, traits, ranges and
 crates Vinyl doesn't surface. Declare a crate with `Use rand 0.8`; the trait and
-generic complexity stays sealed inside the block, and only a plain value comes
-back. A `Dim` with **no `As`** holds an *opaque handle* (an iterator, a client) you
-can pass back into later blocks.
+generic complexity stays sealed inside the block, and a plain value or a `Handle`
+comes back. A `Dim` with **no `As`** is a `Handle` (an iterator, a client) you
+can pass, return, store, and open inside later `Rust` blocks.
 
 There's a second door — `Python … End Python` — that *runs* real CPython (via
 pyo3) so you can reach numpy, pandas and friends. Same rule: the last line is the

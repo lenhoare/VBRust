@@ -1,1 +1,1 @@
-✘ 'words' is an opaque Rust handle — its type lives only inside Rust. You can pass it back into another `Rust … End Rust` block, but Vinyl can't print it, compare it, assign it, or pass it to a function.
+✘ A Handle is a live Rust object — you can't print it. Pass it to a Function, Return it, store it, or open it inside `Rust … End Rust`.

@@ -13,9 +13,11 @@
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::resolver;
+use crate::span::Span;
 use crate::transpiler::{
-    body_never_returns, collect_expr_idents, decltype_rust, emit_const, emit_enum, emit_fn,
-    emit_impl, emit_stmt, emit_struct, note_builtins, render_expr, rust_name, stdlib_type,
+    body_never_returns, boxed_handle_map, collect_expr_idents, decltype_rust, emit_const, emit_enum,
+    emit_fn, emit_impl, emit_stmt, emit_struct, note_builtins, render_expr, render_rust_for_handles,
+    rust_name, stdlib_type, with_emit_handles,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -197,11 +199,16 @@ pub(crate) fn launched<'a, T>(
 /// old scan saw only events). `helpers` is the program's free functions and
 /// methods; `Main` carries no state and is fine to include (it's just more body
 /// to scan).
-pub(crate) fn surface_std_imports(events: &[GuiEvent], helpers: &[Function]) -> String {
+pub(crate) fn surface_std_imports(
+    events: &[GuiEvent],
+    subs: &[GuiEvent],
+    helpers: &[Function],
+) -> String {
     let mut out = String::new();
     let in_event = events.iter().any(|e| crate::transpiler::body_uses_hashmap(&e.body));
+    let in_sub = subs.iter().any(|s| crate::transpiler::body_uses_hashmap(&s.body));
     let in_helper = helpers.iter().any(|f| crate::transpiler::body_uses_hashmap(&f.body));
-    if in_event || in_helper {
+    if in_event || in_sub || in_helper {
         out.push_str("use std::collections::HashMap;\n");
     }
     out
@@ -400,29 +407,363 @@ pub(crate) fn emit_browser_http_helpers(out: &mut String) {
 /// Analyse every event: split each around an `Await` (None = synchronous), and
 /// check that no blocking stdlib call runs un-`Await`ed (it would freeze the
 /// UI). One entry per event, in order.
+///
+/// A `Sub` that contains `Await` (or tail-calls one that does) is flattened into
+/// any Event that ends with a call to it, so the same one-cut split applies.
+/// Those Subs are not emitted as methods — they only run as that Event's body.
 pub(crate) fn analyze_events(
     events: &[GuiEvent],
+    subs: &[GuiEvent],
     field_ty: &HashMap<String, DeclType>,
     fns: &resolver::FnTable,
     diags: &mut Diagnostics,
     backend: AsyncBackend,
 ) -> Vec<Option<AwaitSplit>> {
-    let splits =
-        events.iter().map(|e| await_split(e, field_ty, fns, diags, backend)).collect();
-    for e in events {
-        check_blocking_without_await(&e.body, diags);
+    let async_names = async_sub_names(subs);
+    for s in subs {
+        if async_names.contains(&rust_name(&s.name))
+            && s.params.iter().any(|p| p.mode == ParamMode::ByRef)
+        {
+            diags.error_once(
+                &format!("await-sub-byref-{}", rust_name(&s.name)),
+                format!(
+                    "`{}` uses `Await`, so it can't take `ByRef` parameters — the resume \
+                     can't hold a borrow. Pass `ByVal`, or keep the `Await` in the Event.",
+                    s.name
+                ),
+            );
+        }
     }
-    splits
+    for s in subs {
+        if async_names.contains(&rust_name(&s.name)) {
+            let mut body = s.body.clone();
+            flatten_async_tails(&mut body, subs, &async_names, diags);
+            reject_async_sub_calls(&body, &async_names, diags);
+        } else {
+            reject_async_sub_calls(&s.body, &async_names, diags);
+        }
+    }
+    events
+        .iter()
+        .map(|e| {
+            let mut flat = e.clone();
+            flatten_async_tails(&mut flat.body, subs, &async_names, diags);
+            reject_async_sub_calls(&flat.body, &async_names, diags);
+            check_blocking_without_await(&flat.body, diags);
+            await_split(&flat, field_ty, fns, diags, backend)
+        })
+        .collect()
+}
+
+/// Subs whose body contains `Await`, or that end with a call to such a Sub.
+pub(crate) fn async_sub_names(subs: &[GuiEvent]) -> HashSet<String> {
+    let all: HashSet<String> = subs.iter().map(|s| rust_name(&s.name)).collect();
+    let mut async_set: HashSet<String> = subs
+        .iter()
+        .filter(|s| s.body.iter().any(stmt_has_await))
+        .map(|s| rust_name(&s.name))
+        .collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for s in subs {
+            let n = rust_name(&s.name);
+            if async_set.contains(&n) {
+                continue;
+            }
+            let Some(i) = last_real_index(&s.body) else { continue };
+            if let Some((callee, _)) = call_to_named_sub(&s.body[i], &all) {
+                if async_set.contains(&rust_name(callee)) {
+                    async_set.insert(n);
+                    changed = true;
+                }
+            }
+        }
+    }
+    async_set
+}
+
+fn skippable_stmt(s: &Stmt) -> bool {
+    matches!(s, Stmt::Comment(_) | Stmt::LineMark(_))
+}
+
+fn last_real_index(body: &[Stmt]) -> Option<usize> {
+    body.iter().rposition(|s| !skippable_stmt(s))
+}
+
+fn call_to_named_sub<'a>(s: &'a Stmt, names: &HashSet<String>) -> Option<(&'a String, &'a [Expr])> {
+    match s {
+        Stmt::Expr(e) => match &e.kind {
+            ExprKind::Call { name, args } if names.contains(&rust_name(name)) => {
+                Some((name, args.as_slice()))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Replace a trailing call to an async `Sub` with that Sub's params-as-`Dim`s
+/// plus its body, repeating until the tail is no longer such a call.
+fn flatten_async_tails(
+    body: &mut Vec<Stmt>,
+    subs: &[GuiEvent],
+    async_names: &HashSet<String>,
+    diags: &mut Diagnostics,
+) {
+    let by_name: HashMap<String, &GuiEvent> =
+        subs.iter().map(|s| (rust_name(&s.name), s)).collect();
+    let mut seen: HashSet<String> = HashSet::new();
+    loop {
+        let Some(i) = last_real_index(body) else { break };
+        let Some((name, args)) = call_to_named_sub(&body[i], async_names) else { break };
+        let key = rust_name(name);
+        let args = args.to_vec();
+        let display = name.clone();
+        if !seen.insert(key.clone()) {
+            diags.error_once(
+                "await-sub-cycle",
+                format!(
+                    "`{}` tail-calls itself through an `Await` chain — Vinyl keeps one \
+                     `Await` per event, with no recursive async.",
+                    display
+                ),
+            );
+            break;
+        }
+        let Some(sub) = by_name.get(&key).copied() else { break };
+        if sub.params.len() != args.len() {
+            diags.error_once(
+                &format!("await-sub-args-{}", key),
+                format!(
+                    "`{}` takes {} parameter(s), but the call has {}.",
+                    sub.name,
+                    sub.params.len(),
+                    args.len()
+                ),
+            );
+            break;
+        }
+        let mut replacement: Vec<Stmt> = sub
+            .params
+            .iter()
+            .zip(args)
+            .map(|(p, a)| Stmt::Dim {
+                name: p.name.clone(),
+                name_span: Span::none(),
+                ty: p.ty.clone(),
+                init: Some(a),
+                deferred: false,
+                line: 0,
+            })
+            .collect();
+        replacement.extend(sub.body.iter().cloned());
+        let trailing = body.split_off(i);
+        body.extend(replacement);
+        body.extend(trailing.into_iter().skip(1));
+    }
+}
+
+fn reject_async_sub_calls(stmts: &[Stmt], async_names: &HashSet<String>, diags: &mut Diagnostics) {
+    for s in stmts {
+        walk_stmt_async_calls(s, async_names, diags);
+    }
+}
+
+fn walk_expr_async_calls(e: &Expr, async_names: &HashSet<String>, diags: &mut Diagnostics) {
+    match &e.kind {
+        ExprKind::Call { name, args } => {
+            if async_names.contains(&rust_name(name)) {
+                diags.error_once(
+                    &format!("await-sub-tail-{}", rust_name(name)),
+                    format!(
+                        "`{}` uses `Await`, so a call to it must be the last statement of an \
+                         Event (or of another Sub that itself ends with that call). Vinyl keeps \
+                         one `Await` per event — code after the call would need a second resume.",
+                        name
+                    ),
+                );
+            }
+            for a in args {
+                walk_expr_async_calls(a, async_names, diags);
+            }
+        }
+        ExprKind::Await(i)
+        | ExprKind::Not(i)
+        | ExprKind::ParallelSum(i, _)
+        | ExprKind::Ref(i)
+        | ExprKind::MutRef(i)
+        | ExprKind::Deref(i)
+        | ExprKind::Cast(i, _)
+        | ExprKind::Try(i)
+        | ExprKind::Field(i, _)
+        | ExprKind::TupleIndex(i, _)
+        | ExprKind::Closure { body: i, .. }
+        | ExprKind::Raw(i) => walk_expr_async_calls(i, async_names, diags),
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ListRepeat { value: lhs, count: rhs } => {
+            walk_expr_async_calls(lhs, async_names, diags);
+            walk_expr_async_calls(rhs, async_names, diags);
+        }
+        ExprKind::MethodCall { recv, args, .. } => {
+            walk_expr_async_calls(recv, async_names, diags);
+            for a in args {
+                walk_expr_async_calls(a, async_names, diags);
+            }
+        }
+        ExprKind::Tuple(es) | ExprKind::List(es) => {
+            for e2 in es {
+                walk_expr_async_calls(e2, async_names, diags);
+            }
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, v) in fields {
+                walk_expr_async_calls(v, async_names, diags);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn walk_stmt_async_calls(s: &Stmt, async_names: &HashSet<String>, diags: &mut Diagnostics) {
+    match s {
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Expr(e)
+        | Stmt::Return(Some(e))
+        | Stmt::RaiseError(e)
+        | Stmt::Assert(e)
+        | Stmt::Set { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. } => walk_expr_async_calls(e, async_names, diags),
+        Stmt::Assign { target, value, .. } => {
+            walk_expr_async_calls(target, async_names, diags);
+            walk_expr_async_calls(value, async_names, diags);
+        }
+        Stmt::HandleErr { target, call, body, .. } => {
+            if let Some(t) = target {
+                walk_expr_async_calls(t, async_names, diags);
+            }
+            walk_expr_async_calls(call, async_names, diags);
+            reject_async_sub_calls(body, async_names, diags);
+        }
+        Stmt::If { branches, else_body } => {
+            for (c, b) in branches {
+                walk_expr_async_calls(c, async_names, diags);
+                reject_async_sub_calls(b, async_names, diags);
+            }
+            if let Some(b) = else_body {
+                reject_async_sub_calls(b, async_names, diags);
+            }
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            walk_expr_async_calls(scrutinee, async_names, diags);
+            for a in arms {
+                if let Some(g) = &a.guard {
+                    walk_expr_async_calls(g, async_names, diags);
+                }
+                reject_async_sub_calls(&a.body, async_names, diags);
+            }
+        }
+        Stmt::For { from, to, step, body, .. } => {
+            walk_expr_async_calls(from, async_names, diags);
+            walk_expr_async_calls(to, async_names, diags);
+            if let Some(st) = step {
+                walk_expr_async_calls(st, async_names, diags);
+            }
+            reject_async_sub_calls(body, async_names, diags);
+        }
+        Stmt::ForEach { iter, body, .. } => {
+            walk_expr_async_calls(iter, async_names, diags);
+            reject_async_sub_calls(body, async_names, diags);
+        }
+        Stmt::DoLoop { cond, body } => {
+            if let Some(c) = cond {
+                match c {
+                    DoCond::PreWhile(e)
+                    | DoCond::PreUntil(e)
+                    | DoCond::PostWhile(e)
+                    | DoCond::PostUntil(e) => walk_expr_async_calls(e, async_names, diags),
+                }
+            }
+            reject_async_sub_calls(body, async_names, diags);
+        }
+        Stmt::GpuInto { body, .. } => reject_async_sub_calls(body, async_names, diags),
+        _ => {}
+    }
+}
+
+/// `Await` in a Function / Draw / Godot body of a surface program is a lie: it
+/// would strip to a blocking call on the UI thread. Console `Main` may `Await`
+/// (there is no UI thread — it just runs the call).
+pub(crate) fn check_await_honesty(program: &Program, diags: &mut Diagnostics) {
+    let surface = !program.windows.is_empty()
+        || !program.screens.is_empty()
+        || !program.pages.is_empty()
+        || !program.sketches.is_empty()
+        || !program.godot_nodes.is_empty();
+    if !surface {
+        return;
+    }
+    for f in &program.functions {
+        if f.body.iter().any(stmt_has_await) {
+            diags.error_once(
+                "await-in-function",
+                "`Await` inside a Function would run on the UI thread and freeze the window. \
+                 Put `Await` in an Event, or in a `Sub` that an Event ends with. To run this \
+                 Function off-thread, write `Match Await Load(…)` in the Event and keep the \
+                 Function itself synchronous.",
+            );
+        }
+    }
+    for c in &program.canvases {
+        if c.body.iter().any(stmt_has_await) {
+            diags.error_once(
+                "await-in-draw",
+                "`Await` belongs in an Event (or a `Sub` the Event ends with), not in `Draw`.",
+            );
+        }
+    }
+    for s in &program.sketches {
+        if s.draw.iter().any(stmt_has_await)
+            || s.gpu_draw.as_ref().is_some_and(|b| b.iter().any(stmt_has_await))
+        {
+            diags.error_once(
+                "await-in-draw",
+                "`Await` belongs in an Event (or a `Sub` the Event ends with), not in `Draw`.",
+            );
+        }
+    }
+    for n in &program.godot_nodes {
+        if n.events.iter().any(|e| e.body.iter().any(stmt_has_await))
+            || n.handlers.iter().any(|e| e.body.iter().any(stmt_has_await))
+        {
+            diags.error_once(
+                "await-in-godot",
+                "`Await` isn't available in a Godot `On` handler yet — Godot drives those \
+                 callbacks, and they have no off-thread resume. Keep the body quick, or do \
+                 the slow work before the node starts.",
+            );
+        }
+    }
 }
 
 /// The stdlib namespaces used across all event bodies, sorted and deduped —
 /// ready for a `use vbr_stdlib::{…}` line. Marks each so the vbr_stdlib dep and
 /// feature get added. (The web backend collects without marking — see
 /// `collect_event_stdlib` — since its `Http` is the browser's fetch, not ours.)
-pub(crate) fn event_stdlib_imports(events: &[GuiEvent], diags: &mut Diagnostics) -> Vec<String> {
+pub(crate) fn event_stdlib_imports(
+    events: &[GuiEvent],
+    subs: &[GuiEvent],
+    diags: &mut Diagnostics,
+) -> Vec<String> {
     let mut used: Vec<String> = Vec::new();
     for e in events {
         collect_event_stdlib(&e.body, &mut used);
+    }
+    for s in subs {
+        collect_event_stdlib(&s.body, &mut used);
     }
     used.sort();
     used.dedup();
@@ -457,20 +798,31 @@ pub(crate) fn emit_event_stmts(
     // A `Dim`'d For counter would be shadowed by the loop's own binding —
     // drop the dead `let`, exactly as in a plain function body.
     crate::transpiler::elide_for_counter_dims(&mut body);
-    // A local reassigned or mutated in place (`headers.insert(…)`) needs
-    // `let mut`, exactly as in a plain function body. Locals lent as `&mut`
-    // (ByRef args) join that set — `collect_mutated` can't see those.
     let mut mutated: HashSet<String> = HashSet::new();
     crate::transpiler::collect_mutated(&body, &mut mutated);
     mutated.extend(passed_by_ref);
     let empty: HashSet<String> = HashSet::new();
-    for stmt in body {
-        // The rewrite turns state fields into `recv.field` and a call to an
-        // in-block `Sub` helper into `recv.helper(...)` (`t.screen_subs`).
-        let mut rewritten = rewrite_stmt(stmt, recv, fields, &t.enums, &t.screen_subs);
-        coerce_state_strings(&mut rewritten, recv, field_ty);
-        emit_stmt(&rewritten, &mutated, &empty, indent, diags, out);
+    let mut handles = boxed_handle_map(params, &body);
+    for (name, ty) in field_ty {
+        if matches!(ty, DeclType::Handle) {
+            handles.insert(name.clone(), format!("{recv}.{name}"));
+        }
     }
+    for p in params {
+        if matches!(p.ty, DeclType::Handle) {
+            let n = rust_name(&p.name);
+            handles.insert(n.clone(), n);
+        }
+    }
+    with_emit_handles(handles, false, || {
+        for stmt in body {
+            // The rewrite turns state fields into `recv.field` and a call to an
+            // in-block `Sub` helper into `recv.helper(...)` (`t.screen_subs`).
+            let mut rewritten = rewrite_stmt(stmt, recv, fields, &t.enums, &t.screen_subs);
+            coerce_state_strings(&mut rewritten, recv, field_ty);
+            emit_stmt(&rewritten, &mutated, &empty, indent, diags, out);
+        }
+    });
 }
 
 /// Run an event body so an unhandled error ends the event, not the app.
@@ -581,17 +933,24 @@ fn carry_dims(call: &Expr, pre: &[Stmt]) -> Vec<String> {
 /// gets the usual argument coercion (borrow a String, widen a number) before it's
 /// rewritten to a method on the state receiver.
 pub(crate) fn with_subs(base: &Tables, subs: &[GuiEvent]) -> Tables {
+    let async_names = async_sub_names(subs);
     let mut t = base.clone();
     for s in subs {
-        t.screen_subs.insert(rust_name(&s.name));
+        let n = rust_name(&s.name);
         t.fns.insert(
-            rust_name(&s.name),
+            n.clone(),
             resolver::FnSig {
                 modes: s.params.iter().map(|p| p.mode).collect(),
                 param_types: s.params.iter().map(|p| p.ty.clone()).collect(),
                 ret: None,
             },
         );
+        // An async Sub is inlined into the Event that tail-calls it — not a
+        // method on the state. Leaving it out of `screen_subs` means a leftover
+        // call isn't rewritten to a missing `state.foo()`.
+        if !async_names.contains(&n) {
+            t.screen_subs.insert(n);
+        }
     }
     t
 }
@@ -610,8 +969,16 @@ pub(crate) fn emit_subs(
     if subs.is_empty() {
         return;
     }
+    let async_names = async_sub_names(subs);
+    let sync: Vec<&GuiEvent> = subs
+        .iter()
+        .filter(|s| !async_names.contains(&rust_name(&s.name)))
+        .collect();
+    if sync.is_empty() {
+        return;
+    }
     out.push_str(&format!("impl {} {{\n", ty));
-    for s in subs {
+    for s in sync {
         let params: Vec<String> = s
             .params
             .iter()
@@ -696,6 +1063,10 @@ pub(crate) fn render_init(
         }
         (DeclType::Plain(Type::Text), Some(e)) => render_expr(&e, None),
         (DeclType::Plain(t), Some(e)) => render_expr(&e, Some(*t)),
+        (DeclType::Handle, Some(e)) => match &e.kind {
+            ExprKind::InlineRust(raw) => render_rust_for_handles(raw, 0, true),
+            _ => render_expr(&e, None),
+        },
         // Enum / Vec-with-initialiser / other — the resolver has rewritten
         // `Size.Small` → `Size::Small` and referenced call arguments.
         (_, Some(e)) => render_expr(&e, None),
@@ -721,15 +1092,21 @@ pub(crate) fn emit_state_lets(
     let pad = "    ".repeat(indent);
     let mut prior: HashMap<String, DeclType> = HashMap::new();
     let mut names = Vec::new();
+    let mut handle_qual: HashMap<String, String> = HashMap::new();
     for f in state {
         let init = match override_init(f) {
             Some(s) => s,
-            None => render_init(f.init.as_ref(), &f.ty, t, &prior, diags),
+            None => with_emit_handles(handle_qual.clone(), false, || {
+                render_init(f.init.as_ref(), &f.ty, t, &prior, diags)
+            }),
         };
         // `?` comes from the resolver's auto-try inside `render_init`. `fallible_init`
         // only chooses `init()` vs `Default` — pushing another `?` here made `??`.
         let name = rust_name(&f.name);
         out.push_str(&format!("{}let {} = {};\n", pad, name, init));
+        if matches!(f.ty, DeclType::Handle) {
+            handle_qual.insert(name.clone(), name.clone());
+        }
         prior.insert(name.clone(), f.ty.clone());
         names.push(name);
     }
@@ -851,6 +1228,26 @@ struct AwaitInfo {
     blocking: bool,
 }
 
+const AWAIT_POSITION: &str = "`Await` must be a *top-level* statement in an event — the value of a `Match` \
+     (`Match Await Http.Get(url)`) or a `Dim` (`Dim x = Await …`), not nested inside \
+     an `If`/`For`/`Match`. To guard the call, put the check *before* the `Await` \
+     (`If busy Then Return` / set a flag first), or move it into the awaited helper \
+     (return early on the guard). Vinyl keeps async deliberately simple: one `Await` \
+     per event, at the top.";
+
+fn report_await_position(diags: &mut Diagnostics) {
+    diags.error_once("await-position", AWAIT_POSITION);
+}
+
+fn more_than_one_await(cont: &[Stmt], diags: &mut Diagnostics) -> bool {
+    if cont.iter().any(stmt_has_await) {
+        report_await_position(diags);
+        true
+    } else {
+        false
+    }
+}
+
 /// Analyse an event for `Await`. `None` means a synchronous event. V1 supports a
 /// single `Await` as the value of a `Match` (`Match Await Http.Get(url)`) or a
 /// `Dim` (`Dim x = Await …`).
@@ -877,6 +1274,9 @@ pub(crate) fn await_split(
                 if_let: *if_let,
             }];
             cont.extend(e.body[idx + 1..].iter().cloned());
+            if more_than_one_await(&cont, diags) {
+                return None;
+            }
             let pre = e.body[..idx].to_vec();
             let carry = carry_dims(call, &pre);
             Some(AwaitSplit {
@@ -894,6 +1294,10 @@ pub(crate) fn await_split(
             let info = awaitable_info(call, field_ty, &locals, fns, diags, backend)?;
             let pre = e.body[..idx].to_vec();
             let carry = carry_dims(call, &pre);
+            let cont = e.body[idx + 1..].to_vec();
+            if more_than_one_await(&cont, diags) {
+                return None;
+            }
             Some(AwaitSplit {
                 pre,
                 snapshots: info.snapshots,
@@ -901,20 +1305,12 @@ pub(crate) fn await_split(
                 ret_type: info.ret_type,
                 blocking: info.blocking,
                 bind: rust_name(name),
-                cont: e.body[idx + 1..].to_vec(),
+                cont,
                 carry,
             })
         }
         _ => {
-            diags.error_once(
-                "await-position",
-                "`Await` must be a *top-level* statement in an event — the value of a `Match` \
-                 (`Match Await Http.Get(url)`) or a `Dim` (`Dim x = Await …`), not nested inside \
-                 an `If`/`For`/`Match`. To guard the call, put the check *before* the `Await` \
-                 (`If busy Then Return` / set a flag first), or move it into the awaited helper \
-                 (return early on the guard). Vinyl keeps async deliberately simple: one `Await` \
-                 per event, at the top.",
-            );
+            report_await_position(diags);
             None
         }
     }
@@ -1219,19 +1615,47 @@ pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnosti
 /// Does a statement contain an `Await` (in any expression position)?
 pub(crate) fn stmt_has_await(s: &Stmt) -> bool {
     match s {
-        Stmt::Dim { init: Some(e), .. } => expr_has_await(e),
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Expr(e)
+        | Stmt::Return(Some(e))
+        | Stmt::RaiseError(e)
+        | Stmt::Assert(e)
+        | Stmt::Set { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. } => expr_has_await(e),
         Stmt::Assign { target, value, .. } => expr_has_await(target) || expr_has_await(value),
-        Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => expr_has_await(e),
+        Stmt::HandleErr { target, call, body, .. } => {
+            target.as_ref().is_some_and(expr_has_await)
+                || expr_has_await(call)
+                || body.iter().any(stmt_has_await)
+        }
         Stmt::Match { scrutinee, arms, .. } => {
-            expr_has_await(scrutinee) || arms.iter().any(|a| a.body.iter().any(stmt_has_await))
+            expr_has_await(scrutinee)
+                || arms.iter().any(|a| {
+                    a.guard.as_ref().is_some_and(expr_has_await) || a.body.iter().any(stmt_has_await)
+                })
         }
         Stmt::If { branches, else_body } => {
             branches.iter().any(|(c, b)| expr_has_await(c) || b.iter().any(stmt_has_await))
-                || else_body.as_ref().map_or(false, |b| b.iter().any(stmt_has_await))
+                || else_body.as_ref().is_some_and(|b| b.iter().any(stmt_has_await))
         }
-        Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
-            body.iter().any(stmt_has_await)
+        Stmt::For { from, to, step, body, .. } => {
+            expr_has_await(from)
+                || expr_has_await(to)
+                || step.as_ref().is_some_and(expr_has_await)
+                || body.iter().any(stmt_has_await)
         }
+        Stmt::ForEach { iter, body, .. } => expr_has_await(iter) || body.iter().any(stmt_has_await),
+        Stmt::DoLoop { cond, body, .. } => {
+            cond.as_ref().is_some_and(|c| match c {
+                DoCond::PreWhile(e)
+                | DoCond::PreUntil(e)
+                | DoCond::PostWhile(e)
+                | DoCond::PostUntil(e) => expr_has_await(e),
+            }) || body.iter().any(stmt_has_await)
+        }
+        Stmt::GpuInto { body, .. } => body.iter().any(stmt_has_await),
         _ => false,
     }
 }

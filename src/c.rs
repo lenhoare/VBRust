@@ -748,6 +748,9 @@ impl Emitter {
     }
 
     fn dim(&mut self, name: &str, ty: &DeclType, init: Option<&Expr>) {
+        if matches!(ty, DeclType::Handle) {
+            self.warn("`Handle` is a live Rust object — it doesn't lower to C.");
+        }
         let cty = c_type(ty);
         let var = c_name(name);
         let is_collection = matches!(ty, DeclType::Vec(_) | DeclType::Map(..));
@@ -1133,6 +1136,7 @@ impl Emitter {
                     s
                 }
             }
+            ExprKind::Await(inner) => self.expr(inner),
             // `expr?` — propagate a failure, hoisting the temp + early return.
             ExprKind::Try(inner) => self.hoist_try(inner),
             ExprKind::Raw(inner) => {
@@ -3117,6 +3121,7 @@ fn c_type(ty: &DeclType) -> String {
         DeclType::Map(..) => map_name(ty),
         DeclType::Option(_) => opt_name(ty),
         DeclType::Result(..) => res_name(ty),
+        DeclType::Handle => "void*".to_string(),
         _ => "long long".to_string(),
     }
 }
@@ -3192,6 +3197,7 @@ fn mangle(t: &DeclType) -> String {
         DeclType::Option(t) => format!("opt_{}", mangle(t)),
         DeclType::Result(t, e) => format!("res_{}_{}", mangle(t), mangle(e)),
         DeclType::Tuple(v) if v.is_empty() => "unit".to_string(),
+        DeclType::Handle => "handle".to_string(),
         _ => "unknown".to_string(),
     }
 }

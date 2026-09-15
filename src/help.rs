@@ -99,6 +99,7 @@ pub fn help_manifest() -> Vec<ManifestItem> {
         item!("await", "Await", "Control flow", Keyword, "kw/Await"),
         // Escape hatches
         item!("rust", "Rust … End Rust", "Escape hatches", Keyword, "kw/Rust"),
+        item!("handle-type", "Handle", "Escape hatches", Type, "ty/Handle"),
         item!("python", "Python … End Python", "Escape hatches", Keyword, "kw/Python"),
         item!("iced", "Iced … End Iced", "Escape hatches", Keyword, "kw/Iced"),
         item!("ratatui", "Ratatui … End Ratatui", "Escape hatches", Keyword, "kw/Ratatui"),

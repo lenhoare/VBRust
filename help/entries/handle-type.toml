@@ -1,0 +1,48 @@
+id = "handle-type"
+title = "Handle"
+category = "Escape hatches"
+kind = "type"
+
+syntax = """
+Dim <name> = Rust
+    <rust>
+End Rust
+
+Dim <name> As Handle = <handle>
+Function <name>(ByRef <h> As Handle) As Handle
+"""
+
+summary = "A live Rust object Vinyl can pass, return, and store — and open only inside a Rust block."
+
+remarks = """
+`Handle` is the type of an opaque Rust value: an iterator, a client, anything Vinyl has no type for. `Dim h = Rust … End Rust` is sugar for `Dim h As Handle = Rust …`.
+
+You may pass a Handle to a Function, `Return` it, assign it, and store it in `State` or a `Type` field. You cannot print it, compare it, concatenate it, or call Vinyl methods on it. The one way to open it is another `Rust … End Rust` block that mentions its name.
+
+`ByVal` moves the Handle — the caller cannot use it afterwards. `ByRef` lends it so the function can open and update the same object. The inner value must be `'static` to leave a function (a borrow of a local will not compile on `Return`). When opening a Handle that crossed a Function, name the inner Rust type on the first line (`let words: &mut std::str::SplitWhitespace = words`) so rustc can downcast.
+
+This is not `Handle err` — that intercepts a fallible call.
+"""
+
+example = """
+Function MakeWords() As Handle
+    Return Rust
+        "the quick brown fox".split_whitespace()
+    End Rust
+End Function
+
+Function NextWord(ByRef words As Handle) As String
+    Return Rust
+        let words: &mut std::str::SplitWhitespace = words;
+        words.next().unwrap().to_string()
+    End Rust
+End Function
+
+Function Main()
+    Dim words As Handle = MakeWords()
+    Debug.Print NextWord(words)
+    Debug.Print NextWord(words)
+End Function
+"""
+
+see_also = ["rust", "handle", "dim"]

@@ -833,26 +833,29 @@ This is the place for the Rust operators, traits, and library calls that Vinyl d
 not surface directly. It is "inline assembly" for Vinyl: a deliberate, visible door
 into the lower level, used in small doses.
 
-### Opaque handles
+### Handles
 
 Sometimes you want to hold a Rust value that Vinyl has no type for — an iterator, a
-network client, a parser — and reuse it across several blocks. Declare it with no
-`As`, and Vinyl will hold it as an **opaque handle**:
+network client, a parser — and reuse it across functions. `Dim name = Rust …` with
+no `As` is sugar for `Dim name As Handle`:
 
 ```vb
-Dim client = Rust reqwest::blocking::Client::new() End Rust
+Function MakeClient() As Handle
+    Return Rust reqwest::blocking::Client::new() End Rust
+End Function
 
-Dim body As String = Rust
-    client.get("https://example.com").send().unwrap().text().unwrap()
-End Rust
+Function Fetch(ByRef client As Handle, ByVal url As String) As String
+    Return Rust
+        let client: &mut reqwest::blocking::Client = client;
+        client.get(url).send().unwrap().text().unwrap()
+    End Rust
+End Function
 ```
 
-Rust infers the handle's type; Vinyl keeps it but cannot interpret it. The one thing
-you may do with a handle is hand it back into another `Rust` block — you cannot
-print it, compare it, or assign it, because Vinyl does not know what it is. It lives
-for the duration of its function, and state held inside it persists from one block
-to the next. That is how a connection or an iterator survives across calls without
-a global and without a wrapper.
+Vinyl can pass, return, and store a Handle. Open it only inside a `Rust` block.
+You cannot print it, compare it, or call Vinyl methods on it. `ByVal` moves it;
+`ByRef` lends it. The inner value must be `'static` to leave a function. When a
+Handle crossed a Function, name the inner type so rustc can downcast.
 
 ### Inline Python
 

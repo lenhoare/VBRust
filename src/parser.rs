@@ -1747,13 +1747,28 @@ impl<'a> Parser<'a> {
                     Stmt::Dim { name, ty: ty @ DeclType::Vec(_), init, .. } => {
                         fields.push(StateField { name, ty, init })
                     }
+                    Stmt::Dim {
+                        name,
+                        ty: DeclType::Handle,
+                        init: Some(init),
+                        ..
+                    } => fields.push(StateField {
+                        name,
+                        ty: DeclType::Handle,
+                        init: Some(init),
+                    }),
+                    Stmt::HandleDim { name, raw, .. } => fields.push(StateField {
+                        name,
+                        ty: DeclType::Handle,
+                        init: Some(ExprKind::InlineRust(raw).synth()),
+                    }),
                     _ => {
                         self.diags.error_at(
                             self.span(),
                             self.line(),
                             "A State field must be a typed value with an initial value \
-                             (`Dim count As Integer = 0`), or a collection that may start empty \
-                             (`Dim data As Vec<Double>`).",
+                             (`Dim count As Integer = 0`), a Handle (`Dim words = Rust … End Rust`), \
+                             or a collection that may start empty (`Dim data As Vec<Double>`).",
                         );
                         return None;
                     }
@@ -3334,6 +3349,17 @@ impl<'a> Parser<'a> {
             // A String parameter defaults to ByVal — a read-only `&str` borrow.
             // Trying to change it is caught with a friendly error in the resolver.
             None if matches!(&ty, DeclType::Plain(Type::Text)) => ParamMode::ByVal,
+            None if matches!(&ty, DeclType::Handle) => {
+                self.diags.error(
+                    line,
+                    format!(
+                        "A Handle must say how it is passed: `ByVal {name} As Handle` moves it \
+                         (the caller can't use it afterwards), `ByRef {name} As Handle` lends it \
+                         so the function can open it in a `Rust` block."
+                    ),
+                );
+                ParamMode::ByVal
+            }
             // Struct / collection parameters still require an explicit mode.
             None => {
                 self.diags.error(
@@ -3873,9 +3899,9 @@ impl<'a> Parser<'a> {
             self.diags.error(
                 line,
                 "A `Dim` needs a type: `Dim x As Long`. The one exception is \
-                 `Dim h = Rust … End Rust`, which makes an opaque Rust handle whose \
-                 type Rust infers — Vinyl can pass it back into another `Rust` block but \
-                 can't use it as a value.",
+                 `Dim h = Rust … End Rust` (the same as `Dim h As Handle = Rust …`), \
+                 a live Rust object you can pass, return, and store — but only open \
+                 inside another `Rust` block.",
             );
             return None;
         }
@@ -3938,7 +3964,7 @@ impl<'a> Parser<'a> {
             }
             // A collection may take an initialiser (e.g. an iterator `.collect()`).
             DeclType::Vec(_) | DeclType::Map(..) | DeclType::Result(..) | DeclType::Option(_)
-            | DeclType::CudaBuffer(_) => {
+            | DeclType::CudaBuffer(_) | DeclType::Handle => {
                 if self.eat(&Tok::Eq) {
                     Some(self.parse_expr()?)
                 } else {
@@ -4082,6 +4108,10 @@ impl<'a> Parser<'a> {
                     let t = self.parse_decl_type()?;
                     self.expect(&Tok::Gt, "to close `CudaBuffer<...>`")?;
                     Some(DeclType::CudaBuffer(Box::new(t)))
+                }
+                "Handle" => {
+                    self.advance();
+                    Some(DeclType::Handle)
                 }
                 _ if name.eq_ignore_ascii_case("Date") => {
                     self.reject_date(self.line());
