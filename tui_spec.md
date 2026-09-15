@@ -96,11 +96,10 @@ Terminal input is keyboard-driven. There are three ways an event fires:
 after the handler is the **hotkey label** on the bottom status bar
 (`On Key "q" Quit "quit"`). Omit it and the handler name is used.
 
-> **Early-out in an event.** A `Screen` event lowers to a function that returns
-> `std::io::Result<()>`, so a bare `Return` on its own is a type error (rustc:
-> "`return;` in a function whose return type is not `()`"). To leave an event
-> early, structure the logic with `If … Else` so it falls through, or guard the
-> rest — `If Not won Then … End If` — rather than `If won Then Return`.
+> **Early-out in an event.** A bare `Return` leaves the Event (or helper `Sub`)
+> early, successfully — same on a Screen, Window, or Page. Before an `Await` it
+> skips the background work: the event is done. `Return <value>` belongs in a
+> Function, not an Event.
 
 ### 2.4 Status line
 
@@ -506,8 +505,8 @@ terminal (not piped), and it restores on exit. Adding a `Screen` pulls in
 
 ### 8.0 Diagnosing a running screen — `Log`, not `Debug.Print`
 
-A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — Vinyl warns
-and sends you to **`Log`**. `Log "message"` (composes with `&` like
+A `Screen` owns the terminal, so `Debug.Print` scribbles over the UI — Vinyl
+errors and sends you to **`Log`**. `Log "message"` (composes with `&` like
 `Debug.Print`) appends a timestamped line to `build/vbr.log`; open a second
 terminal and `tail -f build/vbr.log` to watch the app think while it runs. `Log`
 works in any event or helper. `vbr run` prints the log path at startup. See
@@ -552,9 +551,12 @@ Web differences, each said out loud rather than silently diverged:
 
 - A `Quit` binding (key or timer) is dropped (a page can't quit itself —
   close the tab); a note says so.
-- The stdlib beyond `Await Http.Get` / `Http.Post` is a teaching error (it
-  doesn't compile to WebAssembly), as is `Await` on your own functions (no
-  browser threads). The terminal version of the same file runs both today.
+- The stdlib is host-limited, not a second language: **Json** and **Regex**
+  compile on wasm; `Await Http.Get` / `Http.Post` is the browser's fetch.
+  FileSystem, Database, Shell, DataFrame, and DateTime are a teaching error
+  (a browser has no disk, SQLite, or process table). The terminal version of
+  the same file has the full stdlib. `Await` on your own functions is still
+  an error (no browser threads).
 
 *(BUILT — 2026-07-06, complete: the shell, keymap + sync events, the full
 widget set including focus/Input/List/Table, `Every` timers, and async

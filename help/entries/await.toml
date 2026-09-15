@@ -21,7 +21,7 @@ In `Function Main()` (a console program) that is just the call — there is no U
 
 Do not put `Await` inside a `Function` in a surface program: keep the Function synchronous and write `Match Await Load(…)` in the Event, so the whole Function runs off-thread.
 
-The usual Event shape: set a "working…" state first (the view redraws at once), then `Match Await` on the call to fold Ok/Err into state. One `Await` per event, as a top-level `Match` or `Dim` — not nested in `If`/`For`. A failed call hits the event sink unless you `Handle` it.
+The usual Event shape: set a "working…" state first (the view redraws at once), then `Match Await` on the call to fold Ok/Err into state. One `Await` per event, as a top-level `Match` or `Dim` — not nested in `If`/`For`. To skip the call, `If busy Then Return` *before* the `Await` (the event ends; nothing is spawned). A failed call hits the event sink unless you `Handle` it.
 
 See the GUI / TUI guide, `examples/fetch.vbr`, and `examples/await_sub.vbr`.
 """

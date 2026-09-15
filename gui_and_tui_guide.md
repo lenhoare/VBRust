@@ -145,23 +145,20 @@ the event, same as writing it there.
 That is the entire mental model. Everything else is *which widgets exist* and
 *how they're arranged* — and that is where a Window and a Screen part ways.
 
-> **One gotcha: don't use a bare `Return` to bail out of an event.** An event
-> handler isn't an ordinary function — it lowers differently on each surface (a
-> terminal loop, an Iced update, a web callback), so an early `Return` has no one
-> meaning and won't type-check. Instead, let the handler fall through with an
-> `If`/`ElseIf`, guarding the work rather than jumping out of it:
->
-> ```vb
-> Event TryGuess(text As String)
->     If won Then
->         message = "You already won!"   ' don't `Return` here …
->     ElseIf Val(text) = secret Then
->         won = True                     ' … just guard the branches
->     Else
->         guesses = guesses - 1
->     End If
-> End Event
-> ```
+A bare `Return` leaves an Event or helper `Sub` early — Window, Screen, and Page.
+Before an `Await` it skips that work (the event is done). `Return <value>` is a
+Function's job, not an Event's:
+
+```vb
+Event TryGuess(text As String)
+    If won Then Return
+    If Val(text) = secret Then
+        won = True
+    Else
+        guesses = guesses - 1
+    End If
+End Event
+```
 
 ---
 

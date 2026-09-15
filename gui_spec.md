@@ -214,7 +214,7 @@ State
 End State
 
 Sub TryMove(ByVal cell As Long)
-    If board[cell] <> "" Then Return   ' a bare Return is fine here (see below)
+    If board[cell] <> "" Then Return
     board[cell] = "X"
     message = "O to move"
 End Sub
@@ -242,10 +242,10 @@ This is the intended answer to *"can one event call another?"* — not directly
 same result, explicitly. It replaces the older workaround of hoisting the logic
 to a **module** `Sub` and passing every touched field as a `ByRef` parameter.
 
-Unlike an event, a helper `Sub` returns `()`, so a **bare `Return`** inside it is
-a normal early exit (`If done Then Return`) — an event has no single return type
-across the surfaces, so a bare `Return` there is rejected; put the guarded logic
-in a helper `Sub` when you want to bail out early.
+A **bare `Return`** leaves an Event or helper `Sub` early (success). Before an
+`Await` that skips the spawn — the event is done. `Return <value>` belongs in a
+Function. A helper `Sub` is still the place to share a guard across events
+(`If done Then Return`).
 
 #### Async events — `Await` *(BUILT — slice 4)*
 

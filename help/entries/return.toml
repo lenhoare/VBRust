@@ -13,9 +13,7 @@ summary = "Hands a value back from a Function and stops it."
 remarks = """
 `Return <value>` ends a `Function` and gives that success value to the caller. Its type must match the function's `As <Type>`. To fail instead, use `RaiseError`.
 
-A bare `Return` (no value) leaves a `Sub` early.
-
-Note: inside a surface **event** handler, a bare `Return` is success (`Ok(())`). An unhandled error ends the event and the app keeps running.
+A bare `Return` (no value) leaves a `Sub` or a surface **Event** early, successfully. Before an `Await` in an Event, that skips the background work — the event is done. `Return <value>` in an Event is an error (Events don't hand a value back). An unhandled error ends the event and the app keeps running.
 """
 
 example = """

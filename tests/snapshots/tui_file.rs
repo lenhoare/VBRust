@@ -572,19 +572,20 @@ fn main() -> std::io::Result<()> {
                                 match (m, i) {
                                     (0, 0) => {
                                         {
-                                            let __vbr_event: Result<_, String> = (|| {
+                                            let __vbr_event: Result<Option<_>, String> = (|| {
                                                 let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
                                                 if picked == "" {
-                                                    return Ok(());
+                                                    return Ok(None);
                                                 }
                                                 state.path = picked.clone();
-                                                Ok(picked)
+                                                Ok(Some(picked))
                                             })();
                                             match __vbr_event {
                                                 Err(__e) => {
                                                     eprintln!("Error: {}", __e);
                                                 }
-                                                Ok(picked) => {
+                                                Ok(None) => {}
+                                                Ok(Some(picked)) => {
                                         let tx = tx.clone();
                                         std::thread::spawn(move || {
                                             let _ = tx.send(Message::OpenFileDone(readfile(&picked)));
@@ -595,18 +596,19 @@ fn main() -> std::io::Result<()> {
                                     }
                                     (0, 1) => {
                                         {
-                                            let __vbr_event: Result<_, String> = (|| {
+                                            let __vbr_event: Result<Option<_>, String> = (|| {
                                                 let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
                                                 if picked == "" {
-                                                    return Ok(());
+                                                    return Ok(None);
                                                 }
-                                                Ok(picked)
+                                                Ok(Some(picked))
                                             })();
                                             match __vbr_event {
                                                 Err(__e) => {
                                                     eprintln!("Error: {}", __e);
                                                 }
-                                                Ok(picked) => {
+                                                Ok(None) => {}
+                                                Ok(Some(picked)) => {
                                         let notes = state.notes.clone();
                                         let tx = tx.clone();
                                         std::thread::spawn(move || {
@@ -627,19 +629,20 @@ fn main() -> std::io::Result<()> {
                             (Some(0), 'o') => {
                                 state.menu_close();
                                 {
-                                    let __vbr_event: Result<_, String> = (|| {
+                                    let __vbr_event: Result<Option<_>, String> = (|| {
                                         let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
                                         if picked == "" {
-                                            return Ok(());
+                                            return Ok(None);
                                         }
                                         state.path = picked.clone();
-                                        Ok(picked)
+                                        Ok(Some(picked))
                                     })();
                                     match __vbr_event {
                                         Err(__e) => {
                                             eprintln!("Error: {}", __e);
                                         }
-                                        Ok(picked) => {
+                                        Ok(None) => {}
+                                        Ok(Some(picked)) => {
                                 let tx = tx.clone();
                                 std::thread::spawn(move || {
                                     let _ = tx.send(Message::OpenFileDone(readfile(&picked)));
@@ -651,18 +654,19 @@ fn main() -> std::io::Result<()> {
                             (Some(0), 's') => {
                                 state.menu_close();
                                 {
-                                    let __vbr_event: Result<_, String> = (|| {
+                                    let __vbr_event: Result<Option<_>, String> = (|| {
                                         let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
                                         if picked == "" {
-                                            return Ok(());
+                                            return Ok(None);
                                         }
-                                        Ok(picked)
+                                        Ok(Some(picked))
                                     })();
                                     match __vbr_event {
                                         Err(__e) => {
                                             eprintln!("Error: {}", __e);
                                         }
-                                        Ok(picked) => {
+                                        Ok(None) => {}
+                                        Ok(Some(picked)) => {
                                 let notes = state.notes.clone();
                                 let tx = tx.clone();
                                 std::thread::spawn(move || {

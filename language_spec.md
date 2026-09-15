@@ -172,8 +172,10 @@ End Function
 - `Sub Name(params) … End Sub` is accepted as **sugar** for a no-return
   `Function` — both become a Rust `fn` — and emits a one-time note. A `Sub` may
   not declare `As T` (it returns nothing).
-- `Return expr` yields a value; bare `Return` exits early. The transpiler lowers
-  a trailing `Return` to a Rust tail expression where possible.
+- `Return expr` yields a value from a `Function`; bare `Return` exits early
+  (a `Sub`, or an Event / helper Sub — before `Await` that skips the spawn).
+  The transpiler lowers a trailing `Return` to a Rust tail expression where
+  possible. `Return expr` in an Event is a teaching error.
 - Procedure names are emitted lowercase (`DoThing` → `dothing`).
 - **`Public`** makes a function visible to other modules (emitted `pub fn`); bare
   or `Private` functions are file-local (§13). The same applies to `Type` and
@@ -480,15 +482,16 @@ directory (for a project run, `build/vbr.log`) via a small std-only sink emitted
 when `Log` is used — `[14:32:05.887 INFO ] message`. It composes with `&` exactly
 like `Debug.Print`, and is available everywhere — plain code, functions, methods,
 and surface events. It's the diagnostic channel for when stdout is taken: a
-**`Screen`** draws into the terminal, so `Debug.Print` there scribbles on the UI
-(Vinyl warns and points you at `Log`); `Log` writes to the file instead, so
-`tail -f build/vbr.log` in another terminal shows a running app's trace.
+**`Screen`** draws into the terminal, so `Debug.Print` there is a compile error
+(Vinyl points you at `Log`); `Log` writes to the file instead, so
+`tail -f build/vbr.log` in another terminal shows a running app's trace. On a
+**`Page`** (or a browser `Screen`), the same `Log` writes to the browser console
+instead of a file — there is no disk.
 
 Bare `Log expr` is `INFO`; **`Log.Debug` / `Log.Info` / `Log.Warn` / `Log.Error`**
 set the severity tag (padded to a column), so `grep WARN build/vbr.log` filters.
 `Log expr` (message with a space) is the verb; `Log(x)` with parentheses stays the
-natural-log builtin. *(Deferred: a runtime level threshold, an in-UI debug pane,
-and `console.log` for a browser `Page`.)*
+natural-log builtin. *(Deferred: a runtime level threshold, and an in-UI debug pane.)*
 
 ### Pausing
 `Sleep ms` (paren-less, like VB6's kernel32 `Declare Sub Sleep` — no Declare

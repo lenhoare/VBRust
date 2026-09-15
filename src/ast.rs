@@ -957,7 +957,7 @@ pub enum Stmt {
     Print(Expr),
     /// `Log <expr>` / `Log.Warn <expr>` — write a timestamped, level-tagged line
     /// to the log file (`vbr.log` in the working directory). Safe under a surface
-    /// (unlike `Debug.Print`, which would scribble on a `Screen`'s terminal);
+    /// (a `Screen` rejects `Debug.Print`, which would scribble on its terminal);
     /// available everywhere. Bare `Log` is `Info`.
     Log(LogLevel, Expr),
     If {

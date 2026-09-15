@@ -36,10 +36,23 @@ thread_local! {
     /// one is wrapped in `with_mut`.
     static EMIT_HANDLES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
     static EMIT_RET_HANDLE: Cell<bool> = Cell::new(false);
+    /// When true, a bare `Return` is `return Ok(None)` — the async kick-off
+    /// uses `Option` so an early exit can skip the spawn.
+    static EMIT_BARE_RETURN_NONE: Cell<bool> = Cell::new(false);
 }
 
 pub(crate) fn with_pixel_flush<R>(f: impl FnOnce() -> R) -> R {
     PIXEL_FLUSH.with(|c| {
+        let prev = c.replace(true);
+        let r = f();
+        c.set(prev);
+        r
+    })
+}
+
+/// Emit bare `Return` as `Ok(None)` so an async kick-off can skip the spawn.
+pub(crate) fn with_bare_return_none<R>(f: impl FnOnce() -> R) -> R {
+    EMIT_BARE_RETURN_NONE.with(|c| {
         let prev = c.replace(true);
         let r = f();
         c.set(prev);
@@ -335,22 +348,31 @@ fn draw_cmd_writes_pixels(cmd: &DrawCmd) -> bool {
 /// directory (for a project run, that's `build/vbr.log`). Std-only — no crate,
 /// so `Log` works even under `vbr run`. The timestamp is UTC time-of-day with
 /// milliseconds, which is what matters for watching a running app; a failed open
-/// is swallowed so logging never crashes the program it's diagnosing.
+/// is swallowed so logging never crashes the program it's diagnosing. On wasm
+/// there is no disk clock, so the same helper writes to stderr (the browser
+/// console) instead of opening `vbr.log`.
 pub(crate) const LOG_HELPER: &str = "fn vbr_log(level: &str, msg: &str) {
-    use std::io::Write;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let ts = format!(
-        \"{:02}:{:02}:{:02}.{:03}\",
-        (secs / 3600) % 24,
-        (secs / 60) % 60,
-        secs % 60,
-        now.subsec_millis()
-    );
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(\"vbr.log\") {
-        let _ = writeln!(f, \"[{} {}] {}\", ts, level, msg);
+    #[cfg(target_arch = \"wasm32\")]
+    {
+        eprintln!(\"[{}] {}\", level, msg);
+    }
+    #[cfg(not(target_arch = \"wasm32\"))]
+    {
+        use std::io::Write;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = now.as_secs();
+        let ts = format!(
+            \"{:02}:{:02}:{:02}.{:03}\",
+            (secs / 3600) % 24,
+            (secs / 60) % 60,
+            secs % 60,
+            now.subsec_millis()
+        );
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(\"vbr.log\") {
+            let _ = writeln!(f, \"[{} {}] {}\", ts, level, msg);
+        }
     }
 }
 ";
@@ -403,15 +425,21 @@ impl __VbrHandle {
 
 /// True when `<expr>` anywhere in the program is passed to `Log` — so the sink
 /// helper is emitted (and only then). Scans plain code, tests, and every
-/// surface's event bodies.
+/// surface's event and helper-Sub bodies.
 pub(crate) fn program_uses_log(program: &Program) -> bool {
     let any = |stmts: &[Stmt]| stmts.iter().any(stmt_has_log);
+    let surface = |events: &[GuiEvent], subs: &[GuiEvent]| {
+        events.iter().any(|e| any(&e.body)) || subs.iter().any(|s| any(&s.body))
+    };
     program.functions.iter().any(|f| any(&f.body))
         || program.tests.iter().any(|t| any(&t.body))
-        || program.windows.iter().any(|w| w.events.iter().any(|e| any(&e.body)))
-        || program.sketches.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
-        || program.screens.iter().any(|s| s.events.iter().any(|e| any(&e.body)))
-        || program.pages.iter().any(|p| p.events.iter().any(|e| any(&e.body)))
+        || program.windows.iter().any(|w| surface(&w.events, &w.subs))
+        || program.sketches.iter().any(|s| surface(&s.events, &s.subs))
+        || program.screens.iter().any(|s| surface(&s.events, &s.subs))
+        || program.pages.iter().any(|p| surface(&p.events, &p.subs))
+        || program.godot_nodes.iter().any(|n| {
+            n.events.iter().any(|e| any(&e.body)) || n.handlers.iter().any(|h| any(&h.body))
+        })
 }
 
 pub(crate) fn program_uses_handle(program: &Program) -> bool {
@@ -603,22 +631,25 @@ fn stmt_contains(s: &Stmt, pred: &dyn Fn(&Stmt) -> bool) -> bool {
         Stmt::Match { arms, .. } => {
             arms.iter().any(|a| a.body.iter().any(|s| stmt_contains(s, pred)))
         }
-        Stmt::HandleErr { body, .. } => body.iter().any(|s| stmt_contains(s, pred)),
+        Stmt::HandleErr { body, .. } | Stmt::GpuInto { body, .. } => {
+            body.iter().any(|s| stmt_contains(s, pred))
+        }
         _ => false,
     }
 }
 
 /// A `Screen` draws into the terminal, so `Debug.Print` (which writes to that
-/// same terminal) would scribble over the UI. Warn once, pointing at `Log`.
-fn warn_print_in_screen(program: &Program, diags: &mut Diagnostics) {
+/// same terminal) would scribble over the UI. Error once, pointing at `Log`.
+/// Events, helper Subs, and Functions (including `Main`) are the same rule.
+fn error_print_in_screen(program: &Program, diags: &mut Diagnostics) {
     let is_print = |s: &Stmt| matches!(s, Stmt::Print(_));
-    let prints = program.functions.iter().any(|f| f.body.iter().any(|s| stmt_contains(s, &is_print)))
-        || program
-            .screens
-            .iter()
-            .any(|sc| sc.events.iter().any(|e| e.body.iter().any(|s| stmt_contains(s, &is_print))));
+    let in_body = |stmts: &[Stmt]| stmts.iter().any(|s| stmt_contains(s, &is_print));
+    let prints = program.functions.iter().any(|f| in_body(&f.body))
+        || program.screens.iter().any(|sc| {
+            sc.events.iter().any(|e| in_body(&e.body)) || sc.subs.iter().any(|s| in_body(&s.body))
+        });
     if prints {
-        diags.warn_once_global(
+        diags.error_once(
             "debug-print-in-screen",
             "`Debug.Print` writes to the terminal your `Screen` is drawing on — it will \
              scribble over the display. Use `Log` instead (it appends a timestamped line to \
@@ -709,7 +740,7 @@ pub fn transpile_module(
     // in the terminal (crossterm) by default, in the browser (Ratzilla) for
     // `vbr runweb`. Same state, same view; only the shell differs.
     if !program.screens.is_empty() {
-        warn_print_in_screen(program, diags);
+        error_print_in_screen(program, diags);
         let rust = crate::tui::emit_tui_program(program, modules, interfaces, is_entry, web, diags);
         diags.clear_line_map();
         return add_sibling_type_uses(rust, &type_providers, &private_types, diags);
@@ -2334,7 +2365,11 @@ pub(crate) fn emit_stmt(
             out.push_str(&format!("{}return Ok({});\n", pad, val));
         }
         Stmt::Return(None) => {
-            out.push_str(&format!("{}return Ok(());\n", pad));
+            if EMIT_BARE_RETURN_NONE.with(|c| c.get()) {
+                out.push_str(&format!("{}return Ok(None);\n", pad));
+            } else {
+                out.push_str(&format!("{}return Ok(());\n", pad));
+            }
         }
         Stmt::RaiseError(e) => {
             let msg = match &e.kind {
@@ -5092,6 +5127,34 @@ pub fn stdlib_used(diags: &Diagnostics) -> Vec<String> {
         .filter(|t| diags.has_mark(&format!("stdlib:{}", t)))
         .map(|s| s.to_string())
         .collect()
+}
+
+/// Namespaces that compile on wasm (pure compute). `Http` is the browser
+/// `fetch` door and is never imported from `vbr_stdlib`.
+pub(crate) fn wasm_stdlib_ok(ns: &str) -> bool {
+    matches!(ns, "Json" | "Regex")
+}
+
+/// Teaching error for disk / SQLite / Shell / DateTime / DataFrame on a Page
+/// or a browser Screen. Json, Regex, and `Await Http.Get`/`Post` are the door.
+pub(crate) fn report_wasm_stdlib(diags: &mut Diagnostics, key: &str, host: &str) {
+    let banned: Vec<String> = stdlib_used(diags)
+        .into_iter()
+        .filter(|ns| !wasm_stdlib_ok(ns) && ns.as_str() != "Http")
+        .collect();
+    if banned.is_empty() {
+        return;
+    }
+    let verb = if banned.len() == 1 { "isn't" } else { "aren't" };
+    diags.error_once(
+        key,
+        format!(
+            "{} {verb} available in a {host}. Json, Regex, and `Await Http.Get`/`Post` \
+             run in the browser; files, SQLite, Shell, DataFrame, and DateTime need a \
+             Window or Screen.",
+            banned.join(", "),
+        ),
+    );
 }
 
 /// Mark stdlib types that appear as *type annotations* (params, returns, Dims,

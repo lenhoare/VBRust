@@ -35,7 +35,7 @@ A `Page` is a web app (Yew, in the browser). You write the same blocks as a Wind
 
 Widgets that carry over: `Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`. Layout is `Column` / `Row` with `Spacing`, `Padding`, `Length` / `Fill`. `Match` and `If` in the view pick which markup to show.
 
-`Theme Dracula` becomes CSS variables (`--vbr-background`, `--vbr-text`, `--vbr-primary`). A `Css` block can override it. `Await Http.Get` / `Await Http.Post` in an event uses the browser's fetch.
+`Theme Dracula` becomes CSS variables (`--vbr-background`, `--vbr-text`, `--vbr-primary`). A `Css` block can override it. `Await Http.Get` / `Await Http.Post` in an event uses the browser's fetch. **Json** and **Regex** work too. Files, SQLite, and Shell need a Window or Screen.
 
 Launch with `<Name>.Run` inside `Function Main()`. A program is one kind of surface — don't mix a Page with a Window, Screen, or Sketch.
 """

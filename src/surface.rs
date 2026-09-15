@@ -17,7 +17,7 @@ use crate::span::Span;
 use crate::transpiler::{
     body_never_returns, boxed_handle_map, collect_expr_idents, decltype_rust, emit_const, emit_enum,
     emit_fn, emit_impl, emit_stmt, emit_struct, note_builtins, render_expr, render_rust_for_handles,
-    rust_name, stdlib_type, with_emit_handles,
+    rust_name, stdlib_type, with_bare_return_none, with_emit_handles,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -96,7 +96,7 @@ pub(crate) fn emit_shared_items(
         out.push('\n');
     }
     // The `Log` sink helper — a surface (a `Screen` especially) leans on `Log`
-    // because `Debug.Print` would corrupt its display. Emitted once here, shared
+    // because `Debug.Print` there is a compile error. Emitted once here, shared
     // by all three surface emitters, only when the program logs.
     if crate::transpiler::program_uses_log(program) {
         out.push_str(crate::transpiler::LOG_HELPER);
@@ -423,6 +423,7 @@ pub(crate) fn analyze_events(
     helpers: &[Function],
 ) -> Vec<Option<AwaitSplit>> {
     let async_names = async_sub_names(subs);
+    check_event_return_value(events, subs, diags);
     for s in subs {
         if async_names.contains(&rust_name(&s.name))
             && s.params.iter().any(|p| p.mode == ParamMode::ByRef)
@@ -462,6 +463,93 @@ pub(crate) fn analyze_events(
             await_split(&flat, field_ty, fns, diags, backend)
         })
         .collect()
+}
+
+const EVENT_RETURN_VALUE: &str = "An Event (or helper Sub) doesn't return a value. \
+     Use a bare `Return` to leave early, or a Function if you have something to hand back.";
+
+fn check_event_return_value(events: &[GuiEvent], subs: &[GuiEvent], diags: &mut Diagnostics) {
+    if events
+        .iter()
+        .chain(subs)
+        .any(|e| body_has_return_value(&e.body))
+    {
+        diags.error_once("event-return-value", EVENT_RETURN_VALUE);
+    }
+}
+
+fn body_has_return_value(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_has_return_value)
+}
+
+fn stmt_has_return_value(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(Some(_)) => true,
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| body_has_return_value(b))
+                || else_body.as_ref().is_some_and(|b| body_has_return_value(b))
+        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| body_has_return_value(&a.body)),
+        Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::DoLoop { body, .. }
+        | Stmt::GpuInto { body, .. }
+        | Stmt::HandleErr { body, .. } => body_has_return_value(body),
+        Stmt::Return(None)
+        | Stmt::Assign { .. }
+        | Stmt::Dim { .. }
+        | Stmt::Set { .. }
+        | Stmt::Destroy { .. }
+        | Stmt::DestructureDim { .. }
+        | Stmt::HandleDim { .. }
+        | Stmt::RaiseError(_)
+        | Stmt::Expr(_)
+        | Stmt::Print(_)
+        | Stmt::Log(..)
+        | Stmt::Break
+        | Stmt::Continue
+        | Stmt::Draw(_)
+        | Stmt::Assert(_)
+        | Stmt::Comment(_)
+        | Stmt::LineMark(_) => false,
+    }
+}
+
+fn body_has_bare_return(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_has_bare_return)
+}
+
+fn stmt_has_bare_return(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(None) => true,
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(_, b)| body_has_bare_return(b))
+                || else_body.as_ref().is_some_and(|b| body_has_bare_return(b))
+        }
+        Stmt::Match { arms, .. } => arms.iter().any(|a| body_has_bare_return(&a.body)),
+        Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::DoLoop { body, .. }
+        | Stmt::GpuInto { body, .. }
+        | Stmt::HandleErr { body, .. } => body_has_bare_return(body),
+        Stmt::Return(Some(_))
+        | Stmt::Assign { .. }
+        | Stmt::Dim { .. }
+        | Stmt::Set { .. }
+        | Stmt::Destroy { .. }
+        | Stmt::DestructureDim { .. }
+        | Stmt::HandleDim { .. }
+        | Stmt::RaiseError(_)
+        | Stmt::Expr(_)
+        | Stmt::Print(_)
+        | Stmt::Log(..)
+        | Stmt::Break
+        | Stmt::Continue
+        | Stmt::Draw(_)
+        | Stmt::Assert(_)
+        | Stmt::Comment(_)
+        | Stmt::LineMark(_) => false,
+    }
 }
 
 /// Subs whose body contains `Await`, or that end with a call to such a Sub.
@@ -766,8 +854,8 @@ pub(crate) fn check_await_honesty(program: &Program, diags: &mut Diagnostics) {
 
 /// The stdlib namespaces used across all event bodies, sorted and deduped —
 /// ready for a `use vbr_stdlib::{…}` line. Marks each so the vbr_stdlib dep and
-/// feature get added. (The web backend collects without marking — see
-/// `collect_event_stdlib` — since its `Http` is the browser's fetch, not ours.)
+/// feature get added. (The web backends collect via `collect_event_stdlib` and
+/// skip marking `Http`, whose awaited form is the browser's fetch.)
 pub(crate) fn event_stdlib_imports(
     events: &[GuiEvent],
     subs: &[GuiEvent],
@@ -867,6 +955,12 @@ pub(crate) fn emit_event_stmts_caught(
     out.push_str(&format!("{}}}\n", pad));
 }
 
+fn emit_kickoff_tail(inner2: &str, err_tail: &str, out: &mut String) {
+    if !err_tail.is_empty() {
+        out.push_str(&format!("{}    {}\n", inner2, err_tail));
+    }
+}
+
 /// Emit the pre-await half of an async event, then `emit_spawn`.
 ///
 /// `Dim` locals used by the awaited call (a JSON body, a header map) have to
@@ -876,6 +970,10 @@ pub(crate) fn emit_event_stmts_caught(
 /// locals on success. `err_tail` is extra code for the failure arm — a GUI
 /// kick-off passes `Task::none()` so `update` still returns a Task; a Page
 /// or Screen leaves it empty.
+///
+/// A bare `Return` in `pre` is success-and-done: skip the spawn (the event
+/// ends; assignments before the `Return` stay). That path wraps the kick-off
+/// in `Option` so `Ok(None)` is distinct from "carry these locals".
 pub(crate) fn emit_async_kickoff(
     pre: &[Stmt],
     params: &[Param],
@@ -890,23 +988,63 @@ pub(crate) fn emit_async_kickoff(
     err_tail: &str,
     emit_spawn: impl FnOnce(&mut String, &mut Diagnostics),
 ) {
-    if carry.is_empty() {
-        emit_event_stmts_caught(pre, params, recv, fields, field_ty, t, indent, diags, out);
+    if !body_has_bare_return(pre) {
+        if carry.is_empty() {
+            emit_event_stmts_caught(pre, params, recv, fields, field_ty, t, indent, diags, out);
+            emit_spawn(out, diags);
+            return;
+        }
+        let pad = "    ".repeat(indent);
+        let inner = "    ".repeat(indent + 1);
+        let inner2 = "    ".repeat(indent + 2);
+        let tuple = match carry.len() {
+            1 => carry[0].clone(),
+            _ => format!("({})", carry.join(", ")),
+        };
+        out.push_str(&format!("{}{{\n", pad));
+        out.push_str(&format!("{}let __vbr_event: Result<_, String> = (|| {{\n", inner));
+        emit_event_stmts(pre, params, recv, fields, field_ty, t, indent + 2, diags, out);
+        if !body_never_returns(pre) {
+            out.push_str(&format!("{}Ok({})\n", inner2, tuple));
+        }
+        out.push_str(&format!("{}}})();\n", inner));
+        out.push_str(&format!("{}match __vbr_event {{\n", inner));
+        out.push_str(&format!("{}Err(__e) => {{\n", inner2));
+        out.push_str(&format!(
+            "{}    eprintln!(\"Error: {{}}\", __e);\n",
+            inner2
+        ));
+        emit_kickoff_tail(&inner2, err_tail, out);
+        out.push_str(&format!("{}}}\n", inner2));
+        out.push_str(&format!("{}Ok({}) => {{\n", inner2, tuple));
         emit_spawn(out, diags);
+        out.push_str(&format!("{}}}\n", inner2));
+        out.push_str(&format!("{}}}\n", inner));
+        out.push_str(&format!("{}}}\n", pad));
         return;
     }
+
     let pad = "    ".repeat(indent);
     let inner = "    ".repeat(indent + 1);
     let inner2 = "    ".repeat(indent + 2);
-    let tuple = match carry.len() {
-        1 => carry[0].clone(),
-        _ => format!("({})", carry.join(", ")),
+    let some_ok = match carry.len() {
+        0 => "Some(())".to_string(),
+        1 => format!("Some({})", carry[0]),
+        _ => format!("Some(({}))", carry.join(", ")),
+    };
+    let never = body_never_returns(pre);
+    let result_ty = if never {
+        "Result<Option<()>, String>"
+    } else {
+        "Result<Option<_>, String>"
     };
     out.push_str(&format!("{}{{\n", pad));
-    out.push_str(&format!("{}let __vbr_event: Result<_, String> = (|| {{\n", inner));
-    emit_event_stmts(pre, params, recv, fields, field_ty, t, indent + 2, diags, out);
-    if !body_never_returns(pre) {
-        out.push_str(&format!("{}Ok({})\n", inner2, tuple));
+    out.push_str(&format!("{}let __vbr_event: {} = (|| {{\n", inner, result_ty));
+    with_bare_return_none(|| {
+        emit_event_stmts(pre, params, recv, fields, field_ty, t, indent + 2, diags, out);
+    });
+    if !never {
+        out.push_str(&format!("{}Ok({})\n", inner2, some_ok));
     }
     out.push_str(&format!("{}}})();\n", inner));
     out.push_str(&format!("{}match __vbr_event {{\n", inner));
@@ -915,13 +1053,29 @@ pub(crate) fn emit_async_kickoff(
         "{}    eprintln!(\"Error: {{}}\", __e);\n",
         inner2
     ));
-    if !err_tail.is_empty() {
-        out.push_str(&format!("{}    {}\n", inner2, err_tail));
+    emit_kickoff_tail(&inner2, err_tail, out);
+    out.push_str(&format!("{}}}\n", inner2));
+    if never {
+        if err_tail.is_empty() {
+            out.push_str(&format!("{}Ok(_) => {{}}\n", inner2));
+        } else {
+            out.push_str(&format!("{}Ok(_) => {{\n", inner2));
+            emit_kickoff_tail(&inner2, err_tail, out);
+            out.push_str(&format!("{}}}\n", inner2));
+        }
+    } else if err_tail.is_empty() {
+        out.push_str(&format!("{}Ok(None) => {{}}\n", inner2));
+        out.push_str(&format!("{}Ok({}) => {{\n", inner2, some_ok));
+        emit_spawn(out, diags);
+        out.push_str(&format!("{}}}\n", inner2));
+    } else {
+        out.push_str(&format!("{}Ok(None) => {{\n", inner2));
+        emit_kickoff_tail(&inner2, err_tail, out);
+        out.push_str(&format!("{}}}\n", inner2));
+        out.push_str(&format!("{}Ok({}) => {{\n", inner2, some_ok));
+        emit_spawn(out, diags);
+        out.push_str(&format!("{}}}\n", inner2));
     }
-    out.push_str(&format!("{}}}\n", inner2));
-    out.push_str(&format!("{}Ok({}) => {{\n", inner2, tuple));
-    emit_spawn(out, diags);
-    out.push_str(&format!("{}}}\n", inner2));
     out.push_str(&format!("{}}}\n", inner));
     out.push_str(&format!("{}}}\n", pad));
 }

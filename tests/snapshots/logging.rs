@@ -1,8 +1,9 @@
 // `Log <message>` writes a timestamped line to `vbr.log` in the working
 // directory — a diagnostic channel separate from `Debug.Print`. `Debug.Print`
 // goes to the screen (fine for a console program); `Log` goes to a file, so it's
-// safe *everywhere*, including inside a `Screen` where printing would scribble
-// over the terminal UI. Watch a running app live with `tail -f build/vbr.log`.
+// safe *everywhere*, including inside a `Screen` where `Debug.Print` is a
+// compile error (it would scribble over the terminal UI). Watch a running app
+// live with `tail -f build/vbr.log`.
 // 
 // A bare `Log` is INFO; `Log.Debug` / `Log.Warn` / `Log.Error` tag the severity,
 // so you can `grep WARN build/vbr.log`. `Log` composes with `&` like
@@ -11,20 +12,27 @@
 // takes its message with a space, as `Debug.Print` does.)
 
 fn vbr_log(level: &str, msg: &str) {
-    use std::io::Write;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let ts = format!(
-        "{:02}:{:02}:{:02}.{:03}",
-        (secs / 3600) % 24,
-        (secs / 60) % 60,
-        secs % 60,
-        now.subsec_millis()
-    );
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("vbr.log") {
-        let _ = writeln!(f, "[{} {}] {}", ts, level, msg);
+    #[cfg(target_arch = "wasm32")]
+    {
+        eprintln!("[{}] {}", level, msg);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::io::Write;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = now.as_secs();
+        let ts = format!(
+            "{:02}:{:02}:{:02}.{:03}",
+            (secs / 3600) % 24,
+            (secs / 60) % 60,
+            secs % 60,
+            now.subsec_millis()
+        );
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("vbr.log") {
+            let _ = writeln!(f, "[{} {}] {}", ts, level, msg);
+        }
     }
 }
 

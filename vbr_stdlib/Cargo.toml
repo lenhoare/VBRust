@@ -6,8 +6,9 @@ description = "Vinyl Standard Library — friendly wrappers for common Rust oper
 license = "MIT"
 
 # Each dependency-bearing namespace is behind a feature, so a project only
-# compiles what it uses. `FileSystem` is always available (std-only). The Vinyl
-# project generator enables exactly the features a program needs.
+# compiles what it uses. `FileSystem` and `Shell` are std-only on native hosts
+# (cfg'd out on wasm). The Vinyl project generator enables exactly the features
+# a program needs.
 [features]
 default = []
 json = ["dep:serde_json"]

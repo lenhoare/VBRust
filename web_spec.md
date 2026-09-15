@@ -143,7 +143,7 @@ End Match
 - The kick-off hands the future to the component with
   `ctx.link().send_future(…)` — Yew's equivalent of Iced's `Task::perform`.
 - **`Http.Get` / `Http.Post` here are the browser's `fetch`**, not the native
-  stdlib (which can't compile to wasm): the transpiler generates small
+  ureq crate (which can't compile to wasm): the transpiler generates small
   `http_get` / `http_post` wrappers over `gloo-net`, shaped like the stdlib's
   — the body on success, any failure (network, an HTTP error status) as a
   `String` error. `http_post` also forwards the header map. The `gloo-net`
@@ -210,16 +210,17 @@ block — shows all of it.
 
 Each is a teaching error today:
 
-- **The stdlib** — a browser sandbox has no filesystem, and vbr_stdlib doesn't
-  compile to wasm. The door is `Await Http.Get` / `Await Http.Post` in an
-  event (§5); `FileSystem`/`DataFrame` don't apply in a browser.
+- **Host stdlib** — a browser has no disk, SQLite, or process table, so
+  `FileSystem` / `Database` / `Shell` / `DataFrame` / `DateTime` error. **Json**
+  and **Regex** compile (they're just text). The HTTP door is `Await Http.Get` /
+  `Await Http.Post` in an event (§5).
 - **`Await` on your own functions** — the browser is single-threaded, with no
   background thread to run a synchronous function on (the GUI uses
   `spawn_blocking`; wasm has no equivalent).
 - **Fallible `State` initialisers** (`Dim db As Database = Database.Open(…)`) —
   native Windows/Screens build such state before launch and bail cleanly on
-  failure; a browser component has no startup moment to fail in (and the
-  stdlib isn't on wasm anyway). Give the field a plain initial value.
+  failure; a browser component has no startup moment to fail in. Give the field
+  a plain initial value.
 
 ## 8. Testing
 

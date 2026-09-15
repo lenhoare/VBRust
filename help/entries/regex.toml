@@ -9,7 +9,7 @@ summary = "Match and replace text using patterns."
 remarks = """
 `Regex` searches text with **regular expressions**. `Is_Match` tests whether a pattern is present; `Find_All` pulls out every match; `Replace` / `Replace_All` substitute; `Captures` returns the groups of the first match. Every call takes the **pattern first**, then the text.
 
-They can fail if the pattern is invalid. A normal call propagates; intercept with `Handle err`. Patterns are ordinary Vinyl strings, so a backslash class like `\\d` is written just as it looks. Needs the `regex` feature — build as a project.
+They can fail if the pattern is invalid. A normal call propagates; intercept with `Handle err`. Patterns are ordinary Vinyl strings, so a backslash class like `\\d` is written just as it looks. Needs the `regex` feature — build as a project. Works in a `Page` (and a browser `Screen`) as well as console / Window / Screen.
 """
 
 members = """

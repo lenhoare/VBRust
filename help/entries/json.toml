@@ -11,7 +11,7 @@ remarks = """
 
 **Read** with the typed accessors — `Get_String`, `Get_Int`, `Get_Float`, `Get_Bool`, `Get_Array`, and `Get` (for a nested object). Each can fail if the key is missing or holds a different type; a normal call propagates. `Has_Key` checks first. **Build** with `Set_String`, `Set_Int`, `Set_Bool`, `Set` (a nested Json), and `Push` (onto an array). `To_String` / `To_Pretty` render it back to text.
 
-Needs the `json` feature — build as a project.
+Needs the `json` feature — build as a project. Works in a `Page` (and a browser `Screen`) as well as console / Window / Screen — it's just text.
 """
 
 members = """

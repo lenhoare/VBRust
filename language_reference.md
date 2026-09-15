@@ -1062,7 +1062,7 @@ ones you use — so a program that just reads a file compiles nothing extra.
 
 `Debug.Print` writes to the screen, which is perfect for a console program and
 fine in a GUI window — but a terminal app (`Screen`) is *drawing* on that screen,
-so a stray `Debug.Print` scribbles over it. For that, and for any running app you
+so a stray `Debug.Print` is a compile error. For that, and for any running app you
 want to watch, there is `Log`:
 
 ```vb

@@ -11,10 +11,12 @@
 // a normal call propagates the error; `Handle err` intercepts it; `Raw F()`
 // yields the `Result` as a value.
 
-// `FileSystem` and `Shell` are std-only and always available; the rest are
-// behind features (see Cargo.toml) so a project compiles only the wrappers it
-// actually uses.
+// `FileSystem` and `Shell` are std-only on native hosts. They do not compile
+// to wasm (`std::fs` / `std::process`), so they are cfg'd out there — Vinyl
+// then lets Json/Regex link on a Page without dragging the rest along.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod filesystem;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod shell;
 #[cfg(feature = "datetime")]
 pub mod datetime;
@@ -29,7 +31,9 @@ pub mod dataframe;
 #[cfg(feature = "database")]
 pub mod database;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use filesystem::FileSystem;
+#[cfg(not(target_arch = "wasm32"))]
 pub use shell::{Process, Shell};
 #[cfg(feature = "datetime")]
 pub use datetime::DateTime;

@@ -3627,3 +3627,282 @@ End Function
     assert!(c.has_errors, "Window Function file dialog: {:?}", c.diagnostics);
 }
 
+#[test]
+fn event_bare_return_leaves_early() {
+    let src = mini_window(
+        "    Event Click\n\
+        \x20       If status = \"done\" Then Return\n\
+        \x20       status = \"ok\"\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("return Ok(());"),
+        "sync Event Return should be Ok(()): {rust}"
+    );
+}
+
+#[test]
+fn event_return_before_await_skips_spawn() {
+    let src = mini_window(
+        "    Event Fetch\n\
+        \x20       If status = \"done\" Then Return\n\
+        \x20       status = \"loading…\"\n\
+        \x20       Match Await Http.Get(url)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("return Ok(None)") && rust.contains("Ok(None) =>") && rust.contains("Ok(Some(()))"),
+        "Return before Await should skip spawn via Option: {rust}"
+    );
+    assert!(
+        rust.contains("Task::perform") && rust.contains("Task::none()"),
+        "skipping spawn still returns Task::none on a Window: {rust}"
+    );
+}
+
+#[test]
+fn event_return_before_await_with_carry() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim folder As String = ""
+        Dim status As String = ""
+    End State
+    View
+        Column
+            Button "Open"
+                On Click Open
+            End Button
+            Text status
+        End Column
+    End View
+    Event Open
+        Dim picked As String = GetFolderName(folder)
+        If picked = "" Then Return
+        Match Await Load(picked)
+            Ok(s) => status = s
+            Err(e) => status = e
+        End Match
+    End Event
+End Window
+Function Load(ByVal p As String) As String
+    Return p
+End Function
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("return Ok(None)") && rust.contains("Ok(Some(picked))"),
+        "Return before Await should skip spawn and keep the carried local: {rust}"
+    );
+}
+
+#[test]
+fn event_return_value_is_an_error() {
+    let src = mini_window(
+        "    Event Click\n\
+        \x20       Return 1\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Return 1 in an Event should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("doesn't return a value") && joined.contains("Function"),
+        "should teach bare Return vs Function:\n{joined}"
+    );
+}
+
+#[test]
+fn helper_sub_return_value_is_an_error() {
+    let src = mini_window(
+        "    Sub Go\n\
+        \x20       Return 1\n\
+        \x20   End Sub\n\
+        \x20   Event Click\n\
+        \x20       Go()\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Return 1 in a helper Sub should error: {:?}", c.diagnostics);
+}
+
+fn mini_screen(extra: &str) -> String {
+    format!(
+        "Screen S\n\
+        \x20   Title \"S\"\n\
+        \x20   State\n\
+        \x20       Dim label As String = \"\"\n\
+        \x20   End State\n\
+        \x20   View\n\
+        \x20       Column\n\
+        \x20           Text label\n\
+        \x20       End Column\n\
+        \x20   End View\n\
+        {extra}\n\
+        End Screen\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n"
+    )
+}
+
+fn mini_page(extra: &str) -> String {
+    format!(
+        "Page P\n\
+        \x20   Title \"P\"\n\
+        \x20   State\n\
+        \x20       Dim label As String = \"\"\n\
+        \x20   End State\n\
+        \x20   View\n\
+        \x20       Column\n\
+        \x20           Text label\n\
+        \x20       End Column\n\
+        \x20   End View\n\
+        {extra}\n\
+        End Page\n\
+        Function Main()\n\
+        \x20   P.Run\n\
+        End Function\n"
+    )
+}
+
+#[test]
+fn debug_print_in_screen_is_an_error() {
+    let src = mini_screen(
+        "    Event Go\n\
+        \x20       Debug.Print \"hi\"\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Debug.Print in a Screen Event should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("scribble") && joined.contains("Log"),
+        "should point at Log:\n{joined}"
+    );
+}
+
+#[test]
+fn debug_print_in_screen_sub_is_an_error() {
+    let src = mini_screen(
+        "    Sub Trace\n\
+        \x20       Debug.Print \"hi\"\n\
+        \x20   End Sub\n\
+        \x20   Event Go\n\
+        \x20       Trace()\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Debug.Print in a Screen Sub should error: {:?}", c.diagnostics);
+}
+
+#[test]
+fn debug_print_in_window_is_fine() {
+    let src = mini_window(
+        "    Event Click\n\
+        \x20       Debug.Print \"hi\"\n\
+        \x20       status = \"ok\"\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("println!"),
+        "Window Debug.Print should still be println!: {rust}"
+    );
+}
+
+#[test]
+fn log_in_screen_sub_emits_sink() {
+    let src = mini_screen(
+        "    Sub Trace\n\
+        \x20       Log \"hi\"\n\
+        \x20   End Sub\n\
+        \x20   Event Go\n\
+        \x20       Trace()\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("fn vbr_log") && rust.contains("vbr_log("),
+        "Log in a Screen Sub should emit the sink: {rust}"
+    );
+}
+
+#[test]
+fn page_json_compiles() {
+    let src = mini_page(
+        "    Event Go\n\
+        \x20       Dim doc As Json = Json.Object()\n\
+        \x20       doc.Set_String(\"name\", \"Ada\")\n\
+        \x20       label = doc.Get_String(\"name\")\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile_web(&src);
+    assert!(!c.has_errors, "Page Json should compile:\n{:?}", c.diagnostics);
+    assert!(
+        c.rust.contains("use vbr_stdlib::{Json}") && c.rust.contains("Json::object"),
+        "Page should import Json from vbr_stdlib: {}",
+        c.rust
+    );
+}
+
+#[test]
+fn page_filesystem_is_an_error() {
+    let src = mini_page(
+        "    Event Go\n\
+        \x20       label = FileSystem.Join(\"a\", \"b\")\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile_web(&src);
+    assert!(c.has_errors, "Page FileSystem should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("FileSystem") && joined.contains("Json") && joined.contains("Page"),
+        "should teach host limits:\n{joined}"
+    );
+}
+
+#[test]
+fn page_database_is_an_error() {
+    let src = mini_page(
+        "    Event Go\n\
+        \x20       Dim db As Database = Database.Open(\":memory:\")\n\
+        \x20       label = \"ok\"\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile_web(&src);
+    assert!(c.has_errors, "Page Database should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("Database") && joined.contains("Page"),
+        "should name Database on a Page:\n{joined}"
+    );
+}
+
+#[test]
+fn browser_screen_json_compiles() {
+    let src = mini_screen(
+        "    Event Go\n\
+        \x20       Dim doc As Json = Json.Object()\n\
+        \x20       doc.Set_String(\"name\", \"Ada\")\n\
+        \x20       label = doc.Get_String(\"name\")\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile_web(&src);
+    assert!(!c.has_errors, "browser Screen Json should compile:\n{:?}", c.diagnostics);
+    assert!(
+        c.rust.contains("use vbr_stdlib::{Json}"),
+        "browser Screen should import Json: {}",
+        c.rust
+    );
+}
+

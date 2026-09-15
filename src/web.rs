@@ -10,7 +10,8 @@
 //!
 //! Slice 1: `Page` / `State` / `View` (`Text`, `Button`, `Column`, `Row`) /
 //! `Event` → one component plus `fn main`. Events are synchronous (`Await`
-//! arrives in a later slice) and the stdlib is not available in the browser yet.
+//! arrives in a later slice). Host limits, not a second language: Json and
+//! Regex compile on wasm; FileSystem / Database / Shell stay native.
 //! Slice 2: the input round-trip — `TextInput` fires its event per keystroke
 //! with the new text, `Checkbox` with its new state; payload events
 //! (`Event Rename(value As String)`) become `Message` variants carrying data.
@@ -20,7 +21,7 @@
 //! Slice 4: async — `Await Http.Get` / `Http.Post` split the event exactly as
 //! in the GUI (kick-off + generated `<Event>Done` continuation), but run on
 //! the browser's own `fetch` (gloo-net) via `ctx.link().send_future` — no
-//! threads on wasm, and no vbr_stdlib (ureq doesn't compile there).
+//! threads on wasm, and no ureq (the native `Http` crate doesn't compile there).
 
 use crate::ast::*;
 use crate::diagnostics::Diagnostics;
@@ -58,6 +59,11 @@ pub fn emit_web_program(
     let t = surface::build_tables(program, modules, interfaces);
     surface::emit_shared_items(program, &t, diags, &mut out, &mut |_, _, _| false);
 
+    crate::transpiler::stdlib_types_declared(program, diags);
+    for p in &program.pages {
+        surface::state_stdlib(&p.state, diags);
+    }
+
     if program
         .functions
         .iter()
@@ -79,22 +85,17 @@ pub fn emit_web_program(
         out.push('\n');
     }
 
-    // The browser sandbox has no filesystem, and vbr_stdlib doesn't compile on
-    // wasm — so no stdlib in a Page, with one door: `Await Http.Get` /
-    // `Await Http.Post` in an event run on the browser's own fetch (they never
-    // mark `stdlib:Http`, so they don't land here).
-    let std = crate::transpiler::stdlib_used(diags);
-    if !std.is_empty() {
-        diags.error_once(
-            "page-stdlib",
-            format!(
-                "The standard library ({}) isn't available in a Page — a browser sandbox has \
-                 no filesystem, and its networking is async-only. For HTTP, use \
-                 `Await Http.Get(url)` or `Await Http.Post(url, body, headers)` inside an \
-                 event (they run on the browser's fetch).",
-                std.join(", ")
-            ),
-        );
+    // Host limits, not a second language: Json and Regex compile on wasm and
+    // import from vbr_stdlib. FileSystem / Database / Shell / DataFrame /
+    // DateTime are a teaching error. `Await Http.Get` / `Post` is the browser
+    // fetch door (they never mark `stdlib:Http`).
+    crate::transpiler::report_wasm_stdlib(diags, "page-stdlib", "Page");
+    let imports: Vec<String> = crate::transpiler::stdlib_used(diags)
+        .into_iter()
+        .filter(|ns| crate::transpiler::wasm_stdlib_ok(ns))
+        .collect();
+    if !imports.is_empty() {
+        out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", imports.join(", ")));
     }
 
     surface::emit_browser_http_helpers(&mut out);
@@ -137,7 +138,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
 
     validate_page(p, &field_ty, diags);
     // A fallible `State` initialiser needs a startup moment to fail cleanly in;
-    // a browser component has none (and vbr_stdlib isn't on wasm anyway).
+    // a browser component has none.
     if surface::state_fallible(&p.state, &t) {
         diags.error_once(
             "page-fallible-init",

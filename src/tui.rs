@@ -156,31 +156,34 @@ pub fn emit_tui_program(
     // `use vbr_stdlib::{…}` is complete: declared types + `State` inits + call
     // receivers in the helper functions (emit_shared_items above already ran
     // note_builtins on them) + call receivers in event bodies. One `use` line
-    // for the whole native program, so nothing is imported twice. (The `use` is
-    // native-only — wasm has no vbr_stdlib; marks still drive Cargo features and
-    // the browser fence.)
+    // for the whole program. On wasm, Json/Regex still import; Http is the
+    // browser fetch door and is not imported; the rest is a teaching error.
     crate::transpiler::stdlib_types_declared(program, diags);
     for sc in &program.screens {
         surface::state_stdlib(&sc.state, diags);
-        if !web {
-            // Event bodies (Await-aware — `Await Http.Post` counts as `Http`).
-            let mut used = Vec::new();
-            for e in &sc.events {
-                surface::collect_event_stdlib(&e.body, &mut used);
+        let mut used = Vec::new();
+        for e in &sc.events {
+            surface::collect_event_stdlib(&e.body, &mut used);
+        }
+        for s in &sc.subs {
+            surface::collect_event_stdlib(&s.body, &mut used);
+        }
+        for ns in used {
+            if web && ns == "Http" {
+                continue;
             }
-            for s in &sc.subs {
-                surface::collect_event_stdlib(&s.body, &mut used);
-            }
-            for ns in used {
-                diags.mark(&format!("stdlib:{}", ns));
-            }
+            diags.mark(&format!("stdlib:{}", ns));
         }
     }
-    if !web {
-        let std_top = crate::transpiler::stdlib_used(diags);
-        if !std_top.is_empty() {
-            out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_top.join(", ")));
-        }
+    if web {
+        crate::transpiler::report_wasm_stdlib(diags, "tui-web-stdlib", "browser Screen");
+    }
+    let std_top: Vec<String> = crate::transpiler::stdlib_used(diags)
+        .into_iter()
+        .filter(|ns| !web || crate::transpiler::wasm_stdlib_ok(ns))
+        .collect();
+    if !std_top.is_empty() {
+        out.push_str(&format!("use vbr_stdlib::{{{}}};\n\n", std_top.join(", ")));
     }
     if web && program.screens.iter().any(|sc| surface::state_fallible(&sc.state, &t)) {
         diags.error_once(
@@ -276,35 +279,8 @@ pub fn emit_tui_program(
             out.push('\n');
             surface::emit_browser_http_helpers(&mut out);
         }
-        // vbr_stdlib doesn't compile to WebAssembly, so the rest of the stdlib
-        // is fenced in a browser Screen — `Await Http.Get` / `Post` (above) is
-        // the door, and a *sync* `Http.Get` gets the blocking-without-Await error.
-        let mut std_used: Vec<String> = Vec::new();
-        for sc in &program.screens {
-            for e in &sc.events {
-                surface::collect_event_stdlib(&e.body, &mut std_used);
-            }
-            for s in &sc.subs {
-                surface::collect_event_stdlib(&s.body, &mut std_used);
-            }
-        }
-        std_used.extend(crate::transpiler::stdlib_used(diags));
-        std_used.retain(|ns| ns != "Http");
-        std_used.sort();
-        std_used.dedup();
-        if !std_used.is_empty() {
-            diags.error_once(
-                "tui-web-stdlib",
-                format!(
-                    "The standard library ({}) isn't available in a browser Screen — it \
-                     doesn't compile to WebAssembly. For HTTP, use `Await Http.Get(url)` \
-                     or `Await Http.Post(url, body, headers)` inside an event (they run \
-                     on the browser's fetch). The terminal version (`vbr runproject`) \
-                     has the full stdlib.",
-                    std_used.join(", ")
-                ),
-            );
-        }
+        // Banned stdlib (disk, SQLite, Shell, …) is reported earlier; Json/Regex
+        // import from vbr_stdlib. `Await Http.Get` / `Post` is the fetch door.
     }
     out
 }
