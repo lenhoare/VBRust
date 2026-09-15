@@ -319,7 +319,7 @@ fn emit_sketch(
     }
 
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&s.events, &s.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+        analyze_events(&s.events, &s.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native, helpers);
     let any_async = splits.iter().any(Option::is_some);
     let has_messages = !s.events.is_empty();
 
@@ -713,7 +713,7 @@ fn emit_window(
     // (returns a `Task`) and a generated `<Event>Done(...)` continuation arm. If
     // any event is async, the whole `update` returns `Task<Message>`.
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&w.events, &w.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+        analyze_events(&w.events, &w.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native, helpers);
     let any_async = splits.iter().any(Option::is_some);
 
     // Import only the widgets the view uses, plus Task / stdlib namespaces when

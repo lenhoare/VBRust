@@ -13,6 +13,10 @@ path | String | The path of the file to read.
 
 returns = "String — the file's contents. Fails if the file can't be read (missing, no permission)."
 
+remarks = """
+Reads the whole file. In a Window or Screen event this would freeze the UI — put the read in a Function and `Match Await Load(path)` from the Event.
+"""
+
 example = """
 Function Main()
     FileSystem.Write("greeting.txt", "hello")
@@ -21,4 +25,4 @@ Function Main()
 End Function
 """
 
-see_also = ["filesystem", "filesystem.read_lines", "filesystem.write", "handle"]
+see_also = ["filesystem", "filesystem.read_lines", "filesystem.write", "handle", "await"]

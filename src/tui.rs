@@ -247,8 +247,8 @@ pub fn emit_tui_program(
         program.screens.iter().find(|s| s.name.eq_ignore_ascii_case(name))
     });
     match launched_screen {
-        Some(sc) if web => out.push_str(&emit_web_main(sc, &t, diags)),
-        Some(sc) => out.push_str(&emit_main(sc, &t, diags)),
+        Some(sc) if web => out.push_str(&emit_web_main(sc, &t, &program.functions, diags)),
+        Some(sc) => out.push_str(&emit_main(sc, &t, &program.functions, diags)),
         None => diags.error_once(
             "tui-no-launch",
             "A screen is never launched. Add `Function Main()` containing `<Screen>.Run`, \
@@ -1852,7 +1852,7 @@ fn tui_node_name(node: &ViewNode) -> &'static str {
 
 /// `fn main`: the crossterm event loop. Redraw from state, read a key, dispatch
 /// the keymap (a handler event's body, or `Quit` → break), repeat.
-fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> String {
+fn emit_main(sc: &Screen, t: &surface::Tables, helpers: &[Function], diags: &mut Diagnostics) -> String {
     let ty = &sc.name;
     // Same per-screen `Sub` awareness as `emit_screen`, so a helper called from a
     // key/timer event body lowers to a method on the state.
@@ -1866,7 +1866,7 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
     // work onto a background thread and delivers the result over a channel.
     // (`analyze_events` also checks nothing blocking runs un-`Await`ed.)
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&sc.events, &sc.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native);
+        analyze_events(&sc.events, &sc.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::Native, helpers);
     let any_async = splits.iter().any(Option::is_some);
     let async_by_name: HashMap<String, &AwaitSplit> = sc
         .events
@@ -2111,7 +2111,7 @@ fn emit_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> Strin
 /// key handler (which dispatches the same keymap as the native loop) and the
 /// `draw_web` render loop. The State struct, `view`, and event bodies are the
 /// exact ones the native shell uses.
-fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> String {
+fn emit_web_main(sc: &Screen, t: &surface::Tables, helpers: &[Function], diags: &mut Diagnostics) -> String {
     let ty = &sc.name;
     let (fields, field_ty) = state_maps(&sc.state);
     let events: HashMap<String, &GuiEvent> =
@@ -2123,7 +2123,7 @@ fn emit_web_main(sc: &Screen, t: &surface::Tables, diags: &mut Diagnostics) -> S
     // extra thread. (`analyze_events` also checks nothing blocking runs
     // un-`Await`ed.)
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&sc.events, &sc.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::WebScreen);
+        analyze_events(&sc.events, &sc.subs, &field_ty, &t.fns, diags, surface::AsyncBackend::WebScreen, helpers);
     let async_by_name: HashMap<String, &AwaitSplit> = sc
         .events
         .iter()

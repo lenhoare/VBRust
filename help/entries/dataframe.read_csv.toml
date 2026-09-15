@@ -13,6 +13,10 @@ path | String | The path of the CSV file. The first row is taken as the column n
 
 returns = "DataFrame — the table, with each column's type inferred from its values. Common blank/NA tokens are read as missing values."
 
+remarks = """
+Reads the file. In a Window or Screen event this would freeze the UI — put the load in a Function and `Match Await Load(path)` from the Event.
+"""
+
 example = """
 Function Main()
     Dim df As DataFrame = DataFrame.Read_Csv("people.csv")
@@ -20,4 +24,4 @@ Function Main()
 End Function
 """
 
-see_also = ["dataframe", "dataframe.with_column", "dataframe.column"]
+see_also = ["dataframe", "dataframe.with_column", "dataframe.column", "await"]

@@ -1,15 +1,22 @@
-// tui_ideas.vbr — a Database held in State. A State initialiser may be a
-// fallible call (Database.Open, or one of your own Result-returning functions):
-// construction then runs *before* the terminal starts — if it fails, you get
-// "could not start: <why>" and a clean exit, never a half-alive UI. Events
-// just use the open handle (db here is state.db), and passing it to a helper
-// function borrows it (&Database).
+// tui_ideas.vbr — a fallible State initialiser (a helper that Opens SQLite)
+// runs *before* the terminal starts: if it fails, you get "could not start: <why>"
+// and a clean exit. Events must not Query/Execute on the UI thread — that would
+// freeze the screen — so Add is `Match Await AddIdea()` and the Function opens
+// its own connection off-thread.
 // A HashMap built inside a plain helper (not an event) still needs the file-top
 // `use std::collections::HashMap;`. The surface import scan reads helper bodies
 // too now, not only events — before, a Screen whose only HashMap lived in a
 // helper compiled to code referencing an unimported type.
 
-fn addidea(db: &Database) -> Result<i64, String> {
+fn startupcount() -> Result<i64, String> {
+    let db: Database = Database::open("ideas.db")?;
+    db.execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", vec![])?;
+    let rows: Vec<Json> = db.query("SELECT COUNT(*) AS n FROM ideas", vec![])?;
+    Ok(rows[0].get_int("n"))
+}
+
+fn addidea() -> Result<i64, String> {
+    let db: Database = Database::open("ideas.db")?;
     db.execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", vec![])?;
     db.execute("INSERT INTO ideas (text) VALUES (?)", vec!["a fresh idea".to_string()])?;
     let rows: Vec<Json> = db.query("SELECT COUNT(*) AS n FROM ideas", vec![])?;
@@ -32,18 +39,15 @@ use ratatui::Frame;
 use std::collections::HashMap;
 
 struct Ideas {
-    db: Database,
     status: String,
     count: i64,
 }
 
 impl Ideas {
     fn init() -> Result<Ideas, String> {
-        let db = Database::open("ideas.db")?;
         let status = "a = add an idea, q = quit".to_string();
-        let count = 0;
+        let count = startupcount()?;
         Ok(Ideas {
-            db,
             status,
             count,
         })
@@ -62,6 +66,10 @@ fn view(state: &Ideas, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), Span::styled(" a ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Add  "), Span::styled(" q ", ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::REVERSED)), Span::raw(" Quit  ")])).style(ratatui::style::Style::new().bg(ratatui::style::Color::Cyan).fg(ratatui::style::Color::Black)), chunks_status[1]);
 }
 
+enum Message {
+    AddDone(Result<i64, String>),
+}
+
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
     let mut state = match Ideas::init() {
@@ -72,31 +80,51 @@ fn main() -> std::io::Result<()> {
         }
     };
     let mut terminal = ratatui::init();
+    let (tx, rx) = std::sync::mpsc::channel::<Message>();
     loop {
         terminal.draw(|frame| view(&state, frame))?;
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                Message::AddDone(result) => {
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( n ) => {
+                                    state.count = n;
+                                    state.status = format!("added — {} ideas now (+{} bonus)", n, bonuspoints()?);
+                                }
+                                Err ( e ) => {
+                                    state.status = format!("error: {}", e);
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
+                        }
+                    }
+                }
+            }
+        }
+        if !event::poll(std::time::Duration::from_millis(50))? {
+            continue;
+        }
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('a') => {
                         {
                             let __vbr_event: Result<(), String> = (|| {
-                                #[allow(unused_mut)]
-                                let mut n: i64;
-                                n = match addidea(&state.db) {
-                                    Ok(__vbr_ok) => __vbr_ok,
-                                    Err(e) => {
-                                        state.status = format!("error: {}", e);
-                                        return Ok(());
-                                    }
-                                };
-                                state.count = n;
-                                state.status = format!("added — {} ideas now (+{} bonus)", n, bonuspoints()?);
                                 Ok(())
                             })();
                             if let Err(__e) = __vbr_event {
                                 eprintln!("Error: {}", __e);
                             }
                         }
+                        let tx = tx.clone();
+                        std::thread::spawn(move || {
+                            let _ = tx.send(Message::AddDone(addidea()));
+                        });
                     }
                     KeyCode::Char('q') => {
                         break;

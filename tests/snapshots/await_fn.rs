@@ -39,7 +39,7 @@ impl Default for Worker {
 enum Message {
     SetInput(i32),
     Compute,
-    ComputeDone(i32),
+    ComputeDone(Result<i32, String>),
 }
 
 fn update(state: &mut Worker, message: Message) -> Task<Message> {

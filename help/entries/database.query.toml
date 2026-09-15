@@ -14,6 +14,10 @@ params | Vec<String> | The values for the ? placeholders. Pass [] for none.
 
 returns = "Vec<Json> — one Json object per row (read its columns with Get_String / Get_Int). Fails if the query fails."
 
+remarks = """
+A live Database isn't sent off the UI thread. Open and Query inside a Function, then `Match Await Add(…)` from the Event — don't keep the connection in State and Query from an Event.
+"""
+
 example = """
 Function Main()
     Dim db As Database = Database.Open(":memory:")
@@ -27,4 +31,4 @@ Function Main()
 End Function
 """
 
-see_also = ["database", "database.execute", "json"]
+see_also = ["database", "database.execute", "json", "await"]

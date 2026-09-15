@@ -1,6 +1,7 @@
 ' GetOpenFilename / GetSaveAsFilename — VBA-style path prompts on a Screen.
 ' Tab completes, Enter opens a file or enters a folder (Save As returns even
-' a new name), Esc cancels and returns "". Then FileSystem.Read / Write.
+' a new name), Esc cancels and returns "". Read/Write run off the UI thread
+' (`Await` a Function) so the screen doesn't freeze on a slow disk.
 Screen Scratch
     Title "Notes"
     Status "F10 File — Open / Save As"
@@ -26,29 +27,42 @@ Screen Scratch
 
     On Key Esc Quit "quit"
 
+    Sub LoadPicked(ByVal picked As String)
+        If picked = "" Then Return
+        path = picked.Clone()
+        Match Await ReadFile(picked)
+            Ok(text) => notes = text
+            Err(e) => notes = "Could not read: " & e
+        End Match
+    End Sub
+
+    Sub SavePicked(ByVal picked As String)
+        If picked = "" Then Return
+        Match Await WriteFile(picked, notes)
+            Ok(saved) => path = saved
+            Err(e) => notes = "Could not save: " & e
+        End Match
+    End Sub
+
     Event OpenFile
         Dim picked As String = GetOpenFilename(path)
-        If picked <> "" Then
-            Dim text As String = FileSystem.Read(picked) Handle e
-                notes = "Could not read: " & e
-                Return
-            End Handle
-            notes = text
-            path = picked
-        End If
+        LoadPicked(picked)
     End Event
 
     Event SaveFile
         Dim picked As String = GetSaveAsFilename(path)
-        If picked <> "" Then
-            FileSystem.Write(picked, notes) Handle e
-                notes = "Could not save: " & e
-                Return
-            End Handle
-            path = picked
-        End If
+        SavePicked(picked)
     End Event
 End Screen
+
+Function ReadFile(ByVal picked As String) As String
+    Return FileSystem.Read(picked)
+End Function
+
+Function WriteFile(ByVal picked As String, ByVal text As String) As String
+    FileSystem.Write(picked, text)
+    Return picked
+End Function
 
 Function Main()
     Scratch.Run

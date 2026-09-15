@@ -1,16 +1,14 @@
-' tui_ideas.vbr — a Database held in State. A State initialiser may be a
-' fallible call (Database.Open, or one of your own Result-returning functions):
-' construction then runs *before* the terminal starts — if it fails, you get
-' "could not start: <why>" and a clean exit, never a half-alive UI. Events
-' just use the open handle (db here is state.db), and passing it to a helper
-' function borrows it (&Database).
+' tui_ideas.vbr — a fallible State initialiser (a helper that Opens SQLite)
+' runs *before* the terminal starts: if it fails, you get "could not start: <why>"
+' and a clean exit. Events must not Query/Execute on the UI thread — that would
+' freeze the screen — so Add is `Match Await AddIdea()` and the Function opens
+' its own connection off-thread.
 Screen Ideas
     Title "Idea Store"
 
     State
-        Dim db As Database = Database.Open("ideas.db")
         Dim status As String = "a = add an idea, q = quit"
-        Dim count As Long = 0
+        Dim count As Long = StartupCount()
     End State
 
     View
@@ -24,16 +22,24 @@ Screen Ideas
     On Key "q" Quit
 
     Event Add
-        Dim n As Long = AddIdea(db) Handle e
-            status = "error: " & e
-            Return
-        End Handle
-        count = n
-        status = "added — " & n & " ideas now (+" & BonusPoints() & " bonus)"
+        Match Await AddIdea()
+            Ok(n) =>
+                count = n
+                status = "added — " & n & " ideas now (+" & BonusPoints() & " bonus)"
+            Err(e) => status = "error: " & e
+        End Match
     End Event
 End Screen
 
-Function AddIdea(ByVal db As Database) As Long
+Function StartupCount() As Long
+    Dim db As Database = Database.Open("ideas.db")
+    db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", [])
+    Dim rows As Vec<Json> = db.Query("SELECT COUNT(*) AS n FROM ideas", [])
+    Return rows[0].Get_Int("n")
+End Function
+
+Function AddIdea() As Long
+    Dim db As Database = Database.Open("ideas.db")
     db.Execute("CREATE TABLE IF NOT EXISTS ideas (id INTEGER PRIMARY KEY, text TEXT)", [])
     db.Execute("INSERT INTO ideas (text) VALUES (?)", ["a fresh idea"])
     Dim rows As Vec<Json> = db.Query("SELECT COUNT(*) AS n FROM ideas", [])

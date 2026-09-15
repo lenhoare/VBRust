@@ -418,6 +418,7 @@ pub(crate) fn analyze_events(
     fns: &resolver::FnTable,
     diags: &mut Diagnostics,
     backend: AsyncBackend,
+    helpers: &[Function],
 ) -> Vec<Option<AwaitSplit>> {
     let async_names = async_sub_names(subs);
     for s in subs {
@@ -443,13 +444,19 @@ pub(crate) fn analyze_events(
             reject_async_sub_calls(&s.body, &async_names, diags);
         }
     }
+    let io_helpers = io_helper_map(helpers, subs, &async_names);
+    for s in subs {
+        if !async_names.contains(&rust_name(&s.name)) {
+            check_blocking_without_await(&s.body, &s.params, field_ty, &io_helpers, diags);
+        }
+    }
     events
         .iter()
         .map(|e| {
             let mut flat = e.clone();
             flatten_async_tails(&mut flat.body, subs, &async_names, diags);
             reject_async_sub_calls(&flat.body, &async_names, diags);
-            check_blocking_without_await(&flat.body, diags);
+            check_blocking_without_await(&flat.body, &e.params, field_ty, &io_helpers, diags);
             await_split(&flat, field_ty, fns, diags, backend)
         })
         .collect()
@@ -544,19 +551,25 @@ fn flatten_async_tails(
             );
             break;
         }
-        let mut replacement: Vec<Stmt> = sub
-            .params
-            .iter()
-            .zip(args)
-            .map(|(p, a)| Stmt::Dim {
+        // Same-name `DoFetch(picked)` / `Sub DoFetch(ByVal picked)` would emit
+        // `Dim picked = picked`, which is the unknown-size copy error. The
+        // caller's local (or state field) is already that name — skip the bind.
+        let mut replacement: Vec<Stmt> = Vec::new();
+        for (p, a) in sub.params.iter().zip(args) {
+            if let ExprKind::Ident(name) = &a.kind {
+                if rust_name(name) == rust_name(&p.name) {
+                    continue;
+                }
+            }
+            replacement.push(Stmt::Dim {
                 name: p.name.clone(),
                 name_span: Span::none(),
                 ty: p.ty.clone(),
                 init: Some(a),
                 deferred: false,
                 line: 0,
-            })
-            .collect();
+            });
+        }
         replacement.extend(sub.body.iter().cloned());
         let trailing = body.split_off(i);
         body.extend(replacement);
@@ -1475,7 +1488,7 @@ fn awaitable_info(
                 );
                 return None;
             };
-            let ret_type = decltype_rust(dt);
+            let ret_type = format!("Result<{}, String>", decltype_rust(dt));
             let (snapshots, arg_src) = snapshot_args(args, field_ty, locals, backend.recv());
             let call_src = format!("{}({})", rust_name(name), arg_src.join(", "));
             Some(AwaitInfo { snapshots, call_src, ret_type, blocking: true })
@@ -1490,125 +1503,425 @@ fn awaitable_info(
     }
 }
 
-/// True if `e` is a stdlib call that blocks on I/O — so in a GUI event it must be
-/// `Await`ed, or it freezes the window. (Same set `awaitable_info` knows about.)
-fn is_blocking_stdlib_call(e: &Expr) -> bool {
-    if let ExprKind::MethodCall { recv, method, .. } = &e.kind {
-        if let ExprKind::Ident(r) = &(&**recv).kind {
-            if let Some(c) = stdlib_type(r) {
-                return matches!(
-                    (c, rust_name(method).as_str()),
-                    ("Http", "get") | ("Http", "post") | ("Shell", "run")
-                );
-            }
-        }
-    }
-    false
+/// How a blocking call can leave the UI thread.
+#[derive(Clone, Copy)]
+enum BlockKind {
+    /// `Await Http.Get` / `Http.Post` / `Shell.Run` — the Event can Await it directly.
+    DirectAwait,
+    /// Disk / SQLite / CSV — not in the V1 Await-stdlib set (a live `Database`
+    /// handle isn't `Send`). Put the work in a Function and Await that Function.
+    ExtractFn,
 }
 
-/// Teaching diagnostic: a blocking stdlib call used in an event *without* `Await`
-/// would freeze the window. A call directly under `Await` is fine.
-pub(crate) fn check_blocking_without_await(stmts: &[Stmt], diags: &mut Diagnostics) {
-    fn ex(e: &Expr, awaited: bool, diags: &mut Diagnostics) {
-        // The expression directly under `Await` is allowed to block.
-        if let ExprKind::Await(inner) = &e.kind {
-            ex(inner, true, diags);
-            return;
+fn filesystem_disk(method: &str) -> bool {
+    matches!(
+        method,
+        "read"
+            | "read_lines"
+            | "write"
+            | "append"
+            | "copy"
+            | "move_file"
+            | "delete"
+            | "create_folder"
+            | "create_folder_all"
+            | "exists"
+            | "folder_exists"
+            | "list"
+            | "delete_folder"
+            | "delete_folder_all"
+    )
+}
+
+fn blocking_kind_of(e: &Expr, env: &HashMap<String, DeclType>) -> Option<(BlockKind, String)> {
+    let ExprKind::MethodCall { recv, method, .. } = &e.kind else {
+        return None;
+    };
+    let m = rust_name(method);
+    let ExprKind::Ident(r) = &(&**recv).kind else {
+        return None;
+    };
+    if let Some(c) = stdlib_type(r) {
+        let kind = match (c, m.as_str()) {
+            ("Http", "get") | ("Http", "post") | ("Shell", "run") => Some(BlockKind::DirectAwait),
+            ("FileSystem", meth) if filesystem_disk(meth) => Some(BlockKind::ExtractFn),
+            ("Database", "open") => Some(BlockKind::ExtractFn),
+            ("DataFrame", "read_csv") | ("DataFrame", "write_csv") => Some(BlockKind::ExtractFn),
+            _ => None,
+        };
+        return kind.map(|k| (k, format!("{}.{}", c, method)));
+    }
+    if let Some(DeclType::Named(n)) = env.get(&rust_name(r)) {
+        let kind = match (n.as_str(), m.as_str()) {
+            ("Database", "execute") | ("Database", "query") => Some(BlockKind::ExtractFn),
+            ("DataFrame", "write_csv") => Some(BlockKind::ExtractFn),
+            _ => None,
+        };
+        return kind.map(|k| (k, format!("{}.{}", n, method)));
+    }
+    None
+}
+
+fn io_helper_map<'a>(
+    helpers: &'a [Function],
+    subs: &'a [GuiEvent],
+    async_names: &HashSet<String>,
+) -> HashMap<String, (&'a [Param], &'a [Stmt])> {
+    let mut m = HashMap::new();
+    for f in helpers {
+        m.insert(rust_name(&f.name), (f.params.as_slice(), f.body.as_slice()));
+    }
+    for s in subs {
+        let n = rust_name(&s.name);
+        if !async_names.contains(&n) {
+            m.insert(n, (s.params.as_slice(), s.body.as_slice()));
         }
-        if !awaited && is_blocking_stdlib_call(e) {
-            diags.error_once(
+    }
+    m
+}
+
+struct IoWalk<'a> {
+    helpers: &'a HashMap<String, (&'a [Param], &'a [Stmt])>,
+    memo: HashMap<String, bool>,
+    visiting: HashSet<String>,
+}
+
+impl<'a> IoWalk<'a> {
+    fn helper_does_io(&mut self, name: &str) -> bool {
+        let key = rust_name(name);
+        if let Some(&b) = self.memo.get(&key) {
+            return b;
+        }
+        if !self.visiting.insert(key.clone()) {
+            return false;
+        }
+        let does = if let Some((params, body)) = self.helpers.get(&key).copied() {
+            let mut env: HashMap<String, DeclType> = params
+                .iter()
+                .map(|p| (rust_name(&p.name), p.ty.clone()))
+                .collect();
+            self.stmts_do_io(body, &mut env)
+        } else {
+            false
+        };
+        self.visiting.remove(&key);
+        self.memo.insert(key, does);
+        does
+    }
+
+    fn stmts_do_io(&mut self, stmts: &[Stmt], env: &mut HashMap<String, DeclType>) -> bool {
+        stmts.iter().any(|s| self.stmt_does_io(s, env))
+    }
+
+    fn stmt_does_io(&mut self, s: &Stmt, env: &mut HashMap<String, DeclType>) -> bool {
+        match s {
+            Stmt::Dim { name, ty, init, .. } => {
+                let hit = init.as_ref().is_some_and(|e| self.expr_does_io(e, env));
+                env.insert(rust_name(name), ty.clone());
+                hit
+            }
+            Stmt::Assign { target, value, .. } => {
+                self.expr_does_io(target, env) || self.expr_does_io(value, env)
+            }
+            Stmt::Set { value: e, .. }
+            | Stmt::DestructureDim { value: e, .. }
+            | Stmt::Print(e)
+            | Stmt::Log(_, e)
+            | Stmt::Expr(e)
+            | Stmt::Return(Some(e))
+            | Stmt::RaiseError(e)
+            | Stmt::Assert(e) => self.expr_does_io(e, env),
+            Stmt::HandleErr { target, call, body, .. } => {
+                target.as_ref().is_some_and(|t| self.expr_does_io(t, env))
+                    || self.expr_does_io(call, env)
+                    || self.stmts_do_io(body, env)
+            }
+            Stmt::If { branches, else_body } => {
+                branches.iter().any(|(c, b)| self.expr_does_io(c, env) || self.stmts_do_io(b, env))
+                    || else_body.as_ref().is_some_and(|b| self.stmts_do_io(b, env))
+            }
+            Stmt::Match { scrutinee, arms, .. } => {
+                self.expr_does_io(scrutinee, env)
+                    || arms.iter().any(|a| {
+                        a.guard.as_ref().is_some_and(|g| self.expr_does_io(g, env))
+                            || self.stmts_do_io(&a.body, env)
+                    })
+            }
+            Stmt::For { from, to, step, body, .. } => {
+                self.expr_does_io(from, env)
+                    || self.expr_does_io(to, env)
+                    || step.as_ref().is_some_and(|st| self.expr_does_io(st, env))
+                    || self.stmts_do_io(body, env)
+            }
+            Stmt::ForEach { iter, body, .. } => {
+                self.expr_does_io(iter, env) || self.stmts_do_io(body, env)
+            }
+            Stmt::DoLoop { cond, body } => {
+                cond.as_ref().is_some_and(|c| match c {
+                    DoCond::PreWhile(e)
+                    | DoCond::PreUntil(e)
+                    | DoCond::PostWhile(e)
+                    | DoCond::PostUntil(e) => self.expr_does_io(e, env),
+                }) || self.stmts_do_io(body, env)
+            }
+            Stmt::GpuInto { body, .. } => self.stmts_do_io(body, env),
+            _ => false,
+        }
+    }
+
+    fn expr_does_io(&mut self, e: &Expr, env: &HashMap<String, DeclType>) -> bool {
+        if let ExprKind::Await(inner) = &e.kind {
+            return self.expr_children_do_io(inner, env);
+        }
+        if blocking_kind_of(e, env).is_some() {
+            return true;
+        }
+        if let ExprKind::Call { name, args } = &e.kind {
+            if self.helper_does_io(name) {
+                return true;
+            }
+            return args.iter().any(|a| self.expr_does_io(a, env));
+        }
+        self.expr_children_do_io(e, env)
+    }
+
+    fn expr_children_do_io(&mut self, e: &Expr, env: &HashMap<String, DeclType>) -> bool {
+        match &e.kind {
+            ExprKind::Await(i)
+            | ExprKind::Not(i)
+            | ExprKind::ParallelSum(i, _)
+            | ExprKind::Ref(i)
+            | ExprKind::MutRef(i)
+            | ExprKind::Deref(i)
+            | ExprKind::Cast(i, _)
+            | ExprKind::Try(i)
+            | ExprKind::Raw(i)
+            | ExprKind::Field(i, _)
+            | ExprKind::TupleIndex(i, _)
+            | ExprKind::Closure { body: i, .. } => self.expr_does_io(i, env),
+            ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::Index(lhs, rhs)
+            | ExprKind::ListRepeat { value: lhs, count: rhs } => {
+                self.expr_does_io(lhs, env) || self.expr_does_io(rhs, env)
+            }
+            ExprKind::MethodCall { recv, args, .. } => {
+                self.expr_does_io(recv, env) || args.iter().any(|a| self.expr_does_io(a, env))
+            }
+            ExprKind::Call { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) => {
+                args.iter().any(|a| self.expr_does_io(a, env))
+            }
+            ExprKind::StructLit { fields, .. } => {
+                fields.iter().any(|(_, v)| self.expr_does_io(v, env))
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Teaching diagnostic: blocking I/O in an event (or a sync helper it calls)
+/// without `Await` would freeze the window.
+fn check_blocking_without_await(
+    stmts: &[Stmt],
+    params: &[Param],
+    field_ty: &HashMap<String, DeclType>,
+    helpers: &HashMap<String, (&[Param], &[Stmt])>,
+    diags: &mut Diagnostics,
+) {
+    let mut env = field_ty.clone();
+    for p in params {
+        env.insert(rust_name(&p.name), p.ty.clone());
+    }
+    let mut walk = IoWalk {
+        helpers,
+        memo: HashMap::new(),
+        visiting: HashSet::new(),
+    };
+    fn report_block(kind: BlockKind, label: &str, diags: &mut Diagnostics) {
+        match kind {
+            BlockKind::DirectAwait => diags.error_once(
                 "blocking-no-await",
                 "This stdlib call waits for I/O, so calling it directly in an event would \
                  freeze the UI until it finishes. Use `Await` so it runs off the UI thread \
                  — e.g. `Match Await Http.Get(url) … End Match`.",
-            );
+            ),
+            BlockKind::ExtractFn => diags.error_once(
+                &format!("blocking-extract-{}", rust_name(label)),
+                format!(
+                    "`{}` waits for I/O, so calling it in an event would freeze the UI. \
+                     Put the work in a Function and `Match Await Load(…)` from the Event \
+                     — Vinyl runs that Function off the UI thread. (`Await {}` isn't a \
+                     stdlib form; Await your function, or `Http.Get` / `Http.Post` / `Shell.Run`.)",
+                    label, label
+                ),
+            ),
         }
-        // `Sleep` in an event freezes the whole UI — and unlike I/O there's
-        // nothing to await; the surface way to "do something later" is a timer.
-        if let ExprKind::Call { name, .. } = &e.kind {
-            if rust_name(name) == "sleep" {
-                diags.error_once(
-                    "sleep-in-event",
-                    "`Sleep` pauses the whole UI thread — the screen freezes and keys go \
-                     unanswered. To run something after a delay, use a timer instead: \
-                     `Every <ms> <Event>`.",
-                );
+    }
+    fn ex(
+        e: &Expr,
+        awaited: bool,
+        env: &HashMap<String, DeclType>,
+        walk: &mut IoWalk,
+        diags: &mut Diagnostics,
+    ) {
+        if let ExprKind::Await(inner) = &e.kind {
+            ex(inner, true, env, walk, diags);
+            return;
+        }
+        if !awaited {
+            if let Some((kind, label)) = blocking_kind_of(e, env) {
+                report_block(kind, &label, diags);
+            }
+            if let ExprKind::Call { name, .. } = &e.kind {
+                if rust_name(name) == "sleep" {
+                    diags.error_once(
+                        "sleep-in-event",
+                        "`Sleep` pauses the whole UI thread — the screen freezes and keys go \
+                         unanswered. To run something after a delay, use a timer instead: \
+                         `Every <ms> <Event>`.",
+                    );
+                } else if walk.helper_does_io(name) {
+                    diags.error_once(
+                        &format!("blocking-fn-{}", rust_name(name)),
+                        format!(
+                            "`{}` waits for I/O, so calling it directly in an event would freeze \
+                             the UI. Use `Match Await {}(…)` so it runs off the UI thread.",
+                            name, name
+                        ),
+                    );
+                }
             }
         }
-        // Children are never "awaited" by this expression.
         match &e.kind {
             ExprKind::Not(i) | ExprKind::ParallelSum(i, _) | ExprKind::Ref(i) | ExprKind::MutRef(i) | ExprKind::Deref(i) | ExprKind::Cast(i, _)
             | ExprKind::Try(i) | ExprKind::Raw(i) | ExprKind::Field(i, _) | ExprKind::TupleIndex(i, _)
-            | ExprKind::Closure { body: i, .. } => ex(i, false, diags),
+            | ExprKind::Closure { body: i, .. } => ex(i, false, env, walk, diags),
             ExprKind::Binary { lhs, rhs, .. }
             | ExprKind::Index(lhs, rhs)
             | ExprKind::ListRepeat { value: lhs, count: rhs } => {
-                ex(lhs, false, diags);
-                ex(rhs, false, diags);
+                ex(lhs, false, env, walk, diags);
+                ex(rhs, false, env, walk, diags);
             }
             ExprKind::MethodCall { recv, args, .. } => {
-                ex(recv, false, diags);
+                ex(recv, false, env, walk, diags);
                 for a in args {
-                    ex(a, false, diags);
+                    ex(a, false, env, walk, diags);
                 }
             }
             ExprKind::Call { args, .. } => {
                 for a in args {
-                    ex(a, false, diags);
+                    ex(a, false, env, walk, diags);
                 }
             }
-            ExprKind::Tuple(es) => {
+            ExprKind::Tuple(es) | ExprKind::List(es) => {
                 for e2 in es {
-                    ex(e2, false, diags);
+                    ex(e2, false, env, walk, diags);
                 }
             }
             ExprKind::StructLit { fields, .. } => {
                 for (_, v) in fields {
-                    ex(v, false, diags);
+                    ex(v, false, env, walk, diags);
                 }
             }
             _ => {}
         }
     }
-    fn st(s: &Stmt, diags: &mut Diagnostics) {
+    fn st(
+        s: &Stmt,
+        env: &mut HashMap<String, DeclType>,
+        walk: &mut IoWalk,
+        diags: &mut Diagnostics,
+    ) {
         match s {
             Stmt::Assign { target, value, .. } => {
-                ex(target, false, diags);
-                ex(value, false, diags);
+                ex(target, false, env, walk, diags);
+                ex(value, false, env, walk, diags);
             }
-            Stmt::Dim { init: Some(e), .. } => ex(e, false, diags),
-            Stmt::Print(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) => ex(e, false, diags),
+            Stmt::Dim { name, ty, init, .. } => {
+                if let Some(e) = init {
+                    ex(e, false, env, walk, diags);
+                }
+                env.insert(rust_name(name), ty.clone());
+            }
+            Stmt::Set { value: e, .. }
+            | Stmt::DestructureDim { value: e, .. }
+            | Stmt::Print(e)
+            | Stmt::Log(_, e)
+            | Stmt::Expr(e)
+            | Stmt::Return(Some(e))
+            | Stmt::RaiseError(e)
+            | Stmt::Assert(e) => ex(e, false, env, walk, diags),
+            Stmt::HandleErr { target, call, body, .. } => {
+                if let Some(t) = target {
+                    ex(t, false, env, walk, diags);
+                }
+                ex(call, false, env, walk, diags);
+                for s2 in body {
+                    st(s2, env, walk, diags);
+                }
+            }
             Stmt::If { branches, else_body } => {
                 for (c, b) in branches {
-                    ex(c, false, diags);
+                    ex(c, false, env, walk, diags);
                     for s2 in b {
-                        st(s2, diags);
+                        st(s2, env, walk, diags);
                     }
                 }
                 if let Some(b) = else_body {
                     for s2 in b {
-                        st(s2, diags);
+                        st(s2, env, walk, diags);
                     }
                 }
             }
             Stmt::Match { scrutinee, arms, .. } => {
-                ex(scrutinee, false, diags);
+                ex(scrutinee, false, env, walk, diags);
                 for a in arms {
+                    if let Some(g) = &a.guard {
+                        ex(g, false, env, walk, diags);
+                    }
                     for s2 in &a.body {
-                        st(s2, diags);
+                        st(s2, env, walk, diags);
                     }
                 }
             }
-            Stmt::For { body, .. } | Stmt::ForEach { body, .. } | Stmt::DoLoop { body, .. } => {
+            Stmt::For { from, to, step, body, .. } => {
+                ex(from, false, env, walk, diags);
+                ex(to, false, env, walk, diags);
+                if let Some(st_e) = step {
+                    ex(st_e, false, env, walk, diags);
+                }
                 for s2 in body {
-                    st(s2, diags);
+                    st(s2, env, walk, diags);
+                }
+            }
+            Stmt::ForEach { iter, body, .. } => {
+                ex(iter, false, env, walk, diags);
+                for s2 in body {
+                    st(s2, env, walk, diags);
+                }
+            }
+            Stmt::DoLoop { cond, body } => {
+                if let Some(c) = cond {
+                    match c {
+                        DoCond::PreWhile(e)
+                        | DoCond::PreUntil(e)
+                        | DoCond::PostWhile(e)
+                        | DoCond::PostUntil(e) => ex(e, false, env, walk, diags),
+                    }
+                }
+                for s2 in body {
+                    st(s2, env, walk, diags);
+                }
+            }
+            Stmt::GpuInto { body, .. } => {
+                for s2 in body {
+                    st(s2, env, walk, diags);
                 }
             }
             _ => {}
         }
     }
     for s in stmts {
-        st(s, diags);
+        st(s, &mut env, &mut walk, diags);
     }
 }
 

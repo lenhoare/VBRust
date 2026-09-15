@@ -3258,3 +3258,128 @@ fn async_sub_with_param() {
     );
 }
 
+#[test]
+fn async_sub_param_same_name_as_local() {
+    let src = mini_window(
+        "    Sub DoFetch(ByVal u As String)\n\
+        \x20       Match Await Http.Get(u)\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Sub\n\
+        \x20   Event Fetch\n\
+        \x20       Dim u As String = url.Clone()\n\
+        \x20       DoFetch(u)\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("Http::get") && rust.contains("FetchDone"),
+        "same-name tail-call param should reuse the local, not Dim u = u: {rust}"
+    );
+}
+
+#[test]
+fn filesystem_read_in_event_is_an_error() {
+    let src = mini_window(
+        "    Event Load\n\
+        \x20       Dim text As String = FileSystem.Read(\"n.txt\")\n\
+        \x20       status = text\n\
+        \x20   End Event\n",
+    );
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "FileSystem.Read in an Event should error: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("FileSystem.Read") && joined.contains("Function"),
+        "should tell you to Await a Function:\n{joined}"
+    );
+}
+
+#[test]
+fn filesystem_join_in_event_is_fine() {
+    let src = mini_window(
+        "    Event Join\n\
+        \x20       status = FileSystem.Join(url, \"x\")\n\
+        \x20   End Event\n",
+    );
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("join") || rust.contains("Join"),
+        "path Join is not disk I/O: {rust}"
+    );
+}
+
+#[test]
+fn io_inside_function_called_from_event_is_an_error() {
+    let src = mini_window(
+        "    Event Fetch\n\
+        \x20       status = LoadPage()\n\
+        \x20   End Event\n",
+    ) + "Function LoadPage() As String\n\
+        \x20   Return Http.Get(\"https://example.com\")\n\
+        End Function\n";
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Http.Get inside a Function called from an Event: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("LoadPage") && joined.contains("Await"),
+        "should Await the Function:\n{joined}"
+    );
+}
+
+#[test]
+fn await_function_with_io_is_fine() {
+    let src = mini_window(
+        "    Event Fetch\n\
+        \x20       Match Await LoadPage()\n\
+        \x20           Ok(body) => status = body\n\
+        \x20           Err(e) => status = e\n\
+        \x20       End Match\n\
+        \x20   End Event\n",
+    ) + "Function LoadPage() As String\n\
+        \x20   Return Http.Get(\"https://example.com\")\n\
+        End Function\n";
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("FetchDone") && rust.contains("loadpage"),
+        "Await LoadPage should split: {rust}"
+    );
+}
+
+#[test]
+fn database_query_via_helper_from_event_is_an_error() {
+    let src = mini_window(
+        "    Event Add\n\
+        \x20       status = AddIdea()\n\
+        \x20   End Event\n",
+    ) + "Function AddIdea() As String\n\
+        \x20   Dim db As Database = Database.Open(\"ideas.db\")\n\
+        \x20   db.Execute(\"CREATE TABLE IF NOT EXISTS t (id INTEGER)\", [])\n\
+        \x20   Return \"ok\"\n\
+        End Function\n";
+    let c = vbr::compile(&src);
+    assert!(c.has_errors, "Database I/O via helper from Event: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("AddIdea") && joined.contains("Await"),
+        "should Await the Function:\n{joined}"
+    );
+}
+
+#[test]
+fn vault_example_awaits_disk_io() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/goodexamples/vault/main.vbr"
+    ))
+    .expect("vault example");
+    let c = vbr::compile(&src);
+    assert!(!c.has_errors, "vault should compile:\n{:?}", c.diagnostics);
+    assert!(
+        c.rust.contains("OpenNoteDone") && c.rust.contains("SaveNoteDone"),
+        "vault Events should Await disk work: {}",
+        c.rust
+    );
+}
+

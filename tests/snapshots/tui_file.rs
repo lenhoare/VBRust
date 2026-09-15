@@ -1,6 +1,18 @@
 // GetOpenFilename / GetSaveAsFilename — VBA-style path prompts on a Screen.
 // Tab completes, Enter opens a file or enters a folder (Save As returns even
-// a new name), Esc cancels and returns "". Then FileSystem.Read / Write.
+// a new name), Esc cancels and returns "". Read/Write run off the UI thread
+// (`Await` a Function) so the screen doesn't freeze on a slow disk.
+
+fn readfile(picked: &str) -> Result<String, String> {
+    Ok(FileSystem::read(picked)?)
+}
+
+fn writefile(picked: &str, text: &str) -> Result<String, String> {
+    FileSystem::write(picked, text)?;
+    Ok(picked.to_string())
+}
+
+use vbr_stdlib::{FileSystem};
 
 use ratatui::widgets::{Block, Paragraph, Clear};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -489,12 +501,61 @@ mod file_dialog {
     }
 }
 
+enum Message {
+    OpenFileDone(Result<String, String>),
+    SaveFileDone(Result<String, String>),
+}
+
 fn main() -> std::io::Result<()> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
     let mut state = Scratch::default();
     let mut terminal = ratatui::init();
+    let (tx, rx) = std::sync::mpsc::channel::<Message>();
     loop {
         terminal.draw(|frame| view(&mut state, frame))?;
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                Message::OpenFileDone(result) => {
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( text ) => {
+                                    state.notes = text;
+                                }
+                                Err ( e ) => {
+                                    state.notes = format!("Could not read: {}", e);
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
+                        }
+                    }
+                }
+                Message::SaveFileDone(result) => {
+                    {
+                        let __vbr_event: Result<(), String> = (|| {
+                            match result {
+                                Ok ( saved ) => {
+                                    state.path = saved;
+                                }
+                                Err ( e ) => {
+                                    state.notes = format!("Could not save: {}", e);
+                                }
+                            }
+                            Ok(())
+                        })();
+                        if let Err(__e) = __vbr_event {
+                            eprintln!("Error: {}", __e);
+                        }
+                    }
+                }
+            }
+        }
+        if !event::poll(std::time::Duration::from_millis(50))? {
+            continue;
+        }
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
                 if state.menu_open.is_some() {
@@ -511,43 +572,47 @@ fn main() -> std::io::Result<()> {
                                 match (m, i) {
                                     (0, 0) => {
                                         {
-                                            let __vbr_event: Result<(), String> = (|| {
+                                            let __vbr_event: Result<_, String> = (|| {
                                                 let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
-                                                if picked != "" {
-                                                    #[allow(unused_mut)]
-                                                    let mut text: String;
-                                                    text = match FileSystem::read(&picked) {
-                                                        Ok(__vbr_ok) => __vbr_ok,
-                                                        Err(e) => {
-                                                            state.notes = format!("Could not read: {}", e);
-                                                            return Ok(());
-                                                        }
-                                                    };
-                                                    state.notes = text;
-                                                    state.path = picked;
+                                                if picked == "" {
+                                                    return Ok(());
                                                 }
-                                                Ok(())
+                                                state.path = picked.clone();
+                                                Ok(picked)
                                             })();
-                                            if let Err(__e) = __vbr_event {
-                                                eprintln!("Error: {}", __e);
+                                            match __vbr_event {
+                                                Err(__e) => {
+                                                    eprintln!("Error: {}", __e);
+                                                }
+                                                Ok(picked) => {
+                                        let tx = tx.clone();
+                                        std::thread::spawn(move || {
+                                            let _ = tx.send(Message::OpenFileDone(readfile(&picked)));
+                                        });
+                                                }
                                             }
                                         }
                                     }
                                     (0, 1) => {
                                         {
-                                            let __vbr_event: Result<(), String> = (|| {
+                                            let __vbr_event: Result<_, String> = (|| {
                                                 let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
-                                                if picked != "" {
-                                                    if let Err(e) = FileSystem::write(&picked, &state.notes) {
-                                                        state.notes = format!("Could not save: {}", e);
-                                                        return Ok(());
-                                                    }
-                                                    state.path = picked;
+                                                if picked == "" {
+                                                    return Ok(());
                                                 }
-                                                Ok(())
+                                                Ok(picked)
                                             })();
-                                            if let Err(__e) = __vbr_event {
-                                                eprintln!("Error: {}", __e);
+                                            match __vbr_event {
+                                                Err(__e) => {
+                                                    eprintln!("Error: {}", __e);
+                                                }
+                                                Ok(picked) => {
+                                        let notes = state.notes.clone();
+                                        let tx = tx.clone();
+                                        std::thread::spawn(move || {
+                                            let _ = tx.send(Message::SaveFileDone(writefile(&picked, &notes)));
+                                        });
+                                                }
                                             }
                                         }
                                     }
@@ -562,44 +627,48 @@ fn main() -> std::io::Result<()> {
                             (Some(0), 'o') => {
                                 state.menu_close();
                                 {
-                                    let __vbr_event: Result<(), String> = (|| {
+                                    let __vbr_event: Result<_, String> = (|| {
                                         let picked: String = file_dialog::prompt(&mut terminal, " Open file ", &(state.path).to_string(), false, |frame| view(&mut state, frame))?;
-                                        if picked != "" {
-                                            #[allow(unused_mut)]
-                                            let mut text: String;
-                                            text = match FileSystem::read(&picked) {
-                                                Ok(__vbr_ok) => __vbr_ok,
-                                                Err(e) => {
-                                                    state.notes = format!("Could not read: {}", e);
-                                                    return Ok(());
-                                                }
-                                            };
-                                            state.notes = text;
-                                            state.path = picked;
+                                        if picked == "" {
+                                            return Ok(());
                                         }
-                                        Ok(())
+                                        state.path = picked.clone();
+                                        Ok(picked)
                                     })();
-                                    if let Err(__e) = __vbr_event {
-                                        eprintln!("Error: {}", __e);
+                                    match __vbr_event {
+                                        Err(__e) => {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                        Ok(picked) => {
+                                let tx = tx.clone();
+                                std::thread::spawn(move || {
+                                    let _ = tx.send(Message::OpenFileDone(readfile(&picked)));
+                                });
+                                        }
                                     }
                                 }
                             }
                             (Some(0), 's') => {
                                 state.menu_close();
                                 {
-                                    let __vbr_event: Result<(), String> = (|| {
+                                    let __vbr_event: Result<_, String> = (|| {
                                         let picked: String = file_dialog::prompt(&mut terminal, " Save as ", &(state.path).to_string(), true, |frame| view(&mut state, frame))?;
-                                        if picked != "" {
-                                            if let Err(e) = FileSystem::write(&picked, &state.notes) {
-                                                state.notes = format!("Could not save: {}", e);
-                                                return Ok(());
-                                            }
-                                            state.path = picked;
+                                        if picked == "" {
+                                            return Ok(());
                                         }
-                                        Ok(())
+                                        Ok(picked)
                                     })();
-                                    if let Err(__e) = __vbr_event {
-                                        eprintln!("Error: {}", __e);
+                                    match __vbr_event {
+                                        Err(__e) => {
+                                            eprintln!("Error: {}", __e);
+                                        }
+                                        Ok(picked) => {
+                                let notes = state.notes.clone();
+                                let tx = tx.clone();
+                                std::thread::spawn(move || {
+                                    let _ = tx.send(Message::SaveFileDone(writefile(&picked, &notes)));
+                                });
+                                        }
                                     }
                                 }
                             }

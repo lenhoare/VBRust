@@ -283,6 +283,10 @@ Rules:
   it runs off-thread via `spawn_blocking`).
 - Calling a blocking stdlib call in an event **without** `Await` is a hard error
   (✘ "would freeze the window — use `Await`"), so the trap is caught at compile time.
+  That includes `Http.Get` / `Post` / `Shell.Run` (Await them directly) **and**
+  disk/SQLite/CSV (`FileSystem.Read`, `db.Query`, …): those aren't Await-stdlib
+  forms, so put them in a Function and `Match Await Load(…)`. Calling that
+  Function from an Event without `Await` is the same freeze — also an error.
 - A helper **`Sub` may contain the `Await`**. The Event (or another Sub) must
   **end** with a call to it — Vinyl flattens that tail into the same one-cut
   split. Code after the call is the same error as a second `Await`. The Sub is

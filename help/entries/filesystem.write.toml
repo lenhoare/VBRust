@@ -14,6 +14,10 @@ text | String | The text to write. Any existing content is replaced.
 
 returns = "Nothing on success. Fails if the file can't be written. Creates the file if it doesn't exist."
 
+remarks = """
+Writes the file. In a Window or Screen event this would freeze the UI — put the write in a Function and `Match Await Save(path, text)` from the Event.
+"""
+
 example = """
 Function Main()
     FileSystem.Write("out.txt", "first line")
@@ -23,4 +27,4 @@ Function Main()
 End Function
 """
 
-see_also = ["filesystem", "filesystem.append", "filesystem.read"]
+see_also = ["filesystem", "filesystem.append", "filesystem.read", "await"]

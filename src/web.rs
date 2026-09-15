@@ -165,7 +165,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
     // (sends a future to the component) and a generated `<Event>Done(...)`
     // continuation arm. Also checks nothing blocking runs un-`Await`ed.
     let splits: Vec<Option<AwaitSplit>> =
-        analyze_events(&p.events, &p.subs, &field_ty, &t.fns, diags, AsyncBackend::Web);
+        analyze_events(&p.events, &p.subs, &field_ty, &t.fns, diags, AsyncBackend::Web, helpers);
     let any_async = splits.iter().any(Option::is_some);
 
     // Mark stdlib namespaces used in events so the program-wide fence catches

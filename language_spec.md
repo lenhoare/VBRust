@@ -722,8 +722,12 @@ Provided by the `vbr_stdlib` crate, auto-imported when referenced. Calls are
   a normal call propagates (§8). In a Window / Screen / Page event they run
   with `Await` (on a Page, Get and Post are the browser's fetch — `web_spec.md`
   §5); a helper `Sub` may hold that `Await` if the Event ends with a call to it.
-  A module Function in a surface program stays synchronous — `Match Await Load(…)`
-  from the Event runs it off-thread. In console `Main`, `Await` is the call.
+  Disk / SQLite / CSV (`FileSystem.Read`, `db.Query`, `DataFrame.Read_Csv`) are
+  not Await-stdlib forms — put them in a Function and `Match Await Load(…)` from
+  the Event. Calling that Function (or those calls) from an Event without `Await`
+  is a freeze error. A module Function in a surface program stays synchronous —
+  `Match Await Load(…)` from the Event runs it off-thread. In console `Main`,
+  `Await` is the call.
   For a reused client/session, use inline Rust or a `.rs` module.
 - **Wrapper types:** `DateTime`, `Json`, `Database` — opaque value types with
   methods (`DateTime.Now()`, `value.Format(...)`, `Json.Parse(...)`,

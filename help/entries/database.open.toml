@@ -13,6 +13,10 @@ path | String | The database file to open. Use ":memory:" for a temporary in-mem
 
 returns = "Database — a connection to run Execute/Query on. Fails if the file can't be opened."
 
+remarks = """
+Opening a file is I/O. In a Window or Screen event, Open inside a Function and `Match Await Load(…)` — a State Database handle can't be Awaited.
+"""
+
 example = """
 Function Main()
     Dim db As Database = Database.Open(":memory:")
@@ -22,4 +26,4 @@ Function Main()
 End Function
 """
 
-see_also = ["database", "database.execute", "database.query"]
+see_also = ["database", "database.execute", "database.query", "await"]

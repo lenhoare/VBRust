@@ -1,5 +1,18 @@
 ' A small vault: folder list on the left, markdown on the right.
 ' Theme JellyFish. Drag the divider. Open picks a folder. Run:  vbr runproject goodexamples/vault
+'
+' Disk work (List / Read / Write) lives in Functions the Events `Await`, so a
+' slow disk can't freeze the window. GetFolderName stays in the Event (it needs
+' the live Window).
+
+Type NoteNav
+    Public Folder As String
+    Public Names As Vec<String>
+    Public Current As String
+    Public Draft As String
+    Public Status As String
+    Public HasDraft As Boolean
+End Type
 
 Window Vault
     Title "Vault"
@@ -57,54 +70,75 @@ Window Vault
         End Column
     End View
 
+    Sub LoadVault(ByVal picked As String)
+        If picked = "" Then Return
+        Match Await OpenFolderWork(picked)
+            Ok(nav) =>
+                folder = nav.Folder
+                root = nav.Folder
+                names = nav.Names
+                current = ""
+                status = nav.Status
+            Err(e) => status = e
+        End Match
+    End Sub
+
     Event OpenVault
         Dim picked As String = GetFolderName(folder)
-        If picked = "" Then
-            Return
-        End If
-        folder = picked
-        root = folder.Clone()
-        names = Entries(folder, root)
-        current = ""
-        status = folder.Clone()
+        LoadVault(picked)
     End Event
 
     Event OpenNote(name As String)
-        If name = "../" Then
-            folder = FileSystem.Parent(folder)
-            names = Entries(folder, root)
-            current = ""
-            status = folder.Clone()
-        ElseIf name.ends_with("/") Then
-            folder = FileSystem.Join(folder, name)
-            names = Entries(folder, root)
-            current = ""
-            status = folder.Clone()
-        Else
-            Dim path As String = FileSystem.Join(folder, name)
-            current = name
-            Dim text As String = FileSystem.Read(path) Handle err
-                status = err
-                Return
-            End Handle
-            status = path
-            draft = text
-        End If
+        Match Await OpenNoteWork(name, folder, root)
+            Ok(nav) =>
+                folder = nav.Folder
+                names = nav.Names
+                current = nav.Current
+                status = nav.Status
+                If nav.HasDraft Then
+                    draft = nav.Draft
+                End If
+            Err(e) => status = e
+        End Match
     End Event
 
     Event SaveNote
-        If current = "" Then
-            status = "pick a file first"
-            Return
-        End If
-        Dim path As String = FileSystem.Join(folder, current)
-        FileSystem.Write(path, draft.Text()) Handle err
-            status = err
-            Return
-        End Handle
-        status = "saved " & path
+        Match Await SaveNoteWork(current, folder, draft.Text())
+            Ok(msg) => status = msg
+            Err(e) => status = e
+        End Match
     End Event
 End Window
+
+Function OpenFolderWork(ByVal picked As String) As NoteNav
+    Dim listed As Vec<String> = Entries(picked.Clone(), picked)
+    Return NoteNav { Folder: picked, Names: listed, Current: "", Draft: "", Status: picked.Clone(), HasDraft: False }
+End Function
+
+Function OpenNoteWork(ByVal name As String, ByVal folder As String, ByVal root As String) As NoteNav
+    If name = "../" Then
+        Dim up As String = FileSystem.Parent(folder)
+        Dim listed As Vec<String> = Entries(up, root)
+        Return NoteNav { Folder: up, Names: listed, Current: "", Draft: "", Status: up.Clone(), HasDraft: False }
+    End If
+    If name.ends_with("/") Then
+        Dim down As String = FileSystem.Join(folder, name)
+        Dim listed As Vec<String> = Entries(down, root)
+        Return NoteNav { Folder: down, Names: listed, Current: "", Draft: "", Status: down.Clone(), HasDraft: False }
+    End If
+    Dim path As String = FileSystem.Join(folder, name)
+    Dim text As String = FileSystem.Read(path)
+    Return NoteNav { Folder: folder.Clone(), Names: Entries(folder, root), Current: name, Draft: text, Status: path, HasDraft: True }
+End Function
+
+Function SaveNoteWork(ByVal current As String, ByVal folder As String, ByVal text As String) As String
+    If current = "" Then
+        Return "pick a file first"
+    End If
+    Dim path As String = FileSystem.Join(folder, current)
+    FileSystem.Write(path, text)
+    Return "saved " & path
+End Function
 
 Function SeedText() As String
     Dim text As String = FileSystem.Read("vault/welcome.md") Handle _

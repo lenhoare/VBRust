@@ -475,6 +475,10 @@ The generated loop stays synchronous and readable: a `std::sync::mpsc` channel
 delivers the result, the loop polls input briefly (so it keeps ticking) and
 drains results with `try_recv`. No `tokio`/async-`main`. A blocking stdlib call
 used **without** `Await` is a friendly error ("would freeze the UI, use `Await`").
+That includes `Http.Get` / `Post` / `Shell.Run` (Await them directly) **and**
+disk/SQLite/CSV (`FileSystem.Read`, `db.Query`, …): those aren't Await-stdlib
+forms, so put them in a Function and `Match Await Load(…)`. Calling that
+Function from an Event without `Await` is the same freeze — also an error.
 
 Forms: `Match Await …` (fallible, e.g. `Http.Get`) and `Dim x = Await …`
 (infallible). One `Await` per event, and it must be a **top-level** statement —
