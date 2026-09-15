@@ -1215,6 +1215,17 @@ pub(crate) fn decltype_rust(ty: &DeclType) -> String {
     }
 }
 
+/// Does this declared type mention `HashMap` (including nested in Vec/Option/…)?
+pub(crate) fn ty_uses_hashmap(ty: &DeclType) -> bool {
+    match ty {
+        DeclType::Map(..) => true,
+        DeclType::Vec(t) | DeclType::Option(t) | DeclType::CudaBuffer(t) => ty_uses_hashmap(t),
+        DeclType::Result(t, e) => ty_uses_hashmap(t) || ty_uses_hashmap(e),
+        DeclType::Tuple(ts) => ts.iter().any(ty_uses_hashmap),
+        _ => false,
+    }
+}
+
 /// Does any `Dim` in these statements declare a `HashMap`? (Recurses blocks.)
 pub(crate) fn body_uses_hashmap(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
@@ -3254,7 +3265,7 @@ fn lvalue_root(target: &Expr) -> Option<String> {
 }
 
 /// The default element for a fixed array of `t` (it must be a Copy type).
-fn array_default(t: Type) -> &'static str {
+pub(crate) fn array_default(t: Type) -> &'static str {
     match t {
         Type::Single | Type::Double => "0.0",
         Type::Boolean => "false",

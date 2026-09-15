@@ -63,10 +63,11 @@ End Function
 
 ### 2.1 State
 
-Identical to a Window's `State` — primitives, enums, and `Vec<T>` collections
-(fill in an event, iterate/plot in the view). A **selectable widget** (`List`,
-`Table`) or an **input** join the *focus ring* automatically; lists/tables also
-carry a hidden runtime cursor.
+Identical to a Window's `State` — the same types as a `Dim` in `Main`
+(primitives, enums, `Vec<T>`, `HashMap`, `Option`, tuples, arrays, …). Fill a
+collection in an event and iterate/plot it in the view. A **selectable widget**
+(`List`, `Table`) or an **input** join the *focus ring* automatically;
+lists/tables also carry a hidden runtime cursor.
 
 A field's initialiser may be **fallible** (`Dim db As Database =
 Database.Open("ideas.db")`, or your own `Result`-returning function): the state

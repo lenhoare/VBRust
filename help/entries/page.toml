@@ -31,7 +31,7 @@ End Page
 summary = "A browser app — the same State / View / Events as a Window, compiled to WebAssembly."
 
 remarks = """
-A `Page` is a web app (Yew, in the browser). You write the same blocks as a Window: `State`, `View`, `Event`. The view becomes real HTML (`<p>`, `<button>`, flexbox `<div>`s), not a canvas. Run it with `vbr runweb` — you get a URL.
+A `Page` is a web app (Yew, in the browser). You write the same blocks as a Window: `State`, `View`, `Event`. The view becomes real HTML (`<p>`, `<button>`, flexbox `<div>`s), not a canvas. Run it with `vbr runweb` — you get a URL. `State` is `Dim` — HashMap, Option, tuples, and arrays are legal there, not only primitives and Vec.
 
 Widgets that carry over: `Text`, `Button`, `TextInput`, `Checkbox`, `Slider`, `ProgressBar`, `Image`. Layout is `Column` / `Row` with `Spacing`, `Padding`, `Length` / `Fill`. `Match` and `If` in the view pick which markup to show.
 

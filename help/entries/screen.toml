@@ -31,7 +31,7 @@ End Screen
 summary = "A terminal UI — keyboard-first, text widgets, a status bar. Same State / View / Events as a Window."
 
 remarks = """
-A `Screen` is a terminal app (ratatui). The Elm machine is the same as a Window: `State` is the truth, `View` is derived, `Event`s change state. The difference is the dress — no mouse buttons, no pixels. Input is keys.
+A `Screen` is a terminal app (ratatui). The Elm machine is the same as a Window: `State` is the truth, `View` is derived, `Event`s change state. The difference is the dress — no mouse buttons, no pixels. Input is keys. `State` is `Dim` — HashMap, Option, tuples, and arrays are legal there, not only primitives and Vec.
 
 Bind keys with `On Key "+" Increment "inc"`. `Quit` is built-in (`On Key "q" Quit`). An optional string after the handler is the hotkey label on the bottom bar. `Status "Count: " & count` puts live text on the left of that bar. `Every 16 Tick` fires a timer event.
 

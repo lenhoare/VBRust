@@ -352,15 +352,17 @@ pub struct Window {
     pub subs: Vec<GuiEvent>,
 }
 
-/// One field of a window's `State` block — a `Dim` with an initial value.
-/// Primitives and user enums need an initialiser; a `Vec` may start empty; a
-/// `Handle` holds a live Rust object (`Dim h = Rust …` or `Dim h As Handle = …`).
+/// One field of a window's `State` block — a `Dim`, same types as anywhere else.
+/// Values without a natural empty form (primitives, structs, tuples, Result,
+/// Handle) need an initialiser; a `Vec` / `HashMap` / `Option` / fixed array /
+/// `CudaBuffer` may start empty; a `Handle` holds a live Rust object
+/// (`Dim h = Rust …` or `Dim h As Handle = …`).
 #[derive(Debug, Clone)]
 pub struct StateField {
     pub name: String,
     pub ty: DeclType,
-    /// The initial value. Collections (`Vec`/`Map`) and fixed arrays may omit it
-    /// (they start empty / zeroed), so it is optional.
+    /// The initial value. Collections (`Vec`/`Map`/`Option`), `CudaBuffer`, and
+    /// fixed arrays may omit it (they start empty / zeroed / `None`).
     pub init: Option<Expr>,
 }
 

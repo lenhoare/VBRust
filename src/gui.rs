@@ -327,7 +327,7 @@ fn emit_sketch(
     if any_async {
         out.push_str("use iced::Task;\n");
     }
-    out.push_str(&surface::surface_std_imports(&s.events, &s.subs, helpers));
+    out.push_str(&surface::surface_std_imports(&s.events, &s.subs, helpers, &s.state));
     let mut std_used = event_stdlib_imports(&s.events, &s.subs, diags);
     for ns in std_top {
         if !std_used.iter().any(|u| u == ns) {
@@ -728,7 +728,7 @@ fn emit_window(
     }
     // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
     // headers HashMap, or one built in a helper like `ChatComplete`).
-    out.push_str(&surface::surface_std_imports(&w.events, &w.subs, helpers));
+    out.push_str(&surface::surface_std_imports(&w.events, &w.subs, helpers, &w.state));
     // vbr_stdlib namespaces: those called in events, plus item-level types /
     // `State` initialisers (`Database` for a db held in state).
     let mut std_used = event_stdlib_imports(&w.events, &w.subs, diags);

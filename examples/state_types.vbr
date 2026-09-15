@@ -1,0 +1,33 @@
+' State takes the same types as Dim in Main: HashMap, Option, tuples, arrays.
+Window Roster
+    Title "Roster"
+
+    State
+        Dim ages As HashMap<String, Long>
+        Dim picked As Option<Long>
+        Dim pair As (Long, Long) = (0, 0)
+        Dim scores(3) As Integer
+        Dim label As String = "empty"
+    End State
+
+    View
+        Column
+            Text label
+            Button "Add"
+                On Click Add
+            End Button
+        End Column
+    End View
+
+    Event Add
+        ages.Insert("Ada", 36)
+        picked = Some(36)
+        pair = (1, 2)
+        scores[0] = 10
+        label = "n = " & ages.Len()
+    End Event
+End Window
+
+Function Main()
+    Roster.Run
+End Function

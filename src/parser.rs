@@ -18,6 +18,21 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Diagnostics) -> Program {
     p.parse_program()
 }
 
+/// Types that have no natural empty value — State needs an explicit start,
+/// same teaching as a named struct `Dim`. Vec / HashMap / Option / arrays /
+/// CudaBuffer start empty the way they do in `Main`.
+fn state_requires_init(ty: &DeclType) -> bool {
+    !matches!(
+        ty,
+        DeclType::Vec(_)
+            | DeclType::Map(..)
+            | DeclType::Option(_)
+            | DeclType::Array(..)
+            | DeclType::Array2D(..)
+            | DeclType::CudaBuffer(_)
+    )
+}
+
 struct Parser<'a> {
     toks: Vec<Token>,
     pos: usize,
@@ -1735,28 +1750,23 @@ impl<'a> Parser<'a> {
             dims.append(&mut self.dim_overflow);
             for d in dims {
                 match d {
-                    // A primitive or user enum needs an initial value.
-                    Stmt::Dim {
-                        name,
-                        ty: ty @ (DeclType::Plain(_) | DeclType::Named(_)),
-                        init: Some(init),
-                        ..
-                    } => fields.push(StateField { name, ty, init: Some(init) }),
-                    // A `Vec` collection may start empty (init optional) — the dynamic
-                    // dataset behind charts/plots. (Map/fixed arrays can follow later.)
-                    Stmt::Dim { name, ty: ty @ DeclType::Vec(_), init, .. } => {
-                        fields.push(StateField { name, ty, init })
+                    // Same types as a function `Dim`. Values that aren't "empty"
+                    // (primitives, structs, tuples, Result, Handle) still need a
+                    // starting value; Vec / HashMap / Option / arrays / CudaBuffer
+                    // may start empty, matching Main.
+                    Stmt::Dim { name, ty, init, .. } => {
+                        if init.is_none() && state_requires_init(&ty) {
+                            self.diags.error_at(
+                                self.span(),
+                                self.line(),
+                                "A State field of this type needs an initial value \
+                                 (`Dim count As Integer = 0`, `Dim pair As (Long, Long) = (0, 0)`). \
+                                 A Vec, HashMap, Option, CudaBuffer, or fixed array may start empty.",
+                            );
+                            return None;
+                        }
+                        fields.push(StateField { name, ty, init });
                     }
-                    Stmt::Dim {
-                        name,
-                        ty: DeclType::Handle,
-                        init: Some(init),
-                        ..
-                    } => fields.push(StateField {
-                        name,
-                        ty: DeclType::Handle,
-                        init: Some(init),
-                    }),
                     Stmt::HandleDim { name, raw, .. } => fields.push(StateField {
                         name,
                         ty: DeclType::Handle,
@@ -1766,9 +1776,7 @@ impl<'a> Parser<'a> {
                         self.diags.error_at(
                             self.span(),
                             self.line(),
-                            "A State field must be a typed value with an initial value \
-                             (`Dim count As Integer = 0`), a Handle (`Dim words = Rust … End Rust`), \
-                             or a collection that may start empty (`Dim data As Vec<Double>`).",
+                            "A `State` block may only contain `Dim` declarations.",
                         );
                         return None;
                     }

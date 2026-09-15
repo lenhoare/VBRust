@@ -185,7 +185,7 @@ fn emit_page(p: &Window, t: &surface::Tables, helpers: &[Function], diags: &mut 
     out.push_str("use yew::prelude::*;\n");
     // `std` types used in event bodies or helper functions (e.g. a HashMap
     // built in an event or a helper).
-    out.push_str(&surface::surface_std_imports(&p.events, &p.subs, helpers));
+    out.push_str(&surface::surface_std_imports(&p.events, &p.subs, helpers, &p.state));
     out.push('\n');
 
     // ── State struct: a Yew component holds its state directly ──

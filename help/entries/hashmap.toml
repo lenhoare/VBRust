@@ -12,7 +12,7 @@ replaces = "Scripting.Dictionary"
 summary = "A lookup table pairing keys with values — VB's Dictionary."
 
 remarks = """
-`HashMap<K, V>` maps each **key** of type `K` to a **value** of type `V` — the modern stand-in for VB's `Dictionary`. Declare it and it starts empty; there's no separate creation step.
+`HashMap<K, V>` maps each **key** of type `K` to a **value** of type `V` — the modern stand-in for VB's `Dictionary`. Declare it and it starts empty; there's no separate creation step. The same `Dim` works in `Main`, on a `Type`, and in Window / Screen / Page `State`.
 
 Add or overwrite with `.Insert(key, value)`. Read a key directly with `map[key]` — quick, but it stops the program if the key isn't there. When you're not sure, look it up safely with `.Get(key)`, which returns an `Option` — `Some(v)` when the key is present, `None` when it isn't — and unpack it with `Is Some(...)` or `Match`.
 """

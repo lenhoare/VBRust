@@ -60,10 +60,12 @@ State
 End State
 ```
 
-State fields are the authoritative data for the window. A field may be a
-primitive, an enum, a `TextArea` (a multi-line editor), or a **`Vec<T>`
-collection** (fill it in an event and iterate it in the view — the basis for
-charts/plots). `Map` and fixed arrays are not yet supported as state fields.
+State fields are the authoritative data for the window. A field is a `Dim` —
+the same types as in `Main`: primitives, enums, structs, `TextArea`, `Vec<T>`,
+`HashMap<K, V>`, `Option<T>`, `Result<T>`, tuples, fixed arrays, `CudaBuffer`,
+`Handle`. Values without a natural empty form need an initialiser
+(`Dim count As Integer = 0`); a Vec / HashMap / Option / array / CudaBuffer
+may start empty. Fill a collection in an event and read it in the view.
 
 Controls should not normally be mutated directly. Instead, controls display and update state.
 

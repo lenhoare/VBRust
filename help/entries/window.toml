@@ -33,7 +33,7 @@ replaces = "Form"
 summary = "A desktop GUI — buttons, sliders, text. State is the truth; the view is derived from it."
 
 remarks = """
-A `Window` is a pixel desktop app (Iced). The shape is always the same: `State` holds the data, `View` describes the widgets from that data, `Event` handlers change the state — then the view redraws. There is no hidden control object to poke.
+A `Window` is a pixel desktop app (Iced). The shape is always the same: `State` holds the data, `View` describes the widgets from that data, `Event` handlers change the state — then the view redraws. There is no hidden control object to poke. `State` is `Dim` — HashMap, Option, tuples, and arrays are legal there, not only primitives and Vec.
 
 Everyday widgets: `Text`, `Button`, `TextInput`, `TextArea`, `Checkbox`, `Toggler`, `Slider`, `ProgressBar`, `Radio`, `Image`, `Svg`, `Markdown`. Layout is `Column` / `Row` with `Spacing` and `Padding`; `Scrollable` and `Rule Horizontal` / `Rule Vertical` sit beside them. Bind a control to a state field (`Slider 0..=100, volume`) and handle `On Click` / `On Change` / `On Input` / `On Submit` / `On Toggle` / `On Select`. A `Match` or `If` in the View picks which widgets show.
 

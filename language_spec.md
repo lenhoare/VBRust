@@ -125,7 +125,8 @@ Dim m As HashMap<K, V>
 ```
 `Vec<T>` and `HashMap<K, V>` are the built-in collections. A `New` keyword (VB
 habit) is accepted but **warns** — Rust creates the value from the declaration
-itself, so `New` is redundant.
+itself, so `New` is redundant. The same `Dim` is legal in `Function Main()`, on a
+`Type` field, and in Window / Screen / Page `State`.
 
 An **inline list literal** builds a `Vec<T>` directly:
 ```

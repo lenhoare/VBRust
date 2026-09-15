@@ -377,7 +377,7 @@ fn emit_screen(
     out.push_str("use ratatui::Frame;\n");
     // `std` types used in event bodies or helper functions (e.g. an `Http.Post`
     // headers HashMap) — shared across every surface, native and web alike.
-    out.push_str(&surface::surface_std_imports(&sc.events, &sc.subs, helpers));
+    out.push_str(&surface::surface_std_imports(&sc.events, &sc.subs, helpers, &sc.state));
     out.push('\n');
 
     // ── State struct ──

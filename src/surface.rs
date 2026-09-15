@@ -203,12 +203,14 @@ pub(crate) fn surface_std_imports(
     events: &[GuiEvent],
     subs: &[GuiEvent],
     helpers: &[Function],
+    state: &[StateField],
 ) -> String {
     let mut out = String::new();
     let in_event = events.iter().any(|e| crate::transpiler::body_uses_hashmap(&e.body));
     let in_sub = subs.iter().any(|s| crate::transpiler::body_uses_hashmap(&s.body));
     let in_helper = helpers.iter().any(|f| crate::transpiler::body_uses_hashmap(&f.body));
-    if in_event || in_sub || in_helper {
+    let in_state = state.iter().any(|f| crate::transpiler::ty_uses_hashmap(&f.ty));
+    if in_event || in_sub || in_helper || in_state {
         out.push_str("use std::collections::HashMap;\n");
     }
     out
@@ -1033,7 +1035,7 @@ pub(crate) fn match_scrutinee(
 
 /// A `State` field initialiser: a `String` becomes owned, numbers adapt to type,
 /// an enum variant (`Size.Small`) resolves to its path (`Size::Small`), and a
-/// `Vec` with no initialiser starts empty.
+/// `Vec` / `HashMap` / `Option` / fixed array with no initialiser starts empty.
 ///
 /// The initialiser first runs the ordinary resolver pass (as a synthetic `Dim`
 /// of the field's type) — an initialiser and a function-body `Dim` are the same
@@ -1069,6 +1071,17 @@ pub(crate) fn render_init(
     });
     match (ty, init) {
         (DeclType::Vec(_), None) => "Vec::new()".to_string(),
+        (DeclType::Map(..), None) => "HashMap::new()".to_string(),
+        (DeclType::Option(_), None) => "None".to_string(),
+        (DeclType::CudaBuffer(_), None) => "__vbr_cuda_alloc(0)".to_string(),
+        (DeclType::Array(t, n), None) => {
+            let d = crate::transpiler::array_default(*t);
+            format!("[{}; {}]", d, n)
+        }
+        (DeclType::Array2D(t, r, c), None) => {
+            let d = crate::transpiler::array_default(*t);
+            format!("[[{}; {}]; {}]", d, c, r)
+        }
         // A bare string literal still needs owning; anything else the resolver
         // has already made owned where needed.
         (DeclType::Plain(Type::Text), Some(e)) if matches!(e.kind, ExprKind::Str(_)) => {
@@ -1083,8 +1096,6 @@ pub(crate) fn render_init(
         // Enum / Vec-with-initialiser / other — the resolver has rewritten
         // `Size.Small` → `Size::Small` and referenced call arguments.
         (_, Some(e)) => render_expr(&e, None),
-        // A non-collection field without an initialiser shouldn't reach here (the
-        // parser requires one); fall back to Default.
         (_, None) => "Default::default()".to_string(),
     }
 }

@@ -13,7 +13,7 @@ replaces = "Nothing / Is_Null checks"
 summary = "A value that might be there — or might be absent — made explicit."
 
 remarks = """
-`Option<T>` holds either `Some(value)` or `None`. It is how Vinyl says "there might be nothing here" *in the type*, so you can't forget to check — no more accidental `Nothing`/null surprises. Lookups like `HashMap.Get` and `InStr` hand you an `Option`.
+`Option<T>` holds either `Some(value)` or `None`. It is how Vinyl says "there might be nothing here" *in the type*, so you can't forget to check — no more accidental `Nothing`/null surprises. Lookups like `HashMap.Get` and `InStr` hand you an `Option`. Declare it in `Main`, on a `Type`, or in `State` (`Dim picked As Option<Long>` starts as `None`).
 
 Get at the value by testing first: `If maybe Is Some(v) Then …`, or a `Match` with `Some`/`None` arms. When you're willing to supply a fallback, `.UnwrapOr(default)` gives the value or the default.
 """

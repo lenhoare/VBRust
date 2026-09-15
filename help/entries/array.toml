@@ -10,7 +10,7 @@ Dim <name>(<size>) As <Type>
 summary = "A fixed-size block of values, all the same type."
 
 remarks = """
-`Dim a(3) As Long` makes a fixed array of three `Long`s, each starting at 0. The size is fixed for the array's life — for a collection that grows, use a `Vec` instead.
+`Dim a(3) As Long` makes a fixed array of three `Long`s, each starting at 0. The size is fixed for the array's life — for a collection that grows, use a `Vec` instead. The same `Dim a(3) As Long` works in `Main` and in Window / Screen `State`.
 
 Index with **square brackets**, Rust-style: `a[0]`, not `a(0)`. `.Len()` gives the size, and `.Get(i)` reads an element safely as an `Option`. Reading `a[i]` with an out-of-range `i` stops the program, so prefer `.Get` when the index might be off.
 """

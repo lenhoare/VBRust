@@ -3383,3 +3383,114 @@ fn vault_example_awaits_disk_io() {
     );
 }
 
+#[test]
+fn state_accepts_the_same_types_as_dim() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/state_types.vbr"
+    ))
+    .expect("state_types example");
+    let rust = rust_of(&src);
+    assert!(
+        rust.contains("HashMap<String, i64>") && rust.contains("HashMap::new()"),
+        "HashMap State should start empty: {rust}"
+    );
+    assert!(
+        rust.contains("use std::collections::HashMap;"),
+        "State HashMap needs the import: {rust}"
+    );
+    assert!(
+        rust.contains("picked: Option<i64>") && rust.contains("let picked = None;"),
+        "Option State should start as None: {rust}"
+    );
+    assert!(
+        rust.contains("pair: (i64, i64)") && rust.contains("(0, 0)"),
+        "tuple State should keep its initialiser: {rust}"
+    );
+    assert!(
+        rust.contains("scores: [i32; 3]") && rust.contains("[0; 3]"),
+        "fixed array State should zero-fill: {rust}"
+    );
+}
+
+#[test]
+fn state_integer_still_needs_an_initial_value() {
+    let src = "Window W\n\
+        Title \"W\"\n\
+        State\n\
+        \x20   Dim count As Integer\n\
+        End State\n\
+        View\n\
+        \x20   Text \"x\"\n\
+        End View\n\
+        End Window\n\
+        Function Main()\n\
+        \x20   W.Run\n\
+        End Function\n";
+    let c = vbr::compile(src);
+    assert!(c.has_errors, "bare Integer in State should need a starting value: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("initial value") || joined.contains("Integer"),
+        "should ask for a starting value:\n{joined}"
+    );
+}
+
+#[test]
+fn state_hashmap_on_a_screen() {
+    let src = "Screen S\n\
+        Title \"S\"\n\
+        State\n\
+        \x20   Dim ages As HashMap<String, Long>\n\
+        \x20   Dim label As String = \"\"\n\
+        End State\n\
+        View\n\
+        \x20   Column\n\
+        \x20       Text label\n\
+        \x20   End Column\n\
+        End View\n\
+        Event Add\n\
+        \x20   ages.Insert(\"Ada\", 36)\n\
+        \x20   label = \"ok\"\n\
+        End Event\n\
+        End Screen\n\
+        Function Main()\n\
+        \x20   S.Run\n\
+        End Function\n";
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("HashMap<String, i64>") && rust.contains("use std::collections::HashMap;"),
+        "Screen State HashMap: {rust}"
+    );
+}
+
+#[test]
+fn state_hashmap_on_a_page() {
+    let src = "Page P\n\
+        Title \"P\"\n\
+        State\n\
+        \x20   Dim ages As HashMap<String, Long>\n\
+        \x20   Dim label As String = \"\"\n\
+        End State\n\
+        View\n\
+        \x20   Column\n\
+        \x20       Text label\n\
+        \x20   End Column\n\
+        End View\n\
+        Event Add\n\
+        \x20   ages.Insert(\"Ada\", 36)\n\
+        \x20   label = \"ok\"\n\
+        End Event\n\
+        End Page\n\
+        Function Main()\n\
+        \x20   P.Run\n\
+        End Function\n";
+    let c = vbr::compile_web(src);
+    assert!(!c.has_errors, "Page State HashMap should compile:\n{:?}", c.diagnostics);
+    assert!(
+        c.rust.contains("HashMap<String, i64>") && c.rust.contains("use std::collections::HashMap;"),
+        "Page State HashMap: {}",
+        c.rust
+    );
+}
+
