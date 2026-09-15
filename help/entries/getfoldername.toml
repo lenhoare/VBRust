@@ -18,7 +18,7 @@ initial | String | Optional starting folder.
 returns = "String — the chosen folder, or `\"\"` if the user cancelled."
 
 remarks = """
-On a Window this is the OS folder dialog. On Linux it prefers `zenity` if that's installed — that's the WSL path, where the desktop portal often isn't running (`sudo apt install zenity`). On a Screen it overlays the terminal (Tab completes, Enter chooses the folder, Esc cancels). `GetOpenFilename` / `GetSaveAsFilename` pick a file the same way.
+On a Window this is the OS folder dialog. On Linux it prefers `zenity` if that's installed — that's the WSL path, where the desktop portal often isn't running (`sudo apt install zenity`). On a Screen it overlays the terminal (Tab completes, Enter chooses the folder, Esc cancels). Call it from an Event or a helper Sub — a Function has no live window. `GetOpenFilename` / `GetSaveAsFilename` pick a file the same way.
 """
 
 example = """

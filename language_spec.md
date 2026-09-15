@@ -468,10 +468,11 @@ Intercept with `Handle` if you want to ignore the failure.
 On a **`Screen`**, `GetOpenFilename()` / `GetSaveAsFilename()` (optional initial
 path) pop TIDE's path prompt over the live UI: Tab completes, Enter opens a file
 or enters a folder (Save As returns even a new name), Esc cancels and returns
-`""`. Call them from a Screen **event**, then `FileSystem.Read` / `Write` the
-path. Not a View widget, not `FileSystem.*` — the VBA `Application.GetOpenFilename`
+`""`. Call them from a Screen **Event or helper Sub**, then `FileSystem.Read` /
+`Write` the path. Not a View widget, not `FileSystem.*` — the VBA `Application.GetOpenFilename`
 cheat. Timers and async pause while the prompt is open. Browser Screens return
-`""` for now.
+`""` for now. On a **Window** the same names open the OS dialog (also Event or
+Sub). A Page has no file dialog; console `Main` is a teaching error.
 
 ### Logging
 `Log expr` writes a timestamped, level-tagged line to **`vbr.log`** in the working

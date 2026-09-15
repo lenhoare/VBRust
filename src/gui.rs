@@ -68,6 +68,18 @@ pub fn emit_gui_program(
         .functions
         .iter()
         .any(|f| crate::transpiler::uses_file_dialog(&f.body))
+    {
+        diags.error_once(
+            "gui-file-dialog-place",
+            "GetOpenFilename / GetSaveAsFilename / GetFolderName need a live Window — \
+             call them from an Event or a helper Sub, then pass the path to a Function.",
+        );
+    }
+
+    if program
+        .functions
+        .iter()
+        .any(|f| crate::transpiler::uses_file_dialog(&f.body))
         || program.windows.iter().any(|w| {
             w.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
                 || w.subs.iter().any(|s| crate::transpiler::uses_file_dialog(&s.body))

@@ -970,6 +970,36 @@ pub(crate) fn with_subs(base: &Tables, subs: &[GuiEvent]) -> Tables {
     t
 }
 
+/// Sync `Sub`s that need the Screen terminal: they call a file dialog, or they
+/// call another such Sub. Window Subs never appear here (no `FILE_DIALOG_CTX`).
+pub(crate) fn file_dialog_sub_names(subs: &[GuiEvent]) -> HashSet<String> {
+    let async_names = async_sub_names(subs);
+    let sync: Vec<&GuiEvent> = subs
+        .iter()
+        .filter(|s| !async_names.contains(&rust_name(&s.name)))
+        .collect();
+    let mut hit: HashSet<String> = sync
+        .iter()
+        .filter(|s| crate::transpiler::uses_file_dialog(&s.body))
+        .map(|s| rust_name(&s.name))
+        .collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for s in &sync {
+            let n = rust_name(&s.name);
+            if hit.contains(&n) {
+                continue;
+            }
+            if crate::transpiler::body_calls_any(&s.body, &hit) {
+                hit.insert(n);
+                changed = true;
+            }
+        }
+    }
+    hit
+}
+
 /// Emit each in-block `Sub` as a method on the state struct — direct `self.field`
 /// access, callable from events and other helpers. `ty` is the state struct name.
 pub(crate) fn emit_subs(
@@ -994,11 +1024,14 @@ pub(crate) fn emit_subs(
     }
     out.push_str(&format!("impl {} {{\n", ty));
     for s in sync {
-        let params: Vec<String> = s
-            .params
-            .iter()
-            .map(|p| crate::transpiler::render_param_ty(p, Some(&t.enums)))
-            .collect();
+        let needs_term = crate::transpiler::sub_needs_terminal(&s.name);
+        let mut params: Vec<String> = Vec::new();
+        if needs_term {
+            params.push("terminal: &mut ratatui::DefaultTerminal".to_string());
+        }
+        params.extend(s.params.iter().map(|p| {
+            crate::transpiler::render_param_ty(p, Some(&t.enums))
+        }));
         let sep = if params.is_empty() { "" } else { ", " };
         out.push_str(&format!(
             "    fn {}(&mut self{}{}) -> Result<(), String> {{\n",
@@ -2142,11 +2175,22 @@ fn rewrite_expr_subs(
         ExprKind::Not(inner) => ExprKind::Not(Box::new(go(*inner))),
         ExprKind::ParallelSum(inner, ty) => ExprKind::ParallelSum(Box::new(go(*inner)), ty),
         // A call to an in-block `Sub` helper → a method call on the receiver.
-        ExprKind::Call { name, args } if subs.contains(&rust_name(&name)) => ExprKind::MethodCall {
-            recv: Box::new(ExprKind::Ident(recv.to_string()).at(span)),
-            method: name,
-            args: args.into_iter().map(go).collect(),
-        },
+        ExprKind::Call { name, args } if subs.contains(&rust_name(&name)) => {
+            let mut args: Vec<Expr> = args.into_iter().map(go).collect();
+            // Screen file-dialog Subs take `&mut terminal` first (the overlay
+            // needs the live terminal). Window Subs are unchanged.
+            if crate::transpiler::sub_needs_terminal(&name) {
+                args.insert(
+                    0,
+                    ExprKind::MutRef(Box::new(ExprKind::Ident("terminal".to_string()).synth())).synth(),
+                );
+            }
+            ExprKind::MethodCall {
+                recv: Box::new(ExprKind::Ident(recv.to_string()).at(span)),
+                method: name,
+                args,
+            }
+        }
         ExprKind::Call { name, args } => ExprKind::Call {
             name,
             args: args.into_iter().map(go).collect(),

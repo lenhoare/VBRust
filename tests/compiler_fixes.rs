@@ -3494,3 +3494,136 @@ fn state_hashmap_on_a_page() {
     );
 }
 
+#[test]
+fn screen_sub_can_call_getopenfilename() {
+    let src = r#"
+Screen S
+    Title "S"
+    State
+        Dim path As String = ""
+        Dim notes As String = ""
+    End State
+    View
+        Text notes
+    End View
+    On Key "o" OpenFile
+    Sub Pick
+        Dim picked As String = GetOpenFilename(path)
+        If picked = "" Then Return
+        path = picked.Clone()
+        notes = picked
+    End Sub
+    Event OpenFile
+        Pick()
+    End Event
+End Screen
+Function Main()
+    S.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains("fn pick(&mut self, terminal: &mut ratatui::DefaultTerminal)"),
+        "Screen Sub that picks a file should take the terminal: {rust}"
+    );
+    assert!(
+        rust.contains("view(self, frame)") && rust.contains("file_dialog::prompt"),
+        "Screen Sub should overlay the terminal, not rfd: {rust}"
+    );
+    assert!(
+        rust.contains("state.pick(&mut terminal)"),
+        "Event should pass the live terminal into the Sub: {rust}"
+    );
+}
+
+#[test]
+fn window_sub_can_call_getfoldername() {
+    let src = r#"
+Window W
+    Title "W"
+    State
+        Dim folder As String = ""
+    End State
+    View
+        Button "Open"
+            On Click Pick
+        End Button
+    End View
+    Sub Choose
+        folder = GetFolderName(folder)
+    End Sub
+    Event Pick
+        Choose()
+    End Event
+End Window
+Function Main()
+    W.Run
+End Function
+"#;
+    let rust = rust_of(src);
+    assert!(
+        rust.contains(r#"rfd_pick("folder""#),
+        "Window Sub should open the OS dialog: {rust}"
+    );
+    assert!(
+        rust.contains("fn choose(&mut self)") && !rust.contains("DefaultTerminal"),
+        "Window Sub does not take a terminal: {rust}"
+    );
+}
+
+#[test]
+fn file_dialog_in_a_function_is_an_error() {
+    let screen = r#"
+Screen S
+    Title "S"
+    State
+        Dim path As String = ""
+    End State
+    View
+        Text path
+    End View
+    Event OpenFile
+        path = Pick()
+    End Event
+End Screen
+Function Pick() As String
+    Return GetOpenFilename()
+End Function
+Function Main()
+    S.Run
+End Function
+"#;
+    let c = vbr::compile(screen);
+    assert!(c.has_errors, "Screen Function file dialog: {:?}", c.diagnostics);
+    let joined = c.diagnostics.join("\n");
+    assert!(
+        joined.contains("GetOpenFilename") && (joined.contains("Event") || joined.contains("Sub")),
+        "should say Event or Sub:\n{joined}"
+    );
+
+    let window = r#"
+Window W
+    Title "W"
+    State
+        Dim path As String = ""
+    End State
+    View
+        Button "Open"
+            On Click OpenFile
+        End Button
+    End View
+    Event OpenFile
+        path = Pick()
+    End Event
+End Window
+Function Pick() As String
+    Return GetOpenFilename()
+End Function
+Function Main()
+    W.Run
+End Function
+"#;
+    let c = vbr::compile(window);
+    assert!(c.has_errors, "Window Function file dialog: {:?}", c.diagnostics);
+}
+

@@ -297,8 +297,8 @@ arrows, Enter, Esc. Example: `examples/tui_menu.vbr`.
 
 `GetOpenFilename()` / `GetSaveAsFilename()` (optional starting path) pop that
 same TIDE Open / Save As prompt over the Screen — Tab completes, Enter opens or
-saves, Esc returns `""`. Call them from an event, then `FileSystem.Read` /
-`Write`. Example: `examples/tui_file.vbr`.
+saves, Esc returns `""`. Call them from an Event or a helper Sub, then
+`FileSystem.Read` / `Write`. Example: `examples/tui_file.vbr`.
 
 ### Theme
 

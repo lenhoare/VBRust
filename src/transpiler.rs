@@ -12,10 +12,17 @@ use crate::ast::*;
 use crate::diagnostics::Diagnostics;
 use crate::resolver::{self, FnTable};
 
-/// Set while a Screen event body is being emitted so `GetOpenFilename` /
-/// `GetSaveAsFilename` can close over `terminal` and `view`.
+/// Set while a Screen event or helper Sub is being emitted so `GetOpenFilename`
+/// / `GetSaveAsFilename` / `GetFolderName` close over `terminal` and `view`.
 pub(crate) struct FileDialogCtx {
+    /// First argument to `view(…, frame)` — `&mut state` in `fn main`, `self`
+    /// inside a helper Sub method.
     pub view_arg: String,
+    /// The terminal passed to `file_dialog::prompt` — `&mut terminal` when `fn main`
+    /// owns it, `terminal` inside a Sub that already takes `&mut DefaultTerminal`.
+    pub terminal_arg: String,
+    /// Sync Subs that transitively call a file dialog — they take `&mut terminal`.
+    pub dialog_subs: HashSet<String>,
 }
 
 thread_local! {
@@ -877,7 +884,7 @@ pub fn transpile_module(
         diags.error_once(
             "tui-file-dialog-plain",
             "GetOpenFilename / GetSaveAsFilename / GetFolderName need a Window or a Screen — \
-             they open a file dialog. Put them in a Window or Screen event, then FileSystem.Read / \
+             they open a file dialog. Put them in an Event or a helper Sub, then FileSystem.Read / \
              Write the path they return (empty string means cancelled).",
         );
     }
@@ -3122,6 +3129,100 @@ fn expr_uses_file_dialog(e: &Expr) -> bool {
     }
 }
 
+/// Does this body call any of `names` (a helper `Sub` / function Call)?
+pub(crate) fn body_calls_any(stmts: &[Stmt], names: &HashSet<String>) -> bool {
+    stmts.iter().any(|s| stmt_calls_any(s, names))
+}
+
+fn stmt_calls_any(stmt: &Stmt, names: &HashSet<String>) -> bool {
+    match stmt {
+        Stmt::Dim { init: Some(e), .. }
+        | Stmt::Set { value: e, .. }
+        | Stmt::Assign { value: e, .. }
+        | Stmt::DestructureDim { value: e, .. }
+        | Stmt::Return(Some(e))
+        | Stmt::Print(e)
+        | Stmt::Log(_, e)
+        | Stmt::Expr(e)
+        | Stmt::Assert(e)
+        | Stmt::RaiseError(e) => expr_calls_any(e, names),
+        Stmt::HandleErr { call, body, .. } => {
+            expr_calls_any(call, names) || body_calls_any(body, names)
+        }
+        Stmt::If { branches, else_body } => {
+            branches.iter().any(|(c, b)| expr_calls_any(c, names) || body_calls_any(b, names))
+                || else_body.as_ref().is_some_and(|b| body_calls_any(b, names))
+        }
+        Stmt::For { from, to, step, body, .. } => {
+            expr_calls_any(from, names)
+                || expr_calls_any(to, names)
+                || step.as_ref().is_some_and(|st| expr_calls_any(st, names))
+                || body_calls_any(body, names)
+        }
+        Stmt::ForEach { iter, body, .. } => expr_calls_any(iter, names) || body_calls_any(body, names),
+        Stmt::DoLoop { cond, body } => {
+            let in_cond = match cond {
+                Some(
+                    DoCond::PreWhile(c)
+                    | DoCond::PreUntil(c)
+                    | DoCond::PostWhile(c)
+                    | DoCond::PostUntil(c),
+                ) => expr_calls_any(c, names),
+                None => false,
+            };
+            in_cond || body_calls_any(body, names)
+        }
+        Stmt::Match { scrutinee, arms, .. } => {
+            expr_calls_any(scrutinee, names)
+                || arms.iter().any(|a| {
+                    a.guard.as_ref().is_some_and(|g| expr_calls_any(g, names))
+                        || body_calls_any(&a.body, names)
+                })
+        }
+        _ => false,
+    }
+}
+
+fn expr_calls_any(e: &Expr, names: &HashSet<String>) -> bool {
+    match &e.kind {
+        ExprKind::Call { name, args } => {
+            names.contains(&rust_name(name)) || args.iter().any(|a| expr_calls_any(a, names))
+        }
+        ExprKind::Binary { lhs, rhs, .. } => expr_calls_any(lhs, names) || expr_calls_any(rhs, names),
+        ExprKind::MethodCall { recv, args, .. } => {
+            expr_calls_any(recv, names) || args.iter().any(|a| expr_calls_any(a, names))
+        }
+        ExprKind::Try(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::Field(inner, _)
+        | ExprKind::TupleIndex(inner, _)
+        | ExprKind::Deref(inner)
+        | ExprKind::MutRef(inner)
+        | ExprKind::Ref(inner)
+        | ExprKind::Cast(inner, _)
+        | ExprKind::Not(inner)
+        | ExprKind::ParallelSum(inner, _)
+        | ExprKind::Closure { body: inner, .. } => expr_calls_any(inner, names),
+        ExprKind::Index(inner, idx) => expr_calls_any(inner, names) || expr_calls_any(idx, names),
+        ExprKind::ListRepeat { value, count } => {
+            expr_calls_any(value, names) || expr_calls_any(count, names)
+        }
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_calls_any(v, names)),
+        ExprKind::Tuple(elems) | ExprKind::List(elems) => {
+            elems.iter().any(|x| expr_calls_any(x, names))
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn sub_needs_terminal(name: &str) -> bool {
+    FILE_DIALOG_CTX.with(|c| {
+        c.borrow()
+            .as_ref()
+            .is_some_and(|ctx| ctx.dialog_subs.contains(&rust_name(name)))
+    })
+}
+
 /// Does this expression contain a `?` anywhere? Used to decide whether the
 /// entry `Main` needs a fallible `fn main() -> Result<(), String>` signature so
 /// propagation works in the one function every program has.
@@ -4671,14 +4772,14 @@ fn lower_file_dialog(title: &str, initial: &str, kind: FileDialogKind) -> String
     FILE_DIALOG_CTX.with(|c| match &*c.borrow() {
         Some(ctx) => match kind {
             FileDialogKind::Folder => format!(
-                "file_dialog::prompt_folder(&mut terminal, {title:?}, &({initial}).to_string(), |frame| view({}, frame))?",
-                ctx.view_arg
+                "file_dialog::prompt_folder({}, {title:?}, &({initial}).to_string(), |frame| view({}, frame))?",
+                ctx.terminal_arg, ctx.view_arg
             ),
             FileDialogKind::Open | FileDialogKind::Save => {
                 let save = matches!(kind, FileDialogKind::Save);
                 format!(
-                    "file_dialog::prompt(&mut terminal, {title:?}, &({initial}).to_string(), {save}, |frame| view({}, frame))?",
-                    ctx.view_arg
+                    "file_dialog::prompt({}, {title:?}, &({initial}).to_string(), {save}, |frame| view({}, frame))?",
+                    ctx.terminal_arg, ctx.view_arg
                 )
             }
         },

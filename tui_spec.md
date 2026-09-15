@@ -205,10 +205,10 @@ End Event
 Tab completes (cycle matches; a unique directory then lists children; `../`
 climbs). Enter on a folder browses in; Enter on a file returns it (Save As
 returns even a name that doesn't exist yet). Esc cancels and returns `""`.
-Call them from a Screen **event** only (they need the live terminal). Timers
-and async pause while the prompt is open. Screen-only — a Window or a helper
-`Function` / Screen `Sub` gets a teaching error. In the browser they return
-`""` (`tui-web-file-dialog`).
+Call them from a Screen **Event or helper Sub** (they need the live terminal). Timers
+and async pause while the prompt is open. A helper `Function` or console `Main`
+gets a teaching error — pass the path in. A Page has no file dialog. In the
+browser they return `""` (`tui-web-file-dialog`).
 
 Example: `examples/tui_file.vbr`.
 

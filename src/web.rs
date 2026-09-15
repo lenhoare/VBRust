@@ -70,7 +70,7 @@ pub fn emit_web_program(
         diags.error_once(
             "tui-file-dialog-page",
             "GetOpenFilename / GetSaveAsFilename / GetFolderName aren't available in the browser \
-             (a Page has no file dialog). Pick a path another way, or run a Window / Screen.",
+             (a Page has no file dialog). Use a Window or Screen Event or helper Sub.",
         );
     }
 

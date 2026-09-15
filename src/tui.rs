@@ -198,30 +198,41 @@ pub fn emit_tui_program(
     let file_in_event = program.screens.iter().any(|sc| {
         sc.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
     });
-    let file_wrong = program
+    let file_in_sub = program.screens.iter().any(|sc| {
+        !surface::file_dialog_sub_names(&sc.subs).is_empty()
+    });
+    let file_in_fn = program
         .functions
         .iter()
-        .any(|f| crate::transpiler::uses_file_dialog(&f.body))
-        || program.screens.iter().any(|sc| {
-            sc.subs.iter().any(|s| crate::transpiler::uses_file_dialog(&s.body))
-        });
-    if file_wrong {
+        .any(|f| crate::transpiler::uses_file_dialog(&f.body));
+    if file_in_fn {
         diags.error_once(
             "tui-file-dialog-place",
-            "GetOpenFilename / GetSaveAsFilename / GetFolderName only work in a Screen Event — they need \
-             the live terminal. Don't put them in a Function or a Screen Sub; call them \
-             from the event, then pass the path to a helper.",
+            "GetOpenFilename / GetSaveAsFilename / GetFolderName need a live Screen — \
+             call them from an Event or a helper Sub, then pass the path to a Function.",
         );
     }
-    if file_in_event {
+    if web && file_in_sub {
+        diags.error_once(
+            "tui-web-file-dialog-sub",
+            "GetOpenFilename / GetSaveAsFilename / GetFolderName aren't available in the browser \
+             (run the Screen in the terminal). Put them in a native Event or Sub.",
+        );
+    }
+    if file_in_event || file_in_sub {
         for sc in &program.screens {
             for e in &sc.events {
                 if crate::transpiler::uses_file_dialog(&e.body) {
                     crate::transpiler::note_builtins(&e.body, diags);
                 }
             }
+            for s in &sc.subs {
+                if crate::transpiler::uses_file_dialog(&s.body) {
+                    crate::transpiler::note_builtins(&s.body, diags);
+                }
+            }
         }
-        if web {
+        if web && file_in_event {
             diags.note(
                 "tui-web-file-dialog",
                 "GetOpenFilename / GetSaveAsFilename / GetFolderName aren't available in the browser yet \
@@ -234,11 +245,14 @@ pub fn emit_tui_program(
         out.push_str(&emit_screen(sc, &t, structs, &program.functions, web, diags));
         out.push('\n');
     }
-    if !web && file_in_event {
+    if !web && (file_in_event || file_in_sub) {
         let dialog_theme = program
             .screens
             .iter()
-            .find(|sc| sc.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body)))
+            .find(|sc| {
+                sc.events.iter().any(|e| crate::transpiler::uses_file_dialog(&e.body))
+                    || !surface::file_dialog_sub_names(&sc.subs).is_empty()
+            })
             .and_then(|sc| resolve_theme(&sc.theme, diags));
         out.push_str(&file_dialog_mod(dialog_theme));
         out.push('\n');
@@ -461,7 +475,26 @@ fn emit_screen(
     }
 
     // ── in-block `Sub` helpers → methods on the state ──
+    let dialog_subs = if web {
+        HashSet::new()
+    } else {
+        surface::file_dialog_sub_names(&sc.subs)
+    };
+    if !dialog_subs.is_empty() {
+        crate::transpiler::FILE_DIALOG_CTX.with(|c| {
+            *c.borrow_mut() = Some(crate::transpiler::FileDialogCtx {
+                view_arg: "self".to_string(),
+                terminal_arg: "terminal".to_string(),
+                dialog_subs: dialog_subs.clone(),
+            });
+        });
+    }
     surface::emit_subs(&sc.subs, ty, &fields, &field_ty, t, diags, &mut out);
+    if !dialog_subs.is_empty() {
+        crate::transpiler::FILE_DIALOG_CTX.with(|c| {
+            *c.borrow_mut() = None;
+        });
+    }
     if has_menu && !web {
         emit_menu_impl(sc, ty, &mut out);
     }
@@ -1920,6 +1953,8 @@ fn emit_main(sc: &Screen, t: &surface::Tables, helpers: &[Function], diags: &mut
     crate::transpiler::FILE_DIALOG_CTX.with(|c| {
         *c.borrow_mut() = Some(crate::transpiler::FileDialogCtx {
             view_arg: draw_arg.to_string(),
+            terminal_arg: "&mut terminal".to_string(),
+            dialog_subs: surface::file_dialog_sub_names(&sc.subs),
         });
     });
     out.push_str("fn main() -> std::io::Result<()> {\n");
