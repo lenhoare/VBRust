@@ -163,7 +163,7 @@ End Text
 | `Str(n)` / `CStr(x)` | to text |
 | `Format(x, "{:.2}")` | Rust format string, one placeholder |
 
-Maths: `Abs`, `Int`, `Round`, `Sqr`, `Sin`/`Cos`/`Tan`/`Atn` (radians), `Exp`, `Log(x)` (natural log — parentheses), `Rnd()` (0 ≤ n < 1).
+Maths: `Abs`, `Int`, `Ceiling`, `Round`, `Sqr` / `Sqrt`, `Sin`/`Cos`/`Tan`/`Atn` (radians), `Exp`, `Log(x)` (natural log — parentheses), `Rnd()` (0 ≤ n < 1).
 
 `Debug.Print expr` → stdout. `Log expr` → `vbr.log` (`Log.Debug` / `.Info` / `.Warn` / `.Error`). `Log(x)` with parens is still natural log. `Sleep 100` is milliseconds. `InputBox("name?")` reads a line (fails on EOF).
 
